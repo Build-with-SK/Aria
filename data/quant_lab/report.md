@@ -1,6 +1,6 @@
 # Quant Lab Report
 
-_Auto-generated 2026-07-14 13:05 — research only, not investment advice. Backtests are simulations of the past._
+_Auto-generated 2026-07-14 13:36 — research only, not investment advice. Backtests are simulations of the past._
 
 Strategies tested: **4** · basket: NSE large-cap 20 · costs 0.1%/side · OOS = last 252 trading days
 
