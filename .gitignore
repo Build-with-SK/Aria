@@ -59,6 +59,8 @@ data/reports/
 data/execution/approval_queue.json
 data/brain_state.json
 data/atlas_state.json
+data/quant_lab/state.json
+data/quant_lab/report.md
 data/outbox/
 data/journal/
 *.log
