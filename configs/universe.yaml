@@ -1,0 +1,1047 @@
+# configs/universe.yaml
+# Trading Intelligence System — Expanded Universe
+# 500+ tickers across all asset classes
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA
+# ─────────────────────────────────────────────────────────────────────────────
+data:
+  period: "2y"
+  interval: "1d"
+  fetch_fundamentals: true
+  cache_dir: "data/cache"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OBSIDIAN
+# ─────────────────────────────────────────────────────────────────────────────
+obsidian:
+  vault_path: "C:/Users/sound/Documents/DigitalBrain"
+  tis_folder: "01 - Trading/TIS"
+  overwrite_files:
+    - "latest_signals.md"
+    - "risk_summary.md"
+    - "model_status.md"
+  append_files:
+    - "system_log.md"
+    - "Pulse Market Log.md"
+  protected_files:
+    - "Trading Intelligence Dashboard"
+    - "Pulse Bridge Dashboard"
+    - "Market Intelligence Index"
+    - "Asset Master Index"
+    - "Risk Dashboard"
+    - "Model Status Dashboard"
+  tags:
+    - "#pulse"
+    - "#pulse-scan"
+    - "#nine-am-scan"
+    - "#market-scanner"
+    - "#daily-scan"
+    - "#trading"
+    - "#market-intelligence"
+    - "#capitalwithsk"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ASSET UNIVERSE
+# ─────────────────────────────────────────────────────────────────────────────
+universe:
+
+  # ── US Mega / Large Cap Equities (S&P 500 core) ──────────────────────────
+  equities:
+    # Tech — Magnificent 7
+    - { ticker: AAPL,  name: Apple }
+    - { ticker: MSFT,  name: Microsoft }
+    - { ticker: NVDA,  name: NVIDIA }
+    - { ticker: GOOGL, name: Alphabet A }
+    - { ticker: GOOG,  name: Alphabet C }
+    - { ticker: AMZN,  name: Amazon }
+    - { ticker: META,  name: Meta }
+    - { ticker: TSLA,  name: Tesla }
+    # Semiconductors
+    - { ticker: AMD,   name: Advanced Micro Devices }
+    - { ticker: INTC,  name: Intel }
+    - { ticker: QCOM,  name: Qualcomm }
+    - { ticker: AVGO,  name: Broadcom }
+    - { ticker: TXN,   name: Texas Instruments }
+    - { ticker: MU,    name: Micron Technology }
+    - { ticker: AMAT,  name: Applied Materials }
+    - { ticker: LRCX,  name: Lam Research }
+    - { ticker: KLAC,  name: KLA Corporation }
+    - { ticker: MRVL,  name: Marvell Technology }
+    - { ticker: MPWR,  name: Monolithic Power }
+    - { ticker: ON,    name: ON Semiconductor }
+    - { ticker: WOLF,  name: Wolfspeed }
+    - { ticker: SMCI,  name: Super Micro Computer }
+    - { ticker: ARM,   name: ARM Holdings }
+    # Software / Cloud / SaaS
+    - { ticker: CRM,   name: Salesforce }
+    - { ticker: ORCL,  name: Oracle }
+    - { ticker: SAP,   name: SAP SE }
+    - { ticker: NOW,   name: ServiceNow }
+    - { ticker: ADBE,  name: Adobe }
+    - { ticker: INTU,  name: Intuit }
+    - { ticker: SNOW,  name: Snowflake }
+    - { ticker: DDOG,  name: Datadog }
+    - { ticker: CRWD,  name: CrowdStrike }
+    - { ticker: PANW,  name: Palo Alto Networks }
+    - { ticker: ZS,    name: Zscaler }
+    - { ticker: FTNT,  name: Fortinet }
+    - { ticker: NET,   name: Cloudflare }
+    - { ticker: MDB,   name: MongoDB }
+    - { ticker: PLTR,  name: Palantir }
+    - { ticker: PATH,  name: UiPath }
+    - { ticker: TEAM,  name: Atlassian }
+    - { ticker: OKTA,  name: Okta }
+    - { ticker: HUBS,  name: HubSpot }
+    - { ticker: WDAY,  name: Workday }
+    - { ticker: TTD,   name: The Trade Desk }
+    - { ticker: BILL,  name: Bill.com }
+    - { ticker: GTLB,  name: GitLab }
+    - { ticker: S,     name: SentinelOne }
+    - { ticker: ESTC,  name: Elastic }
+    - { ticker: CFLT,  name: Confluent }
+    - { ticker: DKNG,  name: DraftKings }
+    - { ticker: RBLX,  name: Roblox }
+    - { ticker: U,     name: Unity Software }
+    # AI / Data Center
+    - { ticker: DELL,  name: Dell Technologies }
+    - { ticker: HPE,   name: Hewlett Packard Enterprise }
+    - { ticker: IBM,   name: IBM }
+    - { ticker: CSCO,  name: Cisco }
+    - { ticker: ANET,  name: Arista Networks }
+    - { ticker: PSTG,  name: Pure Storage }
+    - { ticker: AI,    name: C3.ai }
+    - { ticker: SOUN,  name: SoundHound AI }
+    - { ticker: BBAI,  name: BigBear.ai }
+    # Internet / E-Commerce
+    - { ticker: SHOP,  name: Shopify }
+    - { ticker: EBAY,  name: eBay }
+    - { ticker: ETSY,  name: Etsy }
+    - { ticker: PINS,  name: Pinterest }
+    - { ticker: SNAP,  name: Snap }
+    - { ticker: RDDT,  name: Reddit }
+    - { ticker: LYFT,  name: Lyft }
+    - { ticker: UBER,  name: Uber }
+    - { ticker: ABNB,  name: Airbnb }
+    - { ticker: DASH,  name: DoorDash }
+    - { ticker: YELP,  name: Yelp }
+    # Financials — Banks
+    - { ticker: JPM,   name: JPMorgan Chase }
+    - { ticker: BAC,   name: Bank of America }
+    - { ticker: WFC,   name: Wells Fargo }
+    - { ticker: C,     name: Citigroup }
+    - { ticker: GS,    name: Goldman Sachs }
+    - { ticker: MS,    name: Morgan Stanley }
+    - { ticker: USB,   name: US Bancorp }
+    - { ticker: PNC,   name: PNC Financial }
+    - { ticker: TFC,   name: Truist Financial }
+    - { ticker: COF,   name: Capital One }
+    - { ticker: AXP,   name: American Express }
+    - { ticker: DFS,   name: Discover Financial }
+    - { ticker: SYF,   name: Synchrony Financial }
+    - { ticker: ALLY,  name: Ally Financial }
+    - { ticker: SCHW,  name: Charles Schwab }
+    - { ticker: BK,    name: Bank of New York Mellon }
+    - { ticker: STT,   name: State Street }
+    # Financials — Insurance
+    - { ticker: BRK-B, name: Berkshire Hathaway B }
+    - { ticker: MET,   name: MetLife }
+    - { ticker: PRU,   name: Prudential Financial }
+    - { ticker: AFL,   name: Aflac }
+    - { ticker: ALL,   name: Allstate }
+    - { ticker: PGR,   name: Progressive }
+    - { ticker: TRV,   name: Travelers }
+    - { ticker: CB,    name: Chubb }
+    - { ticker: AIG,   name: AIG }
+    - { ticker: HIG,   name: Hartford Financial }
+    # Financials — Asset Managers / Fintech
+    - { ticker: BLK,   name: BlackRock }
+    - { ticker: V,     name: Visa }
+    - { ticker: MA,    name: Mastercard }
+    - { ticker: PYPL,  name: PayPal }
+    - { ticker: SQ,    name: Block }
+    - { ticker: FI,    name: Fiserv }
+    - { ticker: FIS,   name: FIS }
+    - { ticker: GPN,   name: Global Payments }
+    - { ticker: COIN,  name: Coinbase }
+    - { ticker: MSTR,  name: MicroStrategy }
+    - { ticker: HOOD,  name: Robinhood }
+    # Healthcare — Pharma / Biotech
+    - { ticker: JNJ,   name: Johnson & Johnson }
+    - { ticker: LLY,   name: Eli Lilly }
+    - { ticker: PFE,   name: Pfizer }
+    - { ticker: MRK,   name: Merck }
+    - { ticker: ABBV,  name: AbbVie }
+    - { ticker: BMY,   name: Bristol-Myers Squibb }
+    - { ticker: AMGN,  name: Amgen }
+    - { ticker: GILD,  name: Gilead Sciences }
+    - { ticker: BIIB,  name: Biogen }
+    - { ticker: REGN,  name: Regeneron }
+    - { ticker: VRTX,  name: Vertex Pharmaceuticals }
+    - { ticker: MRNA,  name: Moderna }
+    - { ticker: BNTX,  name: BioNTech }
+    - { ticker: SGEN,  name: Seagen }
+    - { ticker: ALNY,  name: Alnylam Pharmaceuticals }
+    - { ticker: INCY,  name: Incyte }
+    - { ticker: EXEL,  name: Exelixis }
+    - { ticker: RGEN,  name: Repligen }
+    - { ticker: NKTR,  name: Nektar Therapeutics }
+    # Healthcare — Devices / Services
+    - { ticker: UNH,   name: UnitedHealth }
+    - { ticker: CVS,   name: CVS Health }
+    - { ticker: CI,    name: Cigna }
+    - { ticker: HUM,   name: Humana }
+    - { ticker: ELV,   name: Elevance Health }
+    - { ticker: MDT,   name: Medtronic }
+    - { ticker: ABT,   name: Abbott Laboratories }
+    - { ticker: SYK,   name: Stryker }
+    - { ticker: BSX,   name: Boston Scientific }
+    - { ticker: ISRG,  name: Intuitive Surgical }
+    - { ticker: ZBH,   name: Zimmer Biomet }
+    - { ticker: BAX,   name: Baxter International }
+    - { ticker: HOLX,  name: Hologic }
+    # Consumer Discretionary
+    - { ticker: WMT,   name: Walmart }
+    - { ticker: COST,  name: Costco }
+    - { ticker: TGT,   name: Target }
+    - { ticker: HD,    name: Home Depot }
+    - { ticker: LOW,   name: Lowe's }
+    - { ticker: MCD,   name: McDonald's }
+    - { ticker: SBUX,  name: Starbucks }
+    - { ticker: YUM,   name: Yum Brands }
+    - { ticker: CMG,   name: Chipotle }
+    - { ticker: NKE,   name: Nike }
+    - { ticker: LULU,  name: Lululemon }
+    - { ticker: TJX,   name: TJX Companies }
+    - { ticker: ROST,  name: Ross Stores }
+    - { ticker: BBY,   name: Best Buy }
+    - { ticker: DG,    name: Dollar General }
+    - { ticker: DLTR,  name: Dollar Tree }
+    - { ticker: KR,    name: Kroger }
+    - { ticker: AZO,   name: AutoZone }
+    - { ticker: ORLY,  name: O'Reilly Auto Parts }
+    - { ticker: F,     name: Ford }
+    - { ticker: GM,    name: General Motors }
+    - { ticker: RIVN,  name: Rivian }
+    - { ticker: LCID,  name: Lucid Group }
+    - { ticker: NIO,   name: NIO }
+    - { ticker: XPEV,  name: XPeng }
+    - { ticker: LI,    name: Li Auto }
+    - { ticker: VFS,   name: VinFast }
+    - { ticker: HOG,   name: Harley-Davidson }
+    - { ticker: RACE,  name: Ferrari }
+    - { ticker: TM,    name: Toyota }
+    - { ticker: HMC,   name: Honda }
+    - { ticker: STLA,  name: Stellantis }
+    - { ticker: MBGYY, name: Mercedes-Benz }
+    - { ticker: BMWYY, name: BMW }
+    # Consumer Staples
+    - { ticker: PG,    name: Procter & Gamble }
+    - { ticker: KO,    name: Coca-Cola }
+    - { ticker: PEP,   name: PepsiCo }
+    - { ticker: PM,    name: Philip Morris }
+    - { ticker: MO,    name: Altria }
+    - { ticker: CL,    name: Colgate-Palmolive }
+    - { ticker: EL,    name: Estee Lauder }
+    - { ticker: KHC,   name: Kraft Heinz }
+    - { ticker: GIS,   name: General Mills }
+    - { ticker: K,     name: Kellogg's }
+    - { ticker: CAG,   name: ConAgra Brands }
+    - { ticker: CPB,   name: Campbell Soup }
+    - { ticker: HRL,   name: Hormel Foods }
+    - { ticker: TSN,   name: Tyson Foods }
+    - { ticker: SJM,   name: J.M. Smucker }
+    # Energy
+    - { ticker: XOM,   name: ExxonMobil }
+    - { ticker: CVX,   name: Chevron }
+    - { ticker: COP,   name: ConocoPhillips }
+    - { ticker: EOG,   name: EOG Resources }
+    - { ticker: SLB,   name: SLB }
+    - { ticker: HAL,   name: Halliburton }
+    - { ticker: BKR,   name: Baker Hughes }
+    - { ticker: MPC,   name: Marathon Petroleum }
+    - { ticker: VLO,   name: Valero Energy }
+    - { ticker: PSX,   name: Phillips 66 }
+    - { ticker: PXD,   name: Pioneer Natural Resources }
+    - { ticker: DVN,   name: Devon Energy }
+    - { ticker: FANG,  name: Diamondback Energy }
+    - { ticker: OXY,   name: Occidental Petroleum }
+    - { ticker: HES,   name: Hess }
+    - { ticker: MRO,   name: Marathon Oil }
+    - { ticker: APA,   name: APA Corp }
+    - { ticker: RIG,   name: Transocean }
+    - { ticker: ET,    name: Energy Transfer }
+    - { ticker: KMI,   name: Kinder Morgan }
+    - { ticker: EPD,   name: Enterprise Products }
+    - { ticker: WMB,   name: Williams Companies }
+    # Industrials
+    - { ticker: BA,    name: Boeing }
+    - { ticker: LMT,   name: Lockheed Martin }
+    - { ticker: RTX,   name: RTX Corp }
+    - { ticker: NOC,   name: Northrop Grumman }
+    - { ticker: GD,    name: General Dynamics }
+    - { ticker: HII,   name: Huntington Ingalls }
+    - { ticker: CAT,   name: Caterpillar }
+    - { ticker: DE,    name: Deere & Co }
+    - { ticker: HON,   name: Honeywell }
+    - { ticker: GE,    name: GE Aerospace }
+    - { ticker: MMM,   name: 3M }
+    - { ticker: EMR,   name: Emerson Electric }
+    - { ticker: ETN,   name: Eaton }
+    - { ticker: PH,    name: Parker Hannifin }
+    - { ticker: ROK,   name: Rockwell Automation }
+    - { ticker: IR,    name: Ingersoll Rand }
+    - { ticker: XYL,   name: Xylem }
+    - { ticker: FDX,   name: FedEx }
+    - { ticker: UPS,   name: UPS }
+    - { ticker: UNP,   name: Union Pacific }
+    - { ticker: CSX,   name: CSX }
+    - { ticker: NSC,   name: Norfolk Southern }
+    - { ticker: DAL,   name: Delta Air Lines }
+    - { ticker: UAL,   name: United Airlines }
+    - { ticker: AAL,   name: American Airlines }
+    - { ticker: LUV,   name: Southwest Airlines }
+    - { ticker: CCL,   name: Carnival }
+    - { ticker: RCL,   name: Royal Caribbean }
+    - { ticker: NCLH,  name: Norwegian Cruise }
+    - { ticker: MAR,   name: Marriott }
+    - { ticker: HLT,   name: Hilton }
+    - { ticker: H,     name: Hyatt }
+    - { ticker: MGM,   name: MGM Resorts }
+    - { ticker: LVS,   name: Las Vegas Sands }
+    - { ticker: WYNN,  name: Wynn Resorts }
+    - { ticker: CZR,   name: Caesars Entertainment }
+    # Utilities
+    - { ticker: NEE,   name: NextEra Energy }
+    - { ticker: DUK,   name: Duke Energy }
+    - { ticker: SO,    name: Southern Company }
+    - { ticker: D,     name: Dominion Energy }
+    - { ticker: AEP,   name: American Electric Power }
+    - { ticker: EXC,   name: Exelon }
+    - { ticker: PCG,   name: PG&E }
+    - { ticker: SRE,   name: Sempra }
+    - { ticker: XEL,   name: Xcel Energy }
+    - { ticker: WEC,   name: WEC Energy }
+    - { ticker: ES,    name: Eversource Energy }
+    - { ticker: ED,    name: Consolidated Edison }
+    - { ticker: AWK,   name: American Water Works }
+    - { ticker: CEG,   name: Constellation Energy }
+    - { ticker: VST,   name: Vistra Energy }
+    # Real Estate / REITs
+    - { ticker: AMT,   name: American Tower }
+    - { ticker: PLD,   name: Prologis }
+    - { ticker: CCI,   name: Crown Castle }
+    - { ticker: EQIX,  name: Equinix }
+    - { ticker: DLR,   name: Digital Realty }
+    - { ticker: SPG,   name: Simon Property Group }
+    - { ticker: O,     name: Realty Income }
+    - { ticker: WELL,  name: Welltower }
+    - { ticker: PSA,   name: Public Storage }
+    - { ticker: EXR,   name: Extra Space Storage }
+    - { ticker: AVB,   name: AvalonBay }
+    - { ticker: EQR,   name: Equity Residential }
+    - { ticker: VTR,   name: Ventas }
+    - { ticker: CBRE,  name: CBRE Group }
+    # Materials
+    - { ticker: LIN,   name: Linde }
+    - { ticker: APD,   name: Air Products }
+    - { ticker: ECL,   name: Ecolab }
+    - { ticker: SHW,   name: Sherwin-Williams }
+    - { ticker: NEM,   name: Newmont }
+    - { ticker: FCX,   name: Freeport-McMoRan }
+    - { ticker: NUE,   name: Nucor }
+    - { ticker: STLD,  name: Steel Dynamics }
+    - { ticker: X,     name: US Steel }
+    - { ticker: AA,    name: Alcoa }
+    - { ticker: ALB,   name: Albemarle }
+    - { ticker: MP,    name: MP Materials }
+    - { ticker: LTHM,  name: Livent }
+    # Media / Telecom / Entertainment
+    - { ticker: NFLX,  name: Netflix }
+    - { ticker: DIS,   name: Disney }
+    - { ticker: CMCSA, name: Comcast }
+    - { ticker: T,     name: AT&T }
+    - { ticker: VZ,    name: Verizon }
+    - { ticker: TMUS,  name: T-Mobile }
+    - { ticker: WBD,   name: Warner Bros Discovery }
+    - { ticker: PARA,  name: Paramount }
+    - { ticker: FOX,   name: Fox Corp }
+    - { ticker: CHTR,  name: Charter Communications }
+    - { ticker: LBRDA, name: Liberty Broadband A }
+    - { ticker: SIRI,  name: SiriusXM }
+    - { ticker: SPOT,  name: Spotify }
+    - { ticker: LYV,   name: Live Nation }
+    - { ticker: EA,    name: Electronic Arts }
+    - { ticker: TTWO,  name: Take-Two Interactive }
+    - { ticker: ATVI,  name: Activision Blizzard }
+    - { ticker: NTDOY, name: Nintendo }
+    # International Large Cap (US-listed)
+    - { ticker: TSM,   name: Taiwan Semiconductor }
+    - { ticker: ASML,  name: ASML Holding }
+    - { ticker: BABA,  name: Alibaba }
+    - { ticker: JD,    name: JD.com }
+    - { ticker: BIDU,  name: Baidu }
+    - { ticker: PDD,   name: PDD Holdings }
+    - { ticker: TCEHY, name: Tencent }
+    - { ticker: SONY,  name: Sony }
+    - { ticker: TM,    name: Toyota }
+    - { ticker: SNY,   name: Sanofi }
+    - { ticker: NVS,   name: Novartis }
+    - { ticker: RHHBY, name: Roche }
+    - { ticker: AZN,   name: AstraZeneca }
+    - { ticker: GSK,   name: GSK }
+    - { ticker: BP,    name: BP }
+    - { ticker: SHEL,  name: Shell }
+    - { ticker: TTE,   name: TotalEnergies }
+    - { ticker: RIO,   name: Rio Tinto }
+    - { ticker: BHP,   name: BHP Group }
+    - { ticker: VALE,  name: Vale }
+    - { ticker: SAN,   name: Banco Santander }
+    - { ticker: BBVA,  name: BBVA }
+    - { ticker: ING,   name: ING Group }
+    - { ticker: UBS,   name: UBS Group }
+    - { ticker: CS,    name: Credit Suisse }
+    - { ticker: DB,    name: Deutsche Bank }
+    - { ticker: SMFG,  name: Sumitomo Mitsui }
+    - { ticker: MFG,   name: Mizuho Financial }
+    - { ticker: LYG,   name: Lloyds Banking }
+    - { ticker: BCS,   name: Barclays }
+    - { ticker: HSBC,  name: HSBC Holdings }
+    - { ticker: SIE,   name: Siemens }
+    - { ticker: PHIA,  name: Philips }
+    - { ticker: LVMUY, name: LVMH }
+    - { ticker: CFRUY, name: Richemont }
+    - { ticker: PPRUY, name: Kering }
+    - { ticker: NSRGY, name: Nestle }
+    - { ticker: UNLYF, name: Unilever }
+    - { ticker: DANOY, name: Danone }
+    - { ticker: DEO,   name: Diageo }
+    - { ticker: SAB,   name: SAB Miller }
+    - { ticker: BUD,   name: Anheuser-Busch InBev }
+    - { ticker: INFY,  name: Infosys }
+    - { ticker: WIT,   name: Wipro }
+    - { ticker: HDB,   name: HDFC Bank }
+    - { ticker: IBN,   name: ICICI Bank }
+    - { ticker: ITUB,  name: Itau Unibanco }
+    - { ticker: BSBR,  name: Banco Bradesco }
+    - { ticker: NU,    name: Nu Holdings }
+    - { ticker: MELI,  name: MercadoLibre }
+    # Small/Mid Cap Growth
+    - { ticker: CELH,  name: Celsius Holdings }
+    - { ticker: APP,   name: Applovin }
+    - { ticker: IONQ,  name: IonQ }
+    - { ticker: RGTI,  name: Rigetti Computing }
+    - { ticker: QUBT,  name: Quantum Computing }
+    - { ticker: QBTS,  name: D-Wave Quantum }
+    - { ticker: RXRX,  name: Recursion Pharma }
+    - { ticker: SANA,  name: Sana Biotechnology }
+    - { ticker: CLOV,  name: Clover Health }
+    - { ticker: HIMS,  name: Hims & Hers Health }
+    - { ticker: ACHR,  name: Archer Aviation }
+    - { ticker: JOBY,  name: Joby Aviation }
+    - { ticker: LILM,  name: Lilium }
+    - { ticker: SPCE,  name: Virgin Galactic }
+    - { ticker: RDW,   name: Redwire }
+    - { ticker: ASTS,  name: AST SpaceMobile }
+    - { ticker: LUNR,  name: Intuitive Machines }
+    - { ticker: RKLB,  name: Rocket Lab }
+
+  # ── Equity ETFs — Broad Market ───────────────────────────────────────────
+  etfs:
+    # Broad US
+    - { ticker: SPY,   name: SPDR S&P 500 }
+    - { ticker: QQQ,   name: Invesco Nasdaq 100 }
+    - { ticker: IWM,   name: iShares Russell 2000 }
+    - { ticker: DIA,   name: SPDR Dow Jones }
+    - { ticker: VOO,   name: Vanguard S&P 500 }
+    - { ticker: VTI,   name: Vanguard Total Market }
+    - { ticker: IVV,   name: iShares S&P 500 }
+    - { ticker: VUG,   name: Vanguard Growth }
+    - { ticker: VTV,   name: Vanguard Value }
+    - { ticker: MDY,   name: SPDR S&P MidCap 400 }
+    - { ticker: IJR,   name: iShares S&P SmallCap 600 }
+    - { ticker: ITOT,  name: iShares Total Market }
+    # Sector ETFs
+    - { ticker: XLK,   name: Technology Select }
+    - { ticker: XLF,   name: Financial Select }
+    - { ticker: XLV,   name: Health Care Select }
+    - { ticker: XLE,   name: Energy Select }
+    - { ticker: XLI,   name: Industrial Select }
+    - { ticker: XLC,   name: Communication Services }
+    - { ticker: XLY,   name: Consumer Discretionary }
+    - { ticker: XLP,   name: Consumer Staples }
+    - { ticker: XLU,   name: Utilities Select }
+    - { ticker: XLB,   name: Materials Select }
+    - { ticker: XLRE,  name: Real Estate Select }
+    # Thematic
+    - { ticker: ARKK,  name: ARK Innovation }
+    - { ticker: ARKQ,  name: ARK Autonomous Tech }
+    - { ticker: ARKG,  name: ARK Genomic Revolution }
+    - { ticker: ARKW,  name: ARK Next Gen Internet }
+    - { ticker: ARKF,  name: ARK Fintech Innovation }
+    - { ticker: SOXX,  name: iShares Semiconductor }
+    - { ticker: SMH,   name: VanEck Semiconductor }
+    - { ticker: HACK,  name: ETFMG Cyber Security }
+    - { ticker: CIBR,  name: First Trust Cyber }
+    - { ticker: ROBO,  name: ROBO Global Robotics }
+    - { ticker: BOTZ,  name: Global X Robotics AI }
+    - { ticker: CLOU,  name: Global X Cloud Computing }
+    - { ticker: SKYY,  name: First Trust Cloud Computing }
+    - { ticker: AIQ,   name: Global X AI & Tech }
+    - { ticker: PAVE,  name: Global X US Infrastructure }
+    - { ticker: POTX,  name: Global X Cannabis }
+    - { ticker: MSOS,  name: AdvisorShares Pure US Cannabis }
+    - { ticker: BETZ,  name: Roundhill Sports Betting }
+    - { ticker: UFO,   name: Procure Space }
+    - { ticker: WCLD,  name: WisdomTree Cloud Computing }
+    - { ticker: DTEC,  name: ALPS Disruptive Tech }
+    - { ticker: IDRV,  name: iShares Self-Driving }
+    - { ticker: DRIV,  name: Global X Autonomous & EV }
+    - { ticker: LIT,   name: Global X Lithium & Battery }
+    - { ticker: ICLN,  name: iShares Clean Energy }
+    - { ticker: QCLN,  name: First Trust Clean Energy }
+    - { ticker: TAN,   name: Invesco Solar }
+    - { ticker: FAN,   name: First Trust Wind Energy }
+    - { ticker: URNM,  name: Sprott Uranium Miners }
+    - { ticker: REMX,  name: VanEck Rare Earth }
+    - { ticker: COPX,  name: Global X Copper Miners }
+    - { ticker: GDXJ,  name: VanEck Junior Gold Miners }
+    - { ticker: GDX,   name: VanEck Gold Miners }
+    - { ticker: SIL,   name: Global X Silver Miners }
+    # International ETFs
+    - { ticker: EFA,   name: iShares MSCI EAFE }
+    - { ticker: EEM,   name: iShares MSCI Emerging Markets }
+    - { ticker: VEA,   name: Vanguard Developed Markets }
+    - { ticker: VWO,   name: Vanguard Emerging Markets }
+    - { ticker: EWJ,   name: iShares MSCI Japan }
+    - { ticker: EWZ,   name: iShares MSCI Brazil }
+    - { ticker: EWC,   name: iShares MSCI Canada }
+    - { ticker: EWG,   name: iShares MSCI Germany }
+    - { ticker: EWU,   name: iShares MSCI UK }
+    - { ticker: EWY,   name: iShares MSCI South Korea }
+    - { ticker: EWT,   name: iShares MSCI Taiwan }
+    - { ticker: MCHI,  name: iShares MSCI China }
+    - { ticker: INDA,  name: iShares MSCI India }
+    - { ticker: EZA,   name: iShares MSCI South Africa }
+    - { ticker: EWA,   name: iShares MSCI Australia }
+    - { ticker: RSX,   name: VanEck Russia }
+    - { ticker: FXI,   name: iShares China Large-Cap }
+    - { ticker: KWEB,  name: KraneShares CSI China Internet }
+    - { ticker: CQQQ,  name: Invesco China Tech }
+    - { ticker: ASEA,  name: Global X ASEAN 40 }
+    - { ticker: VNM,   name: VanEck Vietnam }
+    # Leverage / Inverse
+    - { ticker: TQQQ,  name: ProShares 3x Nasdaq }
+    - { ticker: SQQQ,  name: ProShares -3x Nasdaq }
+    - { ticker: UPRO,  name: ProShares 3x S&P 500 }
+    - { ticker: SPXS,  name: Direxion -3x S&P 500 }
+    - { ticker: SOXL,  name: Direxion 3x Semiconductors }
+    - { ticker: SOXS,  name: Direxion -3x Semiconductors }
+    - { ticker: LABU,  name: Direxion 3x Biotech }
+    - { ticker: LABD,  name: Direxion -3x Biotech }
+    - { ticker: FNGU,  name: MicroSectors FANG+ 3x }
+    - { ticker: FNGD,  name: MicroSectors FANG+ -3x }
+    - { ticker: TNA,   name: Direxion 3x Small Cap }
+    - { ticker: TZA,   name: Direxion -3x Small Cap }
+    - { ticker: ERX,   name: Direxion 3x Energy }
+    - { ticker: ERY,   name: Direxion -3x Energy }
+    - { ticker: FAZ,   name: Direxion -3x Financials }
+    - { ticker: FAS,   name: Direxion 3x Financials }
+    # Volatility ETFs
+    - { ticker: UVXY,  name: ProShares 1.5x VIX }
+    - { ticker: SVXY,  name: ProShares -0.5x VIX }
+    - { ticker: VIXY,  name: ProShares VIX Short-Term }
+
+  # ── Fixed Income ETFs ─────────────────────────────────────────────────────
+  fixed_income:
+    - { ticker: TLT,   name: iShares 20+ Year Treasury }
+    - { ticker: IEF,   name: iShares 7-10 Year Treasury }
+    - { ticker: SHY,   name: iShares 1-3 Year Treasury }
+    - { ticker: AGG,   name: iShares US Aggregate Bond }
+    - { ticker: BND,   name: Vanguard Total Bond Market }
+    - { ticker: TIP,   name: iShares TIPS }
+    - { ticker: VTIP,  name: Vanguard Short-Term TIPS }
+    - { ticker: STIP,  name: iShares 0-5Y TIPS }
+    - { ticker: VGLT,  name: Vanguard Long-Term Treasury }
+    - { ticker: VGIT,  name: Vanguard Intermediate Treasury }
+    - { ticker: VGSH,  name: Vanguard Short-Term Treasury }
+    - { ticker: GOVT,  name: iShares US Treasury Bond }
+    - { ticker: ZROZ,  name: PIMCO 25+ Year Zero Coupon }
+    - { ticker: EDV,   name: Vanguard Ext Duration Treasury }
+    - { ticker: TMF,   name: Direxion 3x Treasury }
+    - { ticker: TMV,   name: Direxion -3x Treasury }
+    - { ticker: BNDX,  name: Vanguard Total Intl Bond }
+    - { ticker: EMB,   name: iShares EM Bond USD }
+    - { ticker: PCY,   name: Invesco EM Sovereign Debt }
+    - { ticker: VWOB,  name: Vanguard EM Government Bond }
+
+  # ── Credit ETFs ───────────────────────────────────────────────────────────
+  credit:
+    - { ticker: HYG,   name: iShares HY Corp Bond }
+    - { ticker: JNK,   name: SPDR Bloomberg HY }
+    - { ticker: LQD,   name: iShares IG Corp Bond }
+    - { ticker: VCIT,  name: Vanguard Corp Bond }
+    - { ticker: BKLN,  name: Invesco Senior Loan }
+    - { ticker: SJNK,  name: SPDR Bloomberg ST HY }
+    - { ticker: SHYG,  name: iShares 0-5Y HY }
+    - { ticker: CWB,   name: SPDR Bloomberg Convertible }
+    - { ticker: ANGL,  name: VanEck Fallen Angel HY }
+    - { ticker: USHY,  name: iShares Broad USD HY }
+    - { ticker: FALN,  name: iShares Fallen Angels USD }
+    - { ticker: VCSH,  name: Vanguard ST Corp Bond }
+    - { ticker: SPSB,  name: SPDR Portfolio ST Corp Bond }
+
+  # ── Commodities (ETFs + Futures-backed) ──────────────────────────────────
+  commodities:
+    # Precious Metals
+    - { ticker: GLD,   name: SPDR Gold Shares }
+    - { ticker: IAU,   name: iShares Gold Trust }
+    - { ticker: GLDM,  name: SPDR Gold MiniShares }
+    - { ticker: SGOL,  name: Aberdeen Physical Gold }
+    - { ticker: SLV,   name: iShares Silver Trust }
+    - { ticker: SIVR,  name: Aberdeen Physical Silver }
+    - { ticker: PALL,  name: Aberdeen Palladium }
+    - { ticker: PPLT,  name: Aberdeen Platinum }
+    # Energy
+    - { ticker: USO,   name: United States Oil Fund }
+    - { ticker: BNO,   name: United States Brent Oil }
+    - { ticker: UCO,   name: ProShares 2x Crude Oil }
+    - { ticker: SCO,   name: ProShares -2x Crude Oil }
+    - { ticker: UNG,   name: United States Natural Gas }
+    - { ticker: BOIL,  name: ProShares 2x Natural Gas }
+    - { ticker: KOLD,  name: ProShares -2x Natural Gas }
+    - { ticker: UGA,   name: United States Gasoline }
+    # Broad Commodities
+    - { ticker: PDBC,  name: Invesco Diversified Commodity }
+    - { ticker: DJP,   name: iPath Bloomberg Commodity }
+    - { ticker: COMT,  name: iShares GSCI Commodity }
+    - { ticker: GSG,   name: iShares S&P GSCI Commodity }
+    - { ticker: DBO,   name: Invesco DB Oil }
+    - { ticker: DBB,   name: Invesco DB Base Metals }
+    - { ticker: DBA,   name: Invesco DB Agriculture }
+    - { ticker: DBP,   name: Invesco DB Precious Metals }
+    # Agriculture
+    - { ticker: CORN,  name: Teucrium Corn }
+    - { ticker: WEAT,  name: Teucrium Wheat }
+    - { ticker: SOYB,  name: Teucrium Soybeans }
+    - { ticker: CANE,  name: Teucrium Sugar }
+    - { ticker: NIB,   name: iPath Bloomberg Cocoa }
+    - { ticker: JO,    name: iPath Bloomberg Coffee }
+    - { ticker: BAL,   name: iPath Bloomberg Cotton }
+    # Uranium / Lithium
+    - { ticker: URA,   name: Global X Uranium }
+    - { ticker: URNM,  name: Sprott Uranium Miners }
+    - { ticker: LIT,   name: Global X Lithium & Battery Tech }
+
+  # ── Forex (spot via yfinance) ─────────────────────────────────────────────
+  forex:
+    # G10 Majors
+    - { ticker: "EURUSD=X", name: EUR/USD }
+    - { ticker: "GBPUSD=X", name: GBP/USD }
+    - { ticker: "USDJPY=X", name: USD/JPY }
+    - { ticker: "USDCHF=X", name: USD/CHF }
+    - { ticker: "AUDUSD=X", name: AUD/USD }
+    - { ticker: "NZDUSD=X", name: NZD/USD }
+    - { ticker: "USDCAD=X", name: USD/CAD }
+    - { ticker: "USDSEK=X", name: USD/SEK }
+    - { ticker: "USDNOK=X", name: USD/NOK }
+    - { ticker: "USDDKK=X", name: USD/DKK }
+    # Major Crosses
+    - { ticker: "EURGBP=X", name: EUR/GBP }
+    - { ticker: "EURJPY=X", name: EUR/JPY }
+    - { ticker: "EURCHF=X", name: EUR/CHF }
+    - { ticker: "EURAUD=X", name: EUR/AUD }
+    - { ticker: "EURNZD=X", name: EUR/NZD }
+    - { ticker: "EURCAD=X", name: EUR/CAD }
+    - { ticker: "GBPJPY=X", name: GBP/JPY }
+    - { ticker: "GBPCHF=X", name: GBP/CHF }
+    - { ticker: "GBPAUD=X", name: GBP/AUD }
+    - { ticker: "GBPCAD=X", name: GBP/CAD }
+    - { ticker: "GBPNZD=X", name: GBP/NZD }
+    - { ticker: "AUDJPY=X", name: AUD/JPY }
+    - { ticker: "AUDNZD=X", name: AUD/NZD }
+    - { ticker: "AUDCAD=X", name: AUD/CAD }
+    - { ticker: "AUDCHF=X", name: AUD/CHF }
+    - { ticker: "NZDJPY=X", name: NZD/JPY }
+    - { ticker: "NZDCHF=X", name: NZD/CHF }
+    - { ticker: "CADJPY=X", name: CAD/JPY }
+    - { ticker: "CADCHF=X", name: CAD/CHF }
+    - { ticker: "CHFJPY=X", name: CHF/JPY }
+    # Emerging Markets
+    - { ticker: "USDTRY=X", name: USD/TRY }
+    - { ticker: "USDBRL=X", name: USD/BRL }
+    - { ticker: "USDINR=X", name: USD/INR }
+    - { ticker: "USDMXN=X", name: USD/MXN }
+    - { ticker: "USDZAR=X", name: USD/ZAR }
+    - { ticker: "USDSGD=X", name: USD/SGD }
+    - { ticker: "USDHKD=X", name: USD/HKD }
+    - { ticker: "USDCNH=X", name: USD/CNH }
+    - { ticker: "USDKRW=X", name: USD/KRW }
+    - { ticker: "USDTHB=X", name: USD/THB }
+    - { ticker: "USDMYR=X", name: USD/MYR }
+    - { ticker: "USDIDR=X", name: USD/IDR }
+    - { ticker: "USDPHP=X", name: USD/PHP }
+    - { ticker: "USDVND=X", name: USD/VND }
+    - { ticker: "USDPLN=X", name: USD/PLN }
+    - { ticker: "USDHUF=X", name: USD/HUF }
+    - { ticker: "USDCZK=X", name: USD/CZK }
+    - { ticker: "USDRUB=X", name: USD/RUB }
+    - { ticker: "USDEGP=X", name: USD/EGP }
+    - { ticker: "USDNGN=X", name: USD/NGN }
+    - { ticker: "USDARS=X", name: USD/ARS }
+    - { ticker: "USDCLP=X", name: USD/CLP }
+    - { ticker: "USDCOP=X", name: USD/COP }
+    - { ticker: "USDPEN=X", name: USD/PEN }
+    # DXY proxy
+    - { ticker: "DX-Y.NYB", name: US Dollar Index }
+
+  # ── Futures ───────────────────────────────────────────────────────────────
+  futures:
+    # Equity Index
+    - { ticker: "ES=F",   name: S&P 500 E-mini }
+    - { ticker: "NQ=F",   name: Nasdaq 100 E-mini }
+    - { ticker: "YM=F",   name: Dow Jones E-mini }
+    - { ticker: "RTY=F",  name: Russell 2000 E-mini }
+    - { ticker: "NKD=F",  name: Nikkei 225 Futures }
+    - { ticker: "MES=F",  name: Micro S&P 500 }
+    - { ticker: "MNQ=F",  name: Micro Nasdaq }
+    - { ticker: "M2K=F",  name: Micro Russell 2000 }
+    # Bonds
+    - { ticker: "ZN=F",   name: 10-Year T-Note }
+    - { ticker: "ZB=F",   name: 30-Year T-Bond }
+    - { ticker: "ZT=F",   name: 2-Year T-Note }
+    - { ticker: "ZF=F",   name: 5-Year T-Note }
+    - { ticker: "UB=F",   name: Ultra T-Bond }
+    # Energy
+    - { ticker: "CL=F",   name: Crude Oil WTI }
+    - { ticker: "BZ=F",   name: Brent Crude Oil }
+    - { ticker: "NG=F",   name: Natural Gas }
+    - { ticker: "RB=F",   name: RBOB Gasoline }
+    - { ticker: "HO=F",   name: Heating Oil }
+    - { ticker: "QM=F",   name: E-mini Crude Oil }
+    # Metals
+    - { ticker: "GC=F",   name: Gold Futures }
+    - { ticker: "SI=F",   name: Silver Futures }
+    - { ticker: "HG=F",   name: Copper Futures }
+    - { ticker: "PA=F",   name: Palladium Futures }
+    - { ticker: "PL=F",   name: Platinum Futures }
+    - { ticker: "ALI=F",  name: Aluminum Futures }
+    # Agriculture
+    - { ticker: "ZC=F",   name: Corn }
+    - { ticker: "ZS=F",   name: Soybeans }
+    - { ticker: "ZW=F",   name: Wheat }
+    - { ticker: "ZO=F",   name: Oats }
+    - { ticker: "ZR=F",   name: Rough Rice }
+    - { ticker: "ZL=F",   name: Soybean Oil }
+    - { ticker: "ZM=F",   name: Soybean Meal }
+    - { ticker: "KC=F",   name: Coffee }
+    - { ticker: "CC=F",   name: Cocoa }
+    - { ticker: "SB=F",   name: "Sugar #11" }
+    - { ticker: "CT=F",   name: Cotton }
+    - { ticker: "OJ=F",   name: Orange Juice }
+    - { ticker: "LBS=F",  name: Lumber }
+    # Livestock
+    - { ticker: "LE=F",   name: Live Cattle }
+    - { ticker: "GF=F",   name: Feeder Cattle }
+    - { ticker: "HE=F",   name: Lean Hogs }
+    # FX Futures
+    - { ticker: "6E=F",   name: Euro FX Futures }
+    - { ticker: "6J=F",   name: Japanese Yen Futures }
+    - { ticker: "6B=F",   name: British Pound Futures }
+    - { ticker: "6C=F",   name: Canadian Dollar Futures }
+    - { ticker: "6A=F",   name: Australian Dollar Futures }
+    - { ticker: "6N=F",   name: New Zealand Dollar Futures }
+    - { ticker: "6S=F",   name: Swiss Franc Futures }
+    - { ticker: "6M=F",   name: Mexican Peso Futures }
+    # Volatility
+    - { ticker: "VX=F",   name: CBOE VIX Futures }
+    # Crypto Futures
+    - { ticker: "BTC=F",  name: Bitcoin Futures CME }
+    - { ticker: "ETH=F",  name: Ethereum Futures CME }
+
+  # ── Crypto ────────────────────────────────────────────────────────────────
+  crypto:
+    # Layer 1
+    - { ticker: "BTC-USD",   name: Bitcoin }
+    - { ticker: "ETH-USD",   name: Ethereum }
+    - { ticker: "BNB-USD",   name: BNB }
+    - { ticker: "SOL-USD",   name: Solana }
+    - { ticker: "ADA-USD",   name: Cardano }
+    - { ticker: "AVAX-USD",  name: Avalanche }
+    - { ticker: "DOT-USD",   name: Polkadot }
+    - { ticker: "NEAR-USD",  name: NEAR Protocol }
+    - { ticker: "ATOM-USD",  name: Cosmos }
+    - { ticker: "FTM-USD",   name: Fantom }
+    - { ticker: "ALGO-USD",  name: Algorand }
+    - { ticker: "ICP-USD",   name: Internet Computer }
+    - { ticker: "FIL-USD",   name: Filecoin }
+    - { ticker: "ETC-USD",   name: Ethereum Classic }
+    - { ticker: "XTZ-USD",   name: Tezos }
+    - { ticker: "HBAR-USD",  name: Hedera }
+    - { ticker: "SUI-USD",   name: Sui }
+    - { ticker: "APT-USD",   name: Aptos }
+    - { ticker: "SEI-USD",   name: Sei }
+    - { ticker: "INJ-USD",   name: Injective }
+    - { ticker: "TIA-USD",   name: Celestia }
+    - { ticker: "EGLD-USD",  name: MultiversX }
+    - { ticker: "FLOW-USD",  name: Flow }
+    - { ticker: "KAVA-USD",  name: Kava }
+    - { ticker: "ONE-USD",   name: Harmony }
+    # Layer 2 / Scaling
+    - { ticker: "MATIC-USD", name: Polygon }
+    - { ticker: "ARB-USD",   name: Arbitrum }
+    - { ticker: "OP-USD",    name: Optimism }
+    - { ticker: "IMX-USD",   name: Immutable X }
+    - { ticker: "METIS-USD", name: Metis }
+    - { ticker: "LRC-USD",   name: Loopring }
+    - { ticker: "ZK-USD",    name: ZKsync }
+    - { ticker: "STRK-USD",  name: Starknet }
+    # DeFi
+    - { ticker: "UNI-USD",   name: Uniswap }
+    - { ticker: "AAVE-USD",  name: Aave }
+    - { ticker: "MKR-USD",   name: Maker }
+    - { ticker: "COMP-USD",  name: Compound }
+    - { ticker: "CRV-USD",   name: Curve Finance }
+    - { ticker: "SNX-USD",   name: Synthetix }
+    - { ticker: "SUSHI-USD", name: SushiSwap }
+    - { ticker: "1INCH-USD", name: 1inch }
+    - { ticker: "BAL-USD",   name: Balancer }
+    - { ticker: "YFI-USD",   name: Yearn Finance }
+    - { ticker: "DYDX-USD",  name: dYdX }
+    - { ticker: "GMX-USD",   name: GMX }
+    - { ticker: "JTO-USD",   name: Jito }
+    - { ticker: "JUP-USD",   name: Jupiter }
+    - { ticker: "PENDLE-USD",name: Pendle }
+    # Payments / XRP ecosystem
+    - { ticker: "XRP-USD",   name: XRP }
+    - { ticker: "XLM-USD",   name: Stellar }
+    - { ticker: "XDC-USD",   name: XDC Network }
+    - { ticker: "LTC-USD",   name: Litecoin }
+    - { ticker: "BCH-USD",   name: Bitcoin Cash }
+    - { ticker: "BSV-USD",   name: Bitcoin SV }
+    - { ticker: "DASH-USD",  name: Dash }
+    - { ticker: "ZEC-USD",   name: Zcash }
+    - { ticker: "XMR-USD",   name: Monero }
+    # Meme coins
+    - { ticker: "DOGE-USD",  name: Dogecoin }
+    - { ticker: "SHIB-USD",  name: Shiba Inu }
+    - { ticker: "PEPE-USD",  name: Pepe }
+    - { ticker: "FLOKI-USD", name: Floki }
+    - { ticker: "BONK-USD",  name: Bonk }
+    - { ticker: "WIF-USD",   name: dogwifhat }
+    - { ticker: "POPCAT-USD",name: Popcat }
+    # Stablecoins / Yield
+    - { ticker: "USDT-USD",  name: Tether }
+    - { ticker: "USDC-USD",  name: USD Coin }
+    - { ticker: "DAI-USD",   name: Dai }
+    # Oracles / Data
+    - { ticker: "LINK-USD",  name: Chainlink }
+    - { ticker: "BAND-USD",  name: Band Protocol }
+    - { ticker: "API3-USD",  name: API3 }
+    # Storage / Compute
+    - { ticker: "FIL-USD",   name: Filecoin }
+    - { ticker: "AR-USD",    name: Arweave }
+    - { ticker: "STORJ-USD", name: Storj }
+    - { ticker: "RLC-USD",   name: iExec RLC }
+    - { ticker: "RNDR-USD",  name: Render }
+    - { ticker: "FET-USD",   name: Fetch.ai }
+    - { ticker: "AGIX-USD",  name: SingularityNET }
+    - { ticker: "OCEAN-USD", name: Ocean Protocol }
+    # Gaming / NFT / Metaverse
+    - { ticker: "AXS-USD",   name: Axie Infinity }
+    - { ticker: "SAND-USD",  name: The Sandbox }
+    - { ticker: "MANA-USD",  name: Decentraland }
+    - { ticker: "ENJ-USD",   name: Enjin Coin }
+    - { ticker: "GALA-USD",  name: Gala }
+    - { ticker: "ILV-USD",   name: Illuvium }
+    - { ticker: "RON-USD",   name: Ronin }
+    # Exchange tokens
+    - { ticker: "CRO-USD",   name: Cronos }
+    - { ticker: "OKB-USD",   name: OKB }
+    - { ticker: "FTT-USD",   name: FTX Token }
+    - { ticker: "HT-USD",    name: Huobi Token }
+    - { ticker: "KCS-USD",   name: KuCoin Token }
+    # Liquid Staking
+    - { ticker: "STETH-USD", name: Lido Staked ETH }
+    - { ticker: "RETH-USD",  name: Rocket Pool ETH }
+    - { ticker: "CBETH-USD", name: Coinbase Wrapped Staked ETH }
+    - { ticker: "LDO-USD",   name: Lido DAO }
+    - { ticker: "RPL-USD",   name: Rocket Pool }
+    - { ticker: "ANKR-USD",  name: Ankr }
+    # Interoperability / Bridges
+    - { ticker: "QNT-USD",   name: Quant }
+    - { ticker: "REN-USD",   name: Ren }
+    - { ticker: "RUNE-USD",  name: THORChain }
+    - { ticker: "STX-USD",   name: Stacks }
+    # Indices / Wrapped
+    - { ticker: "WBTC-USD",  name: Wrapped Bitcoin }
+    - { ticker: "BTCB-USD",  name: Bitcoin BEP2 }
+
+  # ── Macro Indices (for regime detection) ─────────────────────────────────
+  indices:
+    - { ticker: "^GSPC",  name: S&P 500 }
+    - { ticker: "^IXIC",  name: Nasdaq Composite }
+    - { ticker: "^DJI",   name: Dow Jones Industrial }
+    - { ticker: "^RUT",   name: Russell 2000 }
+    - { ticker: "^VIX",   name: CBOE Volatility Index }
+    - { ticker: "^TNX",   name: 10-Year Treasury Yield }
+    - { ticker: "^TYX",   name: 30-Year Treasury Yield }
+    - { ticker: "^FVX",   name: 5-Year Treasury Yield }
+    - { ticker: "^IRX",   name: 13-Week Treasury Bill }
+    - { ticker: "^FTSE",  name: FTSE 100 }
+    - { ticker: "^GDAXI", name: DAX }
+    - { ticker: "^FCHI",  name: CAC 40 }
+    - { ticker: "^N225",  name: Nikkei 225 }
+    - { ticker: "^HSI",   name: Hang Seng }
+    - { ticker: "^SSEC",  name: Shanghai Composite }
+    - { ticker: "^BSESN", name: BSE Sensex }
+    - { ticker: "^NSEI",  name: Nifty 50 }
+    - { ticker: "^AXJO",  name: ASX 200 }
+    - { ticker: "^KS11",  name: KOSPI }
+    - { ticker: "^TWII",  name: Taiwan Weighted }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# EXECUTION / AUTO-PROPOSE
+# ─────────────────────────────────────────────────────────────────────────────
+execution:
+  account_equity: 100000        # Alpaca paper account size
+  min_signal_score: 25          # Only propose if |composite_score| >= this
+  max_auto_proposals: 5         # Max new trades per pipeline run
+  # Increase min_signal_score to be more selective (e.g. 35 = only very strong signals)
+  # Decrease to see more proposals (e.g. 15 = moderate signals included)
+
+# BACKTEST
+# ─────────────────────────────────────────────────────────────────────────────
+backtest:
+  initial_capital: 100000
+  commission_pct: 0.001
+  slippage_pct: 0.0005
+  signal_threshold: 15
+  risk_per_trade: 0.50
+  stop_loss_pct: 0.05
+  max_drawdown_limit: 0.20
+  run_backtest: false
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ML
+# ─────────────────────────────────────────────────────────────────────────────
+ml:
+  enabled: true
+  prediction_horizons: [1, 5, 20]
+  min_training_rows: 120
+  cv_splits: 5
+  keep_versions: 3
+  model_dir: "data/models"
+  target_mode: "direction"
+  use_risk_adjusted: true
+  use_triple_barrier: false
+  direction_threshold_pct: 0.005
+  ensemble_meta_learner: "elasticnet"
+  regime_adjustment: true
+  calibrate_probabilities: true
+  feature_lag: 1
+  use_cross_asset: true
+  use_macro_features: true
+  use_sentiment_features: true
+  use_microstructure: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MACRO
+# ─────────────────────────────────────────────────────────────────────────────
+macro:
+  cache_ttl_hours: 6
+  fred_series:
+    fed_funds: "FEDFUNDS"
+    cpi_yoy: "CPIAUCSL"
+    unemployment: "UNRATE"
+    yield_10y: "GS10"
+    yield_2y: "GS2"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STRATEGY CONFIGS
+# ─────────────────────────────────────────────────────────────────────────────
+strategies:
+
+  equity_long_short:
+    n_longs: 5
+    n_shorts: 5
+    sector_neutral: false
+
+  relative_value:
+    entry_zscore: 2.0
+    exit_zscore: 0.5
+    min_half_life: 5
+    max_half_life: 60
+    coint_pvalue_thresh: 0.05
+    ols_window: 60
+    max_pairs_scanned: 100
+
+  market_neutral:
+    beta_window: 60
+    target_beta_max: 0.10
+    n_longs: 8
+    n_shorts: 8
+
+  global_macro:
+    enabled: true
+
+  event_driven:
+    entry_days_before: 5
+    exit_days_after: 1
+    max_tickers_scanned: 30
+
+  distressed:
+    altman_z_distress: 1.81
+    debt_equity_max: 3.0
+    price_vs_52w_pct: -40.0
+
+  convertible_arb:
+    enabled: true
+
+  quant_systematic:
+    w_momentum: 0.30
+    w_value: 0.20
+    w_quality: 0.20
+    w_low_vol: 0.15
+    w_size: 0.15
+    n_longs: 10
+    n_shorts: 10
+
+  credit_long_short:
+    enabled: true
+
+  options:
+    iv_rank_sell_threshold: 50
+    iv_rank_buy_threshold: 30
+
+  futures:
+    trend_fast: 50
+    trend_slow: 200
+    risk_pct_per_trade: 0.01
+
+  crypto:
+    include_onchain: true
+
+  forex:
+    carry_enabled: true
+    ppp_enabled: true
+
+  derivatives_risk:
+    enabled: true
+
+  multi_strategy:
+    weighting_mode: "risk_parity"
+
+  master_portfolio:
+    top_n_longs: 10
+    top_n_shorts: 10
+    max_active_hedges: 5
+    risk_budgets:
+      equity_long_short: 0.25
+      global_macro: 0.20
+      quant_systematic: 0.15
+      options: 0.10
+      futures: 0.10
+      forex: 0.10
+      credit_long_short: 0.05
+      crypto: 0.05

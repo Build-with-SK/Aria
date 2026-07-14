@@ -1,0 +1,31 @@
+# configs/nexus_rules.yaml
+# NEXUS deep-research engine — deterministic thresholds.
+# The red-flag engine and the /10 score read ONLY these numbers.
+# No LLM is involved in any PASS/FAIL verdict or score point.
+
+red_flags:
+  pe_extreme_max: 100          # trailing P/E above this (or negative) = flag
+  debt_to_equity_max: 200      # yfinance reports D/E as a percentage
+  profit_margin_min: 0.0       # negative net margin = flag
+  revenue_growth_min: 0.0      # shrinking revenue = flag
+  roe_min: 0.05                # return on equity below 5% = flag
+  drawdown_from_52w_max: 50    # trading >50% below 52w high = flag
+  insider_holding_min: 0.10    # promoters/insiders below 10% = flag (NSE: promoter proxy)
+
+score:
+  # Each component is worth 0-2 points; five components = /10.
+  profitability:
+    roe_good: 0.15             # ROE >= 15% earns the full point
+    margin_good: 0.10          # net margin >= 10%
+  growth:
+    revenue_growth_good: 0.10
+    earnings_growth_good: 0.10
+  valuation:
+    pe_fair_max: 30            # P/E under 30 considered fair
+    pb_fair_max: 6
+  balance_sheet:
+    debt_to_equity_ok: 100     # D/E under 100% is healthy
+    # second point: total cash >= total debt
+  momentum:
+    return_1y_good: 10         # +10% over 1Y earns a point
+    near_high_within: 20       # within 20% of 52w high earns a point

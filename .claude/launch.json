@@ -1,0 +1,35 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Backend API",
+      "runtimeExecutable": "venv\\Scripts\\uvicorn.exe",
+      "runtimeArgs": ["backend.main:app", "--reload", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "Frontend",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd frontend && C:\\Users\\sound\\AppData\\Local\\ms-playwright-go\\1.57.0\\node.exe node_modules\\vite\\bin\\vite.js --port 3000"],
+      "port": 3000
+    },
+    {
+      "name": "ATLAS v2 Mind",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd /d C:\\Users\\sound\\Documents\\atlas && venv\\Scripts\\python.exe -m uvicorn mind.server:app --port 8200"],
+      "port": 8200
+    },
+    {
+      "name": "ATLAS API",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd /d C:\\Users\\sound\\Documents\\atlas && venv\\Scripts\\uvicorn.exe backend.main:app --port 8100"],
+      "port": 8100
+    },
+    {
+      "name": "ATLAS UI",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "cd /d C:\\Users\\sound\\Documents\\atlas\\frontend && npm run dev"],
+      "port": 3100
+    }
+  ]
+}

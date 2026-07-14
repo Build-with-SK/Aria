@@ -1,0 +1,16 @@
+﻿obsidian:
+  enabled: true
+  vault_root: "C:/Users/sound/Documents/DigitalBrain"
+  tis_root: "C:/Users/sound/Documents/DigitalBrain/01 - Trading/TIS"
+  folders:
+    dashboard:    "00 Dashboard"
+    daily_logs:   "01 Daily Market Logs"
+    signals:      "02 Signal Reports"
+    assets:       "03 Asset Notes"
+    backtest:     "04 Backtest Reports"
+    risk:         "05 Risk Reports"
+    portfolio:    "06 Portfolio Reports"
+    derivatives:  "07 Futures and Options"
+    ml:           "08 ML Predictions"
+    audit:        "09 Model Audit Logs"
+    system:       "10 System Development Logs"

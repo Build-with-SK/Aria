@@ -1,0 +1,1113 @@
+{
+  "AAPL": {
+    "ticker": "AAPL",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.311,
+        "bearish_prob": 0.689,
+        "direction": "Bearish",
+        "confidence": "High",
+        "model_agreement": 0.7185,
+        "per_model_probs": {
+          "logistic": 0.2913,
+          "random_forest": 0.3137,
+          "gradient_boosting": 0.4176,
+          "xgboost": 0.22130000591278076
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.2734,
+        "bearish_prob": 0.7266,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.3293,
+        "per_model_probs": {
+          "logistic": 0.5139,
+          "random_forest": 0.3343,
+          "gradient_boosting": 0.1749,
+          "xgboost": 0.07039999961853027
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.8489,
+        "bearish_prob": 0.1511,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.8431,
+        "per_model_probs": {
+          "logistic": 0.8023,
+          "random_forest": 0.83,
+          "gradient_boosting": 0.9089,
+          "xgboost": 0.8543000221252441
+        }
+      }
+    },
+    "overall_bullish": 0.3785,
+    "overall_signal": "Bearish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "MSFT": {
+    "ticker": "MSFT",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.4201,
+        "bearish_prob": 0.5799,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.84,
+        "per_model_probs": {
+          "logistic": 0.3607,
+          "random_forest": 0.4334,
+          "gradient_boosting": 0.4717,
+          "xgboost": 0.4147000014781952
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.5985,
+        "bearish_prob": 0.4015,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.1486,
+        "per_model_probs": {
+          "logistic": 0.2622,
+          "random_forest": 0.5729,
+          "gradient_boosting": 0.748,
+          "xgboost": 0.8108999729156494
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.7845,
+        "bearish_prob": 0.2155,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.5163,
+        "per_model_probs": {
+          "logistic": 0.6502,
+          "random_forest": 0.6782,
+          "gradient_boosting": 0.9144,
+          "xgboost": 0.8952999711036682
+        }
+      }
+    },
+    "overall_bullish": 0.5372,
+    "overall_signal": "Neutral",
+    "models_trained": true,
+    "warning": ""
+  },
+  "NVDA": {
+    "ticker": "NVDA",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.6175,
+        "bearish_prob": 0.3825,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.7488,
+        "per_model_probs": {
+          "logistic": 0.6721,
+          "random_forest": 0.6599,
+          "gradient_boosting": 0.5129,
+          "xgboost": 0.6252999901771545
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.6208,
+        "bearish_prob": 0.3792,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.426,
+        "per_model_probs": {
+          "logistic": 0.7161,
+          "random_forest": 0.5661,
+          "gradient_boosting": 0.4141,
+          "xgboost": 0.7868000268936157
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.5613,
+        "bearish_prob": 0.4387,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.5417,
+        "per_model_probs": {
+          "logistic": 0.4882,
+          "random_forest": 0.4851,
+          "gradient_boosting": 0.5129,
+          "xgboost": 0.7588000297546387
+        }
+      }
+    },
+    "overall_bullish": 0.6102,
+    "overall_signal": "Bullish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "TSLA": {
+    "ticker": "TSLA",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.3717,
+        "bearish_prob": 0.6283,
+        "direction": "Bearish",
+        "confidence": "High",
+        "model_agreement": 0.6329,
+        "per_model_probs": {
+          "logistic": 0.5059,
+          "random_forest": 0.4017,
+          "gradient_boosting": 0.2643,
+          "xgboost": 0.3147999942302704
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.4335,
+        "bearish_prob": 0.5665,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.7912,
+        "per_model_probs": {
+          "logistic": 0.5059,
+          "random_forest": 0.3658,
+          "gradient_boosting": 0.4543,
+          "xgboost": 0.4081999957561493
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.7452,
+        "bearish_prob": 0.2548,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.3615,
+        "per_model_probs": {
+          "logistic": 0.831,
+          "random_forest": 0.4688,
+          "gradient_boosting": 0.8429,
+          "xgboost": 0.838100016117096
+        }
+      }
+    },
+    "overall_bullish": 0.4494,
+    "overall_signal": "Bearish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "JPM": {
+    "ticker": "JPM",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.7091,
+        "bearish_prob": 0.2909,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.4906,
+        "per_model_probs": {
+          "logistic": 0.8889,
+          "random_forest": 0.5304,
+          "gradient_boosting": 0.691,
+          "xgboost": 0.7261000275611877
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.7751,
+        "bearish_prob": 0.2249,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.6343,
+        "per_model_probs": {
+          "logistic": 0.773,
+          "random_forest": 0.6271,
+          "gradient_boosting": 0.8396,
+          "xgboost": 0.8608999848365784
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.5449,
+        "bearish_prob": 0.4551,
+        "direction": "Bullish",
+        "confidence": "Low",
+        "model_agreement": 0.4171,
+        "per_model_probs": {
+          "logistic": 0.7894,
+          "random_forest": 0.4175,
+          "gradient_boosting": 0.454,
+          "xgboost": 0.5188000202178955
+        }
+      }
+    },
+    "overall_bullish": 0.7076,
+    "overall_signal": "Bullish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "META": {
+    "ticker": "META",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.6328,
+        "bearish_prob": 0.3672,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.6529,
+        "per_model_probs": {
+          "logistic": 0.4929,
+          "random_forest": 0.6315,
+          "gradient_boosting": 0.7203,
+          "xgboost": 0.6865000128746033
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.2399,
+        "bearish_prob": 0.7601,
+        "direction": "Bearish",
+        "confidence": "High",
+        "model_agreement": 0.7426,
+        "per_model_probs": {
+          "logistic": 0.2638,
+          "random_forest": 0.33,
+          "gradient_boosting": 0.2094,
+          "xgboost": 0.1565999984741211
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.4343,
+        "bearish_prob": 0.5657,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.6147,
+        "per_model_probs": {
+          "logistic": 0.2793,
+          "random_forest": 0.4615,
+          "gradient_boosting": 0.4522,
+          "xgboost": 0.5440000295639038
+        }
+      }
+    },
+    "overall_bullish": 0.4655,
+    "overall_signal": "Neutral",
+    "models_trained": true,
+    "warning": ""
+  },
+  "GOOGL": {
+    "ticker": "GOOGL",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.5203,
+        "bearish_prob": 0.4797,
+        "direction": "Bullish",
+        "confidence": "Low",
+        "model_agreement": 0.8315,
+        "per_model_probs": {
+          "logistic": 0.5194,
+          "random_forest": 0.5183,
+          "gradient_boosting": 0.4622,
+          "xgboost": 0.5813000202178955
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.7223,
+        "bearish_prob": 0.2777,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.7615,
+        "per_model_probs": {
+          "logistic": 0.7046,
+          "random_forest": 0.6371,
+          "gradient_boosting": 0.7998,
+          "xgboost": 0.7476000189781189
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.8953,
+        "bearish_prob": 0.1047,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.6204,
+        "per_model_probs": {
+          "logistic": 0.9312,
+          "random_forest": 0.7322,
+          "gradient_boosting": 0.9532,
+          "xgboost": 0.9645000100135803
+        }
+      }
+    },
+    "overall_bullish": 0.6473,
+    "overall_signal": "Bullish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "AMZN": {
+    "ticker": "AMZN",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.5478,
+        "bearish_prob": 0.4522,
+        "direction": "Bullish",
+        "confidence": "Low",
+        "model_agreement": 0.5611,
+        "per_model_probs": {
+          "logistic": 0.3881,
+          "random_forest": 0.5124,
+          "gradient_boosting": 0.6798,
+          "xgboost": 0.61080002784729
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.3222,
+        "bearish_prob": 0.6778,
+        "direction": "Bearish",
+        "confidence": "High",
+        "model_agreement": 0.8285,
+        "per_model_probs": {
+          "logistic": 0.3192,
+          "random_forest": 0.3491,
+          "gradient_boosting": 0.3666,
+          "xgboost": 0.2540000081062317
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.2917,
+        "bearish_prob": 0.7083,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.353,
+        "per_model_probs": {
+          "logistic": 0.5206,
+          "random_forest": 0.3497,
+          "gradient_boosting": 0.086,
+          "xgboost": 0.21050000190734863
+        }
+      }
+    },
+    "overall_bullish": 0.4304,
+    "overall_signal": "Bearish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "^GSPC": {
+    "ticker": "^GSPC",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.5953,
+        "bearish_prob": 0.4047,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.728,
+        "per_model_probs": {
+          "logistic": 0.5454,
+          "random_forest": 0.5815,
+          "gradient_boosting": 0.5442,
+          "xgboost": 0.7102000117301941
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.486,
+        "bearish_prob": 0.514,
+        "direction": "Bearish",
+        "confidence": "Low",
+        "model_agreement": 0.8291,
+        "per_model_probs": {
+          "logistic": 0.4633,
+          "random_forest": 0.4671,
+          "gradient_boosting": 0.454,
+          "xgboost": 0.559499979019165
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.881,
+        "bearish_prob": 0.119,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.6791,
+        "per_model_probs": {
+          "logistic": 0.8096,
+          "random_forest": 0.793,
+          "gradient_boosting": 0.9703,
+          "xgboost": 0.951200008392334
+        }
+      }
+    },
+    "overall_bullish": 0.5999,
+    "overall_signal": "Bullish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "^IXIC": {
+    "ticker": "^IXIC",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.4603,
+        "bearish_prob": 0.5397,
+        "direction": "Bearish",
+        "confidence": "Low",
+        "model_agreement": 0.6702,
+        "per_model_probs": {
+          "logistic": 0.5405,
+          "random_forest": 0.4695,
+          "gradient_boosting": 0.3243,
+          "xgboost": 0.5070000290870667
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.5001,
+        "bearish_prob": 0.4999,
+        "direction": "Bullish",
+        "confidence": "Low",
+        "model_agreement": 0.7599,
+        "per_model_probs": {
+          "logistic": 0.4012,
+          "random_forest": 0.5554,
+          "gradient_boosting": 0.5395,
+          "xgboost": 0.5042999982833862
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.9032,
+        "bearish_prob": 0.0968,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.6416,
+        "per_model_probs": {
+          "logistic": 0.9494,
+          "random_forest": 0.7504,
+          "gradient_boosting": 0.9782,
+          "xgboost": 0.9348999857902527
+        }
+      }
+    },
+    "overall_bullish": 0.5407,
+    "overall_signal": "Neutral",
+    "models_trained": true,
+    "warning": ""
+  },
+  "^DJI": {
+    "ticker": "^DJI",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.4431,
+        "bearish_prob": 0.5569,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.8743,
+        "per_model_probs": {
+          "logistic": 0.4545,
+          "random_forest": 0.4072,
+          "gradient_boosting": 0.422,
+          "xgboost": 0.4887999892234802
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.2572,
+        "bearish_prob": 0.7428,
+        "direction": "Bearish",
+        "confidence": "High",
+        "model_agreement": 0.8348,
+        "per_model_probs": {
+          "logistic": 0.3201,
+          "random_forest": 0.214,
+          "gradient_boosting": 0.2273,
+          "xgboost": 0.26750001311302185
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.6543,
+        "bearish_prob": 0.3457,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.4768,
+        "per_model_probs": {
+          "logistic": 0.5417,
+          "random_forest": 0.5079,
+          "gradient_boosting": 0.7634,
+          "xgboost": 0.8040000200271606
+        }
+      }
+    },
+    "overall_bullish": 0.4097,
+    "overall_signal": "Bearish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "^FTSE": {
+    "ticker": "^FTSE",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.6401,
+        "bearish_prob": 0.3599,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.5985,
+        "per_model_probs": {
+          "logistic": 0.4972,
+          "random_forest": 0.6039,
+          "gradient_boosting": 0.7653,
+          "xgboost": 0.6938999891281128
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.8247,
+        "bearish_prob": 0.1753,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.4543,
+        "per_model_probs": {
+          "logistic": 0.639,
+          "random_forest": 0.7488,
+          "gradient_boosting": 0.9586,
+          "xgboost": 0.9523000121116638
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.8701,
+        "bearish_prob": 0.1299,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.7136,
+        "per_model_probs": {
+          "logistic": 0.8631,
+          "random_forest": 0.7558,
+          "gradient_boosting": 0.9255,
+          "xgboost": 0.9358000159263611
+        }
+      }
+    },
+    "overall_bullish": 0.7392,
+    "overall_signal": "Bullish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "^N225": {
+    "ticker": "^N225",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.449,
+        "bearish_prob": 0.551,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.8505,
+        "per_model_probs": {
+          "logistic": 0.4288,
+          "random_forest": 0.398,
+          "gradient_boosting": 0.4803,
+          "xgboost": 0.48899999260902405
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.36,
+        "bearish_prob": 0.64,
+        "direction": "Bearish",
+        "confidence": "High",
+        "model_agreement": 0.5544,
+        "per_model_probs": {
+          "logistic": 0.2931,
+          "random_forest": 0.2646,
+          "gradient_boosting": 0.5481,
+          "xgboost": 0.33410000801086426
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.0804,
+        "bearish_prob": 0.9196,
+        "direction": "Bearish",
+        "confidence": "High",
+        "model_agreement": 0.9029,
+        "per_model_probs": {
+          "logistic": 0.0481,
+          "random_forest": 0.0855,
+          "gradient_boosting": 0.1154,
+          "xgboost": 0.07240000367164612
+        }
+      }
+    },
+    "overall_bullish": 0.3626,
+    "overall_signal": "Bearish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "^GDAXI": {
+    "ticker": "^GDAXI",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.3215,
+        "bearish_prob": 0.6785,
+        "direction": "Bearish",
+        "confidence": "High",
+        "model_agreement": 0.7703,
+        "per_model_probs": {
+          "logistic": 0.3535,
+          "random_forest": 0.3937,
+          "gradient_boosting": 0.2972,
+          "xgboost": 0.24169999361038208
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.6722,
+        "bearish_prob": 0.3278,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.4362,
+        "per_model_probs": {
+          "logistic": 0.8725,
+          "random_forest": 0.4807,
+          "gradient_boosting": 0.7041,
+          "xgboost": 0.6315000057220459
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.3247,
+        "bearish_prob": 0.6753,
+        "direction": "Bearish",
+        "confidence": "High",
+        "model_agreement": 0.5566,
+        "per_model_probs": {
+          "logistic": 0.4245,
+          "random_forest": 0.4077,
+          "gradient_boosting": 0.3218,
+          "xgboost": 0.14499999582767487
+        }
+      }
+    },
+    "overall_bullish": 0.4447,
+    "overall_signal": "Bearish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "EURUSD=X": {
+    "ticker": "EURUSD=X",
+    "horizons": {},
+    "overall_bullish": 0.5,
+    "overall_signal": "Neutral",
+    "models_trained": false,
+    "warning": "No trained models found. Run python main.py first."
+  },
+  "GBPUSD=X": {
+    "ticker": "GBPUSD=X",
+    "horizons": {},
+    "overall_bullish": 0.5,
+    "overall_signal": "Neutral",
+    "models_trained": false,
+    "warning": "No trained models found. Run python main.py first."
+  },
+  "USDJPY=X": {
+    "ticker": "USDJPY=X",
+    "horizons": {},
+    "overall_bullish": 0.5,
+    "overall_signal": "Neutral",
+    "models_trained": false,
+    "warning": "No trained models found. Run python main.py first."
+  },
+  "AUDUSD=X": {
+    "ticker": "AUDUSD=X",
+    "horizons": {},
+    "overall_bullish": 0.5,
+    "overall_signal": "Neutral",
+    "models_trained": false,
+    "warning": "No trained models found. Run python main.py first."
+  },
+  "USDINR=X": {
+    "ticker": "USDINR=X",
+    "horizons": {},
+    "overall_bullish": 0.5,
+    "overall_signal": "Neutral",
+    "models_trained": false,
+    "warning": "No trained models found. Run python main.py first."
+  },
+  "GC=F": {
+    "ticker": "GC=F",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.6196,
+        "bearish_prob": 0.3804,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.7693,
+        "per_model_probs": {
+          "logistic": 0.5531,
+          "random_forest": 0.5789,
+          "gradient_boosting": 0.7005,
+          "xgboost": 0.645799994468689
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.8777,
+        "bearish_prob": 0.1223,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.7258,
+        "per_model_probs": {
+          "logistic": 0.8555,
+          "random_forest": 0.7753,
+          "gradient_boosting": 0.9341,
+          "xgboost": 0.9458000063896179
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.8727,
+        "bearish_prob": 0.1273,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.7077,
+        "per_model_probs": {
+          "logistic": 0.8019,
+          "random_forest": 0.8035,
+          "gradient_boosting": 0.9127,
+          "xgboost": 0.9725000262260437
+        }
+      }
+    },
+    "overall_bullish": 0.7479,
+    "overall_signal": "Bullish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "CL=F": {
+    "ticker": "CL=F",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.5205,
+        "bearish_prob": 0.4795,
+        "direction": "Bullish",
+        "confidence": "Low",
+        "model_agreement": 0.4767,
+        "per_model_probs": {
+          "logistic": 0.5676,
+          "random_forest": 0.5935,
+          "gradient_boosting": 0.2966,
+          "xgboost": 0.6243000030517578
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.7029,
+        "bearish_prob": 0.2971,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.2939,
+        "per_model_probs": {
+          "logistic": 0.9709,
+          "random_forest": 0.7421,
+          "gradient_boosting": 0.5944,
+          "xgboost": 0.5041000247001648
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.5951,
+        "bearish_prob": 0.4049,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.8669,
+        "per_model_probs": {
+          "logistic": 0.6497,
+          "random_forest": 0.5703,
+          "gradient_boosting": 0.5942,
+          "xgboost": 0.5662000179290771
+        }
+      }
+    },
+    "overall_bullish": 0.5955,
+    "overall_signal": "Bullish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "SI=F": {
+    "ticker": "SI=F",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.8372,
+        "bearish_prob": 0.1628,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.6315,
+        "per_model_probs": {
+          "logistic": 0.7034,
+          "random_forest": 0.8001,
+          "gradient_boosting": 0.9161,
+          "xgboost": 0.929099977016449
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.8338,
+        "bearish_prob": 0.1662,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.553,
+        "per_model_probs": {
+          "logistic": 0.6819,
+          "random_forest": 0.7754,
+          "gradient_boosting": 0.913,
+          "xgboost": 0.964900016784668
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.8571,
+        "bearish_prob": 0.1429,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.7497,
+        "per_model_probs": {
+          "logistic": 0.8149,
+          "random_forest": 0.7772,
+          "gradient_boosting": 0.9153,
+          "xgboost": 0.9211999773979187
+        }
+      }
+    },
+    "overall_bullish": 0.839,
+    "overall_signal": "Bullish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "NG=F": {
+    "ticker": "NG=F",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.4674,
+        "bearish_prob": 0.5326,
+        "direction": "Bearish",
+        "confidence": "Low",
+        "model_agreement": 0.9105,
+        "per_model_probs": {
+          "logistic": 0.4942,
+          "random_forest": 0.4769,
+          "gradient_boosting": 0.4329,
+          "xgboost": 0.46549999713897705
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.2736,
+        "bearish_prob": 0.7264,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.221,
+        "per_model_probs": {
+          "logistic": 0.5759,
+          "random_forest": 0.3126,
+          "gradient_boosting": 0.0864,
+          "xgboost": 0.11940000206232071
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.7698,
+        "bearish_prob": 0.2302,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.7488,
+        "per_model_probs": {
+          "logistic": 0.8315,
+          "random_forest": 0.7301,
+          "gradient_boosting": 0.83,
+          "xgboost": 0.6875
+        }
+      }
+    },
+    "overall_bullish": 0.4449,
+    "overall_signal": "Bearish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "BTC-USD": {
+    "ticker": "BTC-USD",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.6272,
+        "bearish_prob": 0.3728,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.8683,
+        "per_model_probs": {
+          "logistic": 0.6053,
+          "random_forest": 0.59,
+          "gradient_boosting": 0.6376,
+          "xgboost": 0.6758000254631042
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.7866,
+        "bearish_prob": 0.2134,
+        "direction": "Bullish",
+        "confidence": "High",
+        "model_agreement": 0.7271,
+        "per_model_probs": {
+          "logistic": 0.699,
+          "random_forest": 0.7412,
+          "gradient_boosting": 0.8497,
+          "xgboost": 0.8565999865531921
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.4063,
+        "bearish_prob": 0.5937,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.1489,
+        "per_model_probs": {
+          "logistic": 0.7163,
+          "random_forest": 0.4748,
+          "gradient_boosting": 0.1513,
+          "xgboost": 0.2827000021934509
+        }
+      }
+    },
+    "overall_bullish": 0.6499,
+    "overall_signal": "Bullish",
+    "models_trained": true,
+    "warning": ""
+  },
+  "ETH-USD": {
+    "ticker": "ETH-USD",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.5247,
+        "bearish_prob": 0.4753,
+        "direction": "Bullish",
+        "confidence": "Low",
+        "model_agreement": 0.8752,
+        "per_model_probs": {
+          "logistic": 0.5285,
+          "random_forest": 0.5161,
+          "gradient_boosting": 0.4835,
+          "xgboost": 0.5705999732017517
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.5995,
+        "bearish_prob": 0.4005,
+        "direction": "Bullish",
+        "confidence": "Medium",
+        "model_agreement": 0.8299,
+        "per_model_probs": {
+          "logistic": 0.6472,
+          "random_forest": 0.5329,
+          "gradient_boosting": 0.596,
+          "xgboost": 0.621999979019165
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.237,
+        "bearish_prob": 0.763,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.347,
+        "per_model_probs": {
+          "logistic": 0.483,
+          "random_forest": 0.2863,
+          "gradient_boosting": 0.0821,
+          "xgboost": 0.09679999947547913
+        }
+      }
+    },
+    "overall_bullish": 0.5077,
+    "overall_signal": "Neutral",
+    "models_trained": true,
+    "warning": ""
+  },
+  "SOL-USD": {
+    "ticker": "SOL-USD",
+    "horizons": {
+      "1": {
+        "horizon_days": 1,
+        "bullish_prob": 0.4125,
+        "bearish_prob": 0.5875,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.7693,
+        "per_model_probs": {
+          "logistic": 0.4642,
+          "random_forest": 0.4726,
+          "gradient_boosting": 0.3368,
+          "xgboost": 0.3765999972820282
+        }
+      },
+      "5": {
+        "horizon_days": 5,
+        "bullish_prob": 0.4255,
+        "bearish_prob": 0.5745,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.6908,
+        "per_model_probs": {
+          "logistic": 0.4968,
+          "random_forest": 0.4987,
+          "gradient_boosting": 0.3922,
+          "xgboost": 0.31439998745918274
+        }
+      },
+      "20": {
+        "horizon_days": 20,
+        "bullish_prob": 0.2555,
+        "bearish_prob": 0.7445,
+        "direction": "Bearish",
+        "confidence": "Medium",
+        "model_agreement": 0.4495,
+        "per_model_probs": {
+          "logistic": 0.4477,
+          "random_forest": 0.3244,
+          "gradient_boosting": 0.1241,
+          "xgboost": 0.125900000333786
+        }
+      }
+    },
+    "overall_bullish": 0.3935,
+    "overall_signal": "Bearish",
+    "models_trained": true,
+    "warning": ""
+  }
+}

@@ -1,0 +1,20 @@
+# Trading Intelligence System — Notification Config
+# Fill in your credentials below. This file is gitignored.
+
+email:
+  enabled: false
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  sender_email: "your_email@gmail.com"
+  sender_password: "your_app_password"   # Gmail: use App Password, not main password
+  recipient_email: "your_email@gmail.com"
+  send_on_severity: ["CRITICAL", "WARNING"]   # Which severities to email
+
+telegram:
+  enabled: false
+  bot_token: "your_bot_token"     # Get from @BotFather on Telegram
+  chat_id: "your_chat_id"         # Get from @userinfobot on Telegram
+  send_on_severity: ["CRITICAL", "WARNING", "INFO"]
+
+# Minimum alerts to send (avoid spam on quiet days)
+min_alerts_to_notify: 1

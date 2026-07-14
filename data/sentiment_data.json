@@ -1,0 +1,410 @@
+{
+  "AAPL": {
+    "ticker": "AAPL",
+    "n_articles": 11,
+    "avg_score": 0.1818,
+    "recency_weighted_score": 0.1631,
+    "sentiment_score": 16.31,
+    "label": "Bullish",
+    "top_headlines": [
+      "Tech Stars From the 90s Reborn: Nokia, Dell, Cisco Surge on AI",
+      "Apple (AAPL) is a Great Momentum Stock: Should You Buy?",
+      "QQQ\u2019s Hidden Risk: Why the Fund\u2019s Top 5 Holdings Move Together",
+      "SCHX\u2019s 750 stocks hide a 48% concentration risk most dividend investors overlook",
+      "What to Know About This Fund's $32.6 Million Porch Group Purchase"
+    ],
+    "warning": ""
+  },
+  "MSFT": {
+    "ticker": "MSFT",
+    "n_articles": 10,
+    "avg_score": 0.0,
+    "recency_weighted_score": -0.0022,
+    "sentiment_score": -0.22,
+    "label": "Neutral",
+    "top_headlines": [
+      "Paramount Is Pulling Every Lever to Sell LBO Debt",
+      "Is Microsoft Corporation (MSFT) A Stock to Buy for the Long Term?",
+      "Every Big Tech Company Is Solving AI the Same Way. This Stock Is Solving It Differently.",
+      "Datadog Share Value Has More Than Doubled As Investors Recognize a Growing Market Opportunity",
+      "QQQ\u2019s Hidden Risk: Why the Fund\u2019s Top 5 Holdings Move Together"
+    ],
+    "warning": ""
+  },
+  "NVDA": {
+    "ticker": "NVDA",
+    "n_articles": 10,
+    "avg_score": 0.2,
+    "recency_weighted_score": 0.206,
+    "sentiment_score": 20.6,
+    "label": "Bullish",
+    "top_headlines": [
+      "The Dividend ETF Built for Whatever the Market Does Next",
+      "Skip XRP and Buy This Top Cryptocurrency Instead",
+      "GOP lawmakers' portfolios are migrating to Trump favorites like Intel and bitcoin",
+      "Can Starlink Make American Airlines a Winner?",
+      "Every Big Tech Company Is Solving AI the Same Way. This Stock Is Solving It Differently."
+    ],
+    "warning": ""
+  },
+  "TSLA": {
+    "ticker": "TSLA",
+    "n_articles": 11,
+    "avg_score": 0.0909,
+    "recency_weighted_score": 0.1119,
+    "sentiment_score": 11.19,
+    "label": "Neutral",
+    "top_headlines": [
+      "Dow Jones Futures: Iran Deal Or No, Market Hits Highs; Nvidia, Tesla Lead 5 Titans Near Buy Points",
+      "Jensen Huang\u2019s $40 Trillion Robot Call Echoes the 1913 Moving Assembly Line. The Pattern Says Buy the Picks and Shovels",
+      "Tesla (TSLA) Stock Declines While Market Improves: Some Information for Investors",
+      "Could the Next Great Space Stock Come From Japan?",
+      "Tesla\u2019s Next Act? Wall Street Begins Weighing a SpaceX Combination"
+    ],
+    "warning": ""
+  },
+  "JPM": {
+    "ticker": "JPM",
+    "n_articles": 10,
+    "avg_score": 0.1,
+    "recency_weighted_score": 0.0729,
+    "sentiment_score": 7.29,
+    "label": "Neutral",
+    "top_headlines": [
+      "Paramount Is Pulling Every Lever to Sell LBO Debt",
+      "Jamie Dimon Says JPMorgan (JPM) Could Spend Up to $20 Billion on an Acquisition",
+      "Top Stock Reports for JPMorgan, GE Aerospace & Western Digital",
+      "JPMorgan resets Dell stock price target after earnings",
+      "Jeff Bezos Says Bottom 50% of Americans Should Pay No Tax. The Real Culprit Is Federal Spending"
+    ],
+    "warning": ""
+  },
+  "META": {
+    "ticker": "META",
+    "n_articles": 12,
+    "avg_score": 0.0833,
+    "recency_weighted_score": 0.0994,
+    "sentiment_score": 9.94,
+    "label": "Neutral",
+    "top_headlines": [
+      "Why This Fund Dumped $35 Million of UiPath Even as Revenue Grew 17%",
+      "Is This AI Stock a Buy After Dropping 20% From Its All-Time High?",
+      "Meta, TikTok, Snap, and YouTube settle school lawsuit for $27M",
+      "Every Big Tech Company Is Solving AI the Same Way. This Stock Is Solving It Differently.",
+      "QQQ\u2019s Hidden Risk: Why the Fund\u2019s Top 5 Holdings Move Together"
+    ],
+    "warning": ""
+  },
+  "GOOGL": {
+    "ticker": "GOOGL",
+    "n_articles": 10,
+    "avg_score": 0.1,
+    "recency_weighted_score": 0.1001,
+    "sentiment_score": 10.01,
+    "label": "Neutral",
+    "top_headlines": [
+      "Dow Jones Futures: Iran Deal Or No, Market Hits Highs; Nvidia, Tesla Lead 5 Titans Near Buy Points",
+      "Every Big Tech Company Is Solving AI the Same Way. This Stock Is Solving It Differently.",
+      "QQQ\u2019s Hidden Risk: Why the Fund\u2019s Top 5 Holdings Move Together",
+      "FBI flags \u2018anti-tech extremism\u2019 as AI opposition grows",
+      "What to Know About This Fund's $32.6 Million Porch Group Purchase"
+    ],
+    "warning": ""
+  },
+  "AMZN": {
+    "ticker": "AMZN",
+    "n_articles": 10,
+    "avg_score": 0.2,
+    "recency_weighted_score": 0.1995,
+    "sentiment_score": 19.95,
+    "label": "Bullish",
+    "top_headlines": [
+      "1 Overlooked Reason to Buy Amazon Stock Right Now",
+      "Dow Jones Futures: Iran Deal Or No, Market Hits Highs; Nvidia, Tesla Lead 5 Titans Near Buy Points",
+      "Every Big Tech Company Is Solving AI the Same Way. This Stock Is Solving It Differently.",
+      "Jeff Bezos' Blue Origin rocket explodes as space tech stocks tank",
+      "QQQ\u2019s Hidden Risk: Why the Fund\u2019s Top 5 Holdings Move Together"
+    ],
+    "warning": ""
+  },
+  "^GSPC": {
+    "ticker": "^GSPC",
+    "n_articles": 10,
+    "avg_score": 0.4,
+    "recency_weighted_score": 0.4019,
+    "sentiment_score": 40.19,
+    "label": "Bullish",
+    "top_headlines": [
+      "The Dividend ETF Built for Whatever the Market Does Next",
+      "Is Privia Health Stock a Buy After Hedge Fund Rubicon Founders Added Over 175,000 Shares to Its Position?",
+      "Dow Jones Futures: Iran Deal Or No, Market Hits Highs; Nvidia, Tesla Lead 5 Titans Near Buy Points",
+      "This Is the Artificial Intelligence (AI) Stock I'd Buy if the Market Crashed Tomorrow",
+      "Wall Street's latest dot-com bubble joke is Knicks-themed: Chart of the Day"
+    ],
+    "warning": ""
+  },
+  "^IXIC": {
+    "ticker": "^IXIC",
+    "n_articles": 10,
+    "avg_score": 0.4,
+    "recency_weighted_score": 0.4043,
+    "sentiment_score": 40.43,
+    "label": "Bullish",
+    "top_headlines": [
+      "Dow Jones Futures: Iran Deal Or No, Market Hits Highs; Nvidia, Tesla Lead 5 Titans Near Buy Points",
+      "This Is the Artificial Intelligence (AI) Stock I'd Buy if the Market Crashed Tomorrow",
+      "Stock Market Week Ahead: Chipmaker Aims For 9th Straight Triple-Digit Gain",
+      "Dow Jones Giants Amazon, Caterpillar Lead Five Stocks Near Buy Points",
+      "Wall Street's latest dot-com bubble joke is Knicks-themed: Chart of the Day"
+    ],
+    "warning": ""
+  },
+  "^DJI": {
+    "ticker": "^DJI",
+    "n_articles": 10,
+    "avg_score": 0.4,
+    "recency_weighted_score": 0.3958,
+    "sentiment_score": 39.58,
+    "label": "Bullish",
+    "top_headlines": [
+      "Dow Jones Futures: Iran Deal Or No, Market Hits Highs; Nvidia, Tesla Lead 5 Titans Near Buy Points",
+      "Dow Jones Giants Amazon, Caterpillar Lead Five Stocks Near Buy Points",
+      "Wall St hits new closing highs on tech strength, Iran deal hopes",
+      "Annaly Capital Management (NLY) Beats Stock Market Upswing: What Investors Need to Know",
+      "Is Philip Morris Stock Underperforming the Dow?"
+    ],
+    "warning": ""
+  },
+  "^FTSE": {
+    "ticker": "^FTSE",
+    "n_articles": 12,
+    "avg_score": 0.3333,
+    "recency_weighted_score": 0.3479,
+    "sentiment_score": 34.79,
+    "label": "Bullish",
+    "top_headlines": [
+      "European Stocks Close Mixed; Trump to Make Final Determination on US, Iran Peace Deal",
+      "3 UK Growth Stocks With Strong Insider Ownership",
+      "Top UK Dividend Stocks To Consider In May 2026",
+      "European Stocks Close Lower in Thursday Trading; Defense Stocks Rally as US-Iran Tensions Persist",
+      "Oil falls amid hopes for Trump peace deal backing"
+    ],
+    "warning": ""
+  },
+  "^N225": {
+    "ticker": "^N225",
+    "n_articles": 10,
+    "avg_score": 0.1,
+    "recency_weighted_score": 0.2143,
+    "sentiment_score": 21.43,
+    "label": "Bullish",
+    "top_headlines": [
+      "Nikkei Rises 2.5% to All-Time High, Led by Electronics Stocks",
+      "Asian Markets Mixed at Wednesday's Close Amid Tech Stock Rally, Uncertain US-Iran Peace Deal",
+      "Major Asian Stock Markets Fall Amid Renewed Middle East Tensions",
+      "Persian Gulf, Tech Outlooks Fuel Asian Stock Markets",
+      "Higher Crude, Persian Gulf Outlooks Lowers Asian Stock Markets"
+    ],
+    "warning": ""
+  },
+  "^GDAXI": {
+    "ticker": "^GDAXI",
+    "n_articles": 10,
+    "avg_score": 0.6,
+    "recency_weighted_score": 0.5865,
+    "sentiment_score": 58.65,
+    "label": "Bullish",
+    "top_headlines": [
+      "European Stocks Close Mixed; Trump to Make Final Determination on US, Iran Peace Deal",
+      "European Stocks Close Lower in Thursday Trading; Defense Stocks Rally as US-Iran Tensions Persist",
+      "European Growth Stocks With Insider Ownership Up To 22%",
+      "Italian Stocks Hit First Record in 26 Years Led by Energy, Chips",
+      "Exploring Appear And Two European Tech Stocks with High Growth Potential"
+    ],
+    "warning": ""
+  },
+  "EURUSD=X": {
+    "ticker": "EURUSD=X",
+    "n_articles": 10,
+    "avg_score": 0.1,
+    "recency_weighted_score": 0.054,
+    "sentiment_score": 5.4,
+    "label": "Neutral",
+    "top_headlines": [
+      "Treasury Yields, Dollar Recover as U.S.-Iran Deal Fails to Materialize",
+      "Dollar Falls as Crude Oil Retreats",
+      "Treasury Yields Lose Steam But Still Rise on Hopes of Hormuz Deal",
+      "Dollar climbs as US strikes on Iran dent ceasefire optimism",
+      "Yen \u2018Grossly Undervalued\u2019 Versus Dollar, Should Strengthen"
+    ],
+    "warning": ""
+  },
+  "GBPUSD=X": {
+    "ticker": "GBPUSD=X",
+    "n_articles": 10,
+    "avg_score": 0.3,
+    "recency_weighted_score": 0.0613,
+    "sentiment_score": 6.13,
+    "label": "Neutral",
+    "top_headlines": [
+      "Deutsche Bank sees room for a further rally in EUR/GBP",
+      "Gilts Slump in Anticipation of Burnham Challenge to Starmer",
+      "UK borrowing costs hit 28-year-high as City braces for Burnham challenge",
+      "Yen Spikes to 10-Week High and Sparks Intervention Chatter",
+      "Sterling Today: Pound jumps as dollar sells off on Iran-Hormuz deal hopes"
+    ],
+    "warning": ""
+  },
+  "USDJPY=X": {
+    "ticker": "USDJPY=X",
+    "n_articles": 3,
+    "avg_score": 0.3333,
+    "recency_weighted_score": 0.9751,
+    "sentiment_score": 97.51,
+    "label": "Bullish",
+    "top_headlines": [
+      "Why a Plunging Dollar Is Missing Out on the Relief Rally",
+      "How Markets Reacted to Trump's Iran Post, in Charts",
+      "The Dollar Isn\u2019t Done. Why It\u2019s Outshining Rivals Amid Iran Crisis."
+    ],
+    "warning": ""
+  },
+  "AUDUSD=X": {
+    "ticker": "AUDUSD=X",
+    "n_articles": 10,
+    "avg_score": 0.1,
+    "recency_weighted_score": 0.0004,
+    "sentiment_score": 0.04,
+    "label": "Neutral",
+    "top_headlines": [
+      "Most currencies steady as markets focus on US-Iran talks, NZ dollar gains",
+      "Taiwan Semiconductor Manufacturing Company Limited (TSM) Gains from Strong Demand and Its Industry-Leading Manufacturing Capabilities",
+      "The WSJ Dollar Index Falls 0.20% to 96.12",
+      "Dollar drifts lower as oil falls on Hormuz deal optimism",
+      "The Dollar is Now Lower Than When the Iran War Began"
+    ],
+    "warning": ""
+  },
+  "USDINR=X": {
+    "ticker": "USDINR=X",
+    "n_articles": 0,
+    "avg_score": 0.0,
+    "recency_weighted_score": 0.0,
+    "sentiment_score": 0.0,
+    "label": "Neutral",
+    "top_headlines": [],
+    "warning": "No news articles found"
+  },
+  "GC=F": {
+    "ticker": "GC=F",
+    "n_articles": 11,
+    "avg_score": -0.2727,
+    "recency_weighted_score": -0.2832,
+    "sentiment_score": -28.32,
+    "label": "Bearish",
+    "top_headlines": [
+      "Gold Falls To Two-Month Low As Iran War Fears Send Oil Prices, Dollar Climbing",
+      "Gold Is Up Again in 2026 and After Reviewing Every Way to Access the Metal, These 3 ETFs Cover the Trade at Three Different Risk Levels",
+      "Inflation Squeezes Retirement. 5 Smart Tips to Protect Yourself.",
+      "Is Equinox Gold Corp. (EQX) a Stock that Could 10X by 2030?",
+      "Is Gold\u2019s Pullback Creating a New Entry Opportunity?"
+    ],
+    "warning": ""
+  },
+  "CL=F": {
+    "ticker": "CL=F",
+    "n_articles": 10,
+    "avg_score": -0.2667,
+    "recency_weighted_score": -0.2572,
+    "sentiment_score": -25.72,
+    "label": "Bearish",
+    "top_headlines": [
+      "China\u2019s Oil Buying Pause Won\u2019t Last Forever",
+      "Chevron CEO drops stark warning on oil prices",
+      "Gold Falls To Two-Month Low As Iran War Fears Send Oil Prices, Dollar Climbing",
+      "How to Recession-Proof Your Retirement Income Before Summer 2026",
+      "Oil heads for steep weekly loss as hopes grow for a U.S.-Iran agreement"
+    ],
+    "warning": ""
+  },
+  "SI=F": {
+    "ticker": "SI=F",
+    "n_articles": 13,
+    "avg_score": 0.3077,
+    "recency_weighted_score": 0.304,
+    "sentiment_score": 30.4,
+    "label": "Bullish",
+    "top_headlines": [
+      "Singapore Launches a US Dollar Silver Futures Contract This Month To Add To COMEX Woes and Reduce Artificial Pricing",
+      "LunR Royalties Completes Acquisition of Fruta del Norte Silver Stream, Gets Conditional Approval to Graduate to TSX",
+      "Roth Capital is Bullish on New Pacific Metals Corp. (NEWP)",
+      "CDE vs. HL: Which Mining Stock Has More Upside Right Now?",
+      "Silvercorp Metals Q4 Earnings Call Highlights"
+    ],
+    "warning": ""
+  },
+  "NG=F": {
+    "ticker": "NG=F",
+    "n_articles": 14,
+    "avg_score": 0.2143,
+    "recency_weighted_score": 0.1956,
+    "sentiment_score": 19.56,
+    "label": "Bullish",
+    "top_headlines": [
+      "EQT Corporation (EQT): Leopold Aschenbrenner Is No Longer Bullish",
+      "ProPetro Holding Corp. (PUMP): Leopold Aschenbrenner Remains Bullish",
+      "Sector Update: Energy Stocks Fall Late Afternoon",
+      "BP Eyes Growth Offshore Azerbaijan With Babek Gas Field Project",
+      "Enbridge vs Kinder Morgan: The Better Dividend Stock For Passive Income Investors"
+    ],
+    "warning": ""
+  },
+  "BTC-USD": {
+    "ticker": "BTC-USD",
+    "n_articles": 13,
+    "avg_score": 0.0769,
+    "recency_weighted_score": 0.1103,
+    "sentiment_score": 11.03,
+    "label": "Neutral",
+    "top_headlines": [
+      "Marathon Digital Bets Its Bitcoin Mining Power Assets Can Fuel AI Data Center Growth",
+      "How Buying Ethereum Could 10X Your Investment Over the Next Decade",
+      "SpaceX Holds $1.5 Billion in Bitcoin. Does That Make the Coin a Buy?",
+      "HYPE Token Hits Record as CFTC Perpetuals Approval Lifts Hyperliquid",
+      "'What Will You Sell Next?' Peter Schiff Fires At Michael Saylor After Strategy's $1.5B Debt Repurchase"
+    ],
+    "warning": ""
+  },
+  "ETH-USD": {
+    "ticker": "ETH-USD",
+    "n_articles": 18,
+    "avg_score": 0.2778,
+    "recency_weighted_score": 0.2913,
+    "sentiment_score": 29.13,
+    "label": "Bullish",
+    "top_headlines": [
+      "Skip XRP and Buy This Top Cryptocurrency Instead",
+      "How Buying Ethereum Could 10X Your Investment Over the Next Decade",
+      "Is It Too Late to Buy Polkadot?",
+      "Is It Smarter to Buy Bitcoin (BTC) or Ethereum (ETH) Right Now?",
+      "Ethereum's Price Is Acting Like AMZN Stock After The Dot-Com Crash, Says Standard Chartered \u2013 It's Gone Up 1000x Since"
+    ],
+    "warning": ""
+  },
+  "SOL-USD": {
+    "ticker": "SOL-USD",
+    "n_articles": 16,
+    "avg_score": 0.3125,
+    "recency_weighted_score": 0.2596,
+    "sentiment_score": 25.96,
+    "label": "Bullish",
+    "top_headlines": [
+      "Can Solana (SOL) Reclaim Its $294 All-Time High?",
+      "How High Could Solana (SOL) Realistically Go This Cycle?",
+      "SOFI Stock Gains After SoFiUSD Stablecoin Rollout On Ethereum, Solana \u2013 \u2018This Is What GENIUS Enabled,\u2019 Says Crypto Council CEO",
+      "Solana Liquidity Surge: What a $250M USDC Injection Means for SOL Traders",
+      "Is Solana A Good Crypto To Buy In 2026?"
+    ],
+    "warning": ""
+  }
+}

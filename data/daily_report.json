@@ -1,0 +1,237 @@
+{
+  "date": "2026-05-31",
+  "version": "Phase 2",
+  "market_regime": "Mildly Bullish",
+  "regime_stats": {
+    "bull": 14,
+    "bear": 5,
+    "neutral": 7
+  },
+  "top_bullish": [
+    {
+      "ticker": "^N225",
+      "name": "Nikkei 225",
+      "score": 45.28,
+      "action": "Buy",
+      "confidence": "High",
+      "regime": "Bull",
+      "vol": 0.2996
+    },
+    {
+      "ticker": "AAPL",
+      "name": "Apple",
+      "score": 40.89,
+      "action": "Buy",
+      "confidence": "High",
+      "regime": "Bull",
+      "vol": 0.1718
+    },
+    {
+      "ticker": "^DJI",
+      "name": "Dow Jones Industrial Average",
+      "score": 32.03,
+      "action": "Mild Bullish",
+      "confidence": "Medium",
+      "regime": "Bull",
+      "vol": 0.108
+    },
+    {
+      "ticker": "^IXIC",
+      "name": "NASDAQ Composite",
+      "score": 28.59,
+      "action": "Mild Bullish",
+      "confidence": "Medium",
+      "regime": "Bull",
+      "vol": 0.1471
+    },
+    {
+      "ticker": "AMZN",
+      "name": "Amazon",
+      "score": 27.54,
+      "action": "Mild Bullish",
+      "confidence": "Medium",
+      "regime": "Risk-On Bull",
+      "vol": 0.2129
+    }
+  ],
+  "top_bearish": [
+    {
+      "ticker": "ETH-USD",
+      "name": "Ethereum",
+      "score": -41.48,
+      "action": "Sell",
+      "confidence": "High",
+      "regime": "Bear",
+      "vol": 0.2404
+    },
+    {
+      "ticker": "SOL-USD",
+      "name": "Solana",
+      "score": -32.32,
+      "action": "Mild Bearish",
+      "confidence": "Medium",
+      "regime": "Bear",
+      "vol": 0.2885
+    },
+    {
+      "ticker": "BTC-USD",
+      "name": "Bitcoin",
+      "score": -29.66,
+      "action": "Mild Bearish",
+      "confidence": "Medium",
+      "regime": "Bear",
+      "vol": 0.2083
+    },
+    {
+      "ticker": "CL=F",
+      "name": "Crude Oil WTI",
+      "score": -23.19,
+      "action": "Mild Bearish",
+      "confidence": "Low",
+      "regime": "Bull",
+      "vol": 0.5935
+    },
+    {
+      "ticker": "JPM",
+      "name": "JPMorgan Chase",
+      "score": -20.58,
+      "action": "Mild Bearish",
+      "confidence": "Medium",
+      "regime": "Bear",
+      "vol": 0.2231
+    }
+  ],
+  "futures_summary": {
+    "n_contracts": 10,
+    "confirming_bullish": [
+      "ES=F",
+      "NQ=F",
+      "YM=F",
+      "RTY=F",
+      "NG=F"
+    ],
+    "confirming_bearish": [
+      "CL=F"
+    ],
+    "avg_confirmation": 13.91
+  },
+  "options_summary": {
+    "n_analyzed": 6,
+    "bullish_sentiment": [
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "TSLA"
+    ],
+    "bearish_sentiment": [
+      "SPY"
+    ],
+    "avg_sentiment": 28.4
+  },
+  "ml_summary": {
+    "n_assets_with_models": 21,
+    "ml_bullish": [
+      "NVDA",
+      "JPM",
+      "GOOGL",
+      "^GSPC",
+      "^FTSE",
+      "GC=F",
+      "CL=F",
+      "SI=F",
+      "BTC-USD"
+    ],
+    "ml_bearish": [
+      "AAPL",
+      "TSLA",
+      "AMZN",
+      "^DJI",
+      "^N225",
+      "^GDAXI",
+      "NG=F",
+      "SOL-USD"
+    ]
+  },
+  "portfolio_summary": {
+    "total_allocated": 24.02,
+    "diversification_score": 72.8,
+    "portfolio_vol": 0.1836,
+    "warnings": []
+  },
+  "opportunities": [
+    {
+      "ticker": "^N225",
+      "score": 45.28,
+      "action": "Buy",
+      "driver": "Price is above 20-day SMA \u2014 short-term trend is positive"
+    },
+    {
+      "ticker": "AAPL",
+      "score": 40.89,
+      "action": "Buy",
+      "driver": "Price is above 20-day SMA \u2014 short-term trend is positive"
+    },
+    {
+      "ticker": "^DJI",
+      "score": 32.03,
+      "action": "Mild Bullish",
+      "driver": "Price is above 20-day SMA \u2014 short-term trend is positive"
+    }
+  ],
+  "risks": [
+    {
+      "ticker": "ETH-USD",
+      "score": -41.48,
+      "action": "Sell",
+      "risk": "Price is below 20-day SMA \u2014 short-term trend is negative"
+    },
+    {
+      "ticker": "SOL-USD",
+      "score": -32.32,
+      "action": "Mild Bearish",
+      "risk": "Price is below 20-day SMA \u2014 short-term trend is negative"
+    }
+  ],
+  "macro": {
+    "fed_funds_rate": null,
+    "treasury_10y": 4.453,
+    "treasury_2y": 3.588,
+    "yield_spread_10y2y": 0.865,
+    "cpi_yoy": null,
+    "unemployment_rate": null,
+    "vix": 15.32,
+    "dxy": 98.91,
+    "dxy_trend": 0.0085,
+    "gold_trend_20d": -0.0117,
+    "macro_score": 10.79,
+    "regime": "Expansion (Goldilocks)",
+    "data_date": "2026-05-31",
+    "sources_available": [
+      "VIX",
+      "10Y_yield",
+      "2Y_proxy",
+      "DXY",
+      "Gold"
+    ],
+    "warnings": [
+      "FRED data unavailable \u2014 install pandas-datareader",
+      "Missing fields: ['fed_funds_rate', 'cpi_yoy', 'unemployment_rate']"
+    ],
+    "from_cache": false
+  },
+  "sentiment_summary": {
+    "bullish": 14,
+    "bearish": 2,
+    "neutral": 10
+  },
+  "alerts_count": {
+    "critical": 0,
+    "warning": 0,
+    "info": 5
+  },
+  "optimised_portfolios": [
+    "signal_weighted",
+    "risk_parity",
+    "mean_variance"
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "pending": [
+    {
+      "id": "NVDA_20260629_134020",
+      "ticker": "NVDA",
+      "direction": "long",
+      "confidence": "MEDIUM",
+      "score": 35,
+      "regime": "neutral_vol",
+      "reasoning": "Structurally strongest AI infrastructure play with real earnings and expanding TAM (robotics, physical AI, BCI). Soft DXY and normal yield curve supportive. Near-term headwind from mega-cap tech rotation at 6-year extreme \u2014 prefer entry after rotation resolves.",
+      "entry_price": 192.52999877929688,
+      "issued_at": "2026-06-29T13:40:20.562551",
+      "resolve_dates": [
+        "2026-07-02",
+        "2026-07-06",
+        "2026-07-13",
+        "2026-07-29"
+      ],
+      "outcomes": {}
+    },
+    {
+      "id": "TSLA_20260629_134020",
+      "ticker": "TSLA",
+      "direction": "neutral",
+      "confidence": "LOW",
+      "score": 5,
+      "regime": "neutral_vol",
+      "reasoning": "Production ramp and AI chip milestone are genuine positives but Q2 delivery print is imminent binary risk. Nosebleed valuation, Musk idiosyncratic risk, and mega-cap rotation headwind offset fundamental improvement. Wait for delivery confirmation before establishing position.",
+      "entry_price": 379.7099914550781,
+      "issued_at": "2026-06-29T13:40:20.615456",
+      "resolve_dates": [
+        "2026-07-02",
+        "2026-07-06",
+        "2026-07-13",
+        "2026-07-29"
+      ],
+      "outcomes": {}
+    }
+  ],
+  "resolved": []
+}

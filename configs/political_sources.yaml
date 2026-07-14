@@ -1,0 +1,216 @@
+# =============================================================================
+# configs/political_sources.yaml
+# =============================================================================
+# Political Portfolio / Political Disclosure Intelligence Layer Configuration
+# Trading Intelligence System — Phase 4
+#
+# IMPORTANT:
+#   - Uses only publicly available legal disclosures.
+#   - No private, leaked, hacked, or non-public information.
+#   - Political signals are a research-only watchlist trigger.
+#   - Maximum political weight in final score: 10–15%.
+#   - All trade decisions require technical + macro + risk confirmation.
+# =============================================================================
+
+political_sources:
+  enabled: true
+
+  sources:
+
+    capitol_trades:
+      enabled: true
+      mode: manual_or_api_placeholder
+      url: "https://www.capitoltrades.com"
+      api_key: ""         # Leave blank — set if/when paid API becomes available
+      note: >
+        US politician trade tracker. Search by politician, party, chamber,
+        committee, state, ticker, and trade type.
+        Export data and paste into data/political/manual_political_trades.csv
+
+    quiver_quantitative:
+      enabled: true
+      mode: manual_or_api_placeholder
+      url: "https://www.quiverquant.com"
+      api_key: ""         # Set if you subscribe to Quiver paid API
+      note: >
+        Congress trading dashboard, politician portfolios, estimated holdings.
+        Free tier available at quiverquant.com/congresstrading
+        Paid API: quiverquant.com/api
+
+    unusual_whales:
+      enabled: true
+      mode: manual_or_api_placeholder
+      url: "https://unusualwhales.com/politics"
+      api_key: ""         # Set if you subscribe to Unusual Whales API
+      note: >
+        Congress trades, House/Senate activity, SCOTUS investing, lobbying data.
+        Future API integration planned.
+
+    insider_finance:
+      enabled: true
+      mode: manual_or_api_placeholder
+      url: "https://insiderfinance.io"
+      api_key: ""
+      note: >
+        Congressional trade summaries, recent disclosures, and trade alerts.
+        Manual import via manual_political_trades.csv
+
+    house_disclosures:
+      enabled: true
+      mode: official_source_reference
+      url: "https://disclosures-clerk.house.gov"
+      api_key: ""
+      note: >
+        AUTHORITATIVE SOURCE: Official House member financial disclosures.
+        Periodic Transaction Reports (PTR) filed within 45 days of transaction.
+        Download PDFs and enter data into manual_political_trades.csv
+
+    senate_disclosures:
+      enabled: true
+      mode: official_source_reference
+      url: "https://efts.senate.gov/LATEST/search-index"
+      api_key: ""
+      note: >
+        AUTHORITATIVE SOURCE: Official Senate financial disclosures.
+        Annual Reports and PTRs.
+        Search at senate.gov/financial-disclosure
+
+    oge_disclosures:
+      enabled: true
+      mode: official_source_reference
+      url: "https://www.oge.gov/web/oge.nsf/Financial+Disclosure"
+      api_key: ""
+      note: >
+        AUTHORITATIVE SOURCE: Office of Government Ethics.
+        Executive branch disclosures (OGE Form 278 and 450).
+        Presidential appointees and senior executive officials.
+
+    propublica:
+      enabled: true
+      mode: research_reference
+      url: "https://projects.propublica.org/represent/finances"
+      api_key: ""         # ← PASTE YOUR FREE KEY HERE
+      # Get your free key in 60 seconds:
+      # 1. Go to: https://www.propublica.org/datastore/api/propublica-congress-api
+      # 2. Enter your email
+      # 3. Key arrives in your inbox
+      # 4. Paste it above and save
+      # What it adds: real committee assignments + party affiliation for all 535 members
+      note: >
+        Searchable public official disclosure database.
+        Free API available with email registration.
+        Enriches committee relevance scores and party data.
+
+    crew:
+      enabled: true
+      mode: research_reference
+      url: "https://www.citizensforethics.org"
+      note: >
+        Citizens for Responsibility and Ethics in Washington.
+        Ethics and conflict-of-interest analysis.
+        Use for contextual understanding only — not primary data.
+
+    major_financial_news:
+      enabled: true
+      mode: contextual_news_reference
+      note: >
+        Reuters, Bloomberg, FT, and major financial news.
+        Use ONLY as contextual confirmation of known, already-public disclosures.
+        NOT a primary data source for this system.
+
+# =============================================================================
+# Watchlist Scoring Rules
+# =============================================================================
+watchlist_rules:
+  max_disclosure_age_days: 90      # Ignore trades older than 90 days
+  high_priority_age_days: 30       # Flag trades under 30 days as high-priority
+  min_transaction_value_estimate: 15000  # Minimum USD midpoint to include
+
+  # Score weights for political_activity_score calculation
+  # All weights must sum to 1.0
+  committee_relevance_weight: 0.25   # Is the politician's committee relevant to this sector?
+  transaction_size_weight: 0.20      # Normalised USD transaction size
+  recency_weight: 0.20               # How recent is the disclosure?
+  politician_influence_weight: 0.20  # Seniority, committee chair, leadership position
+  source_reliability_weight: 0.15    # Official filing = higher reliability
+
+# =============================================================================
+# Confirmation Rules (all required before Trade Candidate classification)
+# =============================================================================
+confirmation_rules:
+  require_technical_confirmation: true    # REQUIRED — no trade without technical signal
+  require_macro_confirmation: true        # REQUIRED — macro environment must be checked
+  require_risk_check: true               # REQUIRED — risk engine must clear the trade
+  options_confirmation_optional: true    # Optional — adds weight if present
+  futures_confirmation_optional: true    # Optional — adds weight if present
+
+# =============================================================================
+# Final Score Weights
+# Political activity is capped at 10–15% of the final score
+# Technical, options, futures, macro, and risk drive the decision
+# =============================================================================
+final_score_weights:
+  technical: 0.35    # PRIMARY DRIVER — 35%
+  options:   0.15    # 15%
+  futures:   0.15    # 15%
+  macro:     0.15    # 15%
+  political: 0.10    # CAPPED AT 10% — political does NOT dominate
+  risk:      0.10    # 10%
+  # Total: 1.00
+
+# =============================================================================
+# Trade Status Thresholds (final_trade_candidate_score, 0–100)
+# =============================================================================
+trade_status_thresholds:
+  trade_candidate_min: 65.0       # Score >= 65 AND multi-signal confirmation
+  research_candidate_min: 50.0    # Score >= 50
+  watchlist_only_min: 35.0        # Score >= 35
+  # Below 35 → Avoid
+
+# =============================================================================
+# ML Feature Toggle
+# =============================================================================
+ml_integration:
+  enabled: true
+  fill_missing_with_neutral: true   # Safe defaults for tickers with no political data
+  feature_columns:
+    - political_activity_score
+    - political_buy_count_30d
+    - political_sell_count_30d
+    - political_net_activity_30d
+    - disclosure_delay_avg
+    - committee_relevance_score
+    - politician_influence_score
+    - source_count
+    - public_official_exposure_flag
+
+# =============================================================================
+# Output File Paths (relative to project root)
+# =============================================================================
+output:
+  watchlist_json: "data/political/watchlist.json"
+  signals_json: "data/political/political_signals.json"
+  trade_candidates_json: "data/trade_candidates.json"
+  manual_csv: "data/political/manual_political_trades.csv"
+  sample_csv: "data/political/manual_political_trades_sample.csv"
+
+# =============================================================================
+# Legal and Data Policy
+# =============================================================================
+data_policy:
+  allowed_sources:
+    - Publicly available government filings (House, Senate, OGE)
+    - Licensed third-party aggregators (Capitol Trades, Quiver, Unusual Whales)
+    - Publicly accessible research databases (ProPublica, CREW)
+  prohibited_sources:
+    - Private or non-public information
+    - Leaked or hacked data
+    - Insider information in any form
+    - Data obtained in violation of terms of service
+    - Any data not publicly accessible
+  disclaimer: >
+    All outputs are for research and educational purposes only.
+    No automatic trade execution. No broker connection.
+    Political disclosure data is inherently delayed (STOCK Act: 45-day filing window).
+    Past political disclosure activity does not predict future price movement.
+    Always apply independent due diligence before trading.

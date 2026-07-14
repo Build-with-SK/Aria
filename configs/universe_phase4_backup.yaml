@@ -1,0 +1,287 @@
+# configs/universe.yaml
+# Trading Intelligence System — Phase 5
+# Full multi-asset, multi-strategy universe
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATA
+# ─────────────────────────────────────────────────────────────────────────────
+data:
+  period: "2y"
+  interval: "1d"
+  fetch_fundamentals: true       # fetch yfinance .info for equities
+  cache_dir: "data/cache"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# OBSIDIAN
+# ─────────────────────────────────────────────────────────────────────────────
+obsidian:
+  vault_path: "C:/Users/sound/Documents/DigitalBrain"
+  tis_folder: "01 - Trading/TIS"
+  overwrite_files:
+    - "latest_signals.md"
+    - "risk_summary.md"
+    - "model_status.md"
+  append_files:
+    - "system_log.md"
+    - "Pulse Market Log.md"
+  protected_files:
+    - "Trading Intelligence Dashboard"
+    - "Pulse Bridge Dashboard"
+    - "Market Intelligence Index"
+    - "Asset Master Index"
+    - "Risk Dashboard"
+    - "Model Status Dashboard"
+  tags:
+    - "#pulse"
+    - "#pulse-scan"
+    - "#nine-am-scan"
+    - "#market-scanner"
+    - "#daily-scan"
+    - "#trading"
+    - "#market-intelligence"
+    - "#capitalwithsk"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ASSET UNIVERSE
+# ─────────────────────────────────────────────────────────────────────────────
+universe:
+
+  # ── Equities ─────────────────────────────────────────────────────────────
+  equities:
+    - { ticker: AAPL,  name: Apple }
+    - { ticker: MSFT,  name: Microsoft }
+    - { ticker: GOOGL, name: Alphabet }
+    - { ticker: AMZN,  name: Amazon }
+    - { ticker: NVDA,  name: NVIDIA }
+    - { ticker: META,  name: Meta }
+    - { ticker: TSLA,  name: Tesla }
+    - { ticker: JPM,   name: JPMorgan }
+    - { ticker: BAC,   name: Bank of America }
+    - { ticker: GS,    name: Goldman Sachs }
+    - { ticker: JNJ,   name: Johnson & Johnson }
+    - { ticker: UNH,   name: UnitedHealth }
+    - { ticker: XOM,   name: ExxonMobil }
+    - { ticker: CVX,   name: Chevron }
+    - { ticker: PG,    name: Procter & Gamble }
+    - { ticker: KO,    name: Coca-Cola }
+    - { ticker: WMT,   name: Walmart }
+    - { ticker: HD,    name: Home Depot }
+    - { ticker: V,     name: Visa }
+    - { ticker: MA,    name: Mastercard }
+
+  # ── Equity ETFs ───────────────────────────────────────────────────────────
+  etfs:
+    - { ticker: SPY,   name: S&P 500 ETF }
+    - { ticker: QQQ,   name: Nasdaq 100 ETF }
+    - { ticker: IWM,   name: Russell 2000 ETF }
+    - { ticker: DIA,   name: Dow Jones ETF }
+
+  # ── Fixed Income ETFs ─────────────────────────────────────────────────────
+  fixed_income:
+    - { ticker: TLT,   name: 20+ Year Treasury ETF }
+    - { ticker: IEF,   name: 7-10 Year Treasury ETF }
+    - { ticker: AGG,   name: US Aggregate Bond ETF }
+    - { ticker: TIP,   name: TIPS ETF }
+
+  # ── Credit ETFs ───────────────────────────────────────────────────────────
+  credit:
+    - { ticker: HYG,   name: iShares HY Corp Bond ETF }
+    - { ticker: JNK,   name: SPDR Bloomberg HY ETF }
+    - { ticker: LQD,   name: iShares IG Corp Bond ETF }
+    - { ticker: VCIT,  name: Vanguard Corp Bond ETF }
+    - { ticker: BKLN,  name: Invesco Senior Loan ETF }
+    - { ticker: SJNK,  name: SPDR Bloomberg ST HY ETF }
+    - { ticker: SHYG,  name: iShares 0-5Y HY ETF }
+    - { ticker: CWB,   name: SPDR Bloomberg Convertible ETF }
+
+  # ── Commodities ───────────────────────────────────────────────────────────
+  commodities:
+    - { ticker: GLD,   name: Gold ETF }
+    - { ticker: SLV,   name: Silver ETF }
+    - { ticker: USO,   name: Oil ETF }
+
+  # ── Forex (spot) ──────────────────────────────────────────────────────────
+  forex:
+    # Majors
+    - { ticker: "EURUSD=X", name: EUR/USD }
+    - { ticker: "GBPUSD=X", name: GBP/USD }
+    - { ticker: "USDJPY=X", name: USD/JPY }
+    - { ticker: "USDCHF=X", name: USD/CHF }
+    - { ticker: "AUDUSD=X", name: AUD/USD }
+    - { ticker: "NZDUSD=X", name: NZD/USD }
+    - { ticker: "USDCAD=X", name: USD/CAD }
+    # Crosses
+    - { ticker: "EURGBP=X", name: EUR/GBP }
+    - { ticker: "EURJPY=X", name: EUR/JPY }
+    - { ticker: "GBPJPY=X", name: GBP/JPY }
+    # EM
+    - { ticker: "USDTRY=X", name: USD/TRY }
+    - { ticker: "USDBRL=X", name: USD/BRL }
+    - { ticker: "USDINR=X", name: USD/INR }
+    - { ticker: "USDMXN=X", name: USD/MXN }
+
+  # ── Futures ───────────────────────────────────────────────────────────────
+  futures:
+    # Equity index
+    - { ticker: "ES=F",  name: S&P 500 E-mini }
+    - { ticker: "NQ=F",  name: Nasdaq E-mini }
+    - { ticker: "YM=F",  name: Dow E-mini }
+    - { ticker: "RTY=F", name: Russell 2000 E-mini }
+    # Bonds
+    - { ticker: "ZN=F",  name: 10-Year T-Note }
+    - { ticker: "ZB=F",  name: 30-Year T-Bond }
+    - { ticker: "ZT=F",  name: 2-Year T-Note }
+    # Energy
+    - { ticker: "CL=F",  name: Crude Oil WTI }
+    - { ticker: "NG=F",  name: Natural Gas }
+    - { ticker: "RB=F",  name: RBOB Gasoline }
+    # Metals
+    - { ticker: "GC=F",  name: Gold Futures }
+    - { ticker: "SI=F",  name: Silver Futures }
+    - { ticker: "HG=F",  name: Copper Futures }
+    # Agriculture
+    - { ticker: "ZC=F",  name: Corn }
+    - { ticker: "ZS=F",  name: Soybeans }
+    - { ticker: "ZW=F",  name: Wheat }
+    # FX futures
+    - { ticker: "6E=F",  name: EUR Futures }
+    - { ticker: "6J=F",  name: JPY Futures }
+    - { ticker: "6B=F",  name: GBP Futures }
+
+  # ── Crypto ────────────────────────────────────────────────────────────────
+  crypto:
+    - { ticker: "BTC-USD",   name: Bitcoin }
+    - { ticker: "ETH-USD",   name: Ethereum }
+    - { ticker: "BNB-USD",   name: BNB }
+    - { ticker: "SOL-USD",   name: Solana }
+    - { ticker: "XRP-USD",   name: XRP }
+    - { ticker: "ADA-USD",   name: Cardano }
+    - { ticker: "AVAX-USD",  name: Avalanche }
+    - { ticker: "DOGE-USD",  name: Dogecoin }
+    - { ticker: "DOT-USD",   name: Polkadot }
+    - { ticker: "MATIC-USD", name: Polygon }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BACKTEST
+# ─────────────────────────────────────────────────────────────────────────────
+backtest:
+  initial_capital: 100000
+  commission_pct: 0.001
+  slippage_pct: 0.0005
+  signal_threshold: 15
+  risk_per_trade: 0.50
+  stop_loss_pct: 0.05
+  max_drawdown_limit: 0.20
+  run_backtest: false          # set true to run backtester (slower)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ML
+# ─────────────────────────────────────────────────────────────────────────────
+ml:
+  enabled: true
+  prediction_horizons: [1, 5, 20]
+  min_training_rows: 120
+  train_test_split: 0.80
+  cv_splits: 5
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MACRO
+# ─────────────────────────────────────────────────────────────────────────────
+macro:
+  cache_ttl_hours: 6
+  fred_series:
+    fed_funds: "FEDFUNDS"
+    cpi_yoy: "CPIAUCSL"
+    unemployment: "UNRATE"
+    yield_10y: "GS10"
+    yield_2y: "GS2"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# STRATEGY CONFIGS
+# ─────────────────────────────────────────────────────────────────────────────
+strategies:
+
+  equity_long_short:
+    n_longs: 5
+    n_shorts: 5
+    sector_neutral: false
+
+  relative_value:
+    entry_zscore: 2.0
+    exit_zscore: 0.5
+    min_half_life: 5
+    max_half_life: 60
+    coint_pvalue_thresh: 0.05
+    ols_window: 60
+    max_pairs_scanned: 100
+
+  market_neutral:
+    beta_window: 60
+    target_beta_max: 0.10
+    n_longs: 8
+    n_shorts: 8
+
+  global_macro:
+    # Uses macro_data.py snapshot — no extra config needed
+    enabled: true
+
+  event_driven:
+    entry_days_before: 5
+    exit_days_after: 1
+    max_tickers_scanned: 30
+
+  distressed:
+    altman_z_distress: 1.81
+    debt_equity_max: 3.0
+    price_vs_52w_pct: -40.0
+
+  convertible_arb:
+    enabled: true
+
+  quant_systematic:
+    w_momentum: 0.30
+    w_value: 0.20
+    w_quality: 0.20
+    w_low_vol: 0.15
+    w_size: 0.15
+    n_longs: 10
+    n_shorts: 10
+
+  credit_long_short:
+    enabled: true
+
+  options:
+    iv_rank_sell_threshold: 50
+    iv_rank_buy_threshold: 30
+
+  futures:
+    trend_fast: 50
+    trend_slow: 200
+    risk_pct_per_trade: 0.01
+
+  crypto:
+    include_onchain: true
+
+  forex:
+    carry_enabled: true
+    ppp_enabled: true
+
+  derivatives_risk:
+    enabled: true
+
+  multi_strategy:
+    weighting_mode: "risk_parity"   # "risk_parity" | "equal_weight" | "max_sharpe"
+
+  master_portfolio:
+    top_n_longs: 10
+    top_n_shorts: 10
+    max_active_hedges: 5
+    risk_budgets:
+      equity_long_short: 0.25
+      global_macro: 0.20
+      quant_systematic: 0.15
+      options: 0.10
+      futures: 0.10
+      forex: 0.10
+      credit_long_short: 0.05
+      crypto: 0.05

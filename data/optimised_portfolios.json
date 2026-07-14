@@ -1,0 +1,824 @@
+{
+  "signal_weighted": {
+    "strategy": "signal_weighted",
+    "weights": {
+      "AAPL": 0.0922,
+      "MSFT": 0.0612,
+      "NVDA": 0.0,
+      "TSLA": 0.0446,
+      "JPM": 0.0,
+      "META": 0.0,
+      "GOOGL": 0.0253,
+      "AMZN": 0.0621,
+      "^GSPC": 0.0537,
+      "^IXIC": 0.0644,
+      "^DJI": 0.0722,
+      "^FTSE": 0.0423,
+      "^N225": 0.102,
+      "^GDAXI": 0.0422,
+      "EURUSD=X": 0.0,
+      "GBPUSD=X": 0.0,
+      "USDJPY=X": 0.0583,
+      "AUDUSD=X": 0.0229,
+      "USDINR=X": 0.0,
+      "GC=F": 0.0,
+      "CL=F": 0.0,
+      "SI=F": 0.0,
+      "NG=F": 0.0566,
+      "BTC-USD": 0.0,
+      "ETH-USD": 0.0,
+      "SOL-USD": 0.0
+    },
+    "expected_return": 0.2236,
+    "expected_vol": 0.125,
+    "sharpe_ratio": 1.255,
+    "diversification": 94.8,
+    "total_allocated": 0.8,
+    "cash_pct": 20.0,
+    "warnings": [],
+    "allocation_table": [
+      {
+        "Ticker": "^N225",
+        "Weight %": 10.2,
+        "$ Allocation": 10200.0,
+        "Signal": "Buy",
+        "Score": 45.28,
+        "Risk": "High",
+        "Vol": "30.0%"
+      },
+      {
+        "Ticker": "AAPL",
+        "Weight %": 9.22,
+        "$ Allocation": 9220.0,
+        "Signal": "Buy",
+        "Score": 40.89,
+        "Risk": "Medium",
+        "Vol": "17.2%"
+      },
+      {
+        "Ticker": "^DJI",
+        "Weight %": 7.22,
+        "$ Allocation": 7220.0,
+        "Signal": "Mild Bullish",
+        "Score": 32.03,
+        "Risk": "Medium",
+        "Vol": "10.8%"
+      },
+      {
+        "Ticker": "^IXIC",
+        "Weight %": 6.44,
+        "$ Allocation": 6440.0,
+        "Signal": "Mild Bullish",
+        "Score": 28.59,
+        "Risk": "Medium",
+        "Vol": "14.7%"
+      },
+      {
+        "Ticker": "AMZN",
+        "Weight %": 6.21,
+        "$ Allocation": 6210.0,
+        "Signal": "Mild Bullish",
+        "Score": 27.54,
+        "Risk": "High",
+        "Vol": "21.3%"
+      },
+      {
+        "Ticker": "MSFT",
+        "Weight %": 6.12,
+        "$ Allocation": 6120.0,
+        "Signal": "Mild Bullish",
+        "Score": 27.16,
+        "Risk": "High",
+        "Vol": "27.9%"
+      },
+      {
+        "Ticker": "USDJPY=X",
+        "Weight %": 5.83,
+        "$ Allocation": 5830.0,
+        "Signal": "Mild Bullish",
+        "Score": 25.86,
+        "Risk": "Low",
+        "Vol": "3.8%"
+      },
+      {
+        "Ticker": "NG=F",
+        "Weight %": 5.66,
+        "$ Allocation": 5660.0,
+        "Signal": "Mild Bullish",
+        "Score": 25.11,
+        "Risk": "Very High",
+        "Vol": "48.2%"
+      },
+      {
+        "Ticker": "^GSPC",
+        "Weight %": 5.37,
+        "$ Allocation": 5370.0,
+        "Signal": "Mild Bullish",
+        "Score": 23.83,
+        "Risk": "Low",
+        "Vol": "10.1%"
+      },
+      {
+        "Ticker": "TSLA",
+        "Weight %": 4.46,
+        "$ Allocation": 4460.0,
+        "Signal": "Mild Bullish",
+        "Score": 19.78,
+        "Risk": "High",
+        "Vol": "38.9%"
+      },
+      {
+        "Ticker": "^FTSE",
+        "Weight %": 4.23,
+        "$ Allocation": 4230.0,
+        "Signal": "Mild Bullish",
+        "Score": 18.79,
+        "Risk": "Medium",
+        "Vol": "15.7%"
+      },
+      {
+        "Ticker": "^GDAXI",
+        "Weight %": 4.22,
+        "$ Allocation": 4220.0,
+        "Signal": "Mild Bullish",
+        "Score": 18.71,
+        "Risk": "Medium",
+        "Vol": "20.3%"
+      },
+      {
+        "Ticker": "GOOGL",
+        "Weight %": 2.53,
+        "$ Allocation": 2530.0,
+        "Signal": "Mild Bullish",
+        "Score": 11.23,
+        "Risk": "High",
+        "Vol": "25.9%"
+      },
+      {
+        "Ticker": "AUDUSD=X",
+        "Weight %": 2.29,
+        "$ Allocation": 2290.0,
+        "Signal": "Mild Bullish",
+        "Score": 10.17,
+        "Risk": "Low",
+        "Vol": "8.2%"
+      },
+      {
+        "Ticker": "NVDA",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Neutral",
+        "Score": 1.34,
+        "Risk": "High",
+        "Vol": "36.5%"
+      },
+      {
+        "Ticker": "JPM",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Mild Bearish",
+        "Score": -20.58,
+        "Risk": "High",
+        "Vol": "22.3%"
+      },
+      {
+        "Ticker": "META",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Neutral",
+        "Score": 4.7,
+        "Risk": "High",
+        "Vol": "19.9%"
+      },
+      {
+        "Ticker": "EURUSD=X",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Mild Bearish",
+        "Score": -9.42,
+        "Risk": "Low",
+        "Vol": "4.3%"
+      },
+      {
+        "Ticker": "GBPUSD=X",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Neutral",
+        "Score": 5.4,
+        "Risk": "Low",
+        "Vol": "6.7%"
+      },
+      {
+        "Ticker": "USDINR=X",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Neutral",
+        "Score": 5.11,
+        "Risk": "Medium",
+        "Vol": "7.6%"
+      },
+      {
+        "Ticker": "GC=F",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Neutral",
+        "Score": -4.38,
+        "Risk": "Medium",
+        "Vol": "19.5%"
+      },
+      {
+        "Ticker": "CL=F",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Mild Bearish",
+        "Score": -23.19,
+        "Risk": "Very High",
+        "Vol": "59.4%"
+      },
+      {
+        "Ticker": "SI=F",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Neutral",
+        "Score": -6.29,
+        "Risk": "Very High",
+        "Vol": "57.8%"
+      },
+      {
+        "Ticker": "BTC-USD",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Mild Bearish",
+        "Score": -29.66,
+        "Risk": "High",
+        "Vol": "20.8%"
+      },
+      {
+        "Ticker": "ETH-USD",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Sell",
+        "Score": -41.48,
+        "Risk": "High",
+        "Vol": "24.0%"
+      },
+      {
+        "Ticker": "SOL-USD",
+        "Weight %": 0.0,
+        "$ Allocation": 0.0,
+        "Signal": "Mild Bearish",
+        "Score": -32.32,
+        "Risk": "High",
+        "Vol": "28.8%"
+      }
+    ]
+  },
+  "risk_parity": {
+    "strategy": "risk_parity",
+    "weights": {
+      "AAPL": 0.0199,
+      "MSFT": 0.0223,
+      "NVDA": 0.0117,
+      "TSLA": 0.0092,
+      "JPM": 0.0222,
+      "META": 0.0156,
+      "GOOGL": 0.0184,
+      "AMZN": 0.0173,
+      "^GSPC": 0.0343,
+      "^IXIC": 0.0257,
+      "^DJI": 0.0374,
+      "^FTSE": 0.0473,
+      "^N225": 0.0204,
+      "^GDAXI": 0.033,
+      "EURUSD=X": 0.077,
+      "GBPUSD=X": 0.078,
+      "USDJPY=X": 0.0566,
+      "AUDUSD=X": 0.0575,
+      "USDINR=X": 0.1083,
+      "GC=F": 0.0244,
+      "CL=F": 0.0131,
+      "SI=F": 0.0112,
+      "NG=F": 0.0065,
+      "BTC-USD": 0.0146,
+      "ETH-USD": 0.0096,
+      "SOL-USD": 0.0084
+    },
+    "expected_return": 0.1216,
+    "expected_vol": 0.0659,
+    "sharpe_ratio": 1.058,
+    "diversification": 95.9,
+    "total_allocated": 0.7999,
+    "cash_pct": 20.01,
+    "warnings": [],
+    "allocation_table": [
+      {
+        "Ticker": "USDINR=X",
+        "Weight %": 10.83,
+        "$ Allocation": 10830.0,
+        "Signal": "Neutral",
+        "Score": 5.11,
+        "Risk": "Medium",
+        "Vol": "7.6%"
+      },
+      {
+        "Ticker": "GBPUSD=X",
+        "Weight %": 7.8,
+        "$ Allocation": 7800.0,
+        "Signal": "Neutral",
+        "Score": 5.4,
+        "Risk": "Low",
+        "Vol": "6.7%"
+      },
+      {
+        "Ticker": "EURUSD=X",
+        "Weight %": 7.7,
+        "$ Allocation": 7700.0,
+        "Signal": "Mild Bearish",
+        "Score": -9.42,
+        "Risk": "Low",
+        "Vol": "4.3%"
+      },
+      {
+        "Ticker": "AUDUSD=X",
+        "Weight %": 5.75,
+        "$ Allocation": 5750.0,
+        "Signal": "Mild Bullish",
+        "Score": 10.17,
+        "Risk": "Low",
+        "Vol": "8.2%"
+      },
+      {
+        "Ticker": "USDJPY=X",
+        "Weight %": 5.66,
+        "$ Allocation": 5660.0,
+        "Signal": "Mild Bullish",
+        "Score": 25.86,
+        "Risk": "Low",
+        "Vol": "3.8%"
+      },
+      {
+        "Ticker": "^FTSE",
+        "Weight %": 4.73,
+        "$ Allocation": 4730.0,
+        "Signal": "Mild Bullish",
+        "Score": 18.79,
+        "Risk": "Medium",
+        "Vol": "15.7%"
+      },
+      {
+        "Ticker": "^DJI",
+        "Weight %": 3.74,
+        "$ Allocation": 3740.0,
+        "Signal": "Mild Bullish",
+        "Score": 32.03,
+        "Risk": "Medium",
+        "Vol": "10.8%"
+      },
+      {
+        "Ticker": "^GSPC",
+        "Weight %": 3.43,
+        "$ Allocation": 3430.0,
+        "Signal": "Mild Bullish",
+        "Score": 23.83,
+        "Risk": "Low",
+        "Vol": "10.1%"
+      },
+      {
+        "Ticker": "^GDAXI",
+        "Weight %": 3.3,
+        "$ Allocation": 3300.0,
+        "Signal": "Mild Bullish",
+        "Score": 18.71,
+        "Risk": "Medium",
+        "Vol": "20.3%"
+      },
+      {
+        "Ticker": "^IXIC",
+        "Weight %": 2.57,
+        "$ Allocation": 2570.0,
+        "Signal": "Mild Bullish",
+        "Score": 28.59,
+        "Risk": "Medium",
+        "Vol": "14.7%"
+      },
+      {
+        "Ticker": "GC=F",
+        "Weight %": 2.44,
+        "$ Allocation": 2440.0,
+        "Signal": "Neutral",
+        "Score": -4.38,
+        "Risk": "Medium",
+        "Vol": "19.5%"
+      },
+      {
+        "Ticker": "MSFT",
+        "Weight %": 2.23,
+        "$ Allocation": 2230.0,
+        "Signal": "Mild Bullish",
+        "Score": 27.16,
+        "Risk": "High",
+        "Vol": "27.9%"
+      },
+      {
+        "Ticker": "JPM",
+        "Weight %": 2.22,
+        "$ Allocation": 2220.0,
+        "Signal": "Mild Bearish",
+        "Score": -20.58,
+        "Risk": "High",
+        "Vol": "22.3%"
+      },
+      {
+        "Ticker": "^N225",
+        "Weight %": 2.04,
+        "$ Allocation": 2040.0,
+        "Signal": "Buy",
+        "Score": 45.28,
+        "Risk": "High",
+        "Vol": "30.0%"
+      },
+      {
+        "Ticker": "AAPL",
+        "Weight %": 1.99,
+        "$ Allocation": 1990.0,
+        "Signal": "Buy",
+        "Score": 40.89,
+        "Risk": "Medium",
+        "Vol": "17.2%"
+      },
+      {
+        "Ticker": "GOOGL",
+        "Weight %": 1.84,
+        "$ Allocation": 1840.0,
+        "Signal": "Mild Bullish",
+        "Score": 11.23,
+        "Risk": "High",
+        "Vol": "25.9%"
+      },
+      {
+        "Ticker": "AMZN",
+        "Weight %": 1.73,
+        "$ Allocation": 1730.0,
+        "Signal": "Mild Bullish",
+        "Score": 27.54,
+        "Risk": "High",
+        "Vol": "21.3%"
+      },
+      {
+        "Ticker": "META",
+        "Weight %": 1.56,
+        "$ Allocation": 1560.0,
+        "Signal": "Neutral",
+        "Score": 4.7,
+        "Risk": "High",
+        "Vol": "19.9%"
+      },
+      {
+        "Ticker": "BTC-USD",
+        "Weight %": 1.46,
+        "$ Allocation": 1460.0,
+        "Signal": "Mild Bearish",
+        "Score": -29.66,
+        "Risk": "High",
+        "Vol": "20.8%"
+      },
+      {
+        "Ticker": "CL=F",
+        "Weight %": 1.31,
+        "$ Allocation": 1310.0,
+        "Signal": "Mild Bearish",
+        "Score": -23.19,
+        "Risk": "Very High",
+        "Vol": "59.4%"
+      },
+      {
+        "Ticker": "NVDA",
+        "Weight %": 1.17,
+        "$ Allocation": 1170.0,
+        "Signal": "Neutral",
+        "Score": 1.34,
+        "Risk": "High",
+        "Vol": "36.5%"
+      },
+      {
+        "Ticker": "SI=F",
+        "Weight %": 1.12,
+        "$ Allocation": 1120.0,
+        "Signal": "Neutral",
+        "Score": -6.29,
+        "Risk": "Very High",
+        "Vol": "57.8%"
+      },
+      {
+        "Ticker": "ETH-USD",
+        "Weight %": 0.96,
+        "$ Allocation": 960.0,
+        "Signal": "Sell",
+        "Score": -41.48,
+        "Risk": "High",
+        "Vol": "24.0%"
+      },
+      {
+        "Ticker": "TSLA",
+        "Weight %": 0.92,
+        "$ Allocation": 920.0,
+        "Signal": "Mild Bullish",
+        "Score": 19.78,
+        "Risk": "High",
+        "Vol": "38.9%"
+      },
+      {
+        "Ticker": "SOL-USD",
+        "Weight %": 0.84,
+        "$ Allocation": 840.0,
+        "Signal": "Mild Bearish",
+        "Score": -32.32,
+        "Risk": "High",
+        "Vol": "28.8%"
+      },
+      {
+        "Ticker": "NG=F",
+        "Weight %": 0.65,
+        "$ Allocation": 650.0,
+        "Signal": "Mild Bullish",
+        "Score": 25.11,
+        "Risk": "Very High",
+        "Vol": "48.2%"
+      }
+    ]
+  },
+  "mean_variance": {
+    "strategy": "mean_variance",
+    "weights": {
+      "AAPL": 0.0375,
+      "MSFT": 0.004,
+      "NVDA": 0.004,
+      "TSLA": 0.0112,
+      "JPM": 0.0361,
+      "META": 0.004,
+      "GOOGL": 0.12,
+      "AMZN": 0.004,
+      "^GSPC": 0.004,
+      "^IXIC": 0.004,
+      "^DJI": 0.004,
+      "^FTSE": 0.0775,
+      "^N225": 0.12,
+      "^GDAXI": 0.004,
+      "EURUSD=X": 0.026,
+      "GBPUSD=X": 0.004,
+      "USDJPY=X": 0.004,
+      "AUDUSD=X": 0.004,
+      "USDINR=X": 0.12,
+      "GC=F": 0.12,
+      "CL=F": 0.0334,
+      "SI=F": 0.0154,
+      "NG=F": 0.027,
+      "BTC-USD": 0.004,
+      "ETH-USD": 0.004,
+      "SOL-USD": 0.004
+    },
+    "expected_return": 0.2419,
+    "expected_vol": 0.0902,
+    "sharpe_ratio": 1.903,
+    "diversification": 93.1,
+    "total_allocated": 0.8001,
+    "cash_pct": 19.99,
+    "warnings": [],
+    "allocation_table": [
+      {
+        "Ticker": "GOOGL",
+        "Weight %": 12.0,
+        "$ Allocation": 12000.0,
+        "Signal": "Mild Bullish",
+        "Score": 11.23,
+        "Risk": "High",
+        "Vol": "25.9%"
+      },
+      {
+        "Ticker": "^N225",
+        "Weight %": 12.0,
+        "$ Allocation": 12000.0,
+        "Signal": "Buy",
+        "Score": 45.28,
+        "Risk": "High",
+        "Vol": "30.0%"
+      },
+      {
+        "Ticker": "USDINR=X",
+        "Weight %": 12.0,
+        "$ Allocation": 12000.0,
+        "Signal": "Neutral",
+        "Score": 5.11,
+        "Risk": "Medium",
+        "Vol": "7.6%"
+      },
+      {
+        "Ticker": "GC=F",
+        "Weight %": 12.0,
+        "$ Allocation": 12000.0,
+        "Signal": "Neutral",
+        "Score": -4.38,
+        "Risk": "Medium",
+        "Vol": "19.5%"
+      },
+      {
+        "Ticker": "^FTSE",
+        "Weight %": 7.75,
+        "$ Allocation": 7750.0,
+        "Signal": "Mild Bullish",
+        "Score": 18.79,
+        "Risk": "Medium",
+        "Vol": "15.7%"
+      },
+      {
+        "Ticker": "AAPL",
+        "Weight %": 3.75,
+        "$ Allocation": 3750.0,
+        "Signal": "Buy",
+        "Score": 40.89,
+        "Risk": "Medium",
+        "Vol": "17.2%"
+      },
+      {
+        "Ticker": "JPM",
+        "Weight %": 3.61,
+        "$ Allocation": 3610.0,
+        "Signal": "Mild Bearish",
+        "Score": -20.58,
+        "Risk": "High",
+        "Vol": "22.3%"
+      },
+      {
+        "Ticker": "CL=F",
+        "Weight %": 3.34,
+        "$ Allocation": 3340.0,
+        "Signal": "Mild Bearish",
+        "Score": -23.19,
+        "Risk": "Very High",
+        "Vol": "59.4%"
+      },
+      {
+        "Ticker": "NG=F",
+        "Weight %": 2.7,
+        "$ Allocation": 2700.0,
+        "Signal": "Mild Bullish",
+        "Score": 25.11,
+        "Risk": "Very High",
+        "Vol": "48.2%"
+      },
+      {
+        "Ticker": "EURUSD=X",
+        "Weight %": 2.6,
+        "$ Allocation": 2600.0,
+        "Signal": "Mild Bearish",
+        "Score": -9.42,
+        "Risk": "Low",
+        "Vol": "4.3%"
+      },
+      {
+        "Ticker": "SI=F",
+        "Weight %": 1.54,
+        "$ Allocation": 1540.0,
+        "Signal": "Neutral",
+        "Score": -6.29,
+        "Risk": "Very High",
+        "Vol": "57.8%"
+      },
+      {
+        "Ticker": "TSLA",
+        "Weight %": 1.12,
+        "$ Allocation": 1120.0,
+        "Signal": "Mild Bullish",
+        "Score": 19.78,
+        "Risk": "High",
+        "Vol": "38.9%"
+      },
+      {
+        "Ticker": "MSFT",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bullish",
+        "Score": 27.16,
+        "Risk": "High",
+        "Vol": "27.9%"
+      },
+      {
+        "Ticker": "NVDA",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Neutral",
+        "Score": 1.34,
+        "Risk": "High",
+        "Vol": "36.5%"
+      },
+      {
+        "Ticker": "META",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Neutral",
+        "Score": 4.7,
+        "Risk": "High",
+        "Vol": "19.9%"
+      },
+      {
+        "Ticker": "AMZN",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bullish",
+        "Score": 27.54,
+        "Risk": "High",
+        "Vol": "21.3%"
+      },
+      {
+        "Ticker": "^GSPC",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bullish",
+        "Score": 23.83,
+        "Risk": "Low",
+        "Vol": "10.1%"
+      },
+      {
+        "Ticker": "^IXIC",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bullish",
+        "Score": 28.59,
+        "Risk": "Medium",
+        "Vol": "14.7%"
+      },
+      {
+        "Ticker": "^DJI",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bullish",
+        "Score": 32.03,
+        "Risk": "Medium",
+        "Vol": "10.8%"
+      },
+      {
+        "Ticker": "^GDAXI",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bullish",
+        "Score": 18.71,
+        "Risk": "Medium",
+        "Vol": "20.3%"
+      },
+      {
+        "Ticker": "GBPUSD=X",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Neutral",
+        "Score": 5.4,
+        "Risk": "Low",
+        "Vol": "6.7%"
+      },
+      {
+        "Ticker": "USDJPY=X",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bullish",
+        "Score": 25.86,
+        "Risk": "Low",
+        "Vol": "3.8%"
+      },
+      {
+        "Ticker": "AUDUSD=X",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bullish",
+        "Score": 10.17,
+        "Risk": "Low",
+        "Vol": "8.2%"
+      },
+      {
+        "Ticker": "BTC-USD",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bearish",
+        "Score": -29.66,
+        "Risk": "High",
+        "Vol": "20.8%"
+      },
+      {
+        "Ticker": "ETH-USD",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Sell",
+        "Score": -41.48,
+        "Risk": "High",
+        "Vol": "24.0%"
+      },
+      {
+        "Ticker": "SOL-USD",
+        "Weight %": 0.4,
+        "$ Allocation": 400.0,
+        "Signal": "Mild Bearish",
+        "Score": -32.32,
+        "Risk": "High",
+        "Vol": "28.8%"
+      }
+    ]
+  }
+}

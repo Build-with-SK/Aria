@@ -1,0 +1,353 @@
+[
+  {
+    "id": "2607.10934v1",
+    "title": "Multidimensional stochastic liquidity in Kyle's model of informed trading",
+    "summary": "We develop a variational formulation of Kyle's model of informed trading that accommodates stochastic liquidity and multiple traded assets. The main equilibrium result is stated first: under a martingale dual condition, a matrix-valued martingale depth process generates a linear-Gaussian equilibrium with stochastic matrix-valued price impact. We derive this martingale from a primal-dual problem, inspired by causal optimal transport, that characterizes the endogenous speed at which the insider injects private information into prices; in general, this problem admits only local martingale optimizers, and the martingale dual condition is the hypothesis that the optimizer is a true martingale. We interpret informed trading as the optimal liquidation of private information and verify the construction in the scalar and common-eigenbasis cases. The fully general matrix-valued case reduces to a coupled matrix FBSDE, which we isolate as the remaining obstruction. Along the way, we establish an independently interesting Doob-Meyer decomposition for general (not necessarily symmetric) matrix-valued submartingales.",
+    "published": "2026-07-12T21:53:01Z",
+    "link": "https://arxiv.org/abs/2607.10934v1",
+    "authors": [
+      "Ibrahim Ekren",
+      "Evangelos A. Nikitopoulos",
+      "Lu Vy"
+    ]
+  },
+  {
+    "id": "2607.10297v1",
+    "title": "Recovering Structural Organization in Noisy Correlation Networks Using Financial Systems as a Testbed",
+    "summary": "Empirical correlation matrices estimated from financial return time series are contaminated by statistical noise arising from finite sample size, obscuring genuine interactions among assets. We apply spectral decomposition to separate the empirical correlation matrix into a structured component associated with eigenvalues exceeding the Marchenko-Pastur bounds and a random component representing statistical noise. Using daily returns from the NIFTY 200, NIFTY 500, and S&P 500 over 2010-2022, we show that the structured component, constructed from only 10-16 eigenmodes, reproduces the main statistical properties of the full correlation matrix while removing most noise-dominated eigenmodes. Financial networks derived from the structured component exhibit significantly stronger and more stable core-periphery organization than networks constructed from the full or random matrices. Degree-preserving randomization, Kolmogorov-Smirnov, and Wasserstein distance tests confirm a clear statistical separation between structured and random components. We further show that structured networks display pronounced scale-free degree distributions in the Indian markets. As a practical application, portfolios constructed from peripheral assets of the denoised networks consistently outperform portfolios based on unfiltered correlations and standard benchmarks on a risk-adjusted basis, with robustness verified through Monte Carlo subsampling. These results demonstrate that spectral denoising effectively recovers meaningful network structure from noisy financial correlations.",
+    "published": "2026-07-11T12:52:28Z",
+    "link": "https://arxiv.org/abs/2607.10297v1",
+    "authors": [
+      "Imran Ansari",
+      "Shashi Jain",
+      "Srikanth K. Iyer"
+    ]
+  },
+  {
+    "id": "2607.09906v1",
+    "title": "Depth-Efficient Quantum Topological Data Analysis for Regime-Specific Detection of Financial Stress",
+    "summary": "We present, to our knowledge, the first adaptation of Pauli Correlation Encoding (PCE) to quantum topological data analysis, reformulating Betti number estimation as a depth-efficient variational optimization over a compressed qubit register. From a Takens embedding and Vietoris--Rips filtration of S&P~500 returns, we extract combinatorial Laplacians and recast null-space counting as a continuous-PCE Rayleigh-quotient minimization with variational deflation, encoding $n_k$ simplex indices into $O(n_k^{1/\u03ba})$ qubits with shallow, ancilla-free circuits. Because the resulting loss is rational rather than bilinear in the correlators, the barren-plateau bound of~\\cite{Sciorilli25} does not transfer; empirically the gradient variance decays only polynomially, with no exponential barren plateau, over $n=4$--$12$ qubits. The classical stage matches ripser~\\cite{bauer2021ripser} on all 190 sliding windows (2007-2009). On the real market Laplacians ($\u03b2_1=1$--$22$), warm-starting from a classical null-space surrogate allows PCE-VQE to recover $\u03b2_1$ exactly at every scale, placing the obstacle in the optimisation landscape rather than the encoding. Chronologically split classification gives in-regime ROC AUC $0.818$, but out-of-distribution evaluation on the 2020 COVID shock and 2022 rate cycle (AUC $0.009$, $0.515$) shows the calibration does not generalize across crisis regimes.",
+    "published": "2026-07-10T18:56:45Z",
+    "link": "https://arxiv.org/abs/2607.09906v1",
+    "authors": [
+      "Arul Rhik Mazumder",
+      "Shreyan Ronit Mazumder"
+    ]
+  },
+  {
+    "id": "2607.09566v1",
+    "title": "Large-Scale Portfolio Optimization Problem Under Cardinality Constraint With Enhanced Multi-Objective Evolutionary Algorithms",
+    "summary": "Decision-making is posing an increasingly formidable challenge to investors because of the growing number of alternatives available in financial markets. A hot area of research over the past few decades has been portfolio optimization that seeks to determine how much an investor should invest in which asset. Introducing real-world conditions to the optimization model turns the problem into an NP-hard one for whose solution exact methods become inefficient; hence, researchers have turned to evolutionary algorithms to approximate solutions. In this paper, strengthening strategies are presented for multi-objective evolutionary algorithms that can provide a faster convergence rate and extensive search ability in the portfolio optimization problem under the cardinality constraint. To implement those features, a unique solution representation, a novel operator, and new repair mechanisms are introduced for solving the aforementioned problem in which lower and upper limits are set on the number of assets in the portfolio. For this purpose, new mating strategies along with the aforesaid package are implemented in well-known multi-objective evolutionary algorithms to solve the problem. The customized algorithms are subsequently tested against traditional ones using well-known market indices as benchmarks. Results indicate that the proposed strategy not only provides better approximations but also converges faster as well at no loss of performance with an increasing number of assets in the market.",
+    "published": "2026-07-10T16:12:58Z",
+    "link": "https://arxiv.org/abs/2607.09566v1",
+    "authors": [
+      "Danial Ramezani",
+      "Mostafa Abouei Ardakan"
+    ]
+  },
+  {
+    "id": "2607.09556v1",
+    "title": "A novel robust mixed integer linear programming model for index tracking problem under no rebalancing: heuristic optimization approach",
+    "summary": "Passive management has increasingly won popularity over the past few years because of its advantages, such as lower management fees and transaction costs. Index tracking endeavors to reproduce the performance of an index with smaller sets of assets. In this paper, a novel formulation is proposed that is not only more robust than the existing ones but also performs better on out-of-sample data and tracks indices over long periods without any considerable deviation or the need for rebalancing. Solving index tracking problems in a polynomial time is a challenging task due to their NP-hard nature. To address this issue, a novel heuristic based on metaheuristic algorithms and local branching is also developed to solve the proposed model. The heuristic enjoys not only the exploration capabilities of a genetic algorithm but the characteristics of local search algorithms as well. The data from the OR library is used to verify the capabilities of the proposed heuristic in comparison with commercial solvers. Results indicate that not only is the heuristic able to converge to optimal solutions for not-so-large problem sizes, but the portfolios it generates also outperform those yielded by commercial solvers in terms of both in-sample and out-of-sample data.",
+    "published": "2026-07-10T16:02:16Z",
+    "link": "https://arxiv.org/abs/2607.09556v1",
+    "authors": [
+      "Danial Ramezani",
+      "Mostafa Abouei Ardakan",
+      "Mohamadreza Dehghani Ahmadabad"
+    ]
+  },
+  {
+    "id": "2607.09505v1",
+    "title": "Objective and subjective entropy measures of portfolio suboptimality",
+    "summary": "The cost of holding a suboptimal portfolio instead of the Kelly-optimal one admits two exact relative-entropy representations. Under the true measure, the expected log-wealth shortfall equals the KL divergence from the true measure to the measure under which the suboptimal portfolio would be optimal. Under that measure, the suboptimal portfolio appears to outperform the Kelly portfolio, and the apparent outperformance equals the reverse KL divergence.",
+    "published": "2026-07-10T15:17:51Z",
+    "link": "https://arxiv.org/abs/2607.09505v1",
+    "authors": [
+      "Ati S Sharma"
+    ]
+  },
+  {
+    "id": "2607.09426v1",
+    "title": "The Quarter-Hour Effect: Periodic Algorithmic Trading and Return Predictability in Cryptocurrency Futures",
+    "summary": "Cryptocurrency markets exhibit periodic bursts in volatility and volume at one-, five-, and quarter-hour marks. Using trade data for six Binance perpetual contracts, we associate these bursts with algorithmic trading: trade-size roundness declines sharply within them, a behavioral signature of algorithmic participation. The Autocorrelation Map, a clock-phase-resolved display, reveals serial dependence in order flow and returns at the quarter-hour openings that conventional measures conceal. This opening activity is not only predictable out of sample but also informative: its order imbalance forecasts four-to-twelve-hour returns, weaker at finer marks. Our results characterize periodic algorithmic trading and its cross-frequency variation.",
+    "published": "2026-07-10T13:55:07Z",
+    "link": "https://arxiv.org/abs/2607.09426v1",
+    "authors": [
+      "Chan Kim",
+      "Peter Reinhard Hansen"
+    ]
+  },
+  {
+    "id": "2607.09230v1",
+    "title": "When Does Order Flow Matter? State-Dependent L2 Liquidity-State Transitions in Crypto Futures",
+    "summary": "Building event-conditioned market models requires separating macro-event labels from persistent microstructure state. We study this distinction in Binance BTCUSDT and ETHUSDT futures from 2023-2026, combining top-20 L2 order book data, trade-flow records, and macro-event windows. We define a supervised discrete L2 liquidity-state transition task, distinct from latent-regime detection and price-direction prediction, and evaluate models in rolling monthly out-of-sample folds with event-clustered validation and blocked permutation tests, admitting each feature layer only if it improves on the layer below it on the same panel. Within these event windows, the first-order predictive signal is the pre-event L2 liquidity state: a coarse pre-event state baseline strongly predicts post-event liquidity regimes, interpretable logit models over continuous L2 features fail to improve on it, and a shallow nonlinear L2 model adds a robust further gain of comparable size to the state baseline's own. The macro-event calendar enters only by locating the windows and supplying matched non-event controls; we use event timing but not the event's label content, so pre-event state competes against an uninformed within-window baseline, not against the event type. Order flow adds further value only when layered on top of the L2 state model, not as a replacement. This value is not robustly cross-symbol: for ETH it is present across calm, mixed, and stressed regimes and largest under stressed pre-event liquidity, whereas BTC shows only isolated five-minute passes and no regime that clears at both horizons. These findings motivate a state-first design principle for market microstructure models. We provide a liquidity-state transition baseline and evaluation protocol that reinforcement-learning, execution-policy, or LLM-based context layers should exceed before their added value is credited.",
+    "published": "2026-07-10T09:21:00Z",
+    "link": "https://arxiv.org/abs/2607.09230v1",
+    "authors": [
+      "Joohyoung Jeon"
+    ]
+  },
+  {
+    "id": "2607.09121v1",
+    "title": "Augmenting Fundamental Analysis with Large Language Models: A RAG-Based System for Generating Investor Briefs",
+    "summary": "In this study, we examine the opportunities brought by Large Language Models (LLMs) to various aspects of fundamental analysis of companies based on their reports as well as data and documents describing macroeconomic situation like GDP and inflation changes as well as documents filled to the U.S. Securities and Exchange Commission (SEC) which can be found in EDGAR. We were preprocessing those data and than sending via API to gpt-4o model in a Retrieval-Augmented Generation (RAG) like regime. We prepared as well a document describing an exemplar investor knowledge based on Kitchin cycles. We were scanning data important for analysis of 9 companies for 4 weeks. Using LLM we were producing automatic briefs about them. They were sent to nine participants who are individual investors to evaluate usefulness of such approach to data analysis.",
+    "published": "2026-07-10T06:20:40Z",
+    "link": "https://arxiv.org/abs/2607.09121v1",
+    "authors": [
+      "Bartosz Zi\u00f3\u0142ko",
+      "Kacper Dobrzeniewski"
+    ]
+  },
+  {
+    "id": "2607.08907v1",
+    "title": "Herding and Liquidity in Order-Book Markets. I. A Robust Liquidity-Stress Crossover and its Reflexive Mechanism",
+    "summary": "Agent-based models of markets readily produce emergent instabilities, but telling a genuine collective effect apart from a parameter artefact takes discipline. We apply Bouchaud's phase-diagram method to a continuous-double-auction order-book model. The method is to map the full phase diagram, test its robustness to rule changes, and rule out degenerate and numerical origins before we call any feature a tipping point. The model has fundamental-anchored zero-intelligence liquidity and a mid-anchored chartist herding layer, controlled by the fraction $\\varphi$ and the strength $\u03ba$ of herders. A 7x6 grid (336 runs, each with a scrambled-sign null) locates an emergent liquidity-stress crossover. The order parameter, the fraction of events with a one-sided book, rises to about 0.34 at $(\\varphi,\u03ba)=(0.9,1.0)$, is zero across all 42 scrambled cells, and forms a smooth crossover rather than a discontinuous Dark Corner. The dry-up is rule-robust (it recurs under an order-flow-imbalance rule), horizon-robust (about 0.32-0.35 across a 16x range of momentum window), and has a monotone onset boundary $\\varphi^*(\u03ba) = \\{0.55, 0.45, 0.36\\}$. We then decompose the mechanism at a matched directional-bias amplitude (mean |p_buy - 0.5| about 0.269). Price-momentum herding carries a large, comparator-robust reflexive component (+0.29; buying begets buying), whereas the order-flow rule's component is about 0 and comparator-dependent. The RMS-mispricing gradient is a placement artefact, largest at $\u03ba=0$. A companion two-market analysis finds no directional cross-market contagion across a signal-only herding link.",
+    "published": "2026-07-09T20:06:45Z",
+    "link": "https://arxiv.org/abs/2607.08907v1",
+    "authors": [
+      "Jan Novotny"
+    ]
+  },
+  {
+    "id": "2607.08525v1",
+    "title": "Causal Effects of Protocol-Fee Changes on Liquidity Provision in Automated Market Makers",
+    "summary": "Automated market maker (AMM) fee rules are often evaluated by liquidity-provider (LP) welfare, but that objective mixes fee revenue, adverse-selection loss (loss-versus-rebalancing, LVR), routing response, and liquidity supply. Fixed-fee Uniswap v3 history cannot separate these channels or identify counterfactual trader-facing dynamic-fee rules. Real fee-related variation nonetheless exists: the Uniswap protocol-fee switch cut LP take-rates with tier-differentiated intensity while leaving trader-facing fees unchanged. Using a pre-specified matched-overlap event-study difference-in-differences design, we estimate the liquidity-supply response to take-rate cuts, the kernel K_L that simulator-based fee-controller evaluations routinely freeze, while reconstructing treatment, event time, unit roles, and outcomes from public logs into a frozen, hash-checked panel before any estimate. We detect no large short-run average response in active liquidity or local depth; LP participation and composition, more precisely estimated, likewise show none, so the result is a non-detection at the design's resolution rather than a precise zero. Token-1 volume and native fee income fail the parallel-trends gate and are reported descriptively. A channel-admissibility audit delimits the estimand: the LP-side response K_L is design-based, while trader-facing dynamic-fee protection is a model-conditioned boundary, not a second estimand.",
+    "published": "2026-07-09T14:21:13Z",
+    "link": "https://arxiv.org/abs/2607.08525v1",
+    "authors": [
+      "Wen-Ting Wang"
+    ]
+  },
+  {
+    "id": "2607.08199v2",
+    "title": "Volatility in Prediction Markets: A Structural Approach",
+    "summary": "Forward-looking volatility forecasts are central inputs to derivatives pricing, market making, risk management, and volatility-linked trading strategies, with ARCH and GARCH models serving as the canonical workhorses. Such models are natural in standard asset markets, where prices are positive-valued stochastic processes and volatility is typically inferred from return dynamics. Prediction markets have a different structure: prices are bounded probabilities, payoffs are binary, and contracts resolve at known deadlines. We develop and estimate a volatility model tailored to binary prediction markets. The model combines two economic mechanisms: a Wright-Fisher deadline-resolution component, capturing how remaining binary uncertainty is forced to resolve over time, and a Glosten-Milgrom order-flow component, capturing volatility from informed trading as reflected in spreads and volume. Using a large panel of Kalshi contracts, we show that these structural variables carry substantial forecasting power. Plain ARCH/GARCH benchmarks are dominated by structural specifications; combining the structural model with residual GARCH dynamics gives the best overall forecasts. The model also provides an interpretable measurement framework: volatility is highest near fifty-fifty prices, rises near resolution, and varies across categories with the timing and discreteness of information arrival. Economics contracts are closer to smooth deadline-resolution dynamics, while sports contracts exhibit more event-concentrated, jump-like behavior. Across major categories, category-specific fitting does not systematically improve out-of-sample performance, suggesting that the structural specification transfers beyond the pooled headline result.",
+    "published": "2026-07-09T07:57:43Z",
+    "link": "https://arxiv.org/abs/2607.08199v2",
+    "authors": [
+      "Weiye Xi",
+      "Ciamac C. Moallemi",
+      "Mallesh Pai",
+      "Shouqiao Wang"
+    ]
+  },
+  {
+    "id": "2607.08500v1",
+    "title": "Estimating the Stochastic Discount Factor from Option Prices and Predicting the Equity Premium",
+    "summary": "This paper proposes a stochastic discount factor (SDF) scaled by time-varying volatility. By utilizing prices and market data implied solely from S\\&P 500 options, the proposed framework recovers a stable, non-monotonic SDF that captures the pure forward-looking expectations of market participants while mitigating observation noise. Our empirical analysis reveals that the SDF exhibits a distinctive hump on the shallow put side, which transitions into a more clearly defined W-shape as the time to maturity increases, identifying maturity as a key factor influencing the intensity of the central hump. We show that this structural feature can be theoretically rationalized by stochastic volatility dynamics under a constant market price of risk. The equity premium derived from the time-varying volatility scaled SDF demonstrates superior out-of-sample predictive performance relative to existing benchmarks, such as the Martin bounds.",
+    "published": "2026-07-09T13:59:19Z",
+    "link": "https://arxiv.org/abs/2607.08500v1",
+    "authors": [
+      "Kenichiro Shiraya",
+      "Tomohisa Yamakami",
+      "Akira Yamazaki"
+    ]
+  },
+  {
+    "id": "2607.08291v1",
+    "title": "Robustness in Sequential Decision Making under Evolving Uncertainty: Evidence from High-Frequency Market Making",
+    "summary": "We study sequential decision making under evolving uncertainty in high-frequency financial markets, where changing market dynamics continually challenge static decision policies. We show that robustness has two economically meaningful dimensions: uncertainty tolerance, which determines how much uncertainty the decision maker allows, and action robustness, which governs how conservatively decisions respond. Robustness is not merely protection against model misspecification, but a state-dependent mechanism that reshapes sequential decision behaviors. Simulation and empirical evidence show that action robustness has a substantially larger impact than uncertainty tolerance. Moreover, excessive robustness may reduce profitability in illiquid markets by limiting execution opportunities.",
+    "published": "2026-07-09T09:34:50Z",
+    "link": "https://arxiv.org/abs/2607.08291v1",
+    "authors": [
+      "Ying Chen",
+      "Hoa Nguyen",
+      "Julian Sester",
+      "Hoang Hai Tran",
+      "Yijiong Zhang"
+    ]
+  },
+  {
+    "id": "2607.08199v1",
+    "title": "Volatility in Prediction Markets: A Structural Approach",
+    "summary": "Forward-looking volatility forecasts are central inputs to derivatives pricing, market making, risk management, and volatility-linked trading strategies, with ARCH and GARCH models serving as the canonical workhorses. Such models are natural in standard asset markets, where prices are positive-valued stochastic processes and volatility is typically inferred from return dynamics. Prediction markets have a different structure: prices are bounded probabilities, payoffs are binary, and contracts resolve at known deadlines. We develop and estimate a volatility model tailored to binary prediction markets. The model combines two economic mechanisms: a Wright-Fisher deadline-resolution component, capturing how remaining binary uncertainty is forced to resolve over time, and a Glosten-Milgrom order-flow component, capturing volatility from informed trading as reflected in spreads and volume. Using a large panel of Kalshi contracts, we show that these structural variables carry substantial forecasting power. Plain ARCH/GARCH benchmarks are dominated by structural specifications; combining the structural model with residual GARCH dynamics gives the best overall forecasts. The model also provides an interpretable measurement framework: volatility is highest near fifty-fifty prices, rises near resolution, and varies across categories with the timing and discreteness of information arrival. Economics contracts are closer to smooth deadline-resolution dynamics, while sports contracts exhibit more event-concentrated, jump-like behavior. Across major categories, category-specific fitting does not systematically improve out-of-sample performance, suggesting that the structural specification transfers beyond the pooled headline result.",
+    "published": "2026-07-09T07:57:43Z",
+    "link": "https://arxiv.org/abs/2607.08199v1",
+    "authors": [
+      "Weiye Xi",
+      "Ciamac C. Moallemi",
+      "Mallesh Pai",
+      "Shouqiao Want"
+    ]
+  },
+  {
+    "id": "2607.06908v1",
+    "title": "Iterative detection of global factors near the BBP phase transition",
+    "summary": "Detecting the number of global factors in high-dimensional correlation matrices is a central problem in multivariate statistics and random matrix theory, with important implications for asset pricing and econophysics. When the number of variables $p$ is comparable to the number of observations $n$, signal-to-noise separation becomes difficult, especially near the Baik--Ben Arous--P\u00e9ch\u00e9 (BBP) transition, where weak factors may be confused with fluctuations at the Mar\u010denko--Pastur spectral edge. In this work, we characterize the participation-ratio (PR) structure of the Brown--Harding (BH) factor model. Under strong common loadings, the leading coherent eigenvector $u_1$ satisfies $\\mathrm{PR}(u_1)/p\\to 1$, whereas weak-factor directions and typical idiosyncratic sample eigenvectors $u$ satisfy the delocalized benchmark $\\mathrm{PR}(u)/p\\to 1/3$. These limits motivate an eigenvector-level criterion for retaining extensive directions. We propose an iterative global factor (IGF) algorithm that combines adaptive Mar\u010denko--Pastur edge recalibration with a PR delocalization filter. The method iteratively reestimates the effective noise level, tests eigenvalue separation from the residual bulk, and retains only spectrally separated components with sufficiently extended eigenvectors. Monte Carlo simulations of the BH factor model show that IGF recovers the true number of factors near the BBP transition, where eigenvalue-only criteria can fail or remain ambiguous. A synthetic moving-window calibration matched to the empirical dimensions, which is then applied to S\\&P 500 returns. IGF detects a richer and more dynamic set of global factors than the Onatski test, with a median count of 7 factors. The results indicate that combining spectral separation with eigenvector delocalization improves the detectability of global-factor estimation in high-dimensional financial correlation matrices.",
+    "published": "2026-07-08T02:01:34Z",
+    "link": "https://arxiv.org/abs/2607.06908v1",
+    "authors": [
+      "Andr\u00e9s Garc\u00eda-Medina"
+    ]
+  },
+  {
+    "id": "2607.06702v1",
+    "title": "Dynamic Causal Portfolio Choice: Hedging the Rotation of the Common-Driver Manifold",
+    "summary": "When a portfolio is conditioned on a minimal set of observable drivers under which its assets become mutually independent over the investment horizon, the dynamic investment problem acquires a distinctive geometric structure. We study continuous-time portfolio choice in this setting. The conditioning representation, rather than the asset vector, becomes the natural state of the problem, and it moves: the sensitivity of returns to the drivers depends on the state, the conditioning set may itself change over time, and the induced information geometry both rotates and, at discrete instants, jumps. The optimal policy separates into a static component that allocates along the conditioning geometry at each instant and an intertemporal component that hedges the predictable motion of that geometry, a first-order effect in the model rather than a refinement, placing the coordinates of the information geometry in the role played by exogenous state variables in classical intertemporal asset pricing. Because the problem is organized by the drivers, its computational cost is governed by their number rather than by the number of assets. Changes in the conditioning set generate a risk that continuous trading cannot span, so the market is incomplete in the direction of its own geometry. The analysis is carried out in a controlled diffusion model, and the resulting structure is illustrated on synthetic economies designed to isolate each mechanism.",
+    "published": "2026-07-07T18:20:45Z",
+    "link": "https://arxiv.org/abs/2607.06702v1",
+    "authors": [
+      "Alejandro Rodriguez Dominguez"
+    ]
+  },
+  {
+    "id": "2607.06690v1",
+    "title": "tsbootstrap: Distribution-Free Uncertainty Quantification and Conformal Prediction for Time Series",
+    "summary": "Finance, sensing, and demand streams violate the exchangeability that IID conformal prediction and the IID bootstrap assume, and existing libraries implement either a general resampling engine or conformal calibration without the other. tsbootstrap provides block, residual, sieve, and wild resampling, classical bootstrap confidence intervals, and adaptive conformal calibrators (EnbPI, ACI, NexCP, AgACI) through a single typed API in which a specification object selects each method. In a controlled coverage study the IID bootstrap undercovers sharply under dependence; dependence-aware methods reduce the coverage deficit, the sieve nearest to nominal under short-memory linear dependence. On the shared fixed-statistic path a compiled backend runs several times faster than arch, and a streaming reduce avoids materializing the $O(Bn)$ replicate tensor, limiting peak extra memory to $O(B)$ for the statistic array. The software is MIT licensed (v0.6.1).",
+    "published": "2026-07-07T18:07:06Z",
+    "link": "https://arxiv.org/abs/2607.06690v1",
+    "authors": [
+      "Sankalp Gilda"
+    ]
+  },
+  {
+    "id": "2607.06373v1",
+    "title": "Error Propagation in Spectral Functionals of Shrinkage Covariance Estimators: Perturbation Bounds and Calibrated Inference",
+    "summary": "Rolling covariance estimates feed two objects that are routinely treated as market structure. The first is the dominant eigenspace, monitored through the projector movement $\\widehat D_{K,t}=\\|\\widehat P_{K,t}-\\widehat P_{K,t-1}\\|_F$; the second comprises scalar spectral functionals such as the absorption ratio and the leading-eigenvalue share. Both fluctuate under estimation noise, and shrinkage changes the law of that noise, so reading their movements as structural change requires calibration. For the eigenspace, we derive a first-order null law for $\\widehat D_{K,t}$ between overlapping windows that share most of their data and show that it transfers without change to rotation-equivariant shrinkage estimators. A distribution-free Davis-Kahan band gauges whether the eigenspace is identified, an estimator-aware bootstrap provides the calibrated test, and a companion power analysis gives an approximate design rule for the smallest detectable rotation. For the scalar functionals, we show that first-order immunity to elliptical kurtosis holds for scale-invariant functionals and only for them, so that one estimated scalar calibrates the projector null and the absorption-ratio and leading-share intervals across the elliptical family. In high dimensions, where shrinkage cleaning biases the absorption ratio, we give a trace-preserving spike-debiased estimator that removes the bias. The results are verified by simulation under a known population covariance; an equity-panel appendix shows the procedures as diagnostics when the population is unknown.",
+    "published": "2026-07-07T15:11:16Z",
+    "link": "https://arxiv.org/abs/2607.06373v1",
+    "authors": [
+      "Ahmad Koman"
+    ]
+  },
+  {
+    "id": "2607.06355v1",
+    "title": "Entropic Dynamics of Jump-Diffusion Option Pricing",
+    "summary": "Standard models of stock price dynamics and option valuation usually begin by postulating stochastic processes. This paper develops an entropic inference framework that derives these processes from information constraints. The key symmetry is that markets reward returns rather than price levels, which selects log price as the dynamical variable. Price changes are represented by two channels. The continuous channel carries constraints of continuity and directionality. The jump channel carries the arrival rate and the first two moments of jump size. Since these constraints apply to disjoint parts of the microstate, the channels factorize. The resulting dynamics is the Merton jump diffusion, with Geometric Brownian Motion as the no jump limit. The log price density satisfies the Kolmogorov Feller equation, whose no jump limit is the Fokker Planck equation. The same inferential principle, with no arbitrage imposed through the mean log return, selects the Esscher transform from the many martingale measures available in an incomplete market. The option price then satisfies Mertons partial integro differential equation, and the risk neutral mixture of lognormal distributions generates the implied volatility smile. The Black Scholes results are recovered when jumps vanish. What changes from one model to another is not the inference, but the information supplied to it.",
+    "published": "2026-07-07T14:53:50Z",
+    "link": "https://arxiv.org/abs/2607.06355v1",
+    "authors": [
+      "Mohammad Abedi"
+    ]
+  },
+  {
+    "id": "2607.06220v1",
+    "title": "Stable Sentiment and Persistent Dynamics in U.S. Economic News over 45 Years",
+    "summary": "Collective emotion is often inferred from the tone of mass media, but such emotion is not directly observed. One approximation is to extract sentiment from text and use sentiment indexes as proxies to study the temporal organization of news sentiment. Using a daily index of U.S. economic news sentiment from 24 newspapers (1980-2025), we examine whether the response time of this sentiment process has changed. Although the average balance of positive and negative coverage has remained broadly stable, the persistence of news sentiment states has increased substantially. In dynamical terms, this implies longer residence times in optimistic or pessimistic regimes and weaker short-run correction of sentiment shocks. Complementary statistics show declining sentiment volatility, fewer reversals, and increasing bimodality, i.e. a stronger separation between positive and negative sentiment states. We also find an asymmetry between bursts of negative and positive sentiment, with negative bursts tending to last longer. These patterns are consistent with a minimal endogenous-memory model in which a slowly evolving latent sentiment component becomes more persistent while short-range corrective feedback weakens. The findings indicate a change in the temporal response of the U.S. economic newspaper sentiment index over the last 45 years, with sentiment shocks leaving longer traces than expected under short-memory exponential decay. News-based sentiment is thus better modeled as persistent episodes rather than as daily reactions that reset after each event.",
+    "published": "2026-07-07T12:44:42Z",
+    "link": "https://arxiv.org/abs/2607.06220v1",
+    "authors": [
+      "Luis Enrique Correa Rocha"
+    ]
+  },
+  {
+    "id": "2607.06153v1",
+    "title": "From Gravity to Confinement: Wealth Redistribution as Optimal Drift Design in the Fokker-Planck Framework",
+    "summary": "A proportional wealth tax acts as a uniform gravitational field on the wealth distribution: it shifts the drift of the Fokker-Planck equation without altering the diffusion, preserving the Gini coefficient at all finite times. The same drift-shift symmetry that makes the tax non-distortionary also makes it non-redistributive through the market channel. Redistribution requires breaking this symmetry. A progressive tax (confining potential) replaces the Pareto steady state with a thinner-tailed distribution whose Gini is a closed-form function of the progressivity parameter; source-sink terms (tax-funded transfers) reshape the density directly. We formulate optimal redistribution as a control problem for the Fokker-Planck equation, penalising intervention costs including migration, evasion, and portfolio distortion. In general equilibrium the tax design feeds back through aggregate capital and the production function, yielding a self-consistent McKean-Vlasov equation with diminishing returns to progressivity. The spectral gap of the Fokker-Planck operator determines convergence speed: progressive taxes redistribute within policy-relevant timescales, whereas proportional taxes rely on slow demographic turnover.",
+    "published": "2026-07-07T11:31:37Z",
+    "link": "https://arxiv.org/abs/2607.06153v1",
+    "authors": [
+      "Anders G Fr\u00f8seth"
+    ]
+  },
+  {
+    "id": "2607.06121v1",
+    "title": "Can Reinforcement Learning Efficiently Discover Price Manipulation?",
+    "summary": "In this paper, we investigate whether a model-free RL agent can identify and exploit price manipulation opportunities more effectively than a traditional model-based approach that assumes correct specification of the data-generating process but relies on noisy parameter estimates. We consider a single-asset market in which prices evolve according to an Almgren-Chriss framework with non-linear permanent impact and linear temporary impact. We first establish the existence of price-manipulative strategies in discrete time and compute the optimal benchmark strategy using Sequential Least Squares Quadratic Programming under full information. We then compare two finite-sample learning approaches: a model-based procedure that estimates impact parameters from simulated execution data and an agnostic RL approach based on Deep Deterministic Policy Gradient, trained directly on the same amount of data. For intermediate volatility, the RL agent successfully discovers profitable manipulative strategies without explicit knowledge of the underlying model, even when training data are quite limited. More importantly, RL consistently outperforms the model-based approach when parameter estimates are affected by sampling error, despite the latter benefiting from the correct model specification. For large volatility, all methods are unable to identify manipulation opportunities, while for small volatility, the model based approach outperforms RL. These findings highlight both the effectiveness of RL in complex control problems and the risks associated with deploying learning algorithms in financial markets without appropriate safeguards.",
+    "published": "2026-07-07T10:29:20Z",
+    "link": "https://arxiv.org/abs/2607.06121v1",
+    "authors": [
+      "Ioanna-Yvonni Tsaknaki",
+      "Andrea Macr\u00ec",
+      "Fabrizio Lillo"
+    ]
+  },
+  {
+    "id": "2607.06117v1",
+    "title": "Relief-Gated Relative Rotation for QQQ-DIA Allocation: Globally Screened Relative States, Fixed Position Mapping, Incremental Interaction Admission, and Walk-Forward Validation",
+    "summary": "This paper studies Relief-Gated Relative Rotation (RGRR), a two-ETF rule that allocates between QQQ and DIA by mapping screened relative and macro states into a continuous QQQ weight. RGRR is economic rather than mechanical: it rotates between a growth-heavy sleeve and a Dow/value-heavy sleeve only when QQQ-DIA relative states are confirmed by rate, volatility, credit, or broad-market relief conditions. Candidate main effects and interactions are globally screened with horizon-specific HAC regressions and correlation de-duplication, then held fixed during walk-forward validation. Rolling out-of-sample validation re-selects only signal-family lambdas, not the signal universe or the position mapping. The final stack contains one main effect, nine second-order interactions, and two third-order interactions. Third-order terms must also improve rolling out-of-sample Sharpe versus the main plus second-order base and survive economic-family de-duplication. The final mapping uses a fixed bounded weight transformation and includes a 10 bps one-way turnover cost. Across the 2018, 2020, and 2022 out-of-sample starts, RGRR improves Sharpe versus 100% QQQ and 50/50 QQQ-DIA in every tested interval. It improves CAGR versus 50/50 in every interval, but beats 100% QQQ on CAGR only in the 2022 window. In 2018, RGRR earns an 18.33% CAGR and 0.94 Sharpe, versus 20.50% and 0.89 for QQQ and 16.69% and 0.86 for 50/50. In 2022, it earns a 15.19% CAGR and 0.87 Sharpe, versus 14.65% and 0.70 for QQQ. The evidence supports RGRR as a risk-adjusted relative allocation rule, not a pure return-dominance rule. Its main practical weakness is high turnover, ranging from 354% to 506% annualized.",
+    "published": "2026-07-07T10:26:55Z",
+    "link": "https://arxiv.org/abs/2607.06117v1",
+    "authors": [
+      "Zheli Xiong"
+    ]
+  },
+  {
+    "id": "2607.05320v1",
+    "title": "Causal Separation, Conditional Risk, and Projected Markowitz Portfolios",
+    "summary": "We formalize a single structural condition on a portfolio problem, causal separation: conditional on the realized path of a declared set of drivers through the investment horizon, asset returns are mutually independent. From this condition we derive the complete static portfolio theory it induces. Separation forces a diagonal-plus-low-rank conditional covariance through an exact tower decomposition, with the low-rank block identified as the response to driver innovations, and the constrained mean-variance problem admits a closed-form projected Markowitz solution in which the classical information matrix is replaced by its projection onto the constraint-compatible subspace. We prove uniqueness of the minimal sufficient separator as an information set; invariance of all derived objects under separator equivalence and reparametrization of the driver state; a conditional efficient-frontier theorem; a Hansen-Jagannathan bound whose gap to the unconstrained bound is an exact quadratic form in the shadow prices of the constraint geometry; a conditioning bound showing that separation regularizes estimation through the idiosyncratic variance floor; and exact first-order sensitivity bounds under approximate separation at a certified tolerance. The causal content is stated and proved rather than assumed: under an explicit structural margin the common causes form a separator, observational data identify their realized information and no more, and causal and correlational separators of equal fit are distinguished by interventions on non-parents. Seven reproducible experiments validate the theory, with structural identities holding at machine precision, and quantify its practical content against sample, shrinkage and principal-component covariances, including robustness, intervention invariance, and scaling to thousands of assets.",
+    "published": "2026-07-06T16:59:25Z",
+    "link": "https://arxiv.org/abs/2607.05320v1",
+    "authors": [
+      "Alejandro Rodriguez Dominguez"
+    ]
+  },
+  {
+    "id": "2607.05291v1",
+    "title": "Forecasting Realized Volatility with Time Series Foundation Models: A Comparison with Econometric Benchmarks",
+    "summary": "We ask whether pretrained time series foundation models (TSFMs) improve on established econometric benchmarks for forecasting realized volatility. Using the VOLARE dataset, we conduct the first systematic comparison of nine zero-shot TSFMs against eight econometric specifications, including the Heterogeneous Autoregressive (HAR) family, across 50 assets in equities, foreign exchange, and futures, and three forecast horizons, with formal pairwise and multi-model forecast-comparison tests. Foundation models do not deliver a uniform gain. Pooled losses favor them, but the advantage is concentrated in a few outlier assets; averaging each asset's loss ratio to a well-specified Log-HAR benchmark, so that no single asset dominates, only one small model, Tiny Time Mixers (TTM), beats the benchmark at every horizon, and by a narrow margin. The other foundation models do not improve on Log-HAR, and the econometric benchmarks remain competitive throughout. A Mincer--Zarnowitz recalibration, which removes level and scale bias from every forecast, shows that much of the short-horizon advantage reflects better-scaled forecasts rather than better prediction of volatility dynamics, and only at the monthly horizon does a genuine informational gain remain. Because this edge is thin and even TTM is not best on every asset, a simple equal-weight average of TTM and Log-HAR matches the best single model and enters the Model Confidence Set for 98 to 100\\% of assets, more often than either component alone, so a forecaster need not identify the best model for each asset in advance. Our most durable finding is that performance varies so much across foundation-model architectures that choosing the right architecture matters more than the broader choice between foundation and econometric models.",
+    "published": "2026-07-06T16:30:41Z",
+    "link": "https://arxiv.org/abs/2607.05291v1",
+    "authors": [
+      "Alessio Brini"
+    ]
+  },
+  {
+    "id": "2607.05141v1",
+    "title": "Square-Root Price Impact Is Necessary for Endogenous Manipulation Cycles in Learning-Agent Markets",
+    "summary": "We study a minimal agent-based market in which a single evolutionary-optimized institutional agent interacts with 20{,}000 herding retail traders. The agent spontaneously discovers a multi-cycle predatory strategy, producing 8--11 complete cycles over 2000 trading days with total portfolio return of $+51\\%$ (best of 20 seeds; mean $+37.7\\%$). Mean-field reduction maps the system onto a nonlinear oscillator that undergoes two distinct bifurcations: a continuous Hopf transition as institutional capital exceeds a critical threshold $C_c$, with oscillation amplitude $A \\propto (C-C_c)^\u03b1$ where $\u03b1$ is consistent with the standard prediction of $1/2$; and a discontinuous fold transition in the herding-scale parameter space. The limit cycle persists even at $\u03b2= 0$: position-tracking feedback coupled with square-root price impact creates a self-sustained nonlinear oscillator requiring no retail herding. Square-root impact is shown to be necessary: linear impact eliminates the Hopf bifurcation entirely and renders the retail market unconditionally stable. Manipulation cycles thus emerge as the optimal-control solution of a nonlinear dynamical system, and a structural analogy to Maxwell's demon frames the agent as an information-processing controller that reduces the entropy rate of the price process.",
+    "published": "2026-07-06T14:25:18Z",
+    "link": "https://arxiv.org/abs/2607.05141v1",
+    "authors": [
+      "Yang Zhou",
+      "Jianwen Chen",
+      "Ruipeng Wei"
+    ]
+  },
+  {
+    "id": "2607.05091v3",
+    "title": "Any Axes Are Allowed: A Characteristic-Axis Integral Diagnosis of Factor Models",
+    "summary": "This paper extends the cap-axis integral diagnostic to general characteristic axes, measuring factor-model pricing errors as bridge-alpha curves. A predetermined characteristic order generates prefix portfolios; subtracting equal-exposure aggregate portfolios yields zero-investment bridges indexed by cutoff p. The null is a zero-curve restriction on the subspace generated by the order, not a pointwise decile test. In 1967-2024 CRSP data, adding a counterpart factor flips the curve's sign on every axis, but only HML and CMA overcorrect enough to be rejected, whereas RMW and UMD flatten their axes. A size-split reconstruction traces the overcorrection to 2x3 factor construction rather than the premium. Axis pricing errors are largely unrelated to maximum-Sharpe gains.",
+    "published": "2026-07-06T13:51:49Z",
+    "link": "https://arxiv.org/abs/2607.05091v3",
+    "authors": [
+      "Useong Shin"
+    ]
+  },
+  {
+    "id": "2607.05011v2",
+    "title": "Reaction-boundary variance and adjoint-consistent local-volatility projection",
+    "summary": "We derive an operational-time variance kernel for a latent-order-book reaction boundary and use it to separate three objects usually collapsed in calendar-time volatility models: a structural boundary cumulant, a clock projection, and a pricing-measure choice. The reaction boundary is the zero of a bid--ask imbalance field. For a locally linear book, signed order-flow perturbations displace this zero through a damped Abel response kernel, so the variance of boundary increments is obtained as a finite-scale Green-function cumulant rather than introduced as a primitive diffusion coefficient. For long-memory forcing with exponent $0<\u03b3<1$, the operational variance has a closed asymptotic form involving effective signed-forcing intensity, liquidity slope, resilience, memory, and operational coarse-graining scale. A deterministic activity clock gives the benchmark local-volatility projection. More general, non-unique clocks generate candidate calendar-time pricing systems. We argue that such projections are admissible only when the induced forward density operator and backward valuation operator remain adjoint on the same state space. Adjoint consistency is therefore a reality constraint on operational-to-calendar time projection: it disciplines non-unique time and identifies where incompleteness enters.",
+    "published": "2026-07-06T12:52:37Z",
+    "link": "https://arxiv.org/abs/2607.05011v2",
+    "authors": [
+      "Chris Angstmann",
+      "Tim Gebbie"
+    ]
+  },
+  {
+    "id": "2607.04958v1",
+    "title": "Look-Ahead-Freedom as Temporal Non-Interference: A Verifiable Correctness Property for Backtesting and Agentic Trading Pipelines",
+    "summary": "Look-ahead bias (using information from after a decision epoch to make the decision at that epoch) is the dominant way a backtest or a machine-learning evaluation flatters a system that will disappoint in deployment. The field manages it with construct-specific recipes and empirical detectors, which are sound only channel by channel and certify nothing by their silence. We show that look-ahead-freedom is a formal property in disguise: fixing an epoch, the demand that the future not influence the present is temporal non-interference over a time-indexed information lattice. From this identification we develop a pipeline calculus separating a datum's availability from its reference time, and settle the problem's boundary. Where availability may depend on data values, look-ahead-freedom is undecidable (indeed Pi-0-1-hard): leakage is recursively enumerable but freedom is not. On the value-independent fragment (covering windowing, resampling, joins, point-in-time and vintage reads, and agentic retrieval) we give a type-and-effect system that is sound and decidable in linear time. An artifact confirms the theory: the check scales linearly, an independent oracle witnesses no leak in any accepted pipeline, and the checker catches every planted leak that differential and tiling detectors miss.",
+    "published": "2026-07-06T11:42:26Z",
+    "link": "https://arxiv.org/abs/2607.04958v1",
+    "authors": [
+      "Xavier Fonseca"
+    ]
+  },
+  {
+    "id": "2607.04346v1",
+    "title": "Preference-fitting Framework: Elicited Utility Function and PHARA Approximation",
+    "summary": "The utility function plays a core role in portfolio selection, but its specific form is typically hard to elicit. We propose a definition of the elicited utility function and develop a preference-fitting method to obtain it. Basically, we use intuitive probability-wealth pairs to derive a fitted terminal wealth, a fitted portfolio and a fitted utility function, which converge to the optimal terminal wealth, the optimal portfolio and the elicited utility function of the investor, respectively. Specifically, we first establish a bijection between the utility functions and the terminal wealth functions, based on which we construct the fitted terminal wealth, and then obtain the fitted portfolio and the fitted utility function through the martingale-duality method. Next, we develop a piecewise hyperbolic absolute risk aversion (abbr. PHARA) utility approximation method, and verify the convergences in various senses: almost surely, $L^r$, uniform, etc. We demonstrate two applications of our method: obtaining asymptotically explicit portfolios and handling portfolio selection under Value-at-Risk (abbr. VaR) constraints, thereby illustrating its advantages including intuitiveness, analytical tractability, and ability to circumvent the Lagrange multiplier.",
+    "published": "2026-07-05T15:04:38Z",
+    "link": "https://arxiv.org/abs/2607.04346v1",
+    "authors": [
+      "Rui Dai",
+      "Zongxia Liang",
+      "Yang Liu"
+    ]
+  },
+  {
+    "id": "2607.04280v1",
+    "title": "Order Splitting and Liquidity Replenishment Are Jointly Necessary for the Square-Root Law of Market Impact:",
+    "summary": "Three quantitative predictions have been advanced for the square-root law (SRL) of market impact, $I/\u03c3_D = c\\,(Q/V_D)^\u03b4$ with $\u03b4\\approx 0.5$: GGPS ($\u03b4=\u03b2-1$), FGLW ($\u03b4=\u03b1-1$), and LOB walking ($\u03b4=1/(1+\u03b3)$). Using a minimal limit-order-book model populated by heterogeneous interacting agents and calibrated against the Tokyo Stock Exchange benchmark ($\\langle\u03b4\\rangle = 0.489$~\\citep{satoStrictUniversalitySquareRoot2025}), we test all three on identical simulated data and find that none matches the per-stock measured $\u03b4$: GGPS and FGLW over-predict by factors of two and four respectively, while LOB walking under-predicts. The model reproduces $\\langle\u03b4\\rangle = 0.539\\pm 0.048$ across 2000 independently parameterised stocks. To identify which mechanisms are causally responsible, we perform counterfactual ablation by selectively suppressing each component. Removing order splitting collapses $\u03b4$ from $0.549$ to $0.324$; removing liquidity replenishment by market makers drops it to $0.386$; perturbations that leave both intact (momentum trading, price limits, splitting rule, background liquidity) move $\u03b4$ by less than $10\\%$. Order splitting and liquidity replenishment are thus jointly identified as the necessary mechanisms for the SRL within this model, with the simulated SRL depending on neither the metaorder size tail nor the visible book shape in isolation.",
+    "published": "2026-07-05T12:47:17Z",
+    "link": "https://arxiv.org/abs/2607.04280v1",
+    "authors": [
+      "Yang Zhou",
+      "Jianwen Chen",
+      "Ruipeng Wei"
+    ]
+  }
+]

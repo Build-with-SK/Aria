@@ -1,0 +1,52 @@
+[
+  {
+    "alert_type": "HIGH_VOLATILITY",
+    "severity": "INFO",
+    "ticker": "CL=F",
+    "title": "Elevated Volatility \u2014 CL=F",
+    "message": "Realised vol: 59%. Consider smaller position.",
+    "value": 0.5935,
+    "threshold": 0.4,
+    "date": "2026-05-31"
+  },
+  {
+    "alert_type": "HIGH_VOLATILITY",
+    "severity": "INFO",
+    "ticker": "SI=F",
+    "title": "Elevated Volatility \u2014 SI=F",
+    "message": "Realised vol: 58%. Consider smaller position.",
+    "value": 0.578,
+    "threshold": 0.4,
+    "date": "2026-05-31"
+  },
+  {
+    "alert_type": "HIGH_VOLATILITY",
+    "severity": "INFO",
+    "ticker": "NG=F",
+    "title": "Elevated Volatility \u2014 NG=F",
+    "message": "Realised vol: 48%. Consider smaller position.",
+    "value": 0.4823,
+    "threshold": 0.4,
+    "date": "2026-05-31"
+  },
+  {
+    "alert_type": "SENTIMENT_SHIFT",
+    "severity": "INFO",
+    "ticker": "^GDAXI",
+    "title": "Very Positive News Sentiment \u2014 ^GDAXI",
+    "message": "Sentiment score: +58.6 from 10 articles. Top headline: European Stocks Close Mixed; Trump to Make Final Determination on US, Iran Peace",
+    "value": 58.65,
+    "threshold": 50,
+    "date": "2026-05-31"
+  },
+  {
+    "alert_type": "SENTIMENT_SHIFT",
+    "severity": "INFO",
+    "ticker": "USDJPY=X",
+    "title": "Very Positive News Sentiment \u2014 USDJPY=X",
+    "message": "Sentiment score: +97.5 from 3 articles. Top headline: Why a Plunging Dollar Is Missing Out on the Relief Rally",
+    "value": 97.51,
+    "threshold": 50,
+    "date": "2026-05-31"
+  }
+]

@@ -1,0 +1,846 @@
+[
+  {
+    "id": "momentum_topn-2607.09906v1",
+    "name": "momentum_topn \u00b7 Depth-Efficient Quantum Topological Data Analysis for Regime",
+    "template": "momentum_topn",
+    "params": {
+      "lookback": 252,
+      "top_n": 10
+    },
+    "mapper": "ollama",
+    "rationale": "The paper focuses on detecting financial stress, which can be seen as identifying the top performing stocks over a certain period.",
+    "paper": {
+      "id": "2607.09906v1",
+      "title": "Depth-Efficient Quantum Topological Data Analysis for Regime-Specific Detection of Financial Stress",
+      "link": "https://arxiv.org/abs/2607.09906v1"
+    },
+    "metrics": {
+      "full": {
+        "cagr_pct": -0.45,
+        "sharpe": 0.02,
+        "max_dd_pct": -16.14,
+        "days": 742
+      },
+      "oos": {
+        "cagr_pct": 2.95,
+        "sharpe": 0.28,
+        "max_dd_pct": -11.31,
+        "days": 252
+      }
+    },
+    "exposure_pct": 65.6,
+    "equity_curve": [
+      [
+        "2023-07-31",
+        1.0
+      ],
+      [
+        "2023-08-31",
+        1.0
+      ],
+      [
+        "2023-09-30",
+        1.0
+      ],
+      [
+        "2023-10-31",
+        1.0
+      ],
+      [
+        "2023-11-30",
+        1.0
+      ],
+      [
+        "2023-12-31",
+        1.0
+      ],
+      [
+        "2024-01-31",
+        1.0
+      ],
+      [
+        "2024-02-29",
+        1.0
+      ],
+      [
+        "2024-03-31",
+        1.0
+      ],
+      [
+        "2024-04-30",
+        1.0
+      ],
+      [
+        "2024-05-31",
+        1.0
+      ],
+      [
+        "2024-06-30",
+        1.0
+      ],
+      [
+        "2024-07-31",
+        0.999
+      ],
+      [
+        "2024-08-31",
+        0.988
+      ],
+      [
+        "2024-09-30",
+        1.013
+      ],
+      [
+        "2024-10-31",
+        0.9517
+      ],
+      [
+        "2024-11-30",
+        0.9541
+      ],
+      [
+        "2024-12-31",
+        0.9411
+      ],
+      [
+        "2025-01-31",
+        0.9306
+      ],
+      [
+        "2025-02-28",
+        0.8594
+      ],
+      [
+        "2025-03-31",
+        0.903
+      ],
+      [
+        "2025-04-30",
+        0.9312
+      ],
+      [
+        "2025-05-31",
+        0.9198
+      ],
+      [
+        "2025-06-30",
+        0.9552
+      ],
+      [
+        "2025-07-31",
+        0.9308
+      ],
+      [
+        "2025-08-31",
+        0.9379
+      ],
+      [
+        "2025-09-30",
+        0.9489
+      ],
+      [
+        "2025-10-31",
+        0.9902
+      ],
+      [
+        "2025-11-30",
+        0.9979
+      ],
+      [
+        "2025-12-31",
+        1.017
+      ],
+      [
+        "2026-01-31",
+        0.9907
+      ],
+      [
+        "2026-02-28",
+        1.033
+      ],
+      [
+        "2026-03-31",
+        0.9292
+      ],
+      [
+        "2026-04-30",
+        1.014
+      ],
+      [
+        "2026-05-31",
+        0.9776
+      ],
+      [
+        "2026-06-30",
+        0.9929
+      ],
+      [
+        "2026-07-31",
+        0.9869
+      ]
+    ],
+    "basket": "NSE large-cap 20",
+    "created_at": "2026-07-14T12:22:02.448852"
+  },
+  {
+    "id": "momentum_topn-2607.06355v1",
+    "name": "momentum_topn \u00b7 Entropic Dynamics of Jump-Diffusion Option Pricing",
+    "template": "momentum_topn",
+    "params": {
+      "lookback": 126,
+      "top_n": 5
+    },
+    "mapper": "ollama",
+    "rationale": "The paper focuses on the dynamics of stock prices and option pricing, which can be analyzed using a momentum strategy by identifying stocks with the highest returns over a certain period.",
+    "paper": {
+      "id": "2607.06355v1",
+      "title": "Entropic Dynamics of Jump-Diffusion Option Pricing",
+      "link": "https://arxiv.org/abs/2607.06355v1"
+    },
+    "metrics": {
+      "full": {
+        "cagr_pct": 5.79,
+        "sharpe": 0.43,
+        "max_dd_pct": -15.5,
+        "days": 744
+      },
+      "oos": {
+        "cagr_pct": -7.19,
+        "sharpe": -0.38,
+        "max_dd_pct": -15.5,
+        "days": 252
+      }
+    },
+    "exposure_pct": 81.5,
+    "equity_curve": [
+      [
+        "2023-07-31",
+        1.0
+      ],
+      [
+        "2023-08-31",
+        1.0
+      ],
+      [
+        "2023-09-30",
+        1.0
+      ],
+      [
+        "2023-10-31",
+        1.0
+      ],
+      [
+        "2023-11-30",
+        1.0
+      ],
+      [
+        "2023-12-31",
+        1.0
+      ],
+      [
+        "2024-01-31",
+        0.999
+      ],
+      [
+        "2024-02-29",
+        1.0498
+      ],
+      [
+        "2024-03-31",
+        1.0703
+      ],
+      [
+        "2024-04-30",
+        1.0993
+      ],
+      [
+        "2024-05-31",
+        1.1202
+      ],
+      [
+        "2024-06-30",
+        1.1803
+      ],
+      [
+        "2024-07-31",
+        1.2183
+      ],
+      [
+        "2024-08-31",
+        1.1699
+      ],
+      [
+        "2024-09-30",
+        1.21
+      ],
+      [
+        "2024-10-31",
+        1.1289
+      ],
+      [
+        "2024-11-30",
+        1.1546
+      ],
+      [
+        "2024-12-31",
+        1.1753
+      ],
+      [
+        "2025-01-31",
+        1.1666
+      ],
+      [
+        "2025-02-28",
+        1.1291
+      ],
+      [
+        "2025-03-31",
+        1.2102
+      ],
+      [
+        "2025-04-30",
+        1.24
+      ],
+      [
+        "2025-05-31",
+        1.2208
+      ],
+      [
+        "2025-06-30",
+        1.2573
+      ],
+      [
+        "2025-07-31",
+        1.2087
+      ],
+      [
+        "2025-08-31",
+        1.1704
+      ],
+      [
+        "2025-09-30",
+        1.1502
+      ],
+      [
+        "2025-10-31",
+        1.2362
+      ],
+      [
+        "2025-11-30",
+        1.2353
+      ],
+      [
+        "2025-12-31",
+        1.2504
+      ],
+      [
+        "2026-01-31",
+        1.2455
+      ],
+      [
+        "2026-02-28",
+        1.3388
+      ],
+      [
+        "2026-03-31",
+        1.153
+      ],
+      [
+        "2026-04-30",
+        1.2695
+      ],
+      [
+        "2026-05-31",
+        1.1986
+      ],
+      [
+        "2026-06-30",
+        1.1809
+      ],
+      [
+        "2026-07-31",
+        1.1809
+      ]
+    ],
+    "basket": "NSE large-cap 20",
+    "created_at": "2026-07-11T16:55:20.920419",
+    "also_cited": [
+      {
+        "id": "2607.09230v1",
+        "title": "When Does Order Flow Matter? State-Dependent L2 Liquidity-State Transitions in Crypto Futures",
+        "link": "https://arxiv.org/abs/2607.09230v1"
+      },
+      {
+        "id": "2607.09121v1",
+        "title": "Augmenting Fundamental Analysis with Large Language Models: A RAG-Based System for Generating Investor Briefs",
+        "link": "https://arxiv.org/abs/2607.09121v1"
+      }
+    ]
+  },
+  {
+    "id": "ma_cross-2607.08291v1",
+    "name": "ma_cross \u00b7 Robustness in Sequential Decision Making under Evolving Unce",
+    "template": "ma_cross",
+    "params": {
+      "fast": 20,
+      "slow": 100
+    },
+    "mapper": "ollama",
+    "rationale": "The paper discusses sequential decision making under evolving uncertainty, which can be modeled using a moving average crossover strategy to adapt to changing market dynamics.",
+    "paper": {
+      "id": "2607.08291v1",
+      "title": "Robustness in Sequential Decision Making under Evolving Uncertainty: Evidence from High-Frequency Market Making",
+      "link": "https://arxiv.org/abs/2607.08291v1"
+    },
+    "metrics": {
+      "full": {
+        "cagr_pct": 3.85,
+        "sharpe": 0.34,
+        "max_dd_pct": -16.22,
+        "days": 744
+      },
+      "oos": {
+        "cagr_pct": -7.65,
+        "sharpe": -0.54,
+        "max_dd_pct": -15.03,
+        "days": 252
+      }
+    },
+    "exposure_pct": 86.7,
+    "equity_curve": [
+      [
+        "2023-07-31",
+        1.0
+      ],
+      [
+        "2023-08-31",
+        1.0
+      ],
+      [
+        "2023-09-30",
+        1.0
+      ],
+      [
+        "2023-10-31",
+        1.0
+      ],
+      [
+        "2023-11-30",
+        1.0
+      ],
+      [
+        "2023-12-31",
+        1.056
+      ],
+      [
+        "2024-01-31",
+        1.071
+      ],
+      [
+        "2024-02-29",
+        1.1068
+      ],
+      [
+        "2024-03-31",
+        1.1244
+      ],
+      [
+        "2024-04-30",
+        1.1433
+      ],
+      [
+        "2024-05-31",
+        1.1331
+      ],
+      [
+        "2024-06-30",
+        1.2019
+      ],
+      [
+        "2024-07-31",
+        1.2472
+      ],
+      [
+        "2024-08-31",
+        1.2494
+      ],
+      [
+        "2024-09-30",
+        1.2826
+      ],
+      [
+        "2024-10-31",
+        1.2018
+      ],
+      [
+        "2024-11-30",
+        1.2138
+      ],
+      [
+        "2024-12-31",
+        1.1958
+      ],
+      [
+        "2025-01-31",
+        1.183
+      ],
+      [
+        "2025-02-28",
+        1.1094
+      ],
+      [
+        "2025-03-31",
+        1.1587
+      ],
+      [
+        "2025-04-30",
+        1.1865
+      ],
+      [
+        "2025-05-31",
+        1.1776
+      ],
+      [
+        "2025-06-30",
+        1.2108
+      ],
+      [
+        "2025-07-31",
+        1.1714
+      ],
+      [
+        "2025-08-31",
+        1.1783
+      ],
+      [
+        "2025-09-30",
+        1.1989
+      ],
+      [
+        "2025-10-31",
+        1.2453
+      ],
+      [
+        "2025-11-30",
+        1.2623
+      ],
+      [
+        "2025-12-31",
+        1.2735
+      ],
+      [
+        "2026-01-31",
+        1.2444
+      ],
+      [
+        "2026-02-28",
+        1.2665
+      ],
+      [
+        "2026-03-31",
+        1.1373
+      ],
+      [
+        "2026-04-30",
+        1.1948
+      ],
+      [
+        "2026-05-31",
+        1.1436
+      ],
+      [
+        "2026-06-30",
+        1.1214
+      ],
+      [
+        "2026-07-31",
+        1.1179
+      ]
+    ],
+    "basket": "NSE large-cap 20",
+    "created_at": "2026-07-11T16:54:53.547069",
+    "also_cited": [
+      {
+        "id": "2607.06702v1",
+        "title": "Dynamic Causal Portfolio Choice: Hedging the Rotation of the Common-Driver Manifold",
+        "link": "https://arxiv.org/abs/2607.06702v1"
+      },
+      {
+        "id": "2607.06121v1",
+        "title": "Can Reinforcement Learning Efficiently Discover Price Manipulation?",
+        "link": "https://arxiv.org/abs/2607.06121v1"
+      },
+      {
+        "id": "2607.06908v1",
+        "title": "Iterative detection of global factors near the BBP phase transition",
+        "link": "https://arxiv.org/abs/2607.06908v1"
+      },
+      {
+        "id": "2607.06373v1",
+        "title": "Error Propagation in Spectral Functionals of Shrinkage Covariance Estimators: Perturbation Bounds and Calibrated Inference",
+        "link": "https://arxiv.org/abs/2607.06373v1"
+      },
+      {
+        "id": "2607.09566v1",
+        "title": "Large-Scale Portfolio Optimization Problem Under Cardinality Constraint With Enhanced Multi-Objective Evolutionary Algorithms",
+        "link": "https://arxiv.org/abs/2607.09566v1"
+      },
+      {
+        "id": "2607.09556v1",
+        "title": "A novel robust mixed integer linear programming model for index tracking problem under no rebalancing: heuristic optimization approach",
+        "link": "https://arxiv.org/abs/2607.09556v1"
+      }
+    ]
+  },
+  {
+    "id": "mean_reversion_z-2607.08500v1",
+    "name": "mean_reversion_z \u00b7 Estimating the Stochastic Discount Factor from Option Prices",
+    "template": "mean_reversion_z",
+    "params": {
+      "window": 20,
+      "entry_z": -2.0,
+      "exit_z": 0.0
+    },
+    "mapper": "ollama",
+    "rationale": "The SDF exhibits a distinctive hump on the shallow put side, which transitions into a more clearly defined W-shape as maturity increases, suggesting a mean-reverting pattern in the returns.",
+    "paper": {
+      "id": "2607.08500v1",
+      "title": "Estimating the Stochastic Discount Factor from Option Prices and Predicting the Equity Premium",
+      "link": "https://arxiv.org/abs/2607.08500v1"
+    },
+    "metrics": {
+      "full": {
+        "cagr_pct": -5.68,
+        "sharpe": -0.28,
+        "max_dd_pct": -33.16,
+        "days": 744
+      },
+      "oos": {
+        "cagr_pct": -14.34,
+        "sharpe": -0.81,
+        "max_dd_pct": -26.07,
+        "days": 252
+      }
+    },
+    "exposure_pct": 87.5,
+    "equity_curve": [
+      [
+        "2023-07-31",
+        1.0
+      ],
+      [
+        "2023-08-31",
+        1.0107
+      ],
+      [
+        "2023-09-30",
+        1.0413
+      ],
+      [
+        "2023-10-31",
+        1.0012
+      ],
+      [
+        "2023-11-30",
+        1.0417
+      ],
+      [
+        "2023-12-31",
+        1.037
+      ],
+      [
+        "2024-01-31",
+        1.022
+      ],
+      [
+        "2024-02-29",
+        1.0128
+      ],
+      [
+        "2024-03-31",
+        1.0336
+      ],
+      [
+        "2024-04-30",
+        1.0136
+      ],
+      [
+        "2024-05-31",
+        1.0678
+      ],
+      [
+        "2024-06-30",
+        1.1485
+      ],
+      [
+        "2024-07-31",
+        1.1489
+      ],
+      [
+        "2024-08-31",
+        1.1037
+      ],
+      [
+        "2024-09-30",
+        1.1278
+      ],
+      [
+        "2024-10-31",
+        1.0896
+      ],
+      [
+        "2024-11-30",
+        1.083
+      ],
+      [
+        "2024-12-31",
+        1.0312
+      ],
+      [
+        "2025-01-31",
+        1.0391
+      ],
+      [
+        "2025-02-28",
+        0.9598
+      ],
+      [
+        "2025-03-31",
+        0.9719
+      ],
+      [
+        "2025-04-30",
+        0.9389
+      ],
+      [
+        "2025-05-31",
+        0.933
+      ],
+      [
+        "2025-06-30",
+        0.9791
+      ],
+      [
+        "2025-07-31",
+        0.943
+      ],
+      [
+        "2025-08-31",
+        0.9814
+      ],
+      [
+        "2025-09-30",
+        0.9702
+      ],
+      [
+        "2025-10-31",
+        1.0179
+      ],
+      [
+        "2025-11-30",
+        1.0158
+      ],
+      [
+        "2025-12-31",
+        1.0388
+      ],
+      [
+        "2026-01-31",
+        0.9528
+      ],
+      [
+        "2026-02-28",
+        0.8596
+      ],
+      [
+        "2026-03-31",
+        0.7692
+      ],
+      [
+        "2026-04-30",
+        0.8394
+      ],
+      [
+        "2026-05-31",
+        0.8322
+      ],
+      [
+        "2026-06-30",
+        0.8161
+      ],
+      [
+        "2026-07-31",
+        0.8415
+      ]
+    ],
+    "basket": "NSE large-cap 20",
+    "created_at": "2026-07-11T16:54:49.660468",
+    "also_cited": [
+      {
+        "id": "2607.08199v1",
+        "title": "Volatility in Prediction Markets: A Structural Approach",
+        "link": "https://arxiv.org/abs/2607.08199v1"
+      },
+      {
+        "id": "2607.06908v1",
+        "title": "Iterative detection of global factors near the BBP phase transition",
+        "link": "https://arxiv.org/abs/2607.06908v1"
+      },
+      {
+        "id": "2607.06702v1",
+        "title": "Dynamic Causal Portfolio Choice: Hedging the Rotation of the Common-Driver Manifold",
+        "link": "https://arxiv.org/abs/2607.06702v1"
+      },
+      {
+        "id": "2607.06690v1",
+        "title": "tsbootstrap: Distribution-Free Uncertainty Quantification and Conformal Prediction for Time Series",
+        "link": "https://arxiv.org/abs/2607.06690v1"
+      },
+      {
+        "id": "2607.06373v1",
+        "title": "Error Propagation in Spectral Functionals of Shrinkage Covariance Estimators: Perturbation Bounds and Calibrated Inference",
+        "link": "https://arxiv.org/abs/2607.06373v1"
+      },
+      {
+        "id": "2607.06220v1",
+        "title": "Stable Sentiment and Persistent Dynamics in U.S. Economic News over 45 Years",
+        "link": "https://arxiv.org/abs/2607.06220v1"
+      },
+      {
+        "id": "2607.06153v1",
+        "title": "From Gravity to Confinement: Wealth Redistribution as Optimal Drift Design in the Fokker-Planck Framework",
+        "link": "https://arxiv.org/abs/2607.06153v1"
+      },
+      {
+        "id": "2607.06121v1",
+        "title": "Can Reinforcement Learning Efficiently Discover Price Manipulation?",
+        "link": "https://arxiv.org/abs/2607.06121v1"
+      },
+      {
+        "id": "2607.10934v1",
+        "title": "Multidimensional stochastic liquidity in Kyle's model of informed trading",
+        "link": "https://arxiv.org/abs/2607.10934v1"
+      },
+      {
+        "id": "2607.10297v1",
+        "title": "Recovering Structural Organization in Noisy Correlation Networks Using Financial Systems as a Testbed",
+        "link": "https://arxiv.org/abs/2607.10297v1"
+      },
+      {
+        "id": "2607.09556v1",
+        "title": "A novel robust mixed integer linear programming model for index tracking problem under no rebalancing: heuristic optimization approach",
+        "link": "https://arxiv.org/abs/2607.09556v1"
+      },
+      {
+        "id": "2607.09505v1",
+        "title": "Objective and subjective entropy measures of portfolio suboptimality",
+        "link": "https://arxiv.org/abs/2607.09505v1"
+      },
+      {
+        "id": "2607.09426v1",
+        "title": "The Quarter-Hour Effect: Periodic Algorithmic Trading and Return Predictability in Cryptocurrency Futures",
+        "link": "https://arxiv.org/abs/2607.09426v1"
+      }
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "generated_at": "2026-06-23T14:54:46Z",
+  "count": 0,
+  "score_formula": {
+    "technical_weight": "35%",
+    "options_weight": "15%",
+    "futures_weight": "15%",
+    "macro_weight": "15%",
+    "political_weight": "10%  \u2190 max 10\u201315% \u2014 political does NOT dominate",
+    "risk_weight": "10%"
+  },
+  "important_disclaimer": "This is a RESEARCH OUTPUT ONLY. No automatic trade execution. No broker connection. Political signals are based on publicly available disclosures only. Past political disclosure activity does not guarantee future price movement. Always apply your own due diligence.",
+  "trade_candidates": []
+}

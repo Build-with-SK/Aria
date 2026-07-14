@@ -1,0 +1,145 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #000000;
+  --bg-1:      #0a0a0a;
+  --bg-2:      #111111;
+  --bg-3:      #181818;
+  --border:    #1e1e1e;
+  --border-2:  #2a2a2a;
+  --orange:    #ff6600;
+  --orange-dim:#cc4400;
+  --orange-bg: rgba(255,102,0,0.08);
+  --green:     #00cc44;
+  --green-dim: #009933;
+  --green-bg:  rgba(0,204,68,0.08);
+  --red:       #ff3333;
+  --red-dim:   #cc0000;
+  --red-bg:    rgba(255,51,51,0.08);
+  --yellow:    #ffcc00;
+  --yellow-bg: rgba(255,204,0,0.08);
+  --blue:      #00aaff;
+  --blue-bg:   rgba(0,170,255,0.08);
+  --white:     #ffffff;
+  --text:      #cccccc;
+  --muted:     #666666;
+  --mono:      'Roboto Mono', 'Courier New', monospace;
+  --sans:      'Inter', -apple-system, sans-serif;
+}
+
+html, body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 13px; line-height: 1.4; overflow-x: hidden; }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--orange); }
+
+/* ── Bloomberg card ── */
+.bb-card {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 12px 14px;
+}
+.bb-card-header {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--orange);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 6px;
+  margin-bottom: 10px;
+}
+
+/* ── Tables ── */
+table { width: 100%; border-collapse: collapse; font-family: var(--mono); }
+th {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-2);
+  text-align: left;
+  white-space: nowrap;
+}
+td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+tr:hover td { background: rgba(255,102,0,0.04); }
+tr:last-child td { border-bottom: none; }
+
+/* ── Utility ── */
+.bull  { color: var(--green) !important; }
+.bear  { color: var(--red) !important; }
+.neut  { color: var(--yellow) !important; }
+.acc   { color: var(--orange) !important; }
+.muted { color: var(--muted) !important; }
+.mono  { font-family: var(--mono) !important; }
+.white { color: var(--white) !important; }
+
+/* ── Score pill ── */
+.score-pill {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--mono);
+  letter-spacing: 0.03em;
+}
+.pill-bull  { background: var(--green-bg);  color: var(--green); border: 1px solid rgba(0,204,68,0.2); }
+.pill-bear  { background: var(--red-bg);    color: var(--red);   border: 1px solid rgba(255,51,51,0.2); }
+.pill-neut  { background: var(--yellow-bg); color: var(--yellow);border: 1px solid rgba(255,204,0,0.2); }
+.pill-orange{ background: var(--orange-bg); color: var(--orange);border: 1px solid rgba(255,102,0,0.2); }
+
+/* ── Blinking cursor effect ── */
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+.blink { animation: blink 1.2s step-end infinite; }
+
+/* ── Ticker tape ── */
+@keyframes ticker { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+.ticker-inner { display:flex; animation: ticker 40s linear infinite; white-space:nowrap; }
+.ticker-inner:hover { animation-play-state: paused; }
+
+/* ── Gauge arc ── */
+.gauge-svg text { font-family: var(--mono); }
+
+/* ── Scan line effect (subtle) ── */
+.scanline {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0,0,0,0.04) 3px,
+    rgba(0,0,0,0.04) 4px
+  );
+  z-index: 9999;
+}
+
+/* ── Verdict badge ── */
+.verdict-buy  { background: var(--green-bg);  color: var(--green); border: 1px solid var(--green-dim); }
+.verdict-sell { background: var(--red-bg);    color: var(--red);   border: 1px solid var(--red-dim); }
+.verdict-neut { background: var(--yellow-bg); color: var(--yellow);border: 1px solid #886600; }
+
+/* ── Progress bar ── */
+.bar-track { background: #1a1a1a; border-radius: 1px; height: 6px; position: relative; }
+.bar-fill-bull { background: var(--green); border-radius: 1px; height: 100%; transition: width 0.4s; }
+.bar-fill-bear { background: var(--red);   border-radius: 1px; height: 100%; transition: width 0.4s; }
+.bar-fill-neut { background: var(--orange);border-radius: 1px; height: 100%; transition: width 0.4s; }
+
+/* ── Glow effects ── */
+.glow-green { box-shadow: 0 0 8px rgba(0,204,68,0.3); }
+.glow-red   { box-shadow: 0 0 8px rgba(255,51,51,0.3); }
+.glow-orange{ box-shadow: 0 0 8px rgba(255,102,0,0.3); }

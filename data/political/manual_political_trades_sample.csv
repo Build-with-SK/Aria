@@ -1,0 +1,5 @@
+source,politician_name,role,party,state,committee,ticker,company_name,transaction_type,transaction_date,filing_date,amount_min,amount_max,notes,source_url
+capitol_trades,SAMPLE POLITICIAN A,Representative,Democrat,CA,House Financial Services Committee,NVDA,NVIDIA Corporation,buy,2025-01-15,2025-02-01,15001,50000,SAMPLE DATA — Replace with real public disclosure,https://www.capitoltrades.com
+senate_disclosures,SAMPLE SENATOR B,Senator,Republican,TX,Senate Commerce Committee,MSFT,Microsoft Corporation,buy,2025-01-20,2025-02-10,50001,100000,SAMPLE DATA — Replace with real public disclosure,https://efts.senate.gov
+quiver_quantitative,SAMPLE REPRESENTATIVE C,Representative,Republican,FL,House Intelligence Committee,PLTR,Palantir Technologies,buy,2025-01-05,2025-01-28,100001,250000,SAMPLE DATA — Replace with real public disclosure,https://www.quiverquant.com/congresstrading/
+house_disclosures,SAMPLE REPRESENTATIVE D,Representative,Democrat,NY,House Energy and Commerce Committee,AMZN,Amazon.com Inc,sell,2024-12-10,2025-01-15,250001,500000,SAMPLE DATA — Replace with real public disclosure,https://disclosures-clerk.house.gov

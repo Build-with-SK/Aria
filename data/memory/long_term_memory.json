@@ -1,0 +1,15 @@
+{
+  "decisions": [
+    {
+      "ts": "2026-06-20T18:46:24.865062",
+      "ticker": "NVDA",
+      "direction": "NEUTRAL",
+      "confidence": "there",
+      "reasoning": "# SYNTHESIS \u2014 NVDA: Weight of Evidence Assessment\n\n---\n\n## CONTRADICTION MAPPING \u2014 The Contradiction Check Was Wrong\n\nBefore conviction: there **are** material contradictions that must be surfaced.\n\n### Contradiction #1: Bull Analyst vs. Quant Analyst\n**Bull:** \"Negative momentum is the opportunity \u2014 oversold within a bull regime = highest-conviction entry\"\n**Quant:** \"Momentum score -48.93 is mat",
+      "regime": "Unknown"
+    }
+  ],
+  "session_summaries": [],
+  "learned_patterns": [],
+  "ticker_notes": {}
+}

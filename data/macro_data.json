@@ -1,0 +1,27 @@
+{
+  "fed_funds_rate": null,
+  "treasury_10y": 4.453,
+  "treasury_2y": 3.588,
+  "yield_spread_10y2y": 0.865,
+  "cpi_yoy": null,
+  "unemployment_rate": null,
+  "vix": 15.32,
+  "dxy": 98.91,
+  "dxy_trend": 0.0085,
+  "gold_trend_20d": -0.0117,
+  "macro_score": 10.79,
+  "regime": "Expansion (Goldilocks)",
+  "data_date": "2026-05-31",
+  "sources_available": [
+    "VIX",
+    "10Y_yield",
+    "2Y_proxy",
+    "DXY",
+    "Gold"
+  ],
+  "warnings": [
+    "FRED data unavailable \u2014 install pandas-datareader",
+    "Missing fields: ['fed_funds_rate', 'cpi_yoy', 'unemployment_rate']"
+  ],
+  "from_cache": false
+}
