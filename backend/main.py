@@ -394,9 +394,10 @@ def quant_strategy(strategy: str, ticker: str = "", spot: float = 0, days: int =
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/quant/strategies", tags=["Quant"])
-def quant_strategies_list():
-    """List available multi-leg option strategies."""
+@app.get("/api/quant/option-strategies", tags=["Quant"])
+def quant_option_strategies_list():
+    """List available multi-leg option strategies (renamed to avoid clashing
+    with the Quant Lab's /api/quant/strategies research endpoint)."""
     from src.gs_quant_bridge import AVAILABLE_STRATEGIES
     return {"strategies": AVAILABLE_STRATEGIES}
 
