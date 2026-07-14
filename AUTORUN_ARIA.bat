@@ -5,7 +5,9 @@ REM  at login. ATLAS is launched on demand (LAUNCH_ATLAS.bat).
 REM  Frees stale ports first so a leftover process never blocks.
 REM ============================================================
 title ARIA Autostart
-set NODE=C:\Program Files\nodejs
+REM Ensure Node is on PATH (installer adds it system-wide, but a session
+REM started before install / at early login may not see it yet).
+set PATH=C:\Program Files\nodejs;%PATH%
 
 for %%P in (8000 3000) do (
   for /f "tokens=5" %%A in ('netstat -aon ^| findstr ":%%P " ^| findstr LISTENING') do (
@@ -15,4 +17,4 @@ for %%P in (8000 3000) do (
 timeout /t 2 /nobreak >nul
 
 start "ARIA Backend" /min cmd /c "cd /d C:\Users\sound\Documents\trading-intelligence-system && venv\Scripts\python.exe -m uvicorn backend.main:app --port 8000"
-start "ARIA Frontend" /min cmd /c "cd /d C:\Users\sound\Documents\trading-intelligence-system\frontend && "%NODE%\npm.cmd" run dev"
+start "ARIA Frontend" /min cmd /c "cd /d C:\Users\sound\Documents\trading-intelligence-system\frontend && C:\PROGRA~1\nodejs\npm.cmd run dev"
