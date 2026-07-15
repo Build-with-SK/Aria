@@ -16,5 +16,9 @@ for %%P in (8000 3000) do (
 )
 timeout /t 2 /nobreak >nul
 
+REM Clear Vite's optimized-dep cache — a partial/stale cache after an
+REM autostart restart causes a blank (white-screen) dashboard.
+rmdir /s /q "C:\Users\sound\Documents\trading-intelligence-system\frontend\node_modules\.vite" 2>nul
+
 start "ARIA Backend" /min cmd /c "cd /d C:\Users\sound\Documents\trading-intelligence-system && venv\Scripts\python.exe -m uvicorn backend.main:app --port 8000"
 start "ARIA Frontend" /min cmd /c "cd /d C:\Users\sound\Documents\trading-intelligence-system\frontend && C:\PROGRA~1\nodejs\npm.cmd run dev"
