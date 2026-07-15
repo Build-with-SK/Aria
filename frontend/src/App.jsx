@@ -6,6 +6,7 @@ import Chat      from './pages/Chat'
 import Nexus     from './pages/Nexus'
 import QuantLab  from './pages/QuantLab'
 import Brain     from './pages/Brain'
+import Thinking  from './pages/Thinking'
 import Quant     from './pages/Quant'
 import Execution from './pages/Execution'
 import Overview  from './pages/Overview'
@@ -67,6 +68,7 @@ export default function App() {
           <Route path="/nexus"     element={<Nexus     />} />
           <Route path="/quantlab"  element={<QuantLab  />} />
           <Route path="/brain"     element={<Brain     />} />
+          <Route path="/thinking"  element={<Thinking  />} />
           <Route path="/quant"     element={<Quant     />} />
           <Route path="/execute"   element={<Execution />} />
           <Route path="/compare"   element={<Compare   />} />

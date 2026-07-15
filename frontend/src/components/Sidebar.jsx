@@ -8,6 +8,7 @@ const NAV = [
   { path: '/nexus',     label: 'NEXUS',     icon: '◬', highlight: true },
   { path: '/quantlab',  label: 'QUANT LAB', icon: '⚗', highlight: true },
   { path: '/brain',     label: 'AI BRAIN',  icon: '◈', highlight: true },
+  { path: '/thinking',  label: 'LIVE MIND', icon: '✦', highlight: true },
   { path: '/execute',   label: 'EXECUTE',   icon: '▶', highlight: true },
   { path: '/compare',   label: 'COMPARE',   icon: '⚡' },
   { path: '/',          label: 'OVERVIEW',  icon: '◈' },
