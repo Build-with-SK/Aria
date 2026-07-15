@@ -73,3 +73,7 @@ desktop.ini
 *.swp
 .idea/
 .vscode/
+
+# Frontier-consult runtime state (toggle + call log)
+data/brain_consult.json
+data/brain_consult_log.jsonl
