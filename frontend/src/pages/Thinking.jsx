@@ -58,7 +58,7 @@ function Core({ thinking, hue }) {
 }
 
 // ─── One streamed thought row (typewriter) ────────────────────────────────────
-function Thought({ step, thought, conclusion, active, onDone }) {
+function Thought({ step, thought, conclusion, active, onDone, brain }) {
   const p = phaseOf(step)
   const [shown, setShown] = useState(active ? '' : thought)
   useEffect(() => {
@@ -75,8 +75,12 @@ function Thought({ step, thought, conclusion, active, onDone }) {
   return (
     <div style={{ marginBottom: 14, paddingLeft: 14, borderLeft: `2px solid ${p.c}`,
       animation: 'thoughtIn .4s ease' }}>
-      <div style={{ ...mono, fontSize: 11, fontWeight: 800, letterSpacing: 1, color: p.c }}>
-        {p.g} {step.replace('_', ' ')}
+      <div style={{ ...mono, fontSize: 11, fontWeight: 800, letterSpacing: 1, color: p.c, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <span>{p.g} {step.replace('_', ' ')}</span>
+        {brain === 'frontier' && (
+          <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: 1, color: '#000',
+            background: '#fbbf24', borderRadius: 3, padding: '1px 5px' }}>◆ FRONTIER</span>
+        )}
       </div>
       <div style={{ ...mono, fontSize: 12, lineHeight: 1.6, color: '#b9d4ea', marginTop: 3, whiteSpace: 'pre-wrap' }}>
         {shown}{active && shown.length < thought.length && <span style={{ color: p.c }}>▊</span>}
@@ -96,6 +100,7 @@ export default function Thinking() {
   const [activeIdx, setActiveIdx] = useState(-1)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  const [consult, setConsult] = useState(null)
   const lastCycleId = useRef(null)
   const pollRef = useRef(null)
 
@@ -123,10 +128,22 @@ export default function Thinking() {
 
   useEffect(() => {
     loadCycle(false)
-    const poll = () => axios.get('/api/brain/status').then(r => setStatus(r.data)).catch(() => {})
+    const poll = () => {
+      axios.get('/api/brain/status').then(r => setStatus(r.data)).catch(() => {})
+      axios.get('/api/brain/consult').then(r => setConsult(r.data)).catch(() => {})
+    }
     poll(); const id = setInterval(poll, 4000)
     return () => clearInterval(id)
   }, [loadCycle])
+
+  const toggleConsult = async () => {
+    const next = !consult?.enabled
+    try {
+      const r = await axios.post(`/api/brain/consult?enabled=${next}`)
+      setConsult(c => ({ ...c, ...r.data }))
+      setNote(next ? 'Frontier consult ON — hard steps now use a frontier model' : 'Frontier consult off — fully local')
+    } catch (e) { setNote(`⚠ ${e.response?.data?.detail || e.message}`) }
+  }
 
   // advance the typewriter chain
   const onThoughtDone = () => {
@@ -176,7 +193,16 @@ export default function Thinking() {
         </span>
         <span style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>cycle #{cycle?.cycle_count ?? 0}</span>
         <span style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>model {cycle?.model || status?.daemon?.model || '—'}</span>
-        <div style={{ marginLeft: 'auto' }}>
+        <button onClick={toggleConsult} title="Route hard reasoning steps to a frontier model" style={{
+          ...mono, marginLeft: 'auto', fontSize: 10, fontWeight: 800, letterSpacing: 1,
+          padding: '6px 12px', borderRadius: 5, cursor: 'pointer',
+          background: consult?.enabled ? '#fbbf24' : 'transparent',
+          color: consult?.enabled ? '#000' : 'var(--muted)',
+          border: `1px solid ${consult?.enabled ? '#fbbf24' : '#333'}` }}>
+          ◆ CONSULT: {consult?.enabled ? 'ON' : 'OFF'}
+          {consult?.enabled && <span style={{ marginLeft: 6, opacity: .7 }}>{consult.calls_today}/{consult.daily_call_cap}</span>}
+        </button>
+        <div>
           <button onClick={runNow} disabled={busy || !ollamaUp} style={{
             ...mono, background: busy || !ollamaUp ? '#1a1a1a' : 'var(--orange)',
             color: busy || !ollamaUp ? '#555' : '#000', border: 'none', borderRadius: 5,
@@ -214,7 +240,8 @@ export default function Thinking() {
             </div>
           ) : steps.map((s, i) => (
             <Thought key={`${cycle?.cycle_id}-${i}`} step={s.step} thought={s.thought}
-              conclusion={s.conclusion} active={i === activeIdx} onDone={onThoughtDone} />
+              conclusion={s.conclusion} active={i === activeIdx} onDone={onThoughtDone}
+              brain={cycle?.brains?.[s.step]} />
           ))}
 
           {/* decisions */}

@@ -32,6 +32,69 @@ OLLAMA_BASE = "http://localhost:11434"
 
 VALID_ACTIONS = {"PROPOSE_BUY", "PROPOSE_SELL", "MONITOR", "SKIP"}
 
+# ── Frontier-consult config (shared with the API) ────────────────────────────
+from pathlib import Path as _Path
+_ROOT = _Path(__file__).parent.parent.parent.parent
+_CONSULT_FILE = _ROOT / "data" / "brain_consult.json"
+_CONSULT_LOG = _ROOT / "data" / "brain_consult_log.jsonl"
+
+_CONSULT_DEFAULTS = {
+    "enabled": False,
+    "frontier_model": "claude-sonnet-4-6",
+    "daily_call_cap": 120,          # hard cap so a loop can't run up a bill
+}
+
+
+def _consult_config() -> dict:
+    cfg = dict(_CONSULT_DEFAULTS)
+    if _CONSULT_FILE.exists():
+        try:
+            cfg.update(json.loads(_CONSULT_FILE.read_text(encoding="utf-8")))
+        except Exception:
+            pass
+    return cfg
+
+
+def set_consult_config(updates: dict) -> dict:
+    cfg = _consult_config()
+    for k, v in updates.items():
+        if k in _CONSULT_DEFAULTS:
+            cfg[k] = v
+    _CONSULT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _CONSULT_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    return cfg
+
+
+def _consult_calls_today() -> int:
+    from datetime import date
+    if not _CONSULT_LOG.exists():
+        return 0
+    today, n = date.today().isoformat(), 0
+    for line in _CONSULT_LOG.read_text(encoding="utf-8").splitlines():
+        try:
+            if json.loads(line).get("at", "")[:10] == today:
+                n += 1
+        except Exception:
+            continue
+    return n
+
+
+def _consult_budget_left(cfg: dict) -> bool:
+    return _consult_calls_today() < cfg.get("daily_call_cap", 120)
+
+
+def _consult_log(step: str):
+    from datetime import datetime
+    _CONSULT_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with _CONSULT_LOG.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"at": datetime.now().isoformat(), "step": step}) + "\n")
+
+
+def consult_status() -> dict:
+    cfg = _consult_config()
+    return {**cfg, "calls_today": _consult_calls_today(),
+            "budget_left": _consult_budget_left(cfg)}
+
 
 @dataclass
 class TradeDecision:
@@ -50,16 +113,22 @@ class ReasoningResult:
     orientation:     str  = ""
     reflection:      str  = ""
     full_monologue:  str  = ""
+    brains:          dict = field(default_factory=dict)   # step -> local | frontier
 
 
 class ReasoningLoop:
     """Multi-step chain-of-thought reasoning using a local LLM."""
+
+    # Steps that benefit most from a stronger brain when consult is enabled.
+    HARD_STEPS = ("ORIENT", "ANALYSE", "DECIDE", "REFLECT")
 
     def __init__(self, model: str = "qwen2.5-coder:7b", vault=None,
                  peer_context: str = ""):
         self.model = model
         self.vault = vault   # optional VaultIndex — the user's Obsidian knowledge
         self.peer_context = peer_context   # lessons from peer minds (e.g. ATLAS)
+        self.brains: dict = {}   # step -> "local" | "frontier" (for the UI)
+        self._consult = _consult_config()
 
     def run_cycle(
         self,
@@ -208,11 +277,28 @@ Am I being overconfident or underconfident?""",
             orientation=orientation,
             reflection=reflect,
             full_monologue=wm.summarize(),
+            brains=dict(self.brains),
         )
 
     # ── LLM plumbing ─────────────────────────────────────────────────────
 
     def _think(self, prompt: str, step: str) -> str:
+        """One reasoning step. Routes hard steps to the frontier when the
+        consult switch is on and budget remains; everything else stays local."""
+        base = step.split("_")[0].upper()
+        if (self._consult.get("enabled") and base in self.HARD_STEPS
+                and _consult_budget_left(self._consult)):
+            try:
+                text = self._frontier(prompt)
+                self.brains[step] = "frontier"
+                _consult_log(step)
+                return text
+            except Exception as e:
+                logger.warning(f"Frontier consult failed at {step} ({e}) — local fallback")
+        self.brains[step] = "local"
+        return self._local(prompt, step)
+
+    def _local(self, prompt: str, step: str) -> str:
         """Single Ollama call. Returns the model's response text."""
         payload = json.dumps({
             "model": self.model,
@@ -230,6 +316,29 @@ Am I being overconfident or underconfident?""",
         except Exception as e:
             logger.error(f"Ollama call failed at step {step}: {e}")
             raise RuntimeError(f"Ollama unavailable during {step}: {e}") from e
+
+    def _frontier(self, prompt: str) -> str:
+        """Ask a frontier model (Claude API) for a single hard step.
+        Only the step prompt travels — no memory/vault beyond what's already
+        in the prompt. Requires ANTHROPIC_API_KEY (loaded from .env)."""
+        import os
+        key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not key:
+            raise RuntimeError("consult enabled but ANTHROPIC_API_KEY not set")
+        body = json.dumps({
+            "model": self._consult.get("frontier_model", "claude-sonnet-4-6"),
+            "max_tokens": 500,
+            "system": "You are ARIA, a sharp, precise trading intelligence brain. "
+                      "Answer the step concisely with specific numbers. Research only.",
+            "messages": [{"role": "user", "content": prompt}],
+        }).encode()
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages", data=body,
+            headers={"Content-Type": "application/json", "x-api-key": key,
+                     "anthropic-version": "2023-06-01"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            out = json.loads(r.read())
+        return "".join(b.get("text", "") for b in out.get("content", [])).strip()
 
     # ── parsing helpers ──────────────────────────────────────────────────
 

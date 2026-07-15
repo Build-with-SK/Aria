@@ -1052,6 +1052,26 @@ def brain_last_cycle():
     return _load_optional("brain_state.json")
 
 
+@app.get("/api/brain/consult", tags=["Local Brain"])
+def brain_consult_status():
+    """Frontier-consult status: whether hard reasoning steps use a frontier model."""
+    from src.brain.cognitive.reasoner import consult_status
+    return consult_status()
+
+
+@app.post("/api/brain/consult", tags=["Local Brain"])
+def brain_consult_set(enabled: bool = True, frontier_model: str = ""):
+    """Toggle frontier-consult. When on, ARIA's ORIENT/ANALYSE/DECIDE/REFLECT
+    steps route to a frontier model (needs ANTHROPIC_API_KEY). Budget-capped."""
+    if enabled and not _get_anthropic():
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured — cannot enable consult")
+    from src.brain.cognitive.reasoner import set_consult_config
+    updates = {"enabled": enabled}
+    if frontier_model:
+        updates["frontier_model"] = frontier_model
+    return set_consult_config(updates)
+
+
 @app.post("/api/brain/run-now", tags=["Local Brain"])
 def brain_run_now():
     """Trigger an immediate reasoning cycle (doesn't wait for the scheduler)."""

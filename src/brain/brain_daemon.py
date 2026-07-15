@@ -227,6 +227,7 @@ class BrainDaemon:
                 "regime_shift":   perception.regime_shift,
                 "focus_tickers":  result.focus_tickers,
                 "thinking_steps": result.thinking_steps,
+                "brains":         result.brains,
                 "decisions":      [d.__dict__ for d in result.trade_decisions],
                 "trades_queued":  len(queued_ids),
                 "queued_ids":     queued_ids,
