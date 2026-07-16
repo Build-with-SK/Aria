@@ -1302,6 +1302,19 @@ def universe_quote(symbol: str):
     return _sanitize(result)
 
 
+@app.get("/api/universe/news/{symbol}", tags=["Universe"])
+def universe_news(symbol: str, force: bool = False):
+    """Fresh news + sentiment + political exposure for a searched symbol (on-demand)."""
+    try:
+        u = _get_universe()
+        info = u._lookup(symbol) if u else None
+        name = (info or {}).get("name", "") if info else ""
+        from src.data.enrichment import enrich
+        return enrich(symbol, name=name, force=force)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/universe/dossier/{symbol}", tags=["Universe"])
 def universe_dossier(symbol: str):
     """Tier-2 full dossier: 5y history + fundamentals, cached 24h.

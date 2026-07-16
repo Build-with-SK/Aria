@@ -131,18 +131,78 @@ class UniverseManager:
                 return {"status": "fresh", "refreshed_at": last, **self._counts()}
 
         nse_added = self._load_nse_equities()
+        lse_added = self._load_lse_equities()
         yaml_added = self._load_yaml_universe()
         fno_marked = self._load_nse_fno()
         self._meta_set("index_refreshed_at", datetime.now().isoformat())
         result = {
             "status": "refreshed",
             "nse_symbols": nse_added,
+            "lse_symbols": lse_added,
             "yaml_symbols": yaml_added,
             "fno_marked": fno_marked,
             **self._counts(),
         }
         logger.info(f"Universe index refreshed: {result}")
         return result
+
+    # FTSE 100 (+ a few 250) London stocks. yfinance ticker = SYMBOL.L, priced in GBP.
+    LSE_SYMBOLS = [
+        ("HSBA", "HSBC Holdings"), ("BP", "BP"), ("SHEL", "Shell"), ("AZN", "AstraZeneca"),
+        ("GSK", "GSK"), ("ULVR", "Unilever"), ("RIO", "Rio Tinto"), ("GLEN", "Glencore"),
+        ("DGE", "Diageo"), ("BATS", "British American Tobacco"), ("REL", "RELX"),
+        ("LSEG", "London Stock Exchange Group"), ("NG", "National Grid"), ("VOD", "Vodafone"),
+        ("BARC", "Barclays"), ("LLOY", "Lloyds Banking Group"), ("NWG", "NatWest Group"),
+        ("STAN", "Standard Chartered"), ("PRU", "Prudential"), ("AV", "Aviva"),
+        ("LGEN", "Legal & General"), ("TSCO", "Tesco"), ("SBRY", "Sainsbury's"),
+        ("NXT", "Next"), ("BRBY", "Burberry"), ("JD", "JD Sports Fashion"),
+        ("IMB", "Imperial Brands"), ("RKT", "Reckitt Benckiser"), ("CPG", "Compass Group"),
+        ("EXPN", "Experian"), ("SGE", "Sage Group"), ("AAF", "Airtel Africa"),
+        ("ANTO", "Antofagasta"), ("FRES", "Fresnillo"), ("AAL", "Anglo American"),
+        ("SSE", "SSE"), ("CNA", "Centrica"), ("BA", "BAE Systems"), ("RR", "Rolls-Royce"),
+        ("SMIN", "Smiths Group"), ("MRO", "Melrose Industries"), ("IAG", "IAG (British Airways)"),
+        ("EZJ", "easyJet"), ("WTB", "Whitbread"), ("IHG", "InterContinental Hotels"),
+        ("HLMA", "Halma"), ("SPX", "Spirax Group"), ("CRDA", "Croda International"),
+        ("MNDI", "Mondi"), ("SMDS", "DS Smith"), ("BNZL", "Bunzl"), ("DCC", "DCC"),
+        ("FERG", "Ferguson"), ("HWDN", "Howden Joinery"), ("PSN", "Persimmon"),
+        ("BDEV", "Barratt Developments"), ("TW", "Taylor Wimpey"), ("LAND", "Land Securities"),
+        ("BLND", "British Land"), ("SGRO", "Segro"), ("UU", "United Utilities"),
+        ("SVT", "Severn Trent"), ("PSON", "Pearson"), ("ITV", "ITV"), ("WPP", "WPP"),
+        ("INF", "Informa"), ("AUTO", "Auto Trader"), ("RMV", "Rightmove"),
+        ("OCDO", "Ocado"), ("ABF", "Associated British Foods"), ("ADM", "Admiral Group"),
+        ("BEZ", "Beazley"), ("HSX", "Hiscox"), ("PHNX", "Phoenix Group"),
+        ("SDR", "Schroders"), ("III", "3i Group"), ("SMT", "Scottish Mortgage Trust"),
+        ("ENT", "Entain"), ("FLTR", "Flutter Entertainment"), ("CCH", "Coca-Cola HBC"),
+        ("HIK", "Hikma Pharmaceuticals"), ("CTEC", "ConvaTec"), ("SN", "Smith & Nephew"),
+        ("KGF", "Kingfisher"), ("MKS", "Marks & Spencer"), ("WEIR", "Weir Group"),
+        ("MGGT", "Meggitt"), ("BME", "B&M European Value Retail"), ("FCIT", "F&C Investment Trust"),
+    ]
+
+    def _ensure_currency_column(self):
+        """Older DBs were created without a currency column — add it if missing."""
+        with self._lock, self._conn() as conn:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(symbols)")]
+            if "currency" not in cols:
+                conn.execute("ALTER TABLE symbols ADD COLUMN currency TEXT")
+
+    def _load_lse_equities(self) -> int:
+        """FTSE 100/250 London stocks — priced in GBP (yfinance SYMBOL.L)."""
+        self._ensure_currency_column()
+        now = datetime.now().isoformat()
+        count = 0
+        with self._lock, self._conn() as conn:
+            for symbol, name in self.LSE_SYMBOLS:
+                conn.execute(
+                    """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, currency, updated_at)
+                       VALUES(?,?,?,?,?,?,?)
+                       ON CONFLICT(symbol) DO UPDATE SET
+                         yahoo=excluded.yahoo, name=excluded.name, exchange=excluded.exchange,
+                         currency=excluded.currency, updated_at=excluded.updated_at""",
+                    (symbol, f"{symbol}.L", name, "LSE", "equity", "GBP", now),
+                )
+                count += 1
+        logger.info(f"Loaded {count} LSE (London/GBP) symbols")
+        return count
 
     def _load_nse_equities(self) -> int:
         """Official NSE equity master list — every listed NSE stock."""
@@ -317,10 +377,27 @@ class UniverseManager:
     # ------------------------------------------------------------------
     # Tier 1 — quote cards
     # ------------------------------------------------------------------
+    # Currency by exchange — so a searched symbol always shows the right units.
+    CURRENCY_BY_EXCHANGE = {
+        "NSE": "INR", "BSE": "INR", "LSE": "GBP", "US": "USD",
+        "CRYPTO": "USD", "FX": "", "FUT": "USD", "INDEX": "",
+    }
+
+    def _currency_for(self, info: Dict[str, Any]) -> str:
+        if info.get("currency"):
+            return info["currency"]
+        y = (info.get("yahoo") or "")
+        if y.endswith(".NS") or y.endswith(".BO"):
+            return "INR"
+        if y.endswith(".L"):
+            return "GBP"
+        return self.CURRENCY_BY_EXCHANGE.get(info.get("exchange", ""), "USD")
+
     def quote(self, symbol: str) -> Dict[str, Any]:
         info = self._lookup(symbol)
         if not info:
             return {"error": f"'{symbol}' not in universe index"}
+        info = {**info, "currency": self._currency_for(info)}
 
         with self._conn() as conn:
             row = conn.execute(

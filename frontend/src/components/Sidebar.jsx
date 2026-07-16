@@ -10,6 +10,7 @@ const NAV = [
   { path: '/brain',     label: 'AI BRAIN',  icon: '◈', highlight: true },
   { path: '/thinking',  label: 'LIVE MIND', icon: '✦', highlight: true },
   { path: '/map',       label: 'SIGNAL MAP', icon: '◉', highlight: true },
+  { path: '/explorer',  label: 'EXPLORER',  icon: '⌕', highlight: true },
   { path: '/execute',   label: 'EXECUTE',   icon: '▶', highlight: true },
   { path: '/compare',   label: 'COMPARE',   icon: '⚡' },
   { path: '/',          label: 'OVERVIEW',  icon: '◈' },
