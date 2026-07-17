@@ -37,6 +37,66 @@ function TVChart({ tv }) {
 // ─── sentiment badge ──────────────────────────────────────────────────────────
 const sentColor = (l) => l === 'Bullish' ? 'var(--green)' : l === 'Bearish' ? 'var(--red)' : 'var(--yellow)'
 
+// ─── GBP/INR remittance panel ─────────────────────────────────────────────────
+function Remittance() {
+  const [fx, setFx] = useState(null)
+  const [hi, setHi] = useState('')
+  const [lo, setLo] = useState('')
+  const [note, setNote] = useState('')
+
+  const load = useCallback(() => {
+    axios.get('/api/fx/gbpinr?check=true').then(r => setFx(r.data)).catch(() => {})
+  }, [])
+  useEffect(() => { load(); const id = setInterval(load, 120000); return () => clearInterval(id) }, [load])
+
+  const dir = fx?.direction
+  const col = dir === 'pound_strong' ? 'var(--green)' : dir === 'rupee_strong' ? 'var(--orange)' : 'var(--text-dim)'
+  const spark = fx?.history || []
+
+  const setTargets = () => {
+    const params = {}
+    if (hi) params.high = parseFloat(hi)
+    if (lo) params.low = parseFloat(lo)
+    axios.post('/api/fx/gbpinr/targets', null, { params }).then(() => { setNote('targets saved — you\'ll be alerted'); load() }).catch(() => setNote('failed'))
+  }
+
+  // sparkline
+  const Spark = () => {
+    if (spark.length < 2) return null
+    const vals = spark.map(p => p.rate), min = Math.min(...vals), max = Math.max(...vals)
+    const W = 160, H = 32
+    const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * W},${H - 2 - ((v - min) / (max - min || 1)) * (H - 4)}`).join(' ')
+    return <svg width={W} height={H}><polyline points={pts} fill="none" stroke={col} strokeWidth="1.5" /></svg>
+  }
+
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 16, background: '#070707' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ ...mono, fontSize: 10, fontWeight: 800, color: 'var(--orange)', letterSpacing: 2 }}>GBP / INR · REMITTANCE</div>
+          <div style={{ ...mono, fontSize: 22, fontWeight: 800, color: '#fff', marginTop: 2 }}>{fx?.unit || '£1 = ₹…'}</div>
+          <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)' }}>₹1 = £{fx?.inverse ?? '—'} · vs avg {fx?.move_pct != null ? (fx.move_pct >= 0 ? '+' : '') + fx.move_pct + '%' : '—'}</div>
+        </div>
+        <div style={{ marginLeft: 8 }}><Spark /></div>
+        <div style={{ flex: 1, minWidth: 220, padding: '8px 12px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: `1px solid ${col}` }}>
+          <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: 1 }}>SEND-MONEY SIGNAL</div>
+          <div style={{ ...mono, fontSize: 12, fontWeight: 700, color: col, lineHeight: 1.4 }}>{fx?.send_advice || '—'}</div>
+        </div>
+      </div>
+      {/* alert targets */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+        <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>ALERT ME WHEN £1 ≥ ₹</span>
+        <input value={hi} onChange={e => setHi(e.target.value)} placeholder={fx?.target_high || '132'} style={{ ...mono, width: 56, background: '#0d0d0d', border: '1px solid #222', color: 'var(--green)', fontSize: 11, padding: '4px 6px', borderRadius: 3, outline: 'none' }} />
+        <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>(send UK→India) · OR ≤ ₹</span>
+        <input value={lo} onChange={e => setLo(e.target.value)} placeholder={fx?.target_low || '126'} style={{ ...mono, width: 56, background: '#0d0d0d', border: '1px solid #222', color: 'var(--orange)', fontSize: 11, padding: '4px 6px', borderRadius: 3, outline: 'none' }} />
+        <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>(send India→UK)</span>
+        <button onClick={setTargets} style={{ ...mono, background: 'transparent', border: '1px solid var(--orange)', color: 'var(--orange)', borderRadius: 3, padding: '4px 12px', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>SET ALERTS</button>
+        {note && <span style={{ ...mono, fontSize: 9, color: 'var(--yellow)' }}>{note}</span>}
+      </div>
+    </div>
+  )
+}
+
 // ─── page ─────────────────────────────────────────────────────────────────────
 export default function Explorer() {
   const [q, setQ] = useState('')
@@ -80,6 +140,8 @@ export default function Explorer() {
           Search any symbol · India (₹ NSE) · UK (£ LSE) · US ($) · crypto — fresh data, news & sentiment on demand
         </div>
       </div>
+
+      <Remittance />
 
       {/* search */}
       <div style={{ position: 'relative', marginBottom: 14 }}>

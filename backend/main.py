@@ -91,6 +91,20 @@ async def _startup():
     loop.run_in_executor(None, _get_order_manager)
     import threading
     threading.Thread(target=_start_brain_if_ollama, daemon=True).start()
+    threading.Thread(target=_fx_monitor_loop, daemon=True).start()
+
+
+def _fx_monitor_loop():
+    """Check GBP/INR every 30 min and raise remittance alerts on meaningful moves."""
+    import time
+    time.sleep(8)
+    while True:
+        try:
+            from src.data.fx_monitor import check
+            check()
+        except Exception as e:
+            logger.debug(f"FX monitor tick failed: {e}")
+        time.sleep(1800)
     threading.Thread(target=_start_quant_lab, daemon=True).start()
 
 
@@ -1300,6 +1314,28 @@ def universe_quote(symbol: str):
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
     return _sanitize(result)
+
+
+@app.get("/api/fx/gbpinr", tags=["FX"])
+def fx_gbpinr(check: bool = True):
+    """GBP/INR remittance monitor: live rate, trend vs baseline, and send-direction advice.
+    check=true fetches a fresh rate and raises alerts if it moved meaningfully."""
+    try:
+        from src.data.fx_monitor import check as fx_check, status as fx_status
+        return fx_check() if check else fx_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/fx/gbpinr/targets", tags=["FX"])
+def fx_gbpinr_targets(high: float = None, low: float = None):
+    """Set alert levels: high = alert when £ buys ≥ high INR (send UK→India),
+    low = alert when £ buys ≤ low INR (send India→UK)."""
+    try:
+        from src.data.fx_monitor import set_targets
+        return set_targets(high=high, low=low)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/universe/news/{symbol}", tags=["Universe"])

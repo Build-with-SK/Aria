@@ -132,6 +132,7 @@ class UniverseManager:
 
         nse_added = self._load_nse_equities()
         lse_added = self._load_lse_equities()
+        fx_added = self._load_fx_pairs()
         yaml_added = self._load_yaml_universe()
         fno_marked = self._load_nse_fno()
         self._meta_set("index_refreshed_at", datetime.now().isoformat())
@@ -176,7 +177,73 @@ class UniverseManager:
         ("HIK", "Hikma Pharmaceuticals"), ("CTEC", "ConvaTec"), ("SN", "Smith & Nephew"),
         ("KGF", "Kingfisher"), ("MKS", "Marks & Spencer"), ("WEIR", "Weir Group"),
         ("MGGT", "Meggitt"), ("BME", "B&M European Value Retail"), ("FCIT", "F&C Investment Trust"),
+        # ── FTSE 250 / wider London ────────────────────────────────────────
+        ("BAB", "Babcock International"), ("QQ", "QinetiQ"), ("CHG", "Chemring"),
+        ("SXS", "Spectris"), ("RTO", "Rentokil Initial"), ("DPLM", "Diploma"),
+        ("IMI", "IMI"), ("ROR", "Rotork"), ("RSW", "Renishaw"), ("VCT", "Victrex"),
+        ("ELM", "Elementis"), ("SYNT", "Synthomer"), ("JMAT", "Johnson Matthey"),
+        ("TATE", "Tate & Lyle"), ("CRST", "Crest Nicholson"), ("BWY", "Bellway"),
+        ("BKG", "Berkeley Group"), ("VTY", "Vistry Group"), ("GFRD", "Galliford Try"),
+        ("MSLH", "Marshalls"), ("IBST", "Ibstock"), ("GRI", "Grainger"),
+        ("UTG", "Unite Group"), ("BBOX", "Tritax Big Box"), ("SHB", "Shaftesbury Capital"),
+        ("DLN", "Derwent London"), ("GPOR", "Great Portland Estates"), ("PHP", "Primary Health Properties"),
+        ("HMSO", "Hammerson"), ("LMP", "LondonMetric Property"), ("SAFE", "Safestore"),
+        ("BGEO", "Bank of Georgia"), ("TBCG", "TBC Bank"), ("CBG", "Close Brothers"),
+        ("OSB", "OSB Group"), ("PAG", "Paragon Banking"), ("IGG", "IG Group"),
+        ("CMCX", "CMC Markets"), ("PLUS", "Plus500"), ("ASHM", "Ashmore Group"),
+        ("JUP", "Jupiter Fund Management"), ("SDR", "Schroders"), ("LIO", "Liontrust"),
+        ("AJB", "AJ Bell"), ("HL", "Hargreaves Lansdown"), ("ICP", "Intermediate Capital"),
+        ("BGFD", "Baillie Gifford Japan"), ("PCT", "Polar Capital Technology"),
+        ("HICL", "HICL Infrastructure"), ("BBGI", "BBGI Global Infrastructure"),
+        ("TRIG", "Renewables Infrastructure"), ("GRID", "Gore Street Energy"),
+        ("GCP", "GCP Infrastructure"), ("NESF", "NextEnergy Solar"), ("FGEN", "Foresight Solar"),
+        ("HGT", "HgCapital Trust"), ("PIN", "Pantheon International"), ("HVPE", "HarbourVest"),
+        ("CTY", "City of London Trust"), ("MRC", "Mercantile Trust"), ("ATT", "Allianz Technology"),
+        ("WWH", "Worldwide Healthcare"), ("BRWM", "BlackRock World Mining"), ("MYI", "Murray International"),
+        ("GSS", "Genus"), ("DARK", "Darktrace"), ("KNOS", "Kainos"), ("BYIT", "Bytes Technology"),
+        ("SPT", "Spirent"), ("GAW", "Games Workshop"), ("MONY", "MONY Group"),
+        ("TRN", "Trainline"), ("MTO", "Mitie"), ("SRP", "Serco"), ("CAPC", "Capita"),
+        ("PAGE", "PageGroup"), ("HAS", "Hays"), ("SThree", "SThree"), ("RWA", "Robert Walters"),
+        ("GNS", "Genus"), ("CWK", "Cranswick"), ("BAG", "AG Barr"), ("GNC", "Greencore"),
+        ("PETS", "Pets at Home"), ("WIZZ", "Wizz Air"), ("SSPG", "SSP Group"),
+        ("DOM", "Domino's Pizza UK"), ("RTN", "Restaurant Group"), ("MAB", "Mitchells & Butlers"),
+        ("GRG", "Greggs"), ("CINE", "Cineworld"), ("FOUR", "4imprint"), ("WOSG", "Watches of Switzerland"),
+        ("DNLM", "Dunelm"), ("CURY", "Currys"), ("FRAS", "Frasers Group"), ("TPK", "Travis Perkins"),
+        ("GFTU", "Grafton Group"), ("BOOT", "Henry Boot"), ("VSVS", "Vesuvius"),
+        ("MTRO", "Metro Bank"), ("VANQ", "Vanquis Banking"), ("PFG", "Provident Financial"),
+        ("TCAP", "TP ICAP"), ("RAT", "Rathbones"), ("BRSC", "BlackRock Smaller Cos"),
+        ("TEP", "Telecom Plus"), ("HFG", "Hilton Food"), ("BOY", "Bodycote"),
+        ("MCRO", "Micro Focus"), ("AVON", "Avon Protection"), ("SNR", "Senior"),
+        ("WG", "John Wood Group"), ("PMO", "Premier Oil"), ("HBR", "Harbour Energy"),
+        ("ENOG", "Energean"), ("CNE", "Capricorn Energy"), ("TLW", "Tullow Oil"),
+        ("WDS", "Woodside"), ("DEC", "Diversified Energy"), ("PMG", "Parkmead"),
+        ("TRP", "Tharisa"), ("HOC", "Hochschild Mining"), ("CEY", "Centamin"),
+        ("POLY", "Polymetal"), ("KMR", "Kenmare Resources"), ("SXX", "Sirius Minerals"),
+        ("EDV", "Endeavour Mining"), ("GEMD", "Gem Diamonds"), ("PDL", "Petra Diamonds"),
     ]
+
+    # FX pairs relevant to a UK↔India remitter (yfinance PAIR=X).
+    FX_SYMBOLS = [
+        ("GBPINR", "GBPINR=X", "British Pound / Indian Rupee", "GBP/INR"),
+        ("INRGBP", "INRGBP=X", "Indian Rupee / British Pound", "INR/GBP"),
+        ("GBPUSD", "GBPUSD=X", "British Pound / US Dollar", "GBP/USD"),
+        ("USDINR", "USDINR=X", "US Dollar / Indian Rupee", "USD/INR"),
+    ]
+
+    def _load_fx_pairs(self) -> int:
+        self._ensure_currency_column()
+        now = datetime.now().isoformat()
+        n = 0
+        with self._lock, self._conn() as conn:
+            for symbol, yahoo, name, _q in self.FX_SYMBOLS:
+                conn.execute(
+                    """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, currency, updated_at)
+                       VALUES(?,?,?,?,?,?,?)
+                       ON CONFLICT(symbol) DO UPDATE SET yahoo=excluded.yahoo, name=excluded.name,
+                         exchange=excluded.exchange, updated_at=excluded.updated_at""",
+                    (symbol, yahoo, name, "FX", "forex", "", now))
+                n += 1
+        return n
 
     def _ensure_currency_column(self):
         """Older DBs were created without a currency column — add it if missing."""
