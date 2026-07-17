@@ -1,158 +1,90 @@
-# Trading Intelligence System
+<div align="center">
 
-**An institutional-grade, multi-asset trading research platform.**
+# ◉ ARIA
 
-> ⚠️ **Disclaimer**: This is a research and education tool. It produces probabilistic signals to assist analysis — not financial advice. No model can guarantee profit or perfectly predict markets. Always apply your own risk management and never risk more than you can afford to lose.
+### Open Finance Intelligence
 
----
+**The open-source AI finance terminal — signals, cognition, and quant analytics in one living command deck.**
 
-## What This System Does
+*Coding has its AI. Finance gets ARIA.*
 
-- Downloads live market data for equities, indices, forex, commodities, and crypto
-- Engineers 40+ technical and regime features per asset
-- Generates composite buy/sell/hold signals (-100 to +100) with explanations
-- Identifies market regimes (Bull, Bear, Risk-On, Risk-Off, Sideways)
-- Produces risk parameters: stop-loss, take-profit, position sizing
-- Displays everything in an interactive Streamlit dashboard
+Created by **Ariyan** · built with Claude
+
+</div>
 
 ---
 
-## Project Structure
-
-```
-trading-intelligence-system/
-├── configs/
-│   └── universe.yaml       ← Edit assets, indicators, thresholds here
-├── data/
-│   ├── raw/                ← Downloaded OHLCV CSVs
-│   └── signals.json        ← Generated signal output
-├── src/
-│   ├── data/
-│   │   └── data_downloader.py   ← yfinance / Bloomberg abstraction
-│   ├── features/
-│   │   └── indicators.py        ← All technical indicators + features
-│   ├── signals/
-│   │   └── signal_engine.py     ← Composite signal scoring
-│   ├── dashboard/
-│   │   └── dashboard.py         ← Streamlit dashboard
-│   ├── models/                  ← Phase 2: ML models
-│   ├── risk/                    ← Phase 2: Risk engine
-│   ├── backtesting/             ← Phase 2: Backtester
-│   ├── portfolio/               ← Phase 4: Portfolio optimisation
-│   └── reports/                 ← Phase 3: Daily report generator
-├── main.py                 ← Run this first
-├── requirements.txt
-└── README.md
-```
+> ⚠️ **Read this first — it matters.**
+> ARIA is a **research and education** tool. It analyses markets, surfaces signals, stress-tests portfolios, and explains its reasoning — but it is **not a licensed financial adviser and does not give personalised investment advice**. Signals are probabilistic, backtests are simulations of the past, and no model predicts markets reliably. Nothing ARIA outputs is a recommendation to buy or sell anything. You are responsible for your own decisions — never risk money you cannot afford to lose.
 
 ---
 
-## Installation (Windows PowerShell)
+## What ARIA is
 
-```powershell
-# 1. Navigate to where you want the project
-cd C:\Users\YourName\Projects
+ARIA is a self-hosted AI finance terminal that runs entirely on your machine:
 
-# 2. Clone or place the folder, then enter it
-cd trading-intelligence-system
+- **🧠 A cognitive engine** — an autonomous reasoning loop (ORIENT → FOCUS → RECALL → ANALYSE → DECIDE → REFLECT) running on a **local LLM** via Ollama, with long-term vector memory (ChromaDB), a learning loop that records outcomes, and an optional "frontier consult" switch that routes hard reasoning steps to a frontier model — budget-capped and off by default.
+- **✦ Live Mind** — watch it think: every reasoning step streams into a cinematic chain-of-thought view with an animated core.
+- **∿ A signal engine** — multi-asset composite scores (technicals + regime + ML ensemble) across equities, indices, FX, commodities and crypto, with risk parameters (stop, target, position size) attached to every call.
+- **◉ Signal Map** — the whole market as a force-directed living graph (Obsidian-style), nodes sized by conviction, coloured by direction.
+- **⌕ Explorer** — 3,300+ symbols across **India (₹ NSE), the UK (£ LSE), the US ($), and crypto**, loaded on demand: live quote, fundamentals, fresh news, sentiment, political-exposure flag, TradingView chart.
+- **💱 Remittance watch** — GBP/INR monitored continuously with direction-framed alerts ("pound strong → good window to send UK→India") and user-set target levels.
+- **⚗ Quant Lab** — a self-learning researcher: reads new arXiv q-fin papers, maps them to strategy templates with the local LLM, backtests on real data, and ranks by out-of-sample Sharpe.
+- **ƒ Quant analytics** — Black-Scholes greeks, vol surfaces, multi-leg option strategies with payoff curves, and macro stress scenarios (rate shock, crash, vol spike, stagflation…) against your live book.
+- **▶ Execution with a human gate** — the engine can *propose* trades to paper brokers, but **nothing executes without explicit human approval**. The brain proposes; you decide. Always.
 
-# 3. Create and activate a virtual environment
-python -m venv venv
-.\venv\Scripts\Activate.ps1
+Everything runs locally. Your data, your keys, your machine.
 
-# 4. Install dependencies
-pip install -r requirements.txt
+## The stack
 
-# 5. Run the data pipeline (downloads data + generates signals)
-python main.py
+| Layer | Tech |
+|---|---|
+| Backend | Python · FastAPI · APScheduler |
+| Cognition | Ollama (local LLM) · ChromaDB · sentence-transformers · optional Anthropic API consult |
+| Data | yfinance · NSE/LSE symbol universes · NewsAPI · FRED |
+| ML | LightGBM ensemble · backtesting engine |
+| Frontend | React + Vite · canvas animation · zero UI frameworks |
+| Brokers (paper) | Alpaca · IBKR (optional) |
 
-# 6. Launch the dashboard
-streamlit run src/dashboard/dashboard.py
+## Quick start
+
+```bash
+# 1. clone & install
+git clone <your-repo-url> && cd trading-intelligence-system
+python -m venv venv && venv/Scripts/pip install -r requirements.txt
+cd frontend && npm install && cd ..
+
+# 2. configure — copy the example and add your keys (all optional except none)
+cp .env.example .env
+
+# 3. (optional, for the AI brain) install Ollama and pull a model
+ollama pull qwen2.5-coder:7b
+
+# 4. run
+venv/Scripts/python -m uvicorn backend.main:app --port 8000   # engine
+cd frontend && npm run dev                                     # deck → http://localhost:3000
 ```
 
----
+The signal engine populates on first run (`python main.py`); the brain wakes automatically if Ollama is running.
 
-## How It Works
+## Design
 
-### Phase 1 Pipeline
+Dark crimson command-deck aesthetic: canvas particle cores, force-directed graphs, CRT scanlines, animated chain-of-thought. The entire theme lives in one design system (`frontend/src/index.css`) — every page inherits it.
 
-```
-configs/universe.yaml
-        │
-        ▼
-data_downloader.py          ← Downloads OHLCV via yfinance
-        │
-        ▼
-indicators.py               ← Computes 40+ features per asset
-        │
-        ▼
-signal_engine.py            ← Generates composite score + explanation
-        │
-        ▼
-data/signals.json           ← Cached signals
-        │
-        ▼
-dashboard.py                ← Streamlit UI
-```
+## Safety principles (non-negotiable)
 
-### Signal Score Bands
+1. **The human is the judgment layer.** Trade proposals stop at an approval queue. Nothing irreversible is autonomous.
+2. **Research, not advice.** Every surface carries the disclaimer because it's true.
+3. **Local first.** Models, memory and data live on your machine. The only outbound calls are the data sources you configure and the optional, budget-capped frontier consult you explicitly enable.
 
-| Score         | Signal       |
-|---------------|--------------|
-| +75 to +100   | Strong Buy   |
-| +40 to +74    | Buy          |
-| +10 to +39    | Mild Bullish |
-| -9 to +9      | Neutral      |
-| -10 to -39    | Mild Bearish |
-| -40 to -74    | Sell         |
-| -75 to -100   | Strong Sell  |
+## License
 
-### Sub-score Weights
-
-| Component   | Weight |
-|-------------|--------|
-| Trend       | 30%    |
-| Momentum    | 25%    |
-| Regime      | 20%    |
-| Macro*      | 10%    |
-| Volatility  | 10%    |
-| Sentiment*  | 5%     |
-
-*Placeholder in Phase 1. Integrated in Phase 3.
+MIT — see [LICENSE](LICENSE). Use it, fork it, learn from it.
 
 ---
 
-## Configuration
+<div align="center">
 
-Edit `configs/universe.yaml` to:
-- Add or remove tickers
-- Change lookback period
-- Adjust indicator parameters
-- Change signal thresholds
+*ARIA proposes. You decide.*
 
----
-
-## Roadmap
-
-| Phase | Features |
-|-------|----------|
-| ✅ 1 | Data download, indicators, signal engine, Streamlit dashboard |
-| 🔜 2 | ML models (RF, XGBoost), backtesting, risk engine |
-| 🔜 3 | FRED macro data, sentiment API, political activity tracker |
-| 🔜 4 | Bloomberg integration, portfolio optimisation |
-| 🔜 5 | Production hardening, database, scheduled reports, alerts |
-
----
-
-## Data Sources
-
-| Source   | Status  | Used For |
-|----------|---------|----------|
-| yfinance | ✅ Live | Price data, fundamentals, news |
-| FRED     | 🔜 Phase 3 | Macro: CPI, Fed Funds, yield curve |
-| News API | 🔜 Phase 3 | Sentiment signals |
-| Bloomberg | 🔜 Phase 4 | Professional-grade data |
-
----
-
-*Built as a professional trading research system. Educational use. Not financial advice.*
+</div>
