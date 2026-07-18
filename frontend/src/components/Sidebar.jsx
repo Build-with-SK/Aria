@@ -19,7 +19,6 @@ const GROUPS = [
     label: 'MARKETS',
     items: [
       { path: '/',          label: 'COMMAND',    icon: '⌂' },
-      { path: '/map',       label: 'SIGNAL MAP', icon: '◉' },
       { path: '/explorer',  label: 'EXPLORER',   icon: '⌕' },
       { path: '/signals',   label: 'SIGNALS',    icon: '∿' },
       { path: '/macro',     label: 'MACRO',      icon: '⊕' },
