@@ -93,6 +93,16 @@ async def _startup():
     threading.Thread(target=_start_brain_if_ollama, daemon=True).start()
     threading.Thread(target=_fx_monitor_loop, daemon=True).start()
     threading.Thread(target=_start_desk, daemon=True).start()
+    threading.Thread(target=_discover_models, daemon=True).start()
+
+
+def _discover_models():
+    """Ollama model auto-discovery → SQLite registry for the inference router."""
+    try:
+        from src.inference.ollama_discovery import discover
+        discover()
+    except Exception as e:
+        logger.warning(f"model discovery failed: {e}")
 
 
 def _start_desk():
@@ -1433,6 +1443,21 @@ def quant_strategies(n: int = 50):
 # THE DESK — autonomous multi-agent trading desk (v3)
 # analysts → debate → risk officer → slate → auto-exec (paper-only) → reflect
 # ===========================================================================
+
+@app.post("/api/inference/discover", tags=["Inference"])
+def inference_discover():
+    """Re-run Ollama model discovery and refresh the router's registry."""
+    from src.inference.ollama_discovery import discover
+    return _sanitize(discover())
+
+
+@app.get("/api/inference/status", tags=["Inference"])
+def inference_status():
+    """Router tiers, circuit-breaker states, and the model registry."""
+    from src.inference.ollama_discovery import list_models
+    from src.inference.router import get_router
+    return _sanitize({**get_router().status(), "registry": list_models(False)})
+
 
 @app.get("/api/desk/status", tags=["Desk"])
 def desk_status():
