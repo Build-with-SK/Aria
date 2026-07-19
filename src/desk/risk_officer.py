@@ -31,20 +31,29 @@ _sector_cache: dict = {}
 
 
 def sector_of(ticker: str) -> str:
-    """Best-effort sector lookup from the universe index. 'Unknown' otherwise."""
+    """Best-effort sector lookup from the universe index.
+    Crypto gets its own bucket; an equity with no known sector buckets
+    per-ticker ('Unsectored:X') so unknowns never aggregate into one
+    fake sector that blockades the 25% cap — for those names the sector
+    cap honestly degrades to the name cap."""
     if ticker in _sector_cache:
         return _sector_cache[ticker]
-    sector = "Unknown"
+    sector, asset_class = None, None
     try:
         if UNIVERSE_DB.exists():
             with sqlite3.connect(str(UNIVERSE_DB)) as conn:
                 row = conn.execute(
-                    "SELECT sector FROM symbols WHERE symbol = ? OR yahoo = ?",
+                    "SELECT sector, asset_class FROM symbols WHERE symbol = ? OR yahoo = ?",
                     (ticker, ticker)).fetchone()
-                if row and row[0]:
-                    sector = row[0]
+                if row:
+                    sector, asset_class = row[0], row[1]
     except Exception as e:
         logger.debug(f"sector lookup failed for {ticker}: {e}")
+    if not sector:
+        if asset_class == "crypto" or ticker.endswith("-USD"):
+            sector = "Crypto"
+        else:
+            sector = f"Unsectored:{ticker}"
     _sector_cache[ticker] = sector
     return sector
 
