@@ -10,6 +10,7 @@ import Thinking  from './pages/Thinking'
 import Explorer  from './pages/Explorer'
 import Quant     from './pages/Quant'
 import Execution from './pages/Execution'
+import Desk      from './pages/Desk'
 import Overview  from './pages/Overview'
 import Signals   from './pages/Signals'
 import Futures   from './pages/Futures'
@@ -98,6 +99,7 @@ export default function App() {
             <Route path="/explorer"  element={<Explorer  />} />
             <Route path="/quant"     element={<Quant     />} />
             <Route path="/execute"   element={<Execution />} />
+            <Route path="/desk"      element={<Desk      />} />
             <Route path="/compare"   element={<Compare   />} />
             <Route path="/"          element={<Overview  />} />
             <Route path="/signals"   element={<Signals   />} />

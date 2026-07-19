@@ -92,6 +92,21 @@ async def _startup():
     import threading
     threading.Thread(target=_start_brain_if_ollama, daemon=True).start()
     threading.Thread(target=_fx_monitor_loop, daemon=True).start()
+    threading.Thread(target=_start_desk, daemon=True).start()
+
+
+def _start_desk():
+    """Start the autonomous desk daemon (analysts→debate→risk→slate→exec cycle).
+    Cycles always run; whether anything auto-executes is decided solely by the
+    desk safety contract (paper-only, armed, budgeted)."""
+    import time
+    time.sleep(12)  # let the server and brokers settle first
+    try:
+        from src.desk.desk_daemon import get_desk
+        get_desk().start()
+        logger.info("ARIA desk daemon started.")
+    except Exception as e:
+        logger.warning(f"Desk daemon startup failed: {e}")
 
 
 def _fx_monitor_loop():
@@ -1420,3 +1435,157 @@ def quant_papers(n: int = 50):
 @app.get("/api/quant/strategies", tags=["Quant Lab"])
 def quant_strategies(n: int = 50):
     return _sanitize(_get_lab().strategies(n))
+
+
+# ===========================================================================
+# THE DESK — autonomous multi-agent trading desk (v3)
+# analysts → debate → risk officer → slate → auto-exec (paper-only) → reflect
+# ===========================================================================
+
+@app.get("/api/desk/status", tags=["Desk"])
+def desk_status():
+    """Desk state: daemon, safety gates, auto_execute flag, day budget,
+    account=paper|live|disconnected."""
+    from src.desk.desk_daemon import get_desk
+    return _sanitize(get_desk().status())
+
+
+@app.post("/api/desk/auto-execute", tags=["Desk"])
+def desk_auto_execute(enabled: bool):
+    """Arm/disarm autonomous paper execution.
+    REFUSES (409) to arm when the connected account is live — auto-exec can
+    only ever touch the paper account. Disarming is always allowed."""
+    from src.desk.auto_executor import account_snapshot
+    from src.desk.config import load_config, paper_mode_confirmed, save_config
+    if enabled:
+        if not paper_mode_confirmed():
+            raise HTTPException(
+                status_code=409,
+                detail="ALPACA_PAPER is not exactly 'true' — auto-execute cannot be "
+                       "armed. Set ALPACA_PAPER=true in .env (paper account) first.")
+        account = account_snapshot()
+        if account.get("paper") is False:
+            raise HTTPException(
+                status_code=409,
+                detail="LIVE account detected — auto-execute is paper-only and will "
+                       "not arm. Real money always goes through human approval.")
+    cfg = save_config({"auto_execute": bool(enabled)})
+    return {"ok": True, "auto_execute": cfg["auto_execute"]}
+
+
+@app.post("/api/desk/run-now", tags=["Desk"])
+def desk_run_now():
+    """Run one analysts→debate→slate→(exec) cycle immediately."""
+    from src.desk.desk_daemon import get_desk
+    desk = get_desk()
+    if desk.working:
+        return {"status": "already_working",
+                "message": "A desk cycle is already in progress."}
+    desk.run_now()
+    return {"status": "started",
+            "message": "Desk cycle started. Poll /api/desk/status."}
+
+
+@app.patch("/api/desk/config", tags=["Desk"])
+def desk_config(updates: Dict[str, Any]):
+    """Update desk config (interval, budgets, caps, notification topics).
+    auto_execute is NOT settable here — use /api/desk/auto-execute."""
+    from src.desk.config import save_config
+    updates.pop("auto_execute", None)
+    cfg = save_config(updates)
+    if "interval_minutes" in updates:
+        try:
+            from src.desk.desk_daemon import peek_desk
+            d = peek_desk()
+            if d is not None:
+                d.set_interval(int(updates["interval_minutes"]))
+        except Exception as e:
+            logger.warning(f"desk reschedule failed: {e}")
+    return cfg
+
+
+@app.get("/api/desk/slate", tags=["Desk"])
+def desk_slate():
+    """Latest ranked trade slate + debate summaries."""
+    return _sanitize(_load_optional("desk/slate.json") or
+                     {"slate": [], "rejected": [], "debates": []})
+
+
+@app.get("/api/desk/debate/{debate_id}", tags=["Desk"])
+def desk_debate(debate_id: str):
+    """Full debate transcript — every argument, evidence citation, and the verdict."""
+    from src.desk.debate import load_debate
+    t = load_debate(debate_id)
+    if not t:
+        raise HTTPException(status_code=404, detail=f"Debate '{debate_id}' not found")
+    return _sanitize(t)
+
+
+@app.get("/api/desk/debates", tags=["Desk"])
+def desk_debates(n: int = 12):
+    """Most recent debate transcripts, newest first."""
+    from src.desk.debate import DEBATES_DIR
+    if not DEBATES_DIR.exists():
+        return {"count": 0, "debates": []}
+    files = sorted(DEBATES_DIR.glob("*.json"),
+                   key=lambda p: p.stat().st_mtime, reverse=True)[:n]
+    out = []
+    for p in files:
+        try:
+            out.append(json.loads(p.read_text(encoding="utf-8")))
+        except Exception:
+            continue
+    return _sanitize({"count": len(out), "debates": out})
+
+
+@app.get("/api/desk/executions", tags=["Desk"])
+def desk_executions(n: int = 100):
+    """Auto-execution log — what ARIA bought/queued, when, and why."""
+    from src.desk.auto_executor import read_executions
+    records = read_executions(n)
+    return _sanitize({
+        "count": len(records),
+        "auto_fills": sum(1 for r in records if r.get("mode") == "auto"),
+        "queued": sum(1 for r in records if r.get("mode") == "queued"),
+        "executions": records,
+    })
+
+
+@app.get("/api/desk/pnl", tags=["Desk"])
+def desk_pnl():
+    """Paper equity curve + open positions + day/total P&L."""
+    from src.desk.auto_executor import account_snapshot
+    from src.desk.day_state import load_day_state
+    account = account_snapshot()
+    day = load_day_state(current_equity=account.get("equity"))
+
+    curve = []
+    curve_path = ROOT / "data" / "desk" / "equity_curve.jsonl"
+    if curve_path.exists():
+        for line in curve_path.read_text(encoding="utf-8").splitlines()[-500:]:
+            try:
+                curve.append(json.loads(line))
+            except Exception:
+                continue
+
+    equity = account.get("equity") or 0.0
+    start_eq = day.get("start_equity") or 0.0
+    first_eq = curve[0]["equity"] if curve else start_eq
+    positions = account.get("positions") or []
+    winners = sum(1 for p in positions if (p.get("unrealized_pl") or 0) > 0)
+
+    return _sanitize({
+        "connected": account.get("connected"),
+        "account": "paper" if account.get("paper") else
+                   ("live" if account.get("paper") is False else "disconnected"),
+        "equity": equity,
+        "cash": account.get("cash"),
+        "day_pnl": round(equity - start_eq, 2) if start_eq else 0.0,
+        "day_pnl_pct": round((equity - start_eq) / start_eq * 100, 3) if start_eq else 0.0,
+        "total_pnl": round(equity - first_eq, 2) if first_eq else 0.0,
+        "total_pnl_pct": round((equity - first_eq) / first_eq * 100, 3) if first_eq else 0.0,
+        "open_positions": positions,
+        "open_win_rate": round(winners / len(positions), 3) if positions else None,
+        "equity_curve": curve,
+        "day": day,
+    })

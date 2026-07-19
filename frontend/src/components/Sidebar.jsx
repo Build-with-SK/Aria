@@ -39,6 +39,7 @@ const GROUPS = [
   {
     label: 'OPERATIONS',
     items: [
+      { path: '/desk',      label: 'THE DESK',   icon: '▦' },
       { path: '/execute',   label: 'EXECUTE',    icon: '▶', badge: true },
       { path: '/alerts',    label: 'ALERTS',     icon: '▲' },
       { path: '/report',    label: 'REPORT',     icon: '≡' },

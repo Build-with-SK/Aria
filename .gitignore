@@ -57,6 +57,8 @@ data/cache/
 data/raw/
 data/reports/
 data/execution/approval_queue.json
+data/desk/
+data/desk_config.json
 data/brain_state.json
 data/atlas_state.json
 data/quant_lab/

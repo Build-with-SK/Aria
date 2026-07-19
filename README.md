@@ -31,7 +31,8 @@ ARIA is a self-hosted AI finance terminal that runs entirely on your machine:
 - **💱 Remittance watch** — GBP/INR monitored continuously with direction-framed alerts ("pound strong → good window to send UK→India") and user-set target levels.
 - **⚗ Quant Lab** — a self-learning researcher: reads new arXiv q-fin papers, maps them to strategy templates with the local LLM, backtests on real data, and ranks by out-of-sample Sharpe.
 - **ƒ Quant analytics** — Black-Scholes greeks, vol surfaces, multi-leg option strategies with payoff curves, and macro stress scenarios (rate shock, crash, vol spike, stagflation…) against your live book.
-- **▶ Execution with a human gate** — the engine can *propose* trades to paper brokers, but **nothing executes without explicit human approval**. The brain proposes; you decide. Always.
+- **▦ The Desk (v3)** — an autonomous multi-agent trading desk: evidence-cited analyst agents (technical / fundamental / sentiment / macro) feed a bull-vs-bear debate with a deterministic judge, a code-enforced risk officer (name/sector caps, portfolio heat, regime gate, drawdown circuit-breaker), and a quarter-Kelly portfolio manager. Every claim cites a real number; every fill links back to its debate transcript.
+- **▶ Execution with a hard paper gate** — by default **nothing executes without explicit human approval**. You can optionally arm **auto-execute on the paper account only**: fills happen on their own and you are *informed after* (feed + phone push), never asked. A live account **always** routes to the manual approval queue — this is enforced in code with no override.
 
 Everything runs locally. Your data, your keys, your machine.
 
