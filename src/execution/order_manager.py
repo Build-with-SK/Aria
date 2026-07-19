@@ -170,6 +170,25 @@ class OrderManager:
         out = {"stop_loss_order": None, "take_profit_order": None}
         if not broker or not broker.is_connected():
             return out
+        # Equities demand whole-cent prices — sub-penny is rejected (42210000)
+        # — and fractional qtys cannot be GTC, so floor to whole shares
+        # (the sub-share dust stays managed by the 5-min software tick).
+        if asset_class != "crypto":
+            stop = round(stop, 2) if stop else stop
+            target = round(target, 2) if target else target
+            qty = float(int(qty))
+            if qty <= 0:
+                return out
+        # Both protections on one position need ONE OCO order — separate
+        # stop + limit sells fight over the same reserved shares (40310000).
+        if stop and target and hasattr(broker, "submit_oco_exit"):
+            oid = broker.submit_oco_exit(ticker, qty, entry_side, stop, target)
+            if oid:
+                out["stop_loss_order"] = {"broker_order_id": oid, "stop_price": stop}
+                out["take_profit_order"] = {"broker_order_id": oid, "limit_price": target}
+                return out
+            logger.warning(f"OCO exit failed for {ticker} — falling back to stop-only")
+            target = None       # protect the downside at minimum
         exit_side = OrderSide.SELL if entry_side in ("buy", "long") else OrderSide.BUY
         try:
             if stop:
@@ -232,12 +251,14 @@ class OrderManager:
         try:
             # Stop-loss is opposite side
             sl_side = OrderSide.SELL if trade.side == "buy" else OrderSide.BUY
+            stop_price = (trade.stop_loss if trade.asset_class == "crypto"
+                          else round(trade.stop_loss, 2))
             req = OrderRequest(
                 ticker=trade.ticker,
                 side=sl_side,
                 qty=trade.qty,
                 order_type=OrderType.STOP,
-                stop_price=trade.stop_loss,
+                stop_price=stop_price,
                 time_in_force="gtc",
                 asset_class=AssetClass(trade.asset_class),
             )
@@ -251,12 +272,14 @@ class OrderManager:
     def _place_take_profit(self, broker: BrokerBase, trade: PendingTrade, fill_price: float) -> Optional[dict]:
         try:
             tp_side = OrderSide.SELL if trade.side == "buy" else OrderSide.BUY
+            limit_price = (trade.take_profit if trade.asset_class == "crypto"
+                           else round(trade.take_profit, 2))
             req = OrderRequest(
                 ticker=trade.ticker,
                 side=tp_side,
                 qty=trade.qty,
                 order_type=OrderType.LIMIT,
-                limit_price=trade.take_profit,
+                limit_price=limit_price,
                 time_in_force="gtc",
                 asset_class=AssetClass(trade.asset_class),
             )

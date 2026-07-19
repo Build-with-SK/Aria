@@ -396,8 +396,26 @@ class PositionManager:
             self._queue_manual_exit(ticker, pos, qty, long, reason)
             return {"ticker": ticker, "reason": reason, "mode": "queued (live account)"}
 
+        # Equities only close while the market can actually FILL the order —
+        # a market order queued overnight would sit unfilled, the position
+        # would be re-adopted next tick, and closes would stack up. Defer.
+        if pos.get("asset_class") != "crypto":
+            from src.desk.desk_daemon import us_equities_open
+            if not us_equities_open():
+                logger.info(f"exit for {ticker} deferred — US market closed "
+                            f"({reason})")
+                return None
+
+        # A close already in flight? Wait for it — never stack exit orders.
+        exit_side = "sell" if long else "buy"
+        open_for_ticker = mgr.open_orders_by_ticker().get(ticker) or []
+        if any(o.get("side") == exit_side and o.get("order_type") == "market"
+               for o in open_for_ticker):
+            logger.info(f"exit for {ticker} already in flight — skipping")
+            return None
+
         # Cancel protective orders first so the GTC brackets can't double-fill
-        for o in (mgr.open_orders_by_ticker().get(ticker) or []):
+        for o in open_for_ticker:
             broker.cancel_order(o["id"])
 
         req = OrderRequest(
@@ -416,6 +434,13 @@ class PositionManager:
             return None
         if result.status != OrderStatus.FILLED:
             result = mgr._await_fill(broker, result)
+        if result.status != OrderStatus.FILLED:
+            # No fill, no exit: cancel so orders never stack, retry next tick.
+            # A recorded P&L must come from a REAL fill, never an estimate.
+            broker.cancel_order(result.broker_order_id)
+            logger.warning(f"exit for {ticker} did not fill in the poll window "
+                           f"— cancelled, will retry next tick ({reason})")
+            return None
 
         exit_price = result.avg_fill_price or self._current_price(ticker, bp, {}, mgr)
         entry = float(pos.get("entry_price") or bp.get("avg_cost") or 0.0)
@@ -537,11 +562,19 @@ class PositionManager:
         need_target = pos.get("target") and not has_target
         if not (need_stop or need_target):
             return None
+        # Protections are placed as one OCO — clear partial leftovers first
+        # so the fresh order can reserve the shares.
+        if mgr._alpaca is not None:
+            for o in open_orders:
+                if o.get("order_type") in ("stop", "stop_limit", "limit"):
+                    try:
+                        mgr._alpaca.cancel_order(o["id"])
+                    except Exception:
+                        pass
         placed = mgr.place_protective_orders(
             ticker, float(pos.get("qty") or 0.0),
             "buy" if _is_long(pos) else "sell",
-            pos.get("stop") if need_stop else None,
-            pos.get("target") if need_target else None,
+            pos.get("stop"), pos.get("target"),
             asset_class=pos.get("asset_class", "equity"))
         healed = {}
         if need_stop and placed.get("stop_loss_order"):
@@ -553,11 +586,12 @@ class PositionManager:
         return healed or None
 
     def _replace_stop_order(self, ticker: str, pos: dict, mgr, open_orders: list):
-        """Trailing ratchet: cancel the old broker stop, place the new one."""
+        """Trailing ratchet: cancel the old protections, re-place the OCO
+        (or stop) at the new level."""
         if mgr is None or mgr._alpaca is None:
             return
         for o in open_orders:
-            if o.get("order_type") in ("stop", "stop_limit"):
+            if o.get("order_type") in ("stop", "stop_limit", "limit"):
                 try:
                     mgr._alpaca.cancel_order(o["id"])
                 except Exception:
@@ -565,7 +599,8 @@ class PositionManager:
         mgr.place_protective_orders(
             ticker, float(pos.get("qty") or 0.0),
             "buy" if _is_long(pos) else "sell",
-            pos.get("stop"), None, asset_class=pos.get("asset_class", "equity"))
+            pos.get("stop"), pos.get("target"),
+            asset_class=pos.get("asset_class", "equity"))
 
     # ── helpers ──────────────────────────────────────────────────────────
 

@@ -256,6 +256,33 @@ class AlpacaBroker(BrokerBase):
                 error_message=str(e),
             )
 
+    def submit_oco_exit(self, ticker: str, qty: float, entry_side: str,
+                        stop: float, target: float) -> Optional[str]:
+        """One-cancels-other exit: take-profit limit + stop-loss leg on the
+        SAME reserved shares — the only way Alpaca allows both protections
+        on one position. Returns the order id or None."""
+        if not self._client:
+            return None
+        try:
+            from alpaca.trading.requests import (LimitOrderRequest,
+                                                 StopLossRequest,
+                                                 TakeProfitRequest)
+            from alpaca.trading.enums import OrderClass
+            side = (AlpacaSide.SELL if entry_side in ("buy", "long")
+                    else AlpacaSide.BUY)
+            order = self._client.submit_order(order_data=LimitOrderRequest(
+                symbol=ticker, qty=qty, side=side,
+                time_in_force=TimeInForce.GTC,
+                limit_price=round(target, 2),
+                order_class=OrderClass.OCO,
+                take_profit=TakeProfitRequest(limit_price=round(target, 2)),
+                stop_loss=StopLossRequest(stop_price=round(stop, 2)),
+            ))
+            return str(order.id)
+        except Exception as e:
+            logger.error(f"Alpaca submit_oco_exit({ticker}) error: {e}")
+            return None
+
     def get_open_orders(self) -> list[dict]:
         if not self._client:
             return []
@@ -263,18 +290,30 @@ class AlpacaBroker(BrokerBase):
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
             orders = self._client.get_orders(
-                GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500))
-            return [{
-                "id": str(o.id),
-                "ticker": str(o.symbol),
-                "side": str(o.side.value if hasattr(o.side, "value") else o.side),
-                "order_type": str(o.type.value if hasattr(o.type, "value") else o.type),
-                "qty": float(o.qty or 0),
-                "stop_price": float(o.stop_price) if o.stop_price else None,
-                "limit_price": float(o.limit_price) if o.limit_price else None,
-                "submitted_at": o.submitted_at.isoformat() if o.submitted_at else "",
-                "status": str(o.status.value if hasattr(o.status, "value") else o.status),
-            } for o in orders]
+                GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500,
+                                 nested=True))
+
+            def to_dict(o):
+                return {
+                    "id": str(o.id),
+                    "ticker": str(o.symbol),
+                    "side": str(o.side.value if hasattr(o.side, "value") else o.side),
+                    "order_type": str(o.type.value if hasattr(o.type, "value") else o.type),
+                    "qty": float(o.qty or 0),
+                    "stop_price": float(o.stop_price) if o.stop_price else None,
+                    "limit_price": float(o.limit_price) if o.limit_price else None,
+                    "submitted_at": o.submitted_at.isoformat() if o.submitted_at else "",
+                    "status": str(o.status.value if hasattr(o.status, "value") else o.status),
+                }
+
+            out = []
+            for o in orders:
+                out.append(to_dict(o))
+                # OCO stop legs sit "held" under the parent — expose them so
+                # bracket healing can see the stop actually exists
+                for leg in (getattr(o, "legs", None) or []):
+                    out.append(to_dict(leg))
+            return out
         except Exception as e:
             logger.error(f"Alpaca get_open_orders error: {e}")
             return []
