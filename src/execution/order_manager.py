@@ -15,6 +15,8 @@ Flow:
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timedelta
 from typing import Optional
 
 from .approval_queue import ApprovalQueue, PendingTrade
@@ -94,13 +96,32 @@ class OrderManager:
                 f"via {broker.name} → order_id={result.broker_order_id}"
             )
 
-            # Place protective stop-loss if provided and broker supports it
+            # Alpaca market orders come back "accepted", not "filled" — poll
+            # until the fill confirms, THEN place the protective brackets.
+            # A position must never sit naked because the ack was async.
+            if result.status != OrderStatus.FILLED and (trade.stop_loss or trade.take_profit):
+                result = self._await_fill(broker, result)
+
             sl_result = None
             tp_result = None
-            if trade.stop_loss and result.status == OrderStatus.FILLED:
-                sl_result = self._place_stop_loss(broker, trade, result.avg_fill_price)
-            if trade.take_profit and result.status == OrderStatus.FILLED:
-                tp_result = self._place_take_profit(broker, trade, result.avg_fill_price)
+            fill_price = result.avg_fill_price or trade.limit_price or 0.0
+            if result.status == OrderStatus.FILLED:
+                if trade.stop_loss:
+                    sl_result = self._place_stop_loss(broker, trade, fill_price)
+                if trade.take_profit:
+                    tp_result = self._place_take_profit(broker, trade, fill_price)
+                if (trade.stop_loss and not sl_result) or (trade.take_profit and not tp_result):
+                    logger.error(f"BRACKETS INCOMPLETE for {trade.ticker} — "
+                                 f"reconciliation must heal on next desk tick")
+            elif trade.stop_loss or trade.take_profit:
+                logger.warning(f"{trade.ticker} entry not confirmed filled within poll "
+                               f"window — brackets deferred to reconciliation")
+
+            # Refresh queue with the real fill price once known
+            if result.avg_fill_price:
+                self._queue.mark_executed(trade_id,
+                                          broker_order_id=result.broker_order_id,
+                                          fill_price=result.avg_fill_price)
 
             return {
                 "ok": True,
@@ -111,6 +132,9 @@ class OrderManager:
                 "filled_qty": result.filled_qty,
                 "stop_loss_order": sl_result,
                 "take_profit_order": tp_result,
+                "brackets_pending": bool(
+                    (trade.stop_loss and not sl_result) or
+                    (trade.take_profit and not tp_result)),
             }
         else:
             self._queue.reject(trade_id, result.error_message)
@@ -119,6 +143,90 @@ class OrderManager:
                 "broker": broker.name,
                 "error": result.error_message or f"Order rejected with status {result.status.value}",
             }
+
+    def _await_fill(self, broker: BrokerBase, result: OrderResult,
+                    timeout_s: float = 30.0, poll_s: float = 2.0) -> OrderResult:
+        """Poll the broker until the order fills (or the window closes).
+        Returns the freshest OrderResult either way."""
+        deadline = time.monotonic() + timeout_s
+        latest = result
+        while time.monotonic() < deadline:
+            time.sleep(poll_s)
+            latest = broker.get_order_status(result.broker_order_id)
+            if latest.status == OrderStatus.FILLED:
+                return latest
+            if latest.status in (OrderStatus.CANCELLED, OrderStatus.REJECTED,
+                                 OrderStatus.EXPIRED):
+                return latest
+        return latest
+
+    def place_protective_orders(self, ticker: str, qty: float, entry_side: str,
+                                stop: Optional[float], target: Optional[float],
+                                asset_class: str = "equity",
+                                broker: Optional[BrokerBase] = None) -> dict:
+        """Place SL/TP for an already-held position (used by fill flow and by
+        the desk's reconciliation pass when brackets are found missing)."""
+        broker = broker or self._alpaca
+        out = {"stop_loss_order": None, "take_profit_order": None}
+        if not broker or not broker.is_connected():
+            return out
+        exit_side = OrderSide.SELL if entry_side in ("buy", "long") else OrderSide.BUY
+        try:
+            if stop:
+                r = broker.submit_order(OrderRequest(
+                    ticker=ticker, side=exit_side, qty=qty,
+                    order_type=OrderType.STOP, stop_price=stop,
+                    time_in_force="gtc", asset_class=AssetClass(asset_class)))
+                if r.status not in (OrderStatus.REJECTED,):
+                    out["stop_loss_order"] = {"broker_order_id": r.broker_order_id,
+                                              "stop_price": stop}
+            if target:
+                r = broker.submit_order(OrderRequest(
+                    ticker=ticker, side=exit_side, qty=qty,
+                    order_type=OrderType.LIMIT, limit_price=target,
+                    time_in_force="gtc", asset_class=AssetClass(asset_class)))
+                if r.status not in (OrderStatus.REJECTED,):
+                    out["take_profit_order"] = {"broker_order_id": r.broker_order_id,
+                                                "limit_price": target}
+        except Exception as e:
+            logger.error(f"place_protective_orders({ticker}) failed: {e}")
+        return out
+
+    def open_orders_by_ticker(self, broker: Optional[BrokerBase] = None) -> dict:
+        """{ticker: [open order dicts]} — for bracket healing and stale cleanup."""
+        broker = broker or self._alpaca
+        if not broker or not broker.is_connected():
+            return {}
+        grouped: dict = {}
+        for o in broker.get_open_orders():
+            grouped.setdefault(o["ticker"], []).append(o)
+        return grouped
+
+    def cancel_stale_orders(self, max_age_days: float = 1.0) -> list[dict]:
+        """Cancel unfilled orders older than max_age_days for tickers with NO
+        open position (i.e. stale entries). Protective GTC stops/targets belong
+        to held tickers and are deliberately left alone."""
+        broker = self._alpaca
+        if not broker or not broker.is_connected():
+            return []
+        held = {p.ticker for p in broker.get_positions()}
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        cancelled = []
+        for ticker, orders in self.open_orders_by_ticker(broker).items():
+            if ticker in held:
+                continue
+            for o in orders:
+                try:
+                    sub = datetime.fromisoformat(
+                        (o.get("submitted_at") or "").replace("Z", "+00:00"))
+                    sub = sub.replace(tzinfo=None)
+                except Exception:
+                    continue
+                if sub < cutoff and broker.cancel_order(o["id"]):
+                    cancelled.append(o)
+                    logger.info(f"Cancelled stale order {o['id']} "
+                                f"({o['side']} {o['qty']:g} {ticker})")
+        return cancelled
 
     def _place_stop_loss(self, broker: BrokerBase, trade: PendingTrade, fill_price: float) -> Optional[dict]:
         try:

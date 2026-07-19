@@ -256,6 +256,29 @@ class AlpacaBroker(BrokerBase):
                 error_message=str(e),
             )
 
+    def get_open_orders(self) -> list[dict]:
+        if not self._client:
+            return []
+        try:
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import QueryOrderStatus
+            orders = self._client.get_orders(
+                GetOrdersRequest(status=QueryOrderStatus.OPEN, limit=500))
+            return [{
+                "id": str(o.id),
+                "ticker": str(o.symbol),
+                "side": str(o.side.value if hasattr(o.side, "value") else o.side),
+                "order_type": str(o.type.value if hasattr(o.type, "value") else o.type),
+                "qty": float(o.qty or 0),
+                "stop_price": float(o.stop_price) if o.stop_price else None,
+                "limit_price": float(o.limit_price) if o.limit_price else None,
+                "submitted_at": o.submitted_at.isoformat() if o.submitted_at else "",
+                "status": str(o.status.value if hasattr(o.status, "value") else o.status),
+            } for o in orders]
+        except Exception as e:
+            logger.error(f"Alpaca get_open_orders error: {e}")
+            return []
+
     def get_quote(self, ticker: str) -> dict:
         if not self._stock_data:
             return {}

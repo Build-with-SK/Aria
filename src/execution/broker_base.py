@@ -136,3 +136,9 @@ class BrokerBase(ABC):
     def supports_asset(self, asset_class: AssetClass) -> bool:
         """Override to restrict which asset classes a broker handles."""
         return True
+
+    def get_open_orders(self) -> list[dict]:
+        """Open (unfilled) orders as plain dicts:
+        {id, ticker, side, order_type, qty, stop_price, limit_price,
+         submitted_at, status}. Default: unsupported → empty list."""
+        return []
