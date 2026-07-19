@@ -1551,6 +1551,26 @@ def desk_executions(n: int = 100):
     })
 
 
+@app.post("/api/desk/tick-now", tags=["Desk"])
+def desk_tick_now():
+    """Run one PositionManager management tick immediately (exit rules,
+    trailing stops, bracket healing, legacy triage)."""
+    from src.desk.desk_daemon import get_desk
+    get_desk().run_tick_now()
+    return {"status": "started",
+            "message": "Management tick running. Poll /api/desk/status."}
+
+
+@app.get("/api/desk/positions", tags=["Desk"])
+def desk_positions():
+    """Tracked positions (exit-engine state) + latest closed trades."""
+    from src.desk.position_manager import PositionManager, read_closed_trades
+    return _sanitize({
+        "positions": PositionManager().load_positions(),
+        "closed": list(reversed(read_closed_trades(50))),
+    })
+
+
 @app.get("/api/desk/pnl", tags=["Desk"])
 def desk_pnl():
     """Paper equity curve + open positions + day/total P&L."""

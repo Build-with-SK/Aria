@@ -1,9 +1,11 @@
 """
 src/desk/config.py
 ==================
-Desk configuration — data/desk_config.json. auto_execute defaults OFF;
-the user arms it explicitly in the UI. Risk caps here are *defaults*;
-the risk officer enforces them in code and an LLM can never change them.
+Desk configuration — data/desk_config.json. auto_execute defaults ON for
+the PAPER account only — the safety contract (env gate + broker paper flag)
+still rules, and the UI toggle remains as a kill switch. Risk caps here are
+*defaults*; the risk officer enforces them in code and an LLM can never
+change them.
 """
 from __future__ import annotations
 
@@ -19,13 +21,15 @@ CONFIG_FILE = ROOT / "data" / "desk_config.json"
 DESK_DIR = ROOT / "data" / "desk"
 
 DEFAULTS = {
-    "auto_execute": False,          # user arms explicitly; paper-only regardless
-    "interval_minutes": 30,         # desk cycle cadence
+    "auto_execute": True,           # paper-only regardless (gate 1/5 rule); the
+                                    # UI toggle remains as the kill switch
+    "interval_minutes": 30,         # hunt cycle cadence (market-hours aware)
+    "management_tick_minutes": 5,   # exit engine / bracket healing tick, 24/7
     "focus_tickers": 4,             # how many names get a full debate per cycle
     "debate_rounds": 2,             # bull/bear rebuttal rounds
     "min_conviction": 65,           # judge bar in normal regimes (macro can raise it)
-    "max_trades_per_day": 5,
-    "daily_notional_budget": 5000.0,   # USD of new exposure per day
+    "max_trades_per_day": 10,
+    "daily_notional_budget": 20000.0,  # USD of new exposure per day
     "max_name_pct": 5.0,            # % of equity per name
     "max_sector_pct": 25.0,         # % of equity per sector
     "heat_cap_pct": 10.0,           # max simultaneous open risk (sum stop-distances)

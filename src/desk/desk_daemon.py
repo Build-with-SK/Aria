@@ -26,15 +26,36 @@ SLATE_FILE = DESK_DIR / "slate.json"
 EQUITY_FILE = DESK_DIR / "equity_curve.jsonl"
 
 
+def us_equities_open(now: datetime | None = None) -> bool:
+    """US cash session 09:30–16:00 ET, Mon–Fri. Best-effort (holidays and
+    early closes are not modelled — a closed-market order just queues at
+    the broker). Crypto is always eligible and bypasses this check."""
+    try:
+        from zoneinfo import ZoneInfo
+        et = (now or datetime.now(ZoneInfo("America/New_York")))
+        if et.tzinfo is None:
+            et = et.replace(tzinfo=ZoneInfo("America/New_York"))
+    except Exception:
+        et = now or datetime.now()
+    if et.weekday() >= 5:
+        return False
+    minutes = et.hour * 60 + et.minute
+    return 9 * 60 + 30 <= minutes < 16 * 60
+
+
 class DeskDaemon:
     def __init__(self):
         self.scheduler = None
         self.running = False
         self.working = False            # True while a cycle is in progress
         self.cycle_count = 0
+        self.tick_count = 0
         self.last_cycle: dict = {}
+        self.last_tick: dict = {}
         self.memory = None              # LongTermMemory, lazy
         self._lock = threading.Lock()
+        self._mgmt_lock = threading.Lock()
+        self._broker_down_notified = False
         self._load_state()
 
     # ── lifecycle ────────────────────────────────────────────────────────
@@ -44,13 +65,23 @@ class DeskDaemon:
             return
         from src.desk.config import load_config
         from apscheduler.schedulers.background import BackgroundScheduler
-        interval = load_config()["interval_minutes"]
+        cfg = load_config()
+        interval = cfg["interval_minutes"]
+        mgmt_interval = int(cfg.get("management_tick_minutes", 5))
         self.scheduler = BackgroundScheduler()
+        # Hunt cycle — analysts→debate→slate, only when the market is open
         self.scheduler.add_job(self._run_cycle, "interval", minutes=interval,
                                id="desk_cycle", replace_existing=True)
+        # Management tick — exit rules + bracket healing, 24/7, cheap.
+        # First run immediately: startup reconciliation + legacy triage.
+        self.scheduler.add_job(self._management_tick, "interval",
+                               minutes=mgmt_interval, id="desk_mgmt",
+                               replace_existing=True,
+                               next_run_time=datetime.now())
         self.scheduler.start()
         self.running = True
-        logger.info(f"Desk daemon started (every {interval} min)")
+        logger.info(f"Desk daemon started (hunt every {interval} min, "
+                    f"management tick every {mgmt_interval} min)")
 
     def stop(self):
         self.running = False
@@ -79,6 +110,9 @@ class DeskDaemon:
             "running": self.running,
             "working": self.working,
             "cycle_count": self.cycle_count,
+            "tick_count": self.tick_count,
+            "last_tick": self.last_tick,
+            "equities_open": us_equities_open(),
             "last_cycle_at": self.last_cycle.get("at"),
             "last_cycle": {k: v for k, v in self.last_cycle.items()
                            if k not in ("transcripts",)},
@@ -88,6 +122,47 @@ class DeskDaemon:
                         ("equity", "cash", "buying_power", "connected", "paper")},
             "open_positions": len(account.get("positions") or []),
         }
+
+    # ── the management tick (exit engine, 24/7) ──────────────────────────
+
+    def _management_tick(self):
+        """Every N minutes, 24/7: exit rules, trailing stops, bracket healing,
+        gross-exposure triage. No LLM calls unless an exit debate triggers."""
+        if not self._mgmt_lock.acquire(blocking=False):
+            return
+        try:
+            from src.desk.position_manager import PositionManager
+            summary = PositionManager().tick()
+            self.tick_count += 1
+            summary["tick_count"] = self.tick_count
+            self.last_tick = summary
+
+            # Broker disconnects: skip, retry next tick, notify ONCE.
+            down = any("disconnected" in e for e in summary.get("errors", []))
+            if down and not self._broker_down_notified:
+                self._broker_down_notified = True
+                try:
+                    from src.desk.config import load_config
+                    from src.desk.notify import push
+                    push("⚠ desk: broker disconnected — retrying every tick",
+                         load_config())
+                except Exception:
+                    pass
+            elif not down and self._broker_down_notified:
+                self._broker_down_notified = False
+                logger.info("broker reconnected — management ticks resumed")
+
+            if summary.get("exits") or summary.get("adopted") or summary.get("healed"):
+                logger.info(f"management tick: {len(summary.get('exits', []))} exits, "
+                            f"{len(summary.get('adopted', []))} adopted, "
+                            f"{len(summary.get('healed', []))} brackets healed")
+        except Exception:
+            logger.exception("management tick failed")
+        finally:
+            self._mgmt_lock.release()
+
+    def run_tick_now(self):
+        threading.Thread(target=self._management_tick, daemon=True).start()
 
     # ── the desk cycle ───────────────────────────────────────────────────
 
@@ -132,9 +207,13 @@ class DeskDaemon:
             summary["regime"] = conditioner.regime
             summary["risk_multiplier"] = conditioner.risk_multiplier
 
-            # 2. FOCUS — strongest executable signals not already held/pending
+            # 2. FOCUS — strongest executable signals not already held/pending.
+            # Equity names only debate while the US cash session is open;
+            # crypto stays eligible 24/7 (weekends included).
             account = account_snapshot()
-            focus = self._focus_tickers(cfg["focus_tickers"], account)
+            equities_open = us_equities_open()
+            summary["equities_open"] = equities_open
+            focus = self._focus_tickers(cfg["focus_tickers"], account, equities_open)
             summary["focus"] = focus
 
             # 3. ANALYSTS → 4. DEBATE per focus ticker
@@ -203,7 +282,8 @@ class DeskDaemon:
 
     # ── helpers ──────────────────────────────────────────────────────────
 
-    def _focus_tickers(self, n: int, account: dict) -> list:
+    def _focus_tickers(self, n: int, account: dict,
+                       equities_open: bool = True) -> list:
         from src.desk.opinion import load_data_json
         signals = load_data_json("signals.json")
         held = {p["ticker"] for p in (account.get("positions") or [])}
@@ -217,7 +297,9 @@ class DeskDaemon:
         def executable(t, d):
             ac = (d.get("asset_class") or "").lower()
             if "crypto" in ac or t.endswith("-USD"):
-                return True
+                return True                   # crypto trades 24/7
+            if not equities_open:
+                return False                  # market closed → no equity debates
             return not any(c in t for c in ("=", "^"))    # no futures/indices
 
         ranked = sorted(
