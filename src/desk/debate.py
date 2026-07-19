@@ -48,17 +48,14 @@ def _ollama_available() -> bool:
 
 
 def _llm(prompt: str, model: str, num_predict: int = 260) -> str | None:
-    """One local model call. None on any failure — callers must fall back."""
+    """One STANDARD-tier local call via the inference router (breakers +
+    retries). None on any failure — callers must fall back deterministically."""
     try:
-        payload = json.dumps({
-            "model": model, "stream": False,
-            "messages": [{"role": "user", "content": prompt}],
-            "options": {"temperature": 0.6, "top_p": 0.9, "num_predict": num_predict},
-        }).encode()
-        req = urllib.request.Request(f"{OLLAMA_BASE}/api/chat", data=payload,
-                                     headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=90) as r:
-            return json.loads(r.read())["message"]["content"].strip()
+        from src.inference.router import get_router
+        return get_router().complete_with(
+            "ollama", model,
+            [{"role": "user", "content": prompt}],
+            max_tokens=num_predict, temperature=0.6, timeout=90).text
     except Exception as e:
         logger.warning(f"debate LLM call failed: {e}")
         return None
@@ -206,30 +203,21 @@ class DebateEngine:
             f"In 3 sentences, explain WHY this verdict follows from the evidence, "
             f"naming the single strongest point on each side. Do not change the verdict."
         )
-        # Frontier consult — reuse the brain's switch and daily budget
+        # Frontier consult — DEEP tier via the router; the brain's consult
+        # switch and daily budget cap stay the routing policy.
         try:
             from src.brain.cognitive.reasoner import (
                 _consult_config, _consult_budget_left, _consult_log)
             cfg = _consult_config()
             if cfg.get("enabled") and _consult_budget_left(cfg):
-                import os
-                key = os.environ.get("ANTHROPIC_API_KEY", "")
-                if key:
-                    body = json.dumps({
-                        "model": cfg.get("frontier_model", "claude-sonnet-4-6"),
-                        "max_tokens": 300,
-                        "messages": [{"role": "user", "content": prompt}],
-                    }).encode()
-                    req = urllib.request.Request(
-                        "https://api.anthropic.com/v1/messages", data=body,
-                        headers={"Content-Type": "application/json", "x-api-key": key,
-                                 "anthropic-version": "2023-06-01"})
-                    with urllib.request.urlopen(req, timeout=45) as r:
-                        out = json.loads(r.read())
-                    text = "".join(b.get("text", "") for b in out.get("content", [])).strip()
-                    if text:
-                        _consult_log(f"DESK_JUDGE_{ticker}")
-                        return text
+                from src.inference.router import Tier, get_router
+                result = get_router().complete_with(
+                    "anthropic", cfg.get("frontier_model", "claude-sonnet-4-6"),
+                    [{"role": "user", "content": prompt}],
+                    max_tokens=300, timeout=45)
+                if result.text:
+                    _consult_log(f"DESK_JUDGE_{ticker}")
+                    return result.text
         except Exception as e:
             logger.debug(f"frontier judge prose unavailable: {e}")
 

@@ -299,46 +299,30 @@ Am I being overconfident or underconfident?""",
         return self._local(prompt, step)
 
     def _local(self, prompt: str, step: str) -> str:
-        """Single Ollama call. Returns the model's response text."""
-        payload = json.dumps({
-            "model": self.model,
-            "stream": False,
-            "messages": [{"role": "user", "content": prompt}],
-            "options": {"temperature": 0.4, "top_p": 0.9, "num_predict": 400},
-        }).encode()
-        req = urllib.request.Request(
-            f"{OLLAMA_BASE}/api/chat", data=payload,
-            headers={"Content-Type": "application/json"},
-        )
+        """Single STANDARD-tier local call via the inference router
+        (retries + circuit breaker). Raises RuntimeError when local
+        inference is unavailable — the brain cycle handles that."""
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                return json.loads(r.read())["message"]["content"].strip()
+            from src.inference.router import get_router
+            return get_router().complete_with(
+                "ollama", self.model,
+                [{"role": "user", "content": prompt}],
+                max_tokens=400, temperature=0.4, timeout=120).text
         except Exception as e:
             logger.error(f"Ollama call failed at step {step}: {e}")
             raise RuntimeError(f"Ollama unavailable during {step}: {e}") from e
 
     def _frontier(self, prompt: str) -> str:
-        """Ask a frontier model (Claude API) for a single hard step.
-        Only the step prompt travels — no memory/vault beyond what's already
-        in the prompt. Requires ANTHROPIC_API_KEY (loaded from .env)."""
-        import os
-        key = os.environ.get("ANTHROPIC_API_KEY", "")
-        if not key:
-            raise RuntimeError("consult enabled but ANTHROPIC_API_KEY not set")
-        body = json.dumps({
-            "model": self._consult.get("frontier_model", "claude-sonnet-4-6"),
-            "max_tokens": 500,
-            "system": "You are ARIA, a sharp, precise trading intelligence brain. "
-                      "Answer the step concisely with specific numbers. Research only.",
-            "messages": [{"role": "user", "content": prompt}],
-        }).encode()
-        req = urllib.request.Request(
-            "https://api.anthropic.com/v1/messages", data=body,
-            headers={"Content-Type": "application/json", "x-api-key": key,
-                     "anthropic-version": "2023-06-01"})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            out = json.loads(r.read())
-        return "".join(b.get("text", "") for b in out.get("content", [])).strip()
+        """One hard step on the frontier model via the router's DEEP path.
+        Only the step prompt travels. The consult budget cap in _think is
+        the routing policy; failure here falls back to _local."""
+        from src.inference.router import get_router
+        return get_router().complete_with(
+            "anthropic", self._consult.get("frontier_model", "claude-sonnet-4-6"),
+            [{"role": "user", "content": prompt}],
+            system="You are ARIA, a sharp, precise trading intelligence brain. "
+                   "Answer the step concisely with specific numbers. Research only.",
+            max_tokens=500, timeout=60).text
 
     # ── parsing helpers ──────────────────────────────────────────────────
 

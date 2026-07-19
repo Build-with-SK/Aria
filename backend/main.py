@@ -942,15 +942,16 @@ You CANNOT: guarantee profits or give regulated financial advice. Always include
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
 
     try:
-        resp = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
-            system=system,
-            messages=msgs,
-        )
+        # DEEP tier: Anthropic first, biggest local model as the fallback —
+        # a rate-limited API no longer 500s the chat when Ollama is up.
+        from src.inference.router import Tier, get_router
+        result = get_router().complete(
+            Tier.DEEP, msgs, system=system, max_tokens=1024, timeout=90)
         return {
-            "content": resp.content[0].text,
-            "tokens":  {"in": resp.usage.input_tokens, "out": resp.usage.output_tokens},
+            "content": result.text,
+            "model": result.model,
+            "provider": result.provider,
+            "tokens": {},
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1023,22 +1024,13 @@ def aria_chat_local(body: LocalChatRequest):
     ctx = _build_market_context()
     vault_ctx = _vault_context(body.messages)
     system = f"{_ARIA_SYSTEM}\n\n{ctx}\n\n{vault_ctx}" if vault_ctx else f"{_ARIA_SYSTEM}\n\n{ctx}"
-    payload = {
-        "model": body.model,
-        "stream": False,
-        "messages": [{"role": "system", "content": system}]
-                   + [{"role": m.role, "content": m.content} for m in body.messages],
-    }
     try:
-        import urllib.request, json as _json
-        data = _json.dumps(payload).encode()
-        req  = urllib.request.Request(f"{OLLAMA_BASE}/api/chat", data=data,
-                                      headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=120) as r:
-            result = _json.loads(r.read())
-        content = result.get("message", {}).get("content", "")
-        usage   = result.get("eval_count", 0)
-        return {"content": content, "model": body.model, "tokens": {"out": usage}}
+        from src.inference.router import get_router
+        result = get_router().complete_with(
+            "ollama", body.model,
+            [{"role": m.role, "content": m.content} for m in body.messages],
+            system=system, max_tokens=1024, timeout=120)
+        return {"content": result.text, "model": body.model, "tokens": {}}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
