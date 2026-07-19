@@ -15,6 +15,9 @@ logger = logging.getLogger(__name__)
 
 SRC = "enrichment (NewsAPI, cached 30min)"
 
+MIN_HEADLINES = 5      # below this the agent abstains — thin news is noise
+MAX_CONVICTION = 60    # a keyword lexicon never outvotes the signal engine
+
 
 def opine(ticker: str) -> Opinion:
     name = (load_data_json("signals.json").get(ticker) or {}).get("name", "")
@@ -31,6 +34,13 @@ def opine(ticker: str) -> Opinion:
         return Opinion(agent="sentiment", ticker=ticker, view="neutral", conviction=0,
                        thesis=f"No fresh news available for {ticker} "
                               f"({data.get('source', 'enrichment unavailable')}). Abstaining.",
+                       evidence=[])
+    # Calibration: a keyword lexicon over a handful of headlines is a weak
+    # instrument — below MIN_HEADLINES it abstains rather than opines.
+    if len(news) < MIN_HEADLINES:
+        return Opinion(agent="sentiment", ticker=ticker, view="neutral", conviction=0,
+                       thesis=f"Only {len(news)} fresh headlines for {ticker} "
+                              f"(need ≥{MIN_HEADLINES} for a view). Abstaining.",
                        evidence=[])
 
     score = senti.get("score") or 0.0
@@ -50,7 +60,7 @@ def opine(ticker: str) -> Opinion:
                            None, SRC, "neutral"))
 
     view = "bull" if score > 0.2 else "bear" if score < -0.2 else "neutral"
-    conviction = int(min(100, abs(score) * 100 + min(len(news), 8) * 3))
+    conviction = int(min(MAX_CONVICTION, abs(score) * 100 + min(len(news), 8) * 3))
     if pol == "High":
         conviction = max(0, conviction - 10)
 

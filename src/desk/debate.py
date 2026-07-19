@@ -153,10 +153,17 @@ class DebateEngine:
     def _judge(self, ticker, per_ticker, conditioner, bull_ev, bear_ev,
                contradictions, rounds) -> dict:
         # Deterministic verdict math — an LLM never touches these numbers.
+        # Weights come from the scorecard (bounded, outcome-calibrated);
+        # the static WEIGHTS are the uncalibrated defaults.
+        try:
+            from src.desk.scorecard import current_weights
+            weights = current_weights()
+        except Exception:
+            weights = dict(WEIGHTS)
         net = 0.0
         for o in per_ticker:
             direction = 1 if o.view == "bull" else -1 if o.view == "bear" else 0
-            net += WEIGHTS[o.agent] * o.conviction * direction
+            net += weights.get(o.agent, WEIGHTS[o.agent]) * o.conviction * direction
         view = "bull" if net > 0 else "bear" if net < 0 else "neutral"
         conviction = int(min(100, abs(net)))
         conviction -= CONTRADICTION_PENALTY * len(contradictions)

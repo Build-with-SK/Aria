@@ -454,6 +454,7 @@ class PositionManager:
         from src.desk.notify import fmt_exit, push
         push(fmt_exit("buy" if long else "sell", qty, ticker, exit_price,
                       pnl, pnl_pct, reason), self.cfg)
+        self._update_scorecard(record)
         self._record_outcome_memory(record)
         logger.info(f"CLOSED {ticker} {qty:g} @ {exit_price:.2f} "
                     f"({pnl_pct:+.2f}%) — {reason}")
@@ -520,6 +521,7 @@ class PositionManager:
         from src.desk.notify import fmt_exit, push
         push(fmt_exit("buy" if long else "sell", qty, ticker,
                       exit_price or entry, pnl, pnl_pct, reason), self.cfg)
+        self._update_scorecard(record)
         self._record_outcome_memory(record)
 
     # ── brackets ─────────────────────────────────────────────────────────
@@ -616,6 +618,13 @@ class PositionManager:
             }, indent=2, default=str), encoding="utf-8")
         except Exception as e:
             logger.warning(f"could not persist exit debate: {e}")
+
+    def _update_scorecard(self, record: dict):
+        try:
+            from src.desk.scorecard import record_closed_trade
+            record_closed_trade(record)
+        except Exception as e:
+            logger.debug(f"scorecard update failed: {e}")
 
     def _record_outcome_memory(self, record: dict):
         """Realized P&L → ChromaDB keyed by the entry's debate_id, so future

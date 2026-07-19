@@ -376,6 +376,70 @@ function PaperPnL({ pnl }) {
   )
 }
 
+/* ── realized performance — the copy-trade judgment panel ── */
+function Performance({ perf }) {
+  if (!perf) return null
+  const s = perf.all || {}
+  const day = perf.day || {}
+  const week = perf.week || {}
+  const agents = perf.agents || {}
+  const weights = perf.judge_weights || {}
+  const pc = v => (v > 0 ? 'bull' : v < 0 ? 'bear' : 'neut')
+  const fmt$ = v => `${v >= 0 ? '+' : '-'}$${Math.abs(v || 0).toFixed(2)}`
+  const pctOrDash = v => (v == null ? '—' : `${Math.round(v * 100)}%`)
+  const stat = (label, val, cls) => (
+    <div style={{ minWidth: 86 }}>
+      <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 800 }} className={cls || 'white'}>{val}</div>
+      <div style={{ fontFamily: MONO, fontSize: 9, color: 'var(--muted)', letterSpacing: '.1em' }}>{label}</div>
+    </div>
+  )
+  return (
+    <div className="bb-card">
+      <div className="bb-card-header">REALIZED PERFORMANCE — CLOSED TRADES ONLY</div>
+      {!s.trades ? (
+        <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 8 }}>
+          No closed trades yet — the exit engine reports here once positions complete their lifecycle.
+        </div>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
+            {stat('REALIZED P&L', fmt$(s.pnl), pc(s.pnl))}
+            {stat('WIN RATE', pctOrDash(s.win_rate))}
+            {stat('AVG R', s.avg_r == null ? '—' : s.avg_r.toFixed(2), pc(s.avg_r))}
+            {stat('PROFIT FACTOR', s.profit_factor == null ? '—' : s.profit_factor.toFixed(2))}
+            {stat('EXPECTANCY', fmt$(s.expectancy), pc(s.expectancy))}
+            {stat('TRADES', s.trades)}
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>
+            DAY <span className={pc(day.pnl)}>{fmt$(day.pnl)}</span> ({day.trades || 0} closed)
+            {' · '}WEEK <span className={pc(week.pnl)}>{fmt$(week.pnl)}</span> ({week.trades || 0} closed)
+          </div>
+          <table>
+            <thead><tr><th>AGENT</th><th>HIT RATE</th><th>RIGHT/WRONG</th><th>JUDGE WEIGHT</th></tr></thead>
+            <tbody>
+              {['technical', 'fundamental', 'sentiment'].map(a => {
+                const st = agents[a] || {}
+                return (
+                  <tr key={a}>
+                    <td className="white">{a.toUpperCase()}</td>
+                    <td className={st.hit_rate == null ? 'neut' : st.hit_rate >= 0.5 ? 'bull' : 'bear'}>
+                      {st.hit_rate == null ? '—' : `${Math.round(st.hit_rate * 100)}%`}</td>
+                    <td>{st.right ?? 0}/{st.wrong ?? 0}</td>
+                    <td>{weights[a] != null ? weights[a].toFixed(2) : '—'}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+          <div style={{ marginTop: 6, fontFamily: MONO, fontSize: 9, color: 'var(--muted)' }}>
+            Judge weights auto-calibrate (bounded ±0.15) after {agents.trades_scored ?? 0}/20 scored trades.
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Desk() {
   const [tick, setTick] = useState(0)
   const status = usePoll(`/api/desk/status?t=${tick}`, 10_000)
@@ -383,6 +447,7 @@ export default function Desk() {
   const debates = usePoll('/api/desk/debates?n=8', 30_000)
   const execs = usePoll('/api/desk/executions?n=60', 15_000)
   const pnl = usePoll('/api/desk/pnl', 30_000)
+  const perf = usePoll('/api/desk/performance', 60_000)
   const [running, setRunning] = useState(false)
 
   const runNow = async () => {
@@ -432,6 +497,7 @@ export default function Desk() {
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <AutoExecToggle status={status} onChanged={() => setTick(t => t + 1)} />
+          <Performance perf={perf} />
           <PaperPnL pnl={pnl} />
           <FillsFeed execs={execs} />
         </div>

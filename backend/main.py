@@ -1571,6 +1571,64 @@ def desk_positions():
     })
 
 
+@app.get("/api/desk/performance", tags=["Desk"])
+def desk_performance():
+    """REALIZED performance from closed trades — the numbers a human uses to
+    judge whether this desk deserves real-money copy-trading elsewhere.
+    Win rate, avg R, profit factor, expectancy, per-agent hit rates."""
+    from datetime import datetime, timedelta
+    from src.desk.position_manager import read_closed_trades
+    from src.desk.scorecard import agent_hit_rates, current_weights
+    trades = read_closed_trades(2000)
+
+    def stats(subset):
+        if not subset:
+            return {"trades": 0, "pnl": 0.0, "win_rate": None, "avg_r": None,
+                    "profit_factor": None, "expectancy": None}
+        pnls = [float(t.get("pnl") or 0.0) for t in subset]
+        wins = [p for p in pnls if p > 0]
+        losses = [-p for p in pnls if p < 0]
+        rs = [float(t.get("r_multiple") or 0.0) for t in subset
+              if t.get("r_multiple") is not None]
+        return {
+            "trades": len(subset),
+            "pnl": round(sum(pnls), 2),
+            "win_rate": round(len(wins) / len(pnls), 3),
+            "avg_r": round(sum(rs) / len(rs), 2) if rs else None,
+            "profit_factor": (round(sum(wins) / sum(losses), 2)
+                              if losses and sum(losses) > 0 else None),
+            "expectancy": round(sum(pnls) / len(pnls), 2),
+        }
+
+    now = datetime.now()
+
+    def since(days):
+        cutoff = now - timedelta(days=days)
+        out = []
+        for t in trades:
+            try:
+                if datetime.fromisoformat(t["at"]) >= cutoff:
+                    out.append(t)
+            except Exception:
+                continue
+        return out
+
+    by_reason: Dict[str, int] = {}
+    for t in trades:
+        r = (t.get("reason") or "?").split("(")[0].strip()
+        by_reason[r] = by_reason.get(r, 0) + 1
+
+    return _sanitize({
+        "all": stats(trades),
+        "day": stats(since(1)),
+        "week": stats(since(7)),
+        "exit_reasons": by_reason,
+        "agents": agent_hit_rates(),
+        "judge_weights": current_weights(),
+        "recent": list(reversed(trades[-20:])),
+    })
+
+
 @app.get("/api/desk/pnl", tags=["Desk"])
 def desk_pnl():
     """Paper equity curve + open positions + day/total P&L."""
