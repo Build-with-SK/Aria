@@ -95,8 +95,25 @@ class AriaCore:
 
         self.conversation_history: List[Dict] = []
         self._session_tickers_discussed: set = set()
+        self._compression_engine = None      # lazy — src/compression
 
         self.working_memory.refresh()
+
+    # ── Context compression (progressive cascade, src/compression) ──────────
+
+    def _compress_history(self) -> None:
+        """Long sessions: run the progressive compression cascade over the
+        conversation history in place. No-op below 70% utilization and on
+        any failure — chat must never break because compression did."""
+        try:
+            if self._compression_engine is None:
+                from src.compression.engine import CompressionEngine
+                self._compression_engine = CompressionEngine()
+            self.conversation_history = self._compression_engine.process(
+                self.conversation_history)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"context compression skipped: {e}")
 
     # ── System prompt construction ──────────────────────────────────────────
 
@@ -190,6 +207,7 @@ class AriaCore:
             self._session_tickers_discussed.add(ticker)
 
         self.conversation_history.append({"role": "user", "content": user_message})
+        self._compress_history()
         messages = list(self.conversation_history)
         tools = self.tool_dispatcher.get_tool_definitions()
 
@@ -243,6 +261,7 @@ class AriaCore:
             return self.debate_ticker(ticker)
 
         self.conversation_history.append({"role": "user", "content": user_message})
+        self._compress_history()
         messages = list(self.conversation_history)
 
         response_text = self._run_tool_loop(messages, system_prompt)

@@ -951,6 +951,13 @@ You CANNOT: guarantee profits or give regulated financial advice. Always include
 
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
 
+    # Long sessions: progressive context compression (no-op under 70% util)
+    try:
+        from src.compression.engine import CompressionEngine
+        msgs = CompressionEngine().process(msgs)
+    except Exception as e:
+        logger.warning(f"chat compression skipped: {e}")
+
     try:
         # DEEP tier: Anthropic first, biggest local model as the fallback —
         # a rate-limited API no longer 500s the chat when Ollama is up.

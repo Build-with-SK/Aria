@@ -1,0 +1,13 @@
+{
+  "_comment": "Thresholds for src/compression/engine.py — fractions of context_limit_tokens at which each cascade stage fires.",
+  "context_limit_tokens": 24000,
+  "compact_at": 0.70,
+  "summarize_at": 0.80,
+  "checkpoint_at": 0.90,
+  "truncate_at": 0.95,
+  "keep_recent_turns": 6,
+  "summary_batch_turns": 8,
+  "summary_max_tokens": 150,
+  "checkpoint_keep_turns": 4,
+  "truncate_keep_turns": 4
+}
