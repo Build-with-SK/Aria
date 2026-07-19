@@ -34,8 +34,9 @@ def fmt_entry(side: str, qty: float, ticker: str, price: float,
 def fmt_exit(entry_side: str, qty: float, ticker: str, price: float,
              pnl: float, pnl_pct: float, reason: str) -> str:
     arrow = "▼ SOLD" if entry_side in ("buy", "long") else "▲ COVERED"
+    pnl_str = f"{'+' if pnl >= 0 else '-'}${abs(pnl):.2f}"
     return (f"{arrow} {qty:g} {ticker} @ {price:.2f} "
-            f"| P&L {pnl:+.2f} ({pnl_pct:+.1f}%) | reason: {reason}")
+            f"| P&L {pnl_str} ({pnl_pct:+.1f}%) | reason: {reason}")
 
 
 def push(text: str, config: dict | None = None):
