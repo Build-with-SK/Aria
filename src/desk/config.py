@@ -31,6 +31,11 @@ DEFAULTS = {
     "heat_cap_pct": 10.0,           # max simultaneous open risk (sum stop-distances)
     "max_correlated_positions": 3,  # same sector + same side, incl. open positions
     "drawdown_halt_pct": 2.0,       # halt new entries if paper account down >X% today
+    # ── exit engine (PositionManager — rules enforced in code) ──
+    "max_hold_days": 10,            # trading days before the time stop fires
+    "time_stop_min_r": 0.5,         # time stop only if progress below this many R
+    "scale_out_at_target": False,   # True: 50% off at target, trail the rest
+    "max_gross_exposure_pct": 100.0,  # flatten worst-first above this — no margin
     "llm_model": "qwen2.5-coder:7b",   # local model for debate prose (optional)
     "ntfy_topic": "",               # e.g. "aria-desk-<random>" → push via ntfy.sh
     "pushover_user": "",

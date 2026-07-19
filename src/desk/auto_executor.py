@@ -186,14 +186,19 @@ class AutoExecutor:
         if result.get("ok"):
             fill = result.get("fill_price") or entry.get("price", 0.0)
             record["mode"] = "auto"
+            record["action"] = "entry"
             record["fill_price"] = fill
             record["broker_order_id"] = result.get("broker_order_id", "")
             record_trade(entry.get("notional", 0.0))
-            arrow = "▲ BOUGHT" if entry["side"] == "buy" else "▼ SOLD"
-            self._notify(
-                f"{arrow} {entry['qty']:g} {entry['ticker']} @ ${fill:.2f} [PAPER]",
-                f"Conviction {entry.get('conviction')}/100 · thesis: {entry.get('thesis', '')[:160]} "
-                f"· debate {entry.get('debate_id', '?')}")
+            # Hand lifecycle ownership to the exit engine
+            try:
+                from src.desk.position_manager import PositionManager
+                PositionManager(self.cfg).track_entry(entry, fill, queued.id)
+            except Exception as e:
+                logger.warning(f"could not track entry for {entry['ticker']}: {e}")
+            from src.desk.notify import fmt_entry, push
+            push(fmt_entry(entry["side"], entry["qty"], entry["ticker"], fill,
+                           entry.get("stop"), entry.get("target")), self.cfg)
             self._alert_feed(entry, fill)
         else:
             record["mode"] = "failed"
