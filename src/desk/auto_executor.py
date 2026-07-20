@@ -39,9 +39,13 @@ ALERTS_FILE = ROOT / "data" / "alerts.json"
 _order_manager = None
 
 
-def get_order_manager():
-    """Desk-local lazy OrderManager (Alpaca only — desk trades are equity/crypto)."""
+def get_order_manager(rebuild: bool = False):
+    """Desk-local lazy OrderManager (Alpaca only — desk trades are equity/crypto).
+    rebuild=True discards the cached instance — a broker client can wedge
+    after a network drop while a fresh one connects fine."""
     global _order_manager
+    if rebuild:
+        _order_manager = None
     if _order_manager is None:
         try:
             from src.execution.alpaca_broker import AlpacaBroker
@@ -57,6 +61,11 @@ def account_snapshot() -> dict:
     snap = {"equity": 0.0, "positions": [], "connected": False, "paper": None}
     try:
         mgr = get_order_manager()
+        if not (mgr and mgr._alpaca and mgr._alpaca.is_connected()):
+            # Self-heal: rebuild the client once — stale sessions stay stale
+            mgr = get_order_manager(rebuild=True)
+            if mgr and mgr._alpaca and mgr._alpaca.is_connected():
+                logger.info("broker client rebuilt after stale connection")
         if mgr and mgr._alpaca and mgr._alpaca.is_connected():
             acct = mgr._alpaca.get_account()
             snap["equity"] = acct.portfolio_value or acct.cash
