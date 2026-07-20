@@ -175,6 +175,15 @@ def test_trading_age_skips_weekends():
     assert trading_age_days(start) == 5
 
 
+def test_sane_invalidation_guard():
+    from src.desk.position_manager import _sane_invalidation
+    assert _sane_invalidation(90.0, 100.0, True) == 90.0     # valid long level
+    assert _sane_invalidation(402.0, 391.4, True) == 0.0     # above long entry → dropped
+    assert _sane_invalidation(210.0, 200.0, False) == 210.0  # valid short level
+    assert _sane_invalidation(190.0, 200.0, False) == 0.0    # below short entry → dropped
+    assert _sane_invalidation(0.0, 100.0, True) == 0.0
+
+
 def test_bad_inputs_hold():
     assert evaluate_exit(long_pos(entry_price=0), 100, {}, CFG)["action"] == "hold"
     assert evaluate_exit(long_pos(), 0, {}, CFG)["action"] == "hold"

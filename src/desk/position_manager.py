@@ -54,6 +54,19 @@ def _is_long(pos: dict) -> bool:
     return pos.get("side", "long") in ("long", "buy")
 
 
+def _sane_invalidation(invalidation: float, entry: float, long: bool) -> float:
+    """An invalidation level must sit on the LOSING side of the entry
+    (below for longs, above for shorts) — anything else is stale/garbage
+    signal data and would close the position instantly. Drop it."""
+    if not invalidation or not entry:
+        return 0.0
+    if (long and invalidation >= entry) or (not long and invalidation <= entry):
+        logger.warning(f"dropping nonsensical invalidation {invalidation} "
+                       f"({'long' if long else 'short'} entry {entry})")
+        return 0.0
+    return invalidation
+
+
 def r_progress(pos: dict, price: float) -> float:
     """Current profit measured in R (initial risk units)."""
     entry = float(pos.get("entry_price") or 0.0)
@@ -321,6 +334,8 @@ class PositionManager:
         atr = entry * atr_pct
         stop = round(entry - atr, 4) if long else round(entry + atr, 4)
         target = round(entry + 2 * atr, 4) if long else round(entry - 2 * atr, 4)
+        invalidation = _sane_invalidation(
+            float(signal.get("invalidation") or 0.0), entry, long)
         return {
             "ticker": ticker,
             "side": "long" if long else "short",
@@ -330,7 +345,7 @@ class PositionManager:
             "stop": stop,
             "initial_stop": stop,
             "target": target,
-            "invalidation": float(signal.get("invalidation") or 0.0),
+            "invalidation": invalidation,
             "debate_id": "",
             "thesis": "adopted legacy position — synthetic 1×ATR stop / 2×ATR target",
             "high_water": entry,
@@ -352,7 +367,10 @@ class PositionManager:
             "stop": stop,
             "initial_stop": stop,
             "target": entry.get("target"),
-            "invalidation": float(entry.get("invalidation") or 0.0),
+            "invalidation": _sane_invalidation(
+                float(entry.get("invalidation") or 0.0),
+                float(fill_price or entry.get("price") or 0.0),
+                entry["side"] == "buy"),
             "debate_id": entry.get("debate_id", ""),
             "thesis": (entry.get("thesis") or "")[:300],
             "high_water": float(fill_price or entry.get("price") or 0.0),
