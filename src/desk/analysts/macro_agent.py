@@ -49,6 +49,27 @@ def condition() -> MacroConditioner:
         evidence.append(ev(f"10Y-2Y spread {spread:+.2f}", spread, SRC,
                            "bear" if spread < 0 else "neutral"))
 
+    # Optional LSE databank enrichment — live 10Y drift + event risk ahead.
+    # No key configured → skipped silently, desk unchanged.
+    try:
+        from src.data import lse_data
+        if lse_data.available():
+            ys = lse_data.yield_snapshot()
+            if ys.get("us10y") is not None:
+                chg = ys.get("us10y_chg_1m") or 0.0
+                evidence.append(ev(
+                    f"US10Y {ys['us10y']}% ({chg:+.2f} over ~1mo, LSE databank)",
+                    ys["us10y"], "LSE /series US10Y",
+                    "bear" if chg > 0.25 else "neutral"))
+            events = lse_data.upcoming_us_events(limit=3)
+            if events:
+                names = "; ".join(e["event"] for e in events)
+                evidence.append(ev(
+                    f"High-signal US events ahead: {names}", len(events),
+                    "LSE /ref/economic_calendar", "neutral"))
+    except Exception:
+        pass
+
     risk_off = any(r in regime for r in RISK_OFF_REGIMES)
     vix_high = isinstance(vix, (int, float)) and vix > 25
     vix_extreme = isinstance(vix, (int, float)) and vix > 35

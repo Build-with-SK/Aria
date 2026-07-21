@@ -44,10 +44,12 @@ from typing import Any, Dict, List, Optional
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-# Load .env so API keys are available to all modules
+# Load .env so API keys are available to all modules. override=True so a
+# rotated key in .env wins over stale values inherited from the parent
+# process — otherwise a reload keeps dead credentials forever.
 try:
     from dotenv import load_dotenv
-    load_dotenv(ROOT / ".env")
+    load_dotenv(ROOT / ".env", override=True)
 except ImportError:
     pass
 
@@ -1450,6 +1452,19 @@ def quant_strategies(n: int = 50):
 # THE DESK — autonomous multi-agent trading desk (v3)
 # analysts → debate → risk officer → slate → auto-exec (paper-only) → reflect
 # ===========================================================================
+
+@app.get("/api/lse/status", tags=["Data"])
+def lse_status():
+    """London Strategic Edge databank: key present, live usage/allowance.
+    Configure LSE_API_KEY in .env to enable the enrichment."""
+    from src.data import lse_data
+    if not lse_data.available():
+        return {"configured": False,
+                "hint": "Set LSE_API_KEY in .env (free key from "
+                        "londonstrategicedge.com/data) to enrich the macro "
+                        "and fundamental agents."}
+    return _sanitize({"configured": True, "usage": lse_data.usage()})
+
 
 @app.post("/api/inference/discover", tags=["Inference"])
 def inference_discover():

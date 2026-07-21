@@ -82,6 +82,20 @@ def opine(ticker: str) -> Opinion:
         cite(f"5-year return {r5y:+.1f}%", r5y,
              "bull" if r5y > 50 else "bear" if r5y < 0 else "neutral")
 
+    # Optional LSE databank: recent open-market insider buys are one of the
+    # few unambiguous fundamental tells. Key absent → skipped silently.
+    try:
+        from src.data import lse_data
+        if lse_data.available():
+            buys = lse_data.insider_buys(ticker, limit=10)
+            if buys:
+                latest = buys[0].get("transaction_date", "?")
+                cite(f"{len(buys)} insider open-market purchases on record "
+                     f"(latest {latest}, LSE /ref/insider_trades)",
+                     len(buys), "bull")
+    except Exception:
+        pass
+
     if not evidence:
         return Opinion(agent="fundamental", ticker=ticker, view="neutral", conviction=0,
                        thesis=f"Dossier for {ticker} has no usable fundamental fields "
