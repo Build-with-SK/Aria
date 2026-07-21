@@ -115,6 +115,19 @@ class BrainDaemon:
             self.scheduler = None
         logger.info("Brain daemon stopped")
 
+    def _propose_trades_enabled(self) -> bool:
+        """Research-only by default — the desk (src/desk/) owns trading."""
+        import json
+        from pathlib import Path
+        cfg_file = Path(__file__).parent.parent.parent / "data" / "brain_config.json"
+        try:
+            if cfg_file.exists():
+                return bool(json.loads(cfg_file.read_text(encoding="utf-8"))
+                            .get("propose_trades", False))
+        except Exception:
+            pass
+        return False
+
     def set_interval(self, minutes: int):
         self.interval_minutes = max(1, int(minutes))
         if self.scheduler is not None and self.running:
@@ -198,8 +211,17 @@ class BrainDaemon:
                        if d.action.startswith("PROPOSE")]
             planned = planner.plan(propose, perception)
 
-            # 5. EXECUTE — push to approval queue only; human approves
-            queued_ids = BrainExecutor().execute_plan(planned)
+            # 5. EXECUTE — push to approval queue only; human approves.
+            # Since the v3.1 desk owns autonomous trading (src/desk/), the
+            # brain defaults to RESEARCH-ONLY: its proposals would just pile
+            # up in the Execute tab duplicating the desk's debates. Flip
+            # data/brain_config.json {"propose_trades": true} to re-enable.
+            queued_ids = []
+            if self._propose_trades_enabled():
+                queued_ids = BrainExecutor().execute_plan(planned)
+            elif planned:
+                logger.info(f"brain research-only: {len(planned)} planned trades "
+                            f"NOT queued (desk owns trading)")
 
             # 6. REMEMBER — store this cycle in long-term memory
             brain_mem = BrainMemory(
