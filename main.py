@@ -56,7 +56,17 @@ def get_all_tickers(config: dict) -> list:
         if isinstance(assets, list):
             for asset in assets:
                 if isinstance(asset, dict) and "ticker" in asset:
-                    tickers.append(asset["ticker"])
+                    t = asset["ticker"]
+                    # YAML 1.1 reads unquoted ON/OFF/YES/NO as booleans —
+                    # quote such tickers in universe.yaml; skip anything
+                    # that still isn't a string so one bad row can't kill
+                    # the whole pipeline.
+                    if isinstance(t, str):
+                        tickers.append(t)
+                    else:
+                        logger.warning(f"skipping non-string ticker {t!r} "
+                                       f"in {asset_class} ({asset.get('name')}) "
+                                       f"— quote it in universe.yaml")
                 elif isinstance(asset, str):
                     tickers.append(asset)
     return list(dict.fromkeys(tickers))  # deduplicate, preserve order

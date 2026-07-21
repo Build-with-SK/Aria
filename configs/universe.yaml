@@ -69,7 +69,7 @@ universe:
     - { ticker: KLAC,  name: KLA Corporation }
     - { ticker: MRVL,  name: Marvell Technology }
     - { ticker: MPWR,  name: Monolithic Power }
-    - { ticker: ON,    name: ON Semiconductor }
+    - { ticker: "ON",  name: ON Semiconductor }
     - { ticker: WOLF,  name: Wolfspeed }
     - { ticker: SMCI,  name: Super Micro Computer }
     - { ticker: ARM,   name: ARM Holdings }
