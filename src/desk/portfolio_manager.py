@@ -32,11 +32,20 @@ class PortfolioManager:
         from src.brain.cognitive.planner import TradePlanner
         from src.brain.cognitive.reasoner import TradeDecision
 
+        held = {p.get("ticker") for p in (account.get("positions") or [])}
         decisions, by_ticker = [], {}
         for t in transcripts:
             judge = t.get("judge") or {}
             verdict = judge.get("verdict")
             if verdict not in ("BUY", "SELL"):
+                continue
+            # Alpaca cannot short crypto: a SELL on an unheld crypto name is
+            # un-executable and would loop in the queue forever. The bear view
+            # still lands in memory via the debate transcript.
+            if (verdict == "SELL" and t["ticker"].endswith("-USD")
+                    and t["ticker"] not in held):
+                logger.info(f"slate: dropping SELL {t['ticker']} — "
+                            f"crypto shorting unsupported, nothing held")
                 continue
             by_ticker[t["ticker"]] = t
             decisions.append(TradeDecision(

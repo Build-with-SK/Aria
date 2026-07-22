@@ -945,8 +945,14 @@ def main():
         master_portfolio=master,
     )
 
-    # 15. Auto-propose high-conviction trades to the approval queue
-    _auto_propose_trades(signal_scores, macro_snapshot, config)
+    # 15. Auto-propose high-conviction trades to the approval queue.
+    # OFF by default since the v3.1 desk trades autonomously — pipeline
+    # proposals just clutter the Execute tab next to it. Re-enable with
+    # pipeline_propose_trades: true in universe.yaml if ever wanted.
+    if (config.get("system") or {}).get("pipeline_propose_trades", False):
+        _auto_propose_trades(signal_scores, macro_snapshot, config)
+    else:
+        logger.info("TIS: pipeline trade proposals disabled (desk owns trading)")
 
     # 16. Summary
     logger.info("")

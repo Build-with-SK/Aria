@@ -54,6 +54,24 @@ def _is_long(pos: dict) -> bool:
     return pos.get("side", "long") in ("long", "buy")
 
 
+def _sane_levels(stop: float | None, target: float | None, entry: float,
+                 long: bool) -> tuple[float | None, float | None]:
+    """Stops sit on the losing side, targets on the winning side. A level on
+    the wrong side (stale signal data) closes the position instantly for no
+    reason — drop it and let the rule engine manage without it."""
+    if entry:
+        if stop and ((long and stop >= entry) or (not long and stop <= entry)):
+            logger.warning(f"dropping wrong-side stop {stop} "
+                           f"({'long' if long else 'short'} entry {entry})")
+            stop = None
+        if target and ((long and target <= entry) or
+                       (not long and target >= entry)):
+            logger.warning(f"dropping wrong-side target {target} "
+                           f"({'long' if long else 'short'} entry {entry})")
+            target = None
+    return stop, target
+
+
 def _sane_invalidation(invalidation: float, entry: float, long: bool) -> float:
     """An invalidation level must sit on the LOSING side of the entry
     (below for longs, above for shorts) — anything else is stale/garbage
@@ -357,7 +375,9 @@ class PositionManager:
     def track_entry(self, entry: dict, fill_price: float, trade_id: str = ""):
         """Called by the auto-executor after a confirmed entry fill."""
         tracked = self.load_positions()
-        stop = entry.get("stop")
+        eff_entry = float(fill_price or entry.get("price") or 0.0)
+        stop, target = _sane_levels(entry.get("stop"), entry.get("target"),
+                                    eff_entry, entry["side"] == "buy")
         tracked[entry["ticker"]] = {
             "ticker": entry["ticker"],
             "side": "long" if entry["side"] == "buy" else "short",
@@ -366,7 +386,7 @@ class PositionManager:
             "entry_at": datetime.now().isoformat(),
             "stop": stop,
             "initial_stop": stop,
-            "target": entry.get("target"),
+            "target": target,
             "invalidation": _sane_invalidation(
                 float(entry.get("invalidation") or 0.0),
                 float(fill_price or entry.get("price") or 0.0),

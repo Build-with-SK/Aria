@@ -184,6 +184,21 @@ def test_sane_invalidation_guard():
     assert _sane_invalidation(0.0, 100.0, True) == 0.0
 
 
+def test_sane_levels_guard():
+    from src.desk.position_manager import _sane_levels
+    # valid long levels pass through
+    assert _sane_levels(95.0, 110.0, 100.0, True) == (95.0, 110.0)
+    # the Tuesday AAPL case: stale target below a long entry → dropped
+    assert _sane_levels(303.71, 325.97, 326.54, True) == (303.71, None)
+    # wrong-side stop dropped
+    assert _sane_levels(105.0, 110.0, 100.0, True) == (None, 110.0)
+    # short mirror
+    assert _sane_levels(210.0, 180.0, 200.0, False) == (210.0, 180.0)
+    assert _sane_levels(190.0, 210.0, 200.0, False) == (None, None)
+    # no entry → passthrough
+    assert _sane_levels(95.0, 110.0, 0.0, True) == (95.0, 110.0)
+
+
 def test_bad_inputs_hold():
     assert evaluate_exit(long_pos(entry_price=0), 100, {}, CFG)["action"] == "hold"
     assert evaluate_exit(long_pos(), 0, {}, CFG)["action"] == "hold"
