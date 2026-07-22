@@ -806,6 +806,42 @@ def _auto_propose_trades(signal_scores: dict, macro_snapshot, config: dict):
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
+def export_rich_signals(raw_data, config):
+    """Rebuild the full SignalEngine output (stops, targets, atr_pct,
+    invalidation, drivers, explanations) and write data/signals.json."""
+    try:
+        from src.data.data_downloader import build_ticker_metadata
+        from src.features.indicators import build_all_features
+        from src.signals.signal_engine import build_all_signals
+        metadata = build_ticker_metadata(config)
+        benchmark = (config.get("system") or {}).get("benchmark", "^GSPC")
+        featured = build_all_features(raw_data, config, benchmark_ticker=benchmark)
+        signals = build_all_signals(featured, metadata)
+        out = {}
+        for ticker, sig in signals.items():
+            out[ticker] = {
+                "ticker": sig.ticker, "name": sig.name, "asset_class": sig.asset_class,
+                "current_price": sig.current_price, "composite_score": sig.composite_score,
+                "action": sig.action, "confidence": sig.confidence,
+                "bullish_prob": sig.bullish_prob, "bearish_prob": sig.bearish_prob,
+                "trend_score": sig.trend_score, "momentum_score": sig.momentum_score,
+                "volatility_score": sig.volatility_score, "regime_score": sig.regime_score,
+                "macro_score": sig.macro_score, "sentiment_score": sig.sentiment_score,
+                "risk_level": sig.risk_level, "realised_vol": sig.realised_vol,
+                "atr_pct": sig.atr_pct, "stop_loss": sig.stop_loss,
+                "take_profit": sig.take_profit, "invalidation": sig.invalidation,
+                "position_size_pct": sig.position_size_pct, "regime": sig.regime,
+                "drivers": sig.drivers, "risks": sig.risks, "explanation": sig.explanation,
+                "price_52w_high": sig.price_52w_high, "price_52w_low": sig.price_52w_low,
+            }
+        path = Path("data/signals.json")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
+        logger.info(f"TIS: rich signals exported — {len(out)} tickers → data/signals.json")
+    except Exception as e:
+        logger.error(f"TIS: rich signal export failed: {e}")
+
+
 def main():
     logger.info("=" * 70)
     logger.info("  TRADING INTELLIGENCE SYSTEM — Phase 5 / 6")
@@ -825,6 +861,12 @@ def main():
 
     # 4. Signal scores
     signal_scores = compute_signal_scores(featured_data, config)
+
+    # 4b. Export the RICH per-ticker signals to data/signals.json — the desk
+    # analysts, brain, chat context, and UI all read this file. The Phase 5/6
+    # rewrite dropped this export (last written 2026-05-31) and the desk
+    # debated seven-week-old data until it was restored.
+    export_rich_signals(raw_data, config)
 
     # 5. Macro snapshot
     macro_snapshot = run_macro(config)
