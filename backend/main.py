@@ -1010,7 +1010,8 @@ You CANNOT: guarantee profits or give regulated financial advice. Always include
 # Local Brain (Ollama)
 # ===========================================================================
 
-OLLAMA_BASE = "http://localhost:11434"
+from src.inference.base import ollama_base
+OLLAMA_BASE = ollama_base()   # env OLLAMA_BASE overrides (mini -> laptop)
 
 def _ollama_available() -> bool:
     try:
@@ -1621,6 +1622,25 @@ def desk_executions(n: int = 100):
     })
 
 
+@app.get("/api/desk/health", tags=["Desk"])
+def desk_health():
+    """Liveness for watchdogs: fresh = a management tick ran in the last
+    15 minutes. Cheap — reads one small file, no broker calls."""
+    from datetime import datetime
+    hb_file = ROOT / "data" / "desk" / "heartbeat.json"
+    hb, age_s = {}, None
+    if hb_file.exists():
+        try:
+            hb = json.loads(hb_file.read_text(encoding="utf-8"))
+            age_s = (datetime.now()
+                     - datetime.fromisoformat(hb.get("at", ""))).total_seconds()
+        except Exception:
+            pass
+    fresh = age_s is not None and age_s < 15 * 60
+    return {"ok": fresh, "heartbeat_age_s": round(age_s, 1) if age_s else None,
+            "tick_count": hb.get("tick_count"), "last_errors": hb.get("errors")}
+
+
 @app.post("/api/desk/tick-now", tags=["Desk"])
 def desk_tick_now():
     """Run one PositionManager management tick immediately (exit rules,
@@ -1754,3 +1774,17 @@ def desk_pnl():
         "equity_curve": curve,
         "day": day,
     })
+
+
+# ===========================================================================
+# Static frontend (Mac mini deployment: `npm run build` → served here at /app,
+# no Node process needed at runtime). Mounted only when a build exists.
+# ===========================================================================
+try:
+    from fastapi.staticfiles import StaticFiles
+    _dist = ROOT / "frontend" / "dist"
+    if _dist.exists():
+        app.mount("/app", StaticFiles(directory=str(_dist), html=True), name="app")
+        logger.info(f"Serving built frontend at /app from {_dist}")
+except Exception as _e:
+    logger.warning(f"static frontend mount skipped: {_e}")

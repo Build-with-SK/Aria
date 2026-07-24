@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.aria.backend</string>
+  <key>WorkingDirectory</key><string>__ARIA_HOME__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__ARIA_HOME__/venv/bin/python</string>
+    <string>-m</string>
+    <string>uvicorn</string>
+    <string>backend.main:app</string>
+    <string>--host</string><string>127.0.0.1</string>
+    <string>--port</string><string>8000</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__ARIA_HOME__/logs/backend.out</string>
+  <key>StandardErrorPath</key><string>__ARIA_HOME__/logs/backend.err</string>
+  <key>ThrottleInterval</key><integer>15</integer>
+</dict>
+</plist>

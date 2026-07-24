@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).parent.parent.parent
 DEBATES_DIR = ROOT / "data" / "desk" / "debates"
-OLLAMA_BASE = "http://localhost:11434"
+from src.inference.base import ollama_base
+OLLAMA_BASE = ollama_base()   # env OLLAMA_BASE overrides (mini -> laptop)
 
 # Judge weights over the per-ticker analysts (macro conditions separately)
 WEIGHTS = {"technical": 0.5, "fundamental": 0.3, "sentiment": 0.2}

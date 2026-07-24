@@ -28,7 +28,8 @@ from .working_memory import WorkingMemory
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_BASE = "http://localhost:11434"
+from src.inference.base import ollama_base
+OLLAMA_BASE = ollama_base()   # env OLLAMA_BASE overrides (mini -> laptop)
 
 VALID_ACTIONS = {"PROPOSE_BUY", "PROPOSE_SELL", "MONITOR", "SKIP"}
 

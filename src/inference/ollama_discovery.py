@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).parent.parent.parent
 REGISTRY_DB = ROOT / "data" / "model_registry.db"
-OLLAMA_BASE = "http://localhost:11434"
+from src.inference.base import ollama_base
+OLLAMA_BASE = ollama_base()   # env OLLAMA_BASE overrides (mini -> laptop)
 
 FAST_MAX_B = 4.0
 STANDARD_MAX_B = 14.0

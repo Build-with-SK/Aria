@@ -303,7 +303,8 @@ class QuantLab:
             body = json.dumps({"model": "qwen2.5-coder:7b", "prompt": prompt,
                                "stream": False, "format": "json",
                                "options": {"temperature": 0.2}}).encode()
-            req = urllib.request.Request("http://localhost:11434/api/generate",
+            from src.inference.base import ollama_base
+            req = urllib.request.Request(f"{ollama_base()}/api/generate",
                                          data=body, headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=90) as resp:
                 raw = json.loads(resp.read().decode())["response"]

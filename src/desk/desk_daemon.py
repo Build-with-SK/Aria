@@ -136,6 +136,13 @@ class DeskDaemon:
             self.tick_count += 1
             summary["tick_count"] = self.tick_count
             self.last_tick = summary
+            # Heartbeat for the watchdog: proof the exit engine is alive
+            try:
+                (DESK_DIR / "heartbeat.json").write_text(json.dumps({
+                    "at": summary["at"], "tick_count": self.tick_count,
+                    "errors": summary.get("errors", [])}), encoding="utf-8")
+            except Exception:
+                pass
 
             # Broker disconnects: skip, retry next tick, notify ONCE.
             down = any("disconnected" in e for e in summary.get("errors", []))
