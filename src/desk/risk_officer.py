@@ -110,11 +110,22 @@ class RiskOfficer:
         approved, rejected = [], []
         trades_today = day.get("trades_count", 0)
 
+        # Portfolio-mindful position cap from the capital allocator (optional;
+        # None on legacy callers). New names may not push the open-book count
+        # past the allocator's max_positions for this equity band + regime.
+        alloc = getattr(self, "allocation", None)
+        held_names = {p.get("ticker") for p in positions}
+        max_positions = getattr(alloc, "max_positions", None)
+
         for c in sorted(candidates, key=lambda x: -x.get("conviction", 0)):
             reason = None
             notional = abs(float(c.get("notional") or 0.0))
             sec = c.get("sector") or sector_of(c["ticker"])
             c["sector"] = sec
+            # Count open names + already-approved new names against the cap;
+            # adding to an existing position is exempt.
+            projected_names = held_names | {a["ticker"] for a in approved}
+            is_new_name = c["ticker"] not in projected_names
 
             # 1+2. Name & sector caps act as CAPS — trim size to the headroom
             # left under both, reject only if nothing meaningful fits.
@@ -139,6 +150,13 @@ class RiskOfficer:
             if trades_today + len(approved) >= self.cfg["max_trades_per_day"]:
                 reason = (f"Daily trade cap reached "
                           f"({self.cfg['max_trades_per_day']}/day)")
+
+            # 8. Portfolio position cap (capital allocator) — new names only
+            elif (max_positions is not None and is_new_name
+                  and len(projected_names) >= max_positions):
+                reason = (f"Position cap — {alloc.mode} mode allows "
+                          f"{max_positions} open names at this equity "
+                          f"(holding {len(projected_names)})")
 
             # 4. Regime gate — code-level, independent of the judge
             elif c.get("conviction", 0) < self.conditioner.conviction_bar:

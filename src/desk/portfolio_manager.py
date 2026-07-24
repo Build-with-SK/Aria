@@ -62,9 +62,23 @@ class PortfolioManager:
         perception = MarketPerception().perceive()
         planned = TradePlanner().plan(decisions, perception, account_equity=equity)
 
-        mult = self.conditioner.risk_multiplier
+        # Portfolio-mindful envelope from the LIVE balance + regime. Its
+        # size_multiplier stacks on the regime multiplier; shorts_allowed and
+        # max_positions are enforced by the RiskOfficer below.
+        from src.desk.capital_allocator import allocate_for_account
+        alloc = allocate_for_account(account, self.conditioner.regime, self.cfg)
+        logger.info(f"capital allocator: {alloc.reason}")
+
+        mult = self.conditioner.risk_multiplier * alloc.size_multiplier
         candidates = []
         for p in planned:
+            # Honor the allocator's shorts gate (small accounts / calm regimes
+            # stay long-only); the bear thesis still persists in the transcript.
+            if p.side in ("sell", "short") and not alloc.shorts_allowed \
+                    and p.ticker not in held:
+                logger.info(f"slate: dropping SHORT {p.ticker} — "
+                            f"{alloc.mode} mode is long-only in this regime")
+                continue
             qty = p.qty * mult
             if p.asset_class == "crypto":
                 qty = round(qty, 6)
@@ -100,7 +114,9 @@ class PortfolioManager:
                 "risk_multiplier": mult,
             })
 
-        approved, rejected, checks = RiskOfficer(self.cfg, self.conditioner).review(
-            candidates, account)
+        officer = RiskOfficer(self.cfg, self.conditioner)
+        officer.allocation = alloc          # portfolio-mindful position cap
+        approved, rejected, checks = officer.review(candidates, account)
+        checks["allocation"] = alloc.to_dict()
         approved.sort(key=lambda c: -c["conviction"])
         return {"slate": approved, "rejected": rejected, "checks": checks}
