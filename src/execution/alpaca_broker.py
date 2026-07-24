@@ -318,6 +318,30 @@ class AlpacaBroker(BrokerBase):
             logger.error(f"Alpaca get_open_orders error: {e}")
             return []
 
+    def last_closed_fill(self, ticker: str, side: str | None = None) -> Optional[dict]:
+        """Most recent FILLED order for a symbol from the closed-orders feed —
+        the truth source for positions that closed while we weren't looking
+        (audit H1: recorded P&L must come from real fills, not estimates)."""
+        if not self._client:
+            return None
+        try:
+            from alpaca.trading.requests import GetOrdersRequest
+            from alpaca.trading.enums import QueryOrderStatus
+            orders = self._client.get_orders(GetOrdersRequest(
+                status=QueryOrderStatus.CLOSED, symbols=[ticker], limit=50))
+            for o in orders:      # newest first
+                status = str(o.status.value if hasattr(o.status, "value") else o.status)
+                oside = str(o.side.value if hasattr(o.side, "value") else o.side)
+                if status == "filled" and (side is None or oside == side):
+                    return {"price": float(o.filled_avg_price or 0),
+                            "qty": float(o.filled_qty or 0),
+                            "side": oside,
+                            "filled_at": str(o.filled_at or "")}
+            return None
+        except Exception as e:
+            logger.warning(f"Alpaca last_closed_fill({ticker}): {e}")
+            return None
+
     def get_quote(self, ticker: str) -> dict:
         if not self._stock_data:
             return {}

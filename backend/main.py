@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import sys
 from datetime import datetime
@@ -162,14 +163,43 @@ def _start_brain_if_ollama():
     except Exception as e:
         logger.warning(f"Brain daemon startup failed: {e}")
 
-# CORS — allows React frontend to call this API
+# CORS — allows the React frontend to call this API. Exact origins ONLY:
+# a "*" here lets any webpage in the same browser fire requests at the
+# trading API (audit finding C1).
+_ALLOWED_ORIGINS = [
+    "http://localhost:3000", "http://127.0.0.1:3000",
+    "http://localhost:5173", "http://127.0.0.1:5173",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "*"],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def _mutation_guard(request, call_next):
+    """Audit C1: the human-approval story needs technical backing.
+    For every mutating request (POST/PATCH/PUT/DELETE):
+      1. If the browser sent an Origin header it must be an allowed origin —
+         blocks CSRF-style 'simple' cross-origin POSTs that skip preflight.
+      2. If ARIA_API_KEY is set in the environment, the x-api-key header
+         must match — protects deployments exposed beyond localhost.
+    GETs stay open (read-only), so dashboards keep working."""
+    if request.method in ("POST", "PATCH", "PUT", "DELETE"):
+        origin = request.headers.get("origin")
+        if origin and origin not in _ALLOWED_ORIGINS:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=403,
+                                content={"detail": "origin not allowed"})
+        required = os.environ.get("ARIA_API_KEY", "")
+        if required and request.headers.get("x-api-key") != required:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(status_code=401,
+                                content={"detail": "x-api-key required"})
+    return await call_next(request)
 
 # ===========================================================================
 # Helper
@@ -1227,9 +1257,10 @@ def _run_pipeline(args: str = "--no-sentiment"):
     global _run_in_progress
     _run_in_progress = True
     try:
+        # Audit M5: no shell — args as a list, injection-shaped pattern gone
         python = sys.executable
-        cmd    = f'"{python}" "{ROOT / "main.py"}" {args}'
-        subprocess.run(cmd, shell=True, cwd=str(ROOT))
+        argv = [python, str(ROOT / "main.py")] + [a for a in args.split() if a]
+        subprocess.run(argv, shell=False, cwd=str(ROOT))
     finally:
         _run_in_progress = False
 
@@ -1618,7 +1649,24 @@ def desk_performance():
     from datetime import datetime, timedelta
     from src.desk.position_manager import read_closed_trades
     from src.desk.scorecard import agent_hit_rates, current_weights
-    trades = read_closed_trades(2000)
+    raw = read_closed_trades(2000)
+
+    # Audit M2: a 50% scale-out leg + its runner are ONE logical trade —
+    # merge legs on (ticker, entry_at) so win rate isn't structurally
+    # inflated by scale-outs (which only ever fire at a profitable target).
+    merged: Dict[tuple, dict] = {}
+    for t in raw:
+        key = (t.get("ticker"), t.get("entry_at") or t.get("at"))
+        if key in merged:
+            m = merged[key]
+            m["pnl"] = round(float(m.get("pnl") or 0) + float(t.get("pnl") or 0), 2)
+            if float(t.get("fraction") or 1.0) >= 1.0:
+                m.update({"at": t.get("at"), "reason": t.get("reason"),
+                          "r_multiple": t.get("r_multiple"),
+                          "exit_price": t.get("exit_price")})
+        else:
+            merged[key] = dict(t)
+    trades = list(merged.values())
 
     def stats(subset):
         if not subset:

@@ -35,21 +35,35 @@ def test_recalibration_tilts_toward_predictive_agent():
     assert len(card["weight_log"]) == 1          # every change is logged
 
 
-def test_tilt_is_bounded():
+def assert_within_bounds(weights):
+    """Audit H2: the ±MAX_TILT bound must hold on the FINAL weights."""
+    for a, default in sc.DEFAULT_WEIGHTS.items():
+        assert weights[a] >= default - sc.MAX_TILT - 1e-6, (a, weights[a])
+        assert weights[a] <= default + sc.MAX_TILT + 1e-6, (a, weights[a])
+
+
+def test_tilt_is_bounded_final_weights():
     card = fresh_card()
     card["trades"] = 100
-    # sentiment perfect, everyone else useless — tilt still clamps
+    # sentiment perfect, everyone else useless — extreme case
     card["agents"]["technical"] = {"right": 0, "wrong": 50}
     card["agents"]["fundamental"] = {"right": 0, "wrong": 50}
     card["agents"]["sentiment"] = {"right": 50, "wrong": 0}
     sc._recalibrate(card)
-    # pre-normalization raw values are default ± MAX_TILT
-    raw_sent = sc.DEFAULT_WEIGHTS["sentiment"] + sc.MAX_TILT
-    raw_tech = sc.DEFAULT_WEIGHTS["technical"] - sc.MAX_TILT
-    total = raw_sent + raw_tech + (sc.DEFAULT_WEIGHTS["fundamental"] - sc.MAX_TILT)
-    assert abs(card["weights"]["sentiment"] - raw_sent / total) < 0.001
-    # even a perfect sentiment agent cannot outrank a gutted technical default
-    assert card["weights"]["technical"] == round(raw_tech / total, 4)
+    assert_within_bounds(card["weights"])
+
+
+def test_tilt_bound_ordinary_case_audit_h2():
+    # the audit's worked example: one agent hot, two cold — the old
+    # clamp-then-renormalize moved technical +0.265 past its +0.15 bound
+    card = fresh_card()
+    card["trades"] = 40
+    card["agents"]["technical"] = {"right": 30, "wrong": 10}   # 75% hit
+    card["agents"]["fundamental"] = {"right": 8, "wrong": 22}  # 27%
+    card["agents"]["sentiment"] = {"right": 6, "wrong": 24}    # 20%
+    sc._recalibrate(card)
+    assert_within_bounds(card["weights"])
+    assert card["weights"]["technical"] > sc.DEFAULT_WEIGHTS["technical"]
 
 
 def test_record_closed_trade_scores_agents(tmp_path, monkeypatch):

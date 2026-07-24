@@ -71,6 +71,14 @@ def record_closed_trade(record: dict):
     pnl = float(record.get("pnl") or 0.0)
     if not debate_id or pnl == 0.0:
         return
+    # Audit H1: estimated closes (no confirmed fill) must not calibrate the
+    # judge — only real outcomes teach.
+    if record.get("estimated"):
+        return
+    # Audit M2: a 50% scale-out leg and its runner are one logical trade —
+    # only the final close (fraction 1.0) scores the agents.
+    if float(record.get("fraction") or 1.0) < 1.0:
+        return
     try:
         from src.desk.debate import load_debate
         transcript = load_debate(debate_id)
@@ -97,9 +105,36 @@ def record_closed_trade(record: dict):
     _save(card)
 
 
+def _bounded_normalize(raw: dict) -> dict:
+    """Normalize toward sum=1 while keeping every FINAL weight within
+    ±MAX_TILT of its default (audit H2: clamping tilts and THEN renormalizing
+    silently broke the bound). Violators are pinned to their bound and the
+    remaining mass is redistributed among the others."""
+    lo = {a: DEFAULT_WEIGHTS[a] - MAX_TILT for a in raw}
+    hi = {a: DEFAULT_WEIGHTS[a] + MAX_TILT for a in raw}
+    fixed: dict = {}
+    free = dict(raw)
+    for _ in range(len(raw)):
+        remaining = 1.0 - sum(fixed.values())
+        total_free = sum(free.values()) or 1.0
+        scaled = {a: w * remaining / total_free for a, w in free.items()}
+        violators = {a: w for a, w in scaled.items()
+                     if w < lo[a] - 1e-9 or w > hi[a] + 1e-9}
+        if not violators:
+            fixed.update(scaled)
+            break
+        for a in violators:
+            fixed[a] = min(max(scaled[a], lo[a]), hi[a])
+            free.pop(a)
+        if not free:
+            break
+    return {a: round(w, 4) for a, w in fixed.items()}
+
+
 def _recalibrate(card: dict):
     """Bounded tilt toward predictive agents: weight = default + tilt where
-    tilt scales with (hit_rate − 0.5), clamped to ±MAX_TILT, renormalized."""
+    tilt scales with (hit_rate − 0.5); the ±MAX_TILT bound is enforced on
+    the final, normalized weights."""
     if card.get("trades", 0) < MIN_TRADES:
         return
     raw = {}
@@ -112,8 +147,7 @@ def _recalibrate(card: dict):
         hit = s["right"] / n
         tilt = max(-MAX_TILT, min(MAX_TILT, (hit - 0.5) * 2 * MAX_TILT / 0.5))
         raw[agent] = default + tilt
-    total = sum(raw.values()) or 1.0
-    new = {a: round(w / total, 4) for a, w in raw.items()}
+    new = _bounded_normalize(raw)
     old = card.get("weights") or dict(DEFAULT_WEIGHTS)
     if any(abs(new[a] - old.get(a, DEFAULT_WEIGHTS[a])) > 0.005 for a in new):
         card["weights"] = new

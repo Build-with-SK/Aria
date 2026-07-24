@@ -176,7 +176,15 @@ class InferenceRouter:
                  temperature: float = 0.4, timeout: float = 120.0,
                  local_only: bool = False) -> Completion:
         tier_name = tier.value if isinstance(tier, Tier) else str(tier).upper()
-        candidates = self.tiers.get(tier_name) or []
+        candidates = list(self.tiers.get(tier_name) or [])
+        return self._run(tier_name, candidates, messages, system=system,
+                         max_tokens=max_tokens, temperature=temperature,
+                         timeout=timeout, local_only=local_only)
+
+    def _run(self, tier_name: str, candidates: list, messages: list[dict], *,
+             system: str = "", max_tokens: int = 400,
+             temperature: float = 0.4, timeout: float = 120.0,
+             local_only: bool = False) -> Completion:
         errors: list[InferenceError] = []
         attempts = 0
         for provider_name, model in candidates:
@@ -224,18 +232,11 @@ class InferenceRouter:
                       timeout: float = 120.0) -> Completion:
         """Route ONE explicit (provider, model) candidate through the same
         breaker + retry machinery — for callers that let the user pick a
-        model (e.g. the chat model dropdown)."""
-        saved = self.tiers.get("_EXPLICIT")
-        self.tiers["_EXPLICIT"] = [[provider_name, model]]
-        try:
-            return self.complete("_EXPLICIT", messages, system=system,
-                                 max_tokens=max_tokens, temperature=temperature,
-                                 timeout=timeout)
-        finally:
-            if saved is None:
-                self.tiers.pop("_EXPLICIT", None)
-            else:
-                self.tiers["_EXPLICIT"] = saved
+        model. Audit M1: candidates are passed directly, no shared tier-table
+        mutation, so concurrent brain/desk calls can no longer race."""
+        return self._run("_EXPLICIT", [[provider_name, model]], messages,
+                         system=system, max_tokens=max_tokens,
+                         temperature=temperature, timeout=timeout)
 
     def _sleep(self, seconds: float):
         time.sleep(seconds)     # patchable in tests

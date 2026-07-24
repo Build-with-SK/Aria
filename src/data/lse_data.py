@@ -133,9 +133,12 @@ def yield_snapshot() -> dict:
 
 
 def upcoming_us_events(limit: int = 8) -> list[dict]:
-    """Next high-signal US calendar events (CPI, FOMC, NFP...)."""
-    rows = ref("economic_calendar", region="US", released=None,
-               order="desc", limit=50)
+    """Next high-signal US calendar events (CPI, FOMC, NFP...).
+    Audit M3: bound the query to TODAY-FORWARD, ascending — the old desc
+    query with no date filter returned already-released past events."""
+    from datetime import date
+    rows = ref("economic_calendar", region="US",
+               start=date.today().isoformat(), order="asc", limit=100)
     out = []
     for r in rows:
         name = str(r.get("event", ""))

@@ -144,6 +144,8 @@ def evaluate_exit(pos: dict, price: float, signal: dict, cfg: dict,
     # 3. TRAILING STOP — once up > 1R: breakeven, then trail by ATR off the HWM
     progress = r_progress(pos, price)
     atr_pct = float(signal.get("atr_pct") or 0.0)
+    if not (0.0 < atr_pct < 0.2):
+        atr_pct = 0.0        # audit L2: garbage/stale ATR never sets a trail
     if progress >= 1.0 and stop:
         candidate = entry  # breakeven ratchet
         if atr_pct > 0:
@@ -418,7 +420,15 @@ class PositionManager:
         pos = tracked.get(ticker) or {}
         qty = abs(float(bp.get("qty") or pos.get("qty") or 0.0)) * fraction
         if pos.get("asset_class") != "crypto":
-            qty = float(int(qty)) or abs(float(bp.get("qty") or 0.0))
+            qty = float(int(qty))
+            if qty <= 0:
+                if fraction < 1.0:
+                    # Audit L1: a scale-out that floors to zero shares must
+                    # SKIP, not silently close the whole position.
+                    logger.info(f"scale-out for {ticker} floors to 0 shares "
+                                f"— skipping")
+                    return None
+                qty = abs(float(bp.get("qty") or 0.0))
         if qty <= 0 or mgr is None:
             return None
         long = bp.get("side", "long") in ("long", "buy")
@@ -552,17 +562,30 @@ class PositionManager:
                     pass
         entry = float(pos.get("entry_price") or 0.0)
         long = _is_long(pos)
-        signal = load_data_json("signals.json").get(ticker) or {}
-        exit_price = float(signal.get("current_price") or 0.0)
-        # A stop or target fill happened at (roughly) its trigger price
-        stop, target = float(pos.get("stop") or 0), float(pos.get("target") or 0)
-        reason = "closed at broker"
-        if exit_price and stop and ((long and exit_price <= stop) or
-                                    (not long and exit_price >= stop)):
-            exit_price, reason = stop, "stop hit (broker bracket)"
-        elif exit_price and target and ((long and exit_price >= target) or
-                                        (not long and exit_price <= target)):
-            exit_price, reason = target, "target hit (broker bracket)"
+        estimated = True
+        # Audit H1: ask the broker's closed-orders feed for the REAL fill
+        # before estimating anything.
+        exit_price, reason = 0.0, "closed at broker"
+        try:
+            broker = mgr._alpaca if mgr else None
+            fill = (broker.last_closed_fill(ticker, "sell" if long else "buy")
+                    if broker and hasattr(broker, "last_closed_fill") else None)
+            if fill and fill.get("price"):
+                exit_price = float(fill["price"])
+                reason = "closed at broker (confirmed fill)"
+                estimated = False
+        except Exception:
+            pass
+        if estimated:
+            signal = load_data_json("signals.json").get(ticker) or {}
+            exit_price = float(signal.get("current_price") or 0.0)
+            stop, target = float(pos.get("stop") or 0), float(pos.get("target") or 0)
+            if exit_price and stop and ((long and exit_price <= stop) or
+                                        (not long and exit_price >= stop)):
+                exit_price, reason = stop, "stop hit (broker bracket, estimated)"
+            elif exit_price and target and ((long and exit_price >= target) or
+                                            (not long and exit_price <= target)):
+                exit_price, reason = target, "target hit (broker bracket, estimated)"
         qty = float(pos.get("qty") or 0.0)
         direction = 1 if long else -1
         pnl = round((exit_price - entry) * qty * direction, 2) if entry and exit_price else 0.0
@@ -578,6 +601,7 @@ class PositionManager:
             "debate_id": pos.get("debate_id", ""),
             "thesis": pos.get("thesis", ""), "entry_at": pos.get("entry_at", ""),
             "mode": "broker",
+            "estimated": estimated,
         }
         self._log_execution(record)
         self._log_closed(record)

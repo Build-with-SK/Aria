@@ -207,7 +207,10 @@ class IBKRBroker(BrokerBase):
         if not self.is_connected():
             return OrderResult(broker_order_id=broker_order_id, status=OrderStatus.REJECTED)
         try:
-            for trade in self._ib.openTrades():
+            # Audit C2: an order absent from openTrades() may be filled,
+            # cancelled, OR rejected — absence must never imply FILLED.
+            # ib.trades() includes terminal orders; read the real status.
+            for trade in self._ib.trades():
                 if str(trade.order.orderId) == broker_order_id:
                     return OrderResult(
                         broker_order_id=broker_order_id,
@@ -215,7 +218,13 @@ class IBKRBroker(BrokerBase):
                         filled_qty=float(trade.orderStatus.filled),
                         avg_fill_price=float(trade.orderStatus.avgFillPrice),
                     )
-            return OrderResult(broker_order_id=broker_order_id, status=OrderStatus.FILLED)
+            # Unknown order id: report SUBMITTED (not filled) so pollers keep
+            # waiting and never place brackets on an unconfirmed position.
+            return OrderResult(
+                broker_order_id=broker_order_id,
+                status=OrderStatus.SUBMITTED,
+                error_message="order not found in ib.trades() — cannot confirm fill",
+            )
         except Exception as e:
             return OrderResult(
                 broker_order_id=broker_order_id,

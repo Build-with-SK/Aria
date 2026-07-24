@@ -22,6 +22,11 @@ logger = logging.getLogger(__name__)
 
 QUEUE_FILE = Path(__file__).parent.parent.parent / "data" / "execution" / "approval_queue.json"
 
+# Audit L4: the queue is read-modify-write over one JSON file; concurrent
+# approve/push/reject from the API thread and desk threads could lose writes.
+import threading
+_QUEUE_LOCK = threading.Lock()
+
 
 @dataclass
 class PendingTrade:
@@ -129,9 +134,10 @@ class ApprovalQueue:
             broker=broker,
         )
 
-        items = _load_queue()
-        items.append(asdict(trade))
-        _save_queue(items)
+        with _QUEUE_LOCK:
+            items = _load_queue()
+            items.append(asdict(trade))
+            _save_queue(items)
         logger.info(f"Trade queued [{trade.id}]: {trade.side.upper()} {trade.qty} {trade.ticker} via {broker}")
         return trade
 
@@ -149,43 +155,47 @@ class ApprovalQueue:
         return None
 
     def approve(self, trade_id: str) -> Optional[PendingTrade]:
-        items = _load_queue()
-        for d in items:
-            if d["id"] == trade_id and d["status"] == "pending":
-                d["status"] = "approved"
-                _save_queue(items)
-                return PendingTrade(**d)
+        with _QUEUE_LOCK:
+            items = _load_queue()
+            for d in items:
+                if d["id"] == trade_id and d["status"] == "pending":
+                    d["status"] = "approved"
+                    _save_queue(items)
+                    return PendingTrade(**d)
         return None
 
     def reject(self, trade_id: str, reason: str = "") -> Optional[PendingTrade]:
-        items = _load_queue()
-        for d in items:
-            if d["id"] == trade_id and d["status"] == "pending":
-                d["status"] = "rejected"
-                d["rejection_reason"] = reason
-                _save_queue(items)
-                return PendingTrade(**d)
+        with _QUEUE_LOCK:
+            items = _load_queue()
+            for d in items:
+                if d["id"] == trade_id and d["status"] == "pending":
+                    d["status"] = "rejected"
+                    d["rejection_reason"] = reason
+                    _save_queue(items)
+                    return PendingTrade(**d)
         return None
 
     def mark_executed(self, trade_id: str, broker_order_id: str, fill_price: float = 0.0):
-        items = _load_queue()
-        for d in items:
-            if d["id"] == trade_id:
-                d["status"] = "executed"
-                d["broker_order_id"] = broker_order_id
-                d["fill_price"] = fill_price
-                d["executed_at"] = datetime.utcnow().isoformat()
-                _save_queue(items)
-                return
+        with _QUEUE_LOCK:
+            items = _load_queue()
+            for d in items:
+                if d["id"] == trade_id:
+                    d["status"] = "executed"
+                    d["broker_order_id"] = broker_order_id
+                    d["fill_price"] = fill_price
+                    d["executed_at"] = datetime.utcnow().isoformat()
+                    _save_queue(items)
+                    return
         logger.warning(f"mark_executed: trade {trade_id} not found")
 
     def cancel(self, trade_id: str) -> bool:
-        items = _load_queue()
-        for d in items:
-            if d["id"] == trade_id and d["status"] in ("pending", "approved"):
-                d["status"] = "cancelled"
-                _save_queue(items)
-                return True
+        with _QUEUE_LOCK:
+            items = _load_queue()
+            for d in items:
+                if d["id"] == trade_id and d["status"] in ("pending", "approved"):
+                    d["status"] = "cancelled"
+                    _save_queue(items)
+                    return True
         return False
 
     def stats(self) -> dict:

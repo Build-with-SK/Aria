@@ -17,9 +17,21 @@ ROOT = Path(__file__).parent.parent.parent
 STATE_FILE = ROOT / "data" / "desk" / "day_state.json"
 
 
+def market_day() -> str:
+    """The US market's current date (America/New_York) — audit M4: a local
+    machine date rolls the budget/circuit-breaker over hours off the actual
+    trading day on any non-ET host."""
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    except Exception:
+        return date.today().isoformat()
+
+
 def load_day_state(current_equity: float | None = None) -> dict:
     """Load today's state, rolling over (and capturing start equity) on a new day."""
-    today = date.today().isoformat()
+    today = market_day()
     state = {}
     if STATE_FILE.exists():
         try:
