@@ -1,0 +1,5 @@
+# Deployment scripts run on macOS/Linux — force LF so CRLF never breaks
+# bash or launchd on the Mac mini, regardless of the checkout platform.
+*.sh        text eol=lf
+*.plist     text eol=lf
+scripts/**  text eol=lf
