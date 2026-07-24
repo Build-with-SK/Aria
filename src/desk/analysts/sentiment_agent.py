@@ -19,6 +19,19 @@ MIN_HEADLINES = 5      # below this the agent abstains — thin news is noise
 MAX_CONVICTION = 60    # a keyword lexicon never outvotes the signal engine
 
 
+def _political_activity_score(ticker: str):
+    """Per-ticker political_activity_score (-100..+100) from the political
+    signals file, or None. Cheap cached JSON read, no network."""
+    try:
+        pol = load_data_json("political/political_signals.json")
+        for s in (pol.get("signals") or []):
+            if str(s.get("ticker", "")).upper() == ticker.upper():
+                return float(s.get("political_activity_score") or 0.0)
+    except Exception:
+        pass
+    return None
+
+
 def opine(ticker: str) -> Opinion:
     name = (load_data_json("signals.json").get(ticker) or {}).get("name", "")
     try:
@@ -58,6 +71,17 @@ def opine(ticker: str) -> Opinion:
     for h in news[:2]:
         evidence.append(ev(f"Headline: \"{h.get('title', '')[:110]}\" ({h.get('source', '?')})",
                            None, SRC, "neutral"))
+
+    # Political-disclosure signal (Congress/insider legal filings, ±100 scale,
+    # 10% weight cap per the data policy). Research-only — never the sole
+    # driver; surfaced as modest-lean evidence.
+    pol_score = _political_activity_score(ticker)
+    if pol_score is not None and abs(pol_score) >= 20:
+        evidence.append(ev(
+            f"Political disclosure activity {pol_score:+.0f}/100 "
+            f"(congressional/insider filings, 10% weight cap)",
+            pol_score, "data/political/political_signals.json",
+            "bull" if pol_score > 0 else "bear"))
 
     view = "bull" if score > 0.2 else "bear" if score < -0.2 else "neutral"
     conviction = int(min(MAX_CONVICTION, abs(score) * 100 + min(len(news), 8) * 3))

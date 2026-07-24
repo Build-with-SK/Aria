@@ -235,19 +235,22 @@ class AutoExecutor:
         }
 
     def _gate_reason(self, g: dict) -> str:
+        # Audit L3: report EVERY failing gate, not just the first — one glance
+        # tells the whole story instead of peeling them off one restart at a time.
+        reasons = []
         if not g["env_paper"]:
-            return "ALPACA_PAPER is not exactly 'true' — auto-exec hard-disabled"
+            reasons.append("ALPACA_PAPER is not exactly 'true' — auto-exec hard-disabled")
         if g["broker_paper"] is False:
-            return "LIVE account detected — live always requires human approval"
+            reasons.append("LIVE account detected — live always requires human approval")
         if not g["armed"]:
-            return "auto-execute is not armed"
+            reasons.append("auto-execute is not armed")
         if not g["broker_connected"]:
-            return "broker not connected"
+            reasons.append("broker not connected")
         if g["trades_left"] <= 0:
-            return "max trades/day reached"
+            reasons.append("max trades/day reached")
         if g["budget_left"] <= 0:
-            return "daily notional budget spent"
-        return "safety gate closed"
+            reasons.append("daily notional budget spent")
+        return "; ".join(reasons) or "safety gate closed"
 
     def _log(self, record: dict):
         try:

@@ -26,6 +26,29 @@ SLATE_FILE = DESK_DIR / "slate.json"
 EQUITY_FILE = DESK_DIR / "equity_curve.jsonl"
 
 
+def _backup_desk_state():
+    """Zip data/desk/ JSON state to data/backups/, keeping the last 14.
+    A corrupted positions.json or scorecard.json is then one file-copy away
+    from recovery."""
+    import zipfile
+    try:
+        backup_dir = ROOT / "data" / "backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest = backup_dir / f"desk_{stamp}.zip"
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+            for p in DESK_DIR.glob("*.json"):
+                z.write(p, p.name)
+            for p in DESK_DIR.glob("*.jsonl"):
+                z.write(p, p.name)
+        backups = sorted(backup_dir.glob("desk_*.zip"))
+        for old in backups[:-14]:
+            old.unlink()
+        logger.info(f"desk state backed up → {dest.name} ({len(backups)} kept)")
+    except Exception as e:
+        logger.warning(f"desk backup failed: {e}")
+
+
 def us_equities_open(now: datetime | None = None) -> bool:
     """US cash session 09:30–16:00 ET, Mon–Fri. Best-effort (holidays and
     early closes are not modelled — a closed-market order just queues at
@@ -78,6 +101,9 @@ class DeskDaemon:
                                minutes=mgmt_interval, id="desk_mgmt",
                                replace_existing=True,
                                next_run_time=datetime.now())
+        # Nightly state backup (cheap insurance against a corrupted JSON file)
+        self.scheduler.add_job(_backup_desk_state, "cron", hour=2, minute=0,
+                               id="desk_backup", replace_existing=True)
         self.scheduler.start()
         self.running = True
         # REFLEX fast lane — watches armed playbooks, fires in seconds
