@@ -4,7 +4,7 @@
 # Run on the mini from inside the repo folder:   bash scripts/mini_setup.sh
 # Prereqs done by hand first (one time):
 #   1. xcode-select --install          (Command Line Tools; brings git)
-#   2. Install Python 3.11 from python.org (macOS 64-bit universal2 installer)
+#   2. Install Python 3.12 from python.org (macOS 64-bit universal2 installer)
 #   3. Node LTS from nodejs.org        (only needed to build the frontend once)
 #   4. Copy the repo to ~/aria and .env into it (with OLLAMA_BASE and
 #      ARIA_API_KEY added; ALPACA_PAPER must stay exactly "true")
@@ -16,7 +16,9 @@ echo "ARIA home: $ARIA_HOME"
 
 # 1. Python venv + deps
 if [ ! -d venv ]; then
-  python3.11 -m venv venv
+  PY="$(command -v python3.12 || command -v python3.11 || command -v python3)"
+  echo "using $PY ($($PY --version))"
+  "$PY" -m venv venv
 fi
 venv/bin/pip install --upgrade pip -q
 venv/bin/pip install -r requirements.txt -q

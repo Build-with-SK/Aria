@@ -55,13 +55,14 @@ xcode-select --install
 ```
 Click "Install" in the popup, wait for it to finish (~5 min).
 
-### 1.2 Python 3.11
-Download the **macOS 64-bit universal2 installer** for Python **3.11.x** from:
+### 1.2 Python 3.12
+Download the **macOS 64-bit universal2 installer** for Python **3.12.x** from:
 https://www.python.org/downloads/macos/
-(Get the latest 3.11 release — e.g. 3.11.9 — NOT 3.12+, our wheels target 3.11.)
+(Use 3.12 — mature wheel coverage for every dependency. Avoid 3.14: too new,
+some packages lack prebuilt wheels and would try to compile from source.)
 Run the `.pkg`, accept defaults. Then verify:
 ```bash
-python3.11 --version      # should print Python 3.11.x
+python3.12 --version      # should print Python 3.12.x
 ```
 
 ### 1.3 Node.js (only to build the web UI once)
@@ -143,7 +144,7 @@ bash scripts/mini_setup.sh
 ```
 
 What it does:
-1. `python3.11 -m venv venv` + `pip install -r requirements.txt`
+1. `python3.12 -m venv venv` + `pip install -r requirements.txt`
 2. `cd frontend && npm ci && npm run build` → UI served by the backend at `/app`
 3. installs `~/Library/LaunchAgents/com.aria.backend.plist` (the API, KeepAlive)
    and `com.aria.watchdog.plist` (health check every 10 min)
@@ -226,8 +227,8 @@ launchctl load    ~/Library/LaunchAgents/com.aria.backend.plist   # start it
   Check NordVPN (Part 0 warning), that both are on the same Wi-Fi, and
   `curl http://10.77.224.78:11434/api/tags` from the mini. Debates fall back to the
   Anthropic API automatically, so trading still works — you just lose the local LLM.
-- **`pip install` fails on a package** → make sure you used Python **3.11** (1.2),
-  not the system Python. `~/aria/venv/bin/python --version` must say 3.11.
+- **`pip install` fails on a package** → make sure you used Python **3.12** (1.2),
+  not the system Python. `~/aria/venv/bin/python --version` must say 3.12.
 - **Backend won't start** → `cat ~/aria/logs/backend.err` for the traceback.
 - **Laptop IP changed** → update `OLLAMA_BASE` in `~/aria/.env` and restart the
   backend (kickstart command above).
