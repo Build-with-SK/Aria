@@ -80,6 +80,12 @@ class DeskDaemon:
                                next_run_time=datetime.now())
         self.scheduler.start()
         self.running = True
+        # REFLEX fast lane — watches armed playbooks, fires in seconds
+        try:
+            from src.desk.reflex import get_reflex
+            get_reflex().start()
+        except Exception as e:
+            logger.warning(f"reflex engine start failed: {e}")
         logger.info(f"Desk daemon started (hunt every {interval} min, "
                     f"management tick every {mgmt_interval} min)")
 
@@ -133,6 +139,16 @@ class DeskDaemon:
         try:
             from src.desk.position_manager import PositionManager
             summary = PositionManager().tick()
+            # Arm signal-spike playbooks for the reflex lane (cheap: cached
+            # signals + a held-set read; no LLM, no broker orders).
+            try:
+                from src.desk.auto_executor import account_snapshot
+                from src.desk.reflex import arm_from_signal
+                spiked = arm_from_signal(account=account_snapshot())
+                if spiked:
+                    summary["armed_signal_playbooks"] = [p["ticker"] for p in spiked]
+            except Exception as e:
+                summary.setdefault("errors", []).append(f"reflex signal-arm: {e}")
             self.tick_count += 1
             summary["tick_count"] = self.tick_count
             self.last_tick = summary
@@ -250,6 +266,16 @@ class DeskDaemon:
                 {"ticker": r["trade"]["ticker"], "reason": r["reason"]}
                 for r in slate_result["rejected"]]
             summary["risk_checks"] = slate_result["checks"]
+
+            # 5b. ARM REFLEX PLAYBOOKS — debates that landed just under the bar
+            # become fast-lane triggers instead of being discarded.
+            try:
+                from src.desk.reflex import arm_from_debate
+                armed = [arm_from_debate(t, conditioner.conviction_bar, cfg)
+                         for t in transcripts]
+                summary["armed_playbooks"] = [a["ticker"] for a in armed if a]
+            except Exception as e:
+                summary["errors"].append(f"reflex arm: {e}")
 
             # 6. EXECUTE — safety contract decides auto vs approval queue
             executor = AutoExecutor(cfg)

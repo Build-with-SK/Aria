@@ -40,6 +40,15 @@ DEFAULTS = {
     "time_stop_min_r": 0.5,         # time stop only if progress below this many R
     "scale_out_at_target": False,   # True: 50% off at target, trail the rest
     "max_gross_exposure_pct": 100.0,  # flatten worst-first above this — no margin
+    # ── REFLEX fast lane (v4 — the 2-5s path) ──
+    "reflex_enabled": True,          # separate kill switch (auto_execute still rules)
+    "reflex_poll_seconds": 3,        # armed-ticker quote poll cadence
+    "reflex_playbook_expiry_days": 2,   # armed playbooks expire after N trading days
+    "reflex_min_prob": 0.70,         # confidence gate: signal prob must clear this
+    "reflex_arm_conviction_gap": 10, # arm a playbook if conviction within N under the bar
+    "reflex_signal_spike": 40.0,     # |composite| crossing this arms a signal playbook
+    "reflex_veto_max_tokens": 30,    # Haiku veto answer budget
+    "reflex_on_llm_fail": "skip",    # veto unreachable → "skip" (safe) | "proceed"
     "llm_model": "qwen2.5-coder:7b",   # local model for debate prose (optional)
     "ntfy_topic": "",               # e.g. "aria-desk-<random>" → push via ntfy.sh
     "pushover_user": "",

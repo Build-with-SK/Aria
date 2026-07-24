@@ -1651,6 +1651,29 @@ def desk_tick_now():
             "message": "Management tick running. Poll /api/desk/status."}
 
 
+@app.get("/api/desk/playbooks", tags=["Desk"])
+def desk_playbooks():
+    """Armed reflex playbooks (fast-lane triggers) + recent reflex config."""
+    from src.desk.config import load_config
+    from src.desk.reflex import load_playbooks
+    cfg = load_config()
+    pbs = load_playbooks()
+    return _sanitize({
+        "enabled": cfg.get("reflex_enabled", True),
+        "poll_seconds": cfg.get("reflex_poll_seconds", 3),
+        "min_prob": cfg.get("reflex_min_prob", 0.70),
+        "armed": [p for p in pbs if p.get("status") == "armed"],
+        "recent": list(reversed(pbs))[:30],
+    })
+
+
+@app.post("/api/desk/reflex-scan", tags=["Desk"])
+def desk_reflex_scan():
+    """Run one reflex scan pass immediately (for testing the fast lane)."""
+    from src.desk.reflex import get_reflex
+    return _sanitize({"results": get_reflex().scan_once()})
+
+
 @app.get("/api/desk/positions", tags=["Desk"])
 def desk_positions():
     """Tracked positions (exit-engine state) + latest closed trades."""

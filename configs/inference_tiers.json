@@ -1,6 +1,7 @@
 {
   "_comment": "Tier → ordered [provider, model] candidates for src/inference/router.py. Providers: ollama (local), anthropic (frontier). Edit freely; unknown tiers are ignored. The Ollama discovery registry (B2) appends extra local fallbacks automatically.",
   "FAST": [
+    ["anthropic", "claude-haiku-4-5-20251001"],
     ["ollama", "qwen2.5-coder:7b"]
   ],
   "STANDARD": [
