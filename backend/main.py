@@ -150,9 +150,16 @@ def _start_quant_lab():
 
 
 def _start_brain_if_ollama():
-    """Start the cognitive brain daemon only if Ollama is available."""
+    """Start the cognitive brain daemon only if Ollama is available.
+    Set ARIA_RUN_BRAIN=false to skip it entirely — the brain is research-only
+    and needs heavy embedding deps (torch/sentence-transformers); the trading
+    desk runs fine without it (memory recall degrades gracefully). Ideal for
+    the low-power Mac mini deployment."""
     import time
     time.sleep(5)  # let the server finish coming up first
+    if os.environ.get("ARIA_RUN_BRAIN", "true").lower() == "false":
+        logger.info("ARIA_RUN_BRAIN=false — brain daemon disabled (desk only).")
+        return
     try:
         if _ollama_available():
             from src.brain.brain_daemon import get_brain
