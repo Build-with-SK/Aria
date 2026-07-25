@@ -81,3 +81,6 @@ data/brain_consult.json
 data/brain_consult_log.jsonl
 
 data/fx_state.json
+
+# Desk state backups (transient, rotated nightly)
+data/backups/

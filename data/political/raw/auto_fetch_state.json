@@ -1,5 +1,5 @@
 {
-  "last_senate_fetch": "2026-06-23T14:54:46Z",
+  "last_senate_fetch": "2026-07-21T15:58:00Z",
   "last_propublica_fetch": null,
   "total_records_fetched": 0,
   "watchlist_ticker_history": [
@@ -53,6 +53,10 @@
     },
     {
       "date": "2026-06-23",
+      "count": 0
+    },
+    {
+      "date": "2026-07-21",
       "count": 0
     }
   ],

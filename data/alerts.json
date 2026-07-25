@@ -48,5 +48,15 @@
     "value": 97.51,
     "threshold": 50,
     "date": "2026-05-31"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "AAPL",
+    "title": "\u25b2 BOUGHT 1 AAPL @ $326.54 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 65/100 \u00b7 The verdict of BUY follows from the evidence primarily because the bullish signals are overwhelmingly strong and consist",
+    "value": 326.54,
+    "threshold": null,
+    "date": "2026-07-21T15:26:55.641039"
   }
 ]
