@@ -930,6 +930,89 @@ class ChatMsg(BaseModel):
 class ChatRequest(BaseModel):
     messages: List[ChatMsg]
 
+_TICKER_STOPWORDS = {
+    "I", "A", "THE", "AND", "OR", "IF", "IS", "IT", "TO", "IN", "ON", "OF", "MY",
+    "ME", "DO", "GO", "AT", "BE", "AS", "SO", "US", "UK", "AI", "ML", "P&L", "OK",
+    "USD", "GBP", "INR", "EUR", "VIX", "DXY", "PE", "EPS", "ROE", "ETF", "IPO",
+    "CEO", "GDP", "FED", "RBI", "SELL", "BUY", "HOLD", "NSE", "BSE", "LSE",
+    "NYSE", "NASDAQ", "NIFTY", "SENSEX", "FTSE", "SIP",
+    # common question/filler words so a name search doesn't false-match
+    "WHAT", "WHY", "HOW", "WHEN", "WHO", "WHICH", "SHOULD", "ABOUT", "TELL",
+    "THINK", "YOU", "DOES", "CAN", "WILL", "NOW", "GOOD", "BAD", "STOCK",
+    "SHARE", "SHARES", "PRICE", "MARKET", "TODAY", "PLEASE", "GIVE", "SHOW",
+    "DATA", "INFO", "ANY", "SOME", "MORE", "LESS", "THAN", "FROM", "WITH",
+}
+
+
+def _detect_query_ticker(message: str):
+    """Best-effort (ticker, market_hint) from a chat message. Returns (None, None)
+    when nothing looks like a specific stock, so normal chat is untouched."""
+    import re
+    text = message or ""
+    low = text.lower()
+    market = ("NSE" if any(w in low for w in ("nse", "nifty", " india", "indian", "sensex", "bse")) else
+              "LSE" if any(w in low for w in ("lse", "ftse", "london")) else None)
+    if "bse" in low:
+        market = "BSE"
+    # explicit yahoo-style tickers first (SAIL.NS, BRK.B, BTC-USD)
+    m = re.search(r"\b([A-Z][A-Z0-9&]{0,9}(?:\.(?:NS|BO|L))?(?:-USD)?)\b", text)
+    for tok in re.findall(r"\b([A-Z][A-Z0-9&]{0,9}(?:\.(?:NS|BO|L))?(?:-USD)?)\b", text):
+        base = tok.split(".")[0].replace("-USD", "")
+        if tok in _TICKER_STOPWORDS or base in _TICKER_STOPWORDS or len(base) < 2:
+            continue
+        return tok, market
+    # company-name fallback: match individual proper-noun words against the
+    # known index by name (so "Tesla" → TSLA). Capitalised words first.
+    try:
+        words = re.findall(r"[A-Za-z][A-Za-z&]{2,}", text)
+        cands = [w for w in words if w[:1].isupper() and w.upper() not in _TICKER_STOPWORDS]
+        cands += [w for w in words if w.upper() not in _TICKER_STOPWORDS and w not in cands]
+        for w in cands[:5]:
+            hits = _get_universe().search(w, n=1)
+            if hits and (w.upper() in hits[0]["symbol"].upper()
+                         or w.lower() in (hits[0].get("name") or "").lower()):
+                return hits[0]["symbol"], market
+    except Exception:
+        pass
+    return None, market
+
+
+def _ondemand_ticker_context(messages: List["ChatMsg"]) -> str:
+    """If the latest user message names a stock, fetch it live (any global
+    market) and return a compact context block for the system prompt. Empty
+    string when nothing stock-shaped is mentioned."""
+    try:
+        last_user = next((m.content for m in reversed(messages)
+                          if m.role == "user"), "")
+        ticker, market = _detect_query_ticker(last_user)
+        if not ticker:
+            return ""
+        res = _get_universe().explore(ticker, prefer=market, n_peers=4)
+        if not res or "error" in res:
+            return ""
+        r, d = res["resolved"], res.get("dossier") or {}
+        f = d.get("fundamentals") or {}
+        rr = d.get("returns") or {}
+        rel = res.get("related") or {}
+        comp = ", ".join(c["symbol"] for c in rel.get("competitors", [])) or "—"
+        sup = ", ".join(s["symbol"] for s in rel.get("suppliers", [])) or "—"
+        cur = f.get("currency", "")
+        line = lambda k: f"{rr[k]:+.1f}%" if rr.get(k) is not None else "n/a"
+        return (
+            f"\n── ON-DEMAND DATA (fetched live just now) ──────────────\n"
+            f"{r['symbol']} — {r.get('name')} [{r.get('exchange')}, {cur}]\n"
+            f"Price {d.get('price')} {cur} | 1M {line('1M')} | 6M {line('6M')} | "
+            f"1Y {line('1Y')} | 5Y {line('5Y')}\n"
+            f"Sector {f.get('sector','?')} / {f.get('industry','?')} | "
+            f"P/E {f.get('trailingPE','?')} | ROE {f.get('returnOnEquity','?')} | "
+            f"MktCap {f.get('marketCap','?')}\n"
+            f"Competitors: {comp}\nSuppliers: {sup}\n"
+            f"──────────────────────────────────────────────────────")
+    except Exception as e:
+        logger.warning(f"on-demand ticker context failed: {e}")
+        return ""
+
+
 @app.post("/api/chat", tags=["ARIA"])
 def aria_chat(body: ChatRequest):
     """Send a message to ARIA. Returns the assistant reply with market context baked in."""
@@ -976,17 +1059,19 @@ Daily report summary: {report.get('summary', 'Not available')}
 ──────────────────────────────────────────────────────"""
 
     vault_ctx = _vault_context(body.messages)
+    ondemand_ctx = _ondemand_ticker_context(body.messages)
 
-    system = f"""You are ARIA — Adaptive Risk Intelligence Agent — the AI brain of a sophisticated trading intelligence system. You analyse markets using a 766-ticker universe, 10 Market Situation Archetypes, LightGBM ensemble ML (5 learners), macro regime detection, and a multi-broker execution engine (Alpaca + IBKR).
+    system = f"""You are ARIA — Adaptive Risk Intelligence Agent — the AI brain of a sophisticated trading intelligence system. You analyse markets using macro regime detection, ML signals, and a multi-broker execution engine (Alpaca + IBKR). You can fetch ANY globally-listed stock on demand — US, India (NSE/BSE), and London — with live price, fundamentals, and its competitors/suppliers; if the ON-DEMAND DATA block below is present, that data was just fetched for the ticker the user asked about, so never say you lack data for it.
 
 {ctx}
+{ondemand_ctx}
 
 {vault_ctx}
 
 Your personality: precise, confident, data-driven. You reason from signals, not opinion. You always cite the actual numbers from the data above when discussing a ticker. You flag risk clearly.
 
 You CAN: analyse tickers, interpret signals, explain methodology, identify themes, discuss macro, suggest what to watch.
-You CANNOT: guarantee profits or give regulated financial advice. Always include a brief risk note when discussing specific trades."""
+You CANNOT: guarantee profits or give regulated/personalised financial advice (no buy/sell/hold/convert directives to the user). Always include a brief risk note and defer personal decisions to a licensed adviser."""
 
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
 
@@ -1080,7 +1165,10 @@ def aria_chat_local(body: LocalChatRequest):
         raise HTTPException(status_code=503, detail="Ollama is not running. Start it with: ollama serve")
     ctx = _build_market_context()
     vault_ctx = _vault_context(body.messages)
-    system = f"{_ARIA_SYSTEM}\n\n{ctx}\n\n{vault_ctx}" if vault_ctx else f"{_ARIA_SYSTEM}\n\n{ctx}"
+    ondemand_ctx = _ondemand_ticker_context(body.messages)
+    system = f"{_ARIA_SYSTEM}\n\n{ctx}{ondemand_ctx}"
+    if vault_ctx:
+        system += f"\n\n{vault_ctx}"
     try:
         from src.inference.router import get_router
         result = get_router().complete_with(

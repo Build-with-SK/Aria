@@ -1,6 +1,6 @@
 {
   "_comment": "Curated competitor/supplier graph. Symbols are yahoo-ready (US bare, .NS for NSE, .BO for BSE, .L for London). explore() resolves + caches each on demand, so listing a name here also warms it. Extend freely — unknown tickers just get skipped. This is the seed; sector peers fill in progressively on top.",
-  "TSLA":       {"competitors": ["GM", "F", "RIVN", "NIO", "LCID", "BYDDY"], "suppliers": ["PANW", "NVDA", "ALB", "PCRFY"]},
+  "TSLA":       {"competitors": ["GM", "F", "RIVN", "NIO", "LCID", "BYDDY"], "suppliers": ["ALB", "NVDA", "TSM"]},
   "AAPL":       {"competitors": ["MSFT", "GOOGL", "SSNLF", "005930.KS"], "suppliers": ["TSM", "QCOM", "AVGO", "SWKS", "CRUS"]},
   "NVDA":       {"competitors": ["AMD", "INTC", "AVGO", "QCOM"], "suppliers": ["TSM", "ASML", "MU", "SK"]},
   "AMD":        {"competitors": ["NVDA", "INTC", "AVGO"], "suppliers": ["TSM", "ASML"]},
