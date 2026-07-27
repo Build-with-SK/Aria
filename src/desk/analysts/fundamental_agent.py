@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 
-from src.desk.opinion import Opinion, ev
+from src.desk.opinion import Opinion, ev, load_data_json
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,15 @@ SRC = "universe dossier (Yahoo Finance, cached 24h)"
 
 
 def opine(ticker: str) -> Opinion:
+    # Crypto has no company fundamentals (no earnings, P/E, ROE, debt). Scoring
+    # a token on equity metrics — or worse, on its price returns — produces
+    # spurious high-conviction views (e.g. bear 100 on DOT). Abstain cleanly so
+    # crypto decisions rest on the technical (and sentiment) analysts.
+    sig = load_data_json("signals.json").get(ticker) or {}
+    if ticker.endswith("-USD") or "crypto" in str(sig.get("asset_class", "")).lower():
+        return Opinion(agent="fundamental", ticker=ticker, view="neutral",
+                       conviction=0, thesis=f"{ticker} is a cryptocurrency — no "
+                       f"company fundamentals to analyse. Abstaining.", evidence=[])
     try:
         from src.data.universe import get_universe
         dossier = get_universe().dossier(ticker, prefetch_peers=False)
