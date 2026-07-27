@@ -144,3 +144,48 @@ the debate/brain data above.
 4. Candlestick chart (recharts custom shape) from /api/history.
 5. Political-per-ticker endpoint + section.
 6. Brain visualization upgrade (Feature 3) — once the reel is described.
+
+---
+
+## FEATURE 3B — THE LIVING CORE (voice/talk-reactive brain centerpiece)
+
+**Reference image:** a user-provided screenshot of a glowing particle core — a bright
+orange-yellow fusion center surrounded by thousands of pink/magenta and teal/cyan
+particles in a rotating galaxy/sphere with faint spiral arms, on pure black. Match and
+exceed it. Do NOT alter that reference file.
+
+**Where:** hero of the AI BRAIN page (`Brain.jsx`) — full-bleed dark canvas, app mono HUD
+text overlaid (e.g. "LIVING BRAIN · vault + git memory").
+
+**Visual (Canvas 2D or raw WebGL — NO new npm packages; three.js is NOT installed):**
+central radial core glow (orange→yellow→white hot, soft bloom); ~3,000–5,000 particles
+projected from 3D coords on a rough sphere/disc, slow orbital rotation, depth-sorted
+(far = dimmer/smaller); two-tone warm pink + cool teal palette, brighter near the core;
+faint spiral arms + a few elliptical-orbit drifters; additive blending; vignette; optional
+CRT scanline.
+
+**Idle "alive":** slow rotation + gentle breathing pulse (core radius/brightness ease up/down
+~3–4s, a resting heartbeat); particles shimmer.
+
+**TALK-REACTIVE beating (key ask):** core beats while ARIA talks back.
+- Controller: `coreState = 'idle'|'thinking'|'speaking'` + `intensity` 0–1.
+- User sends → `thinking`: cloud tightens inward, swirls faster, core dims (concentrating).
+- Response streams back → `speaking`: core PULSES on each streamed chunk/token (sharp bloom +
+  particle outward push per beat), sustained brighter glow through the reply; amplitude ∝
+  chunk cadence so it beats in time with the words.
+- If audio TTS used (browser `speechSynthesis`, no npm): also drive `intensity` from a Web
+  Audio `AnalyserNode` RMS so it beats to the actual voice; fall back to chunk-beat otherwise.
+- Reply end → ease to `idle` over ~1s.
+- Wire into the existing chat send + streaming handler (small context/store so any page drives
+  the core; canvas reads state each frame).
+
+**Data flavor (optional, from the "vault brain / git history" theme):** map particles to real
+memory — vault notes (`/api/vault/status`), long-term memories, git-commit "birth days" for a
+time-lapse toggle; recent-memory particles glow warmer.
+
+**Performance:** `requestAnimationFrame`, precomputed particle buffers, auto-throttle (drop
+particle count + disable bloom if FPS dips, e.g. on the 2014 Mac mini), pause when tab hidden.
+
+**Verification:** Brain page renders + breathes at idle; send a chat message → core goes
+thinking → BEATS in sync with the streaming reply → settles; ~60fps desktop, degrades
+gracefully on low-power hardware.
