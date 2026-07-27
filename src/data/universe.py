@@ -442,6 +442,111 @@ class UniverseManager:
         return dict(row) if row else None
 
     # ------------------------------------------------------------------
+    # On-demand resolution — fetch ANY global ticker live, add it to the
+    # index (progressive world-building). No more preloading 766 names:
+    # you ask for SAIL, it's pulled from Yahoo and remembered.
+    # ------------------------------------------------------------------
+    _EXCHANGE_SUFFIX = {"NSE": ".NS", "BSE": ".BO", "LSE": ".L"}
+
+    def _resolution_candidates(self, q: str, prefer: Optional[str] = None):
+        """Ordered (display, yahoo, exchange, asset_class) guesses for a query."""
+        q = q.strip().upper()
+        cands: list = []
+        if any(s in q for s in (".NS", ".BO", ".L", "-USD", "=X", "=F", "^")):
+            if q.endswith(".NS"):   cands.append((q[:-3], q, "NSE", "equity"))
+            elif q.endswith(".BO"): cands.append((q[:-3], q, "BSE", "equity"))
+            elif q.endswith(".L"):  cands.append((q[:-2], q, "LSE", "equity"))
+            elif q.endswith("-USD"): cands.append((q, q, "CRYPTO", "crypto"))
+            else:                    cands.append((q, q, "US", "equity"))
+        else:
+            cands.append((q, q, "US", "equity"))
+            cands.append((q, f"{q}.NS", "NSE", "equity"))
+            cands.append((q, f"{q}.BO", "BSE", "equity"))
+            cands.append((q, f"{q}.L", "LSE", "equity"))
+            cands.append((q, f"{q}-USD", "CRYPTO", "crypto"))
+        if prefer:
+            p = prefer.upper()
+            cands.sort(key=lambda c: 0 if c[2] == p else 1)
+        return cands
+
+    def resolve(self, query: str, prefer: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Return the index row for a symbol, fetching it LIVE from Yahoo and
+        adding it if unknown. `prefer` biases the market (NSE/BSE/US/LSE) so a
+        bare 'SAIL' resolves to the Indian listing, not a US namesake."""
+        q = (query or "").strip().upper()
+        if not q:
+            return None
+        hit = self._lookup(q)
+        if hit:
+            return hit
+        import yfinance as yf  # lazy
+        for disp, yahoo, exch, aclass in self._resolution_candidates(q, prefer):
+            existing = self._lookup(disp)
+            if existing:
+                return existing
+            try:
+                t = yf.Ticker(yahoo)
+                hist = t.history(period="5d")
+                if hist is None or hist.empty:
+                    continue
+                raw = {}
+                try:
+                    raw = t.info or {}
+                except Exception:
+                    pass
+                name = raw.get("longName") or raw.get("shortName") or disp
+                self._insert_resolved(disp, yahoo, name, exch, aclass)
+                logger.info(f"resolved new ticker {disp} → {yahoo} ({exch})")
+                return self._lookup(disp)
+            except Exception:
+                continue
+        return None
+
+    def _insert_resolved(self, symbol, yahoo, name, exchange, asset_class):
+        now = datetime.now().isoformat()
+        with self._lock, self._conn() as conn:
+            conn.execute(
+                """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, updated_at)
+                   VALUES(?,?,?,?,?,?)
+                   ON CONFLICT(symbol) DO UPDATE SET
+                     yahoo=excluded.yahoo, name=excluded.name,
+                     exchange=excluded.exchange, asset_class=excluded.asset_class,
+                     updated_at=excluded.updated_at""",
+                (symbol, yahoo, name, exchange, asset_class, now))
+
+    def explore(self, query: str, prefer: Optional[str] = None,
+                n_peers: int = 5) -> Dict[str, Any]:
+        """Search ANY global ticker (streaming/LOD): resolve+fetch it live if
+        unknown, return its full dossier, and warm the related names (sector
+        peers) in the background — the tile you asked for plus the next street.
+        Prunes the least-used cached dossiers so the cache stays bounded."""
+        info = self.resolve(query, prefer)
+        if not info:
+            return {"error": f"could not resolve '{query}' on US/NSE/BSE/LSE — "
+                             f"try an explicit ticker like {query.strip().upper()}.NS"}
+        dossier = self.dossier(info["symbol"], prefetch_peers=True)
+        peers = self.peers(info["symbol"], n_peers)
+        self._prune_dossiers()
+        return {
+            "resolved": {"symbol": info["symbol"], "yahoo": info["yahoo"],
+                         "exchange": info.get("exchange"), "name": info.get("name")},
+            "dossier": dossier,
+            "related": peers,
+            "note": f"resolved as {info['yahoo']} on {info.get('exchange')}; "
+                    f"{len(peers)} related names warming in the background",
+        }
+
+    def _prune_dossiers(self, cap: int = 800) -> None:
+        """Forget the unnecessary: delete the least-recently-fetched dossiers
+        beyond the cap so the on-demand cache never grows without bound."""
+        try:
+            files = sorted(DOSSIER_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime)
+            for old in files[:-cap]:
+                old.unlink()
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
     # Tier 1 — quote cards
     # ------------------------------------------------------------------
     # Currency by exchange — so a searched symbol always shows the right units.
@@ -721,13 +826,34 @@ class UniverseManager:
         if not info or not info.get("sector"):
             return []
         with self._conn() as conn:
-            rows = conn.execute(
+            # 1) closest peers: same sector, same exchange
+            rows = list(conn.execute(
                 """SELECT symbol, yahoo, name, sector, industry, mcap
                    FROM symbols
                    WHERE sector=? AND exchange=? AND symbol != ? AND mcap IS NOT NULL
                    ORDER BY mcap DESC LIMIT ?""",
                 (info["sector"], info["exchange"], info["symbol"], n),
-            ).fetchall()
+            ).fetchall())
+            # 2) widen to same INDUSTRY across ANY market (global competitors),
+            #    then same SECTOR anywhere — fills in as the universe is explored.
+            if len(rows) < n:
+                have = {r["symbol"] for r in rows} | {info["symbol"]}
+                for col, val in (("industry", info.get("industry")),
+                                 ("sector", info.get("sector"))):
+                    if not val or len(rows) >= n:
+                        continue
+                    extra = conn.execute(
+                        f"""SELECT symbol, yahoo, name, sector, industry, mcap
+                            FROM symbols
+                            WHERE {col}=? AND symbol != ? AND mcap IS NOT NULL
+                            ORDER BY mcap DESC LIMIT ?""",
+                        (val, info["symbol"], n * 3),
+                    ).fetchall()
+                    for r in extra:
+                        if r["symbol"] not in have:
+                            rows.append(r); have.add(r["symbol"])
+                            if len(rows) >= n:
+                                break
         return [dict(r) for r in rows]
 
     def _prefetch_peers_async(self, info: Dict[str, Any]) -> None:

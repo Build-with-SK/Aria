@@ -1372,6 +1372,18 @@ def universe_search(q: str, n: int = 20):
     return _get_universe().search(q, n=min(n, 50))
 
 
+@app.get("/api/universe/explore", tags=["Universe"])
+def universe_explore(q: str, market: Optional[str] = None, peers: int = 5):
+    """Explore ANY global ticker on demand — including names not in the index
+    (e.g. SAIL on NSE). Fetches it live from Yahoo, adds it to the index,
+    returns its dossier, and warms related names in the background.
+    `market` (NSE/BSE/US/LSE) disambiguates a bare symbol."""
+    if not q or len(q) < 1:
+        raise HTTPException(status_code=400, detail="q is required")
+    return _sanitize(_get_universe().explore(q, prefer=market,
+                                             n_peers=min(max(peers, 0), 10)))
+
+
 @app.get("/api/universe/quote/{symbol}", tags=["Universe"])
 def universe_quote(symbol: str):
     """Tier-1 quote card: price + day change, cached 15 min."""
