@@ -90,7 +90,7 @@ function StockLookup() {
       <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
         <input value={sym} onChange={e => setSym(e.target.value.toUpperCase())}
           onKeyDown={e => e.key === 'Enter' && go()}
-          placeholder="AAPL · SAIL · TSLA · BTC-USD"
+          placeholder="Type any symbol…"
           style={{
             flex: 1, fontFamily: MONO, fontSize: 12, padding: '8px 10px',
             background: '#0a0509', color: '#fff', border: '1px solid var(--border)', borderRadius: 4,

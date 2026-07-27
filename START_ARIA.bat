@@ -23,9 +23,7 @@ start "ARIA Frontend" cmd /k "cd /d "C:\Users\sound\Documents\trading-intelligen
 
 timeout /t 6 /nobreak >nul
 
-start "" "http://localhost:3000/chat"
-timeout /t 1 /nobreak >nul
-start "" "http://localhost:3000/execute"
+start "" "http://localhost:3000/"
 
 echo.
 echo  =========================================
