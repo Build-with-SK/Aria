@@ -49,6 +49,13 @@ def _backup_desk_state():
         logger.warning(f"desk backup failed: {e}")
 
 
+# Liquid crypto majors the desk will consider (Alpaca-tradeable, deep books).
+CRYPTO_MAJORS = {
+    "BTC-USD", "ETH-USD", "SOL-USD", "AVAX-USD", "LINK-USD", "LTC-USD",
+    "BCH-USD", "DOGE-USD", "DOT-USD", "AAVE-USD", "UNI-USD", "XTZ-USD",
+}
+
+
 def us_equities_open(now: datetime | None = None) -> bool:
     """US cash session 09:30–16:00 ET, Mon–Fri. Best-effort (holidays and
     early closes are not modelled — a closed-market order just queues at
@@ -366,7 +373,9 @@ class DeskDaemon:
         def executable(t, d):
             ac = (d.get("asset_class") or "").lower()
             if "crypto" in ac or t.endswith("-USD"):
-                return True                   # crypto trades 24/7
+                # Liquid majors only — noisy micro-caps (BONK/PENDLE/…) dominate
+                # off-hours cycles with extreme signals that never resolve.
+                return t in CRYPTO_MAJORS
             if not equities_open:
                 return False                  # market closed → no equity debates
             return not any(c in t for c in ("=", "^"))    # no futures/indices

@@ -158,10 +158,20 @@ class DebateEngine:
             weights = current_weights()
         except Exception:
             weights = dict(WEIGHTS)
+        # Renormalize over the analysts that actually VOTED (have a bull/bear
+        # view). An abstaining analyst — no fundamentals for crypto/ETFs, no
+        # news for sentiment — must not dilute the conviction of those that did
+        # opine; otherwise a strong single-analyst read caps at ~50 and can
+        # never clear the bar (why the desk sat idle). Disagreement still nets
+        # toward zero, so broad conflict still kills the trade.
+        voting = [o for o in per_ticker if o.view in ("bull", "bear")]
+        wsum = sum(weights.get(o.agent, WEIGHTS[o.agent]) for o in voting)
         net = 0.0
-        for o in per_ticker:
-            direction = 1 if o.view == "bull" else -1 if o.view == "bear" else 0
-            net += weights.get(o.agent, WEIGHTS[o.agent]) * o.conviction * direction
+        if wsum > 0:
+            for o in voting:
+                direction = 1 if o.view == "bull" else -1
+                w = weights.get(o.agent, WEIGHTS[o.agent]) / wsum
+                net += w * o.conviction * direction
         view = "bull" if net > 0 else "bear" if net < 0 else "neutral"
         conviction = int(min(100, abs(net)))
         conviction -= CONTRADICTION_PENALTY * len(contradictions)
