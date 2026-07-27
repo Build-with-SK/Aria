@@ -525,16 +525,44 @@ class UniverseManager:
             return {"error": f"could not resolve '{query}' on US/NSE/BSE/LSE — "
                              f"try an explicit ticker like {query.strip().upper()}.NS"}
         dossier = self.dossier(info["symbol"], prefetch_peers=True)
-        peers = self.peers(info["symbol"], n_peers)
+
+        # Curated competitor/supplier graph (data/relationships.json) — the
+        # named relations price data can't give. Each is resolved live so it's
+        # added + cached too; then progressive sector peers fill the rest.
+        from src.data.relationships import related_symbols
+        rel = related_symbols(info["symbol"], info.get("yahoo"))
+        competitors = self._resolve_related(rel["competitors"])
+        suppliers = self._resolve_related(rel["suppliers"])
+        named = {c["symbol"] for c in competitors} | {s["symbol"] for s in suppliers}
+        sector_peers = [p for p in self.peers(info["symbol"], n_peers)
+                        if p["symbol"] not in named]
         self._prune_dossiers()
+
+        total = len(competitors) + len(suppliers) + len(sector_peers)
         return {
             "resolved": {"symbol": info["symbol"], "yahoo": info["yahoo"],
                          "exchange": info.get("exchange"), "name": info.get("name")},
             "dossier": dossier,
-            "related": peers,
+            "related": {"competitors": competitors, "suppliers": suppliers,
+                        "sector_peers": sector_peers},
             "note": f"resolved as {info['yahoo']} on {info.get('exchange')}; "
-                    f"{len(peers)} related names warming in the background",
+                    f"{total} related names (curated + sector) warming in background",
         }
+
+    def _resolve_related(self, symbols: list, cap: int = 6) -> list:
+        """Resolve a list of related yahoo-ready symbols to light index rows
+        (adding + caching each on demand), skipping any that don't resolve."""
+        out = []
+        for s in symbols[:cap]:
+            try:
+                info = self.resolve(s)
+                if info:
+                    out.append({"symbol": info["symbol"], "yahoo": info["yahoo"],
+                                "name": info.get("name"),
+                                "exchange": info.get("exchange")})
+            except Exception:
+                continue
+        return out
 
     def _prune_dossiers(self, cap: int = 800) -> None:
         """Forget the unnecessary: delete the least-recently-fetched dossiers

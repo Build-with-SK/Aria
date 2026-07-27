@@ -1,0 +1,29 @@
+{
+  "_comment": "Curated competitor/supplier graph. Symbols are yahoo-ready (US bare, .NS for NSE, .BO for BSE, .L for London). explore() resolves + caches each on demand, so listing a name here also warms it. Extend freely — unknown tickers just get skipped. This is the seed; sector peers fill in progressively on top.",
+  "TSLA":       {"competitors": ["GM", "F", "RIVN", "NIO", "LCID", "BYDDY"], "suppliers": ["PANW", "NVDA", "ALB", "PCRFY"]},
+  "AAPL":       {"competitors": ["MSFT", "GOOGL", "SSNLF", "005930.KS"], "suppliers": ["TSM", "QCOM", "AVGO", "SWKS", "CRUS"]},
+  "NVDA":       {"competitors": ["AMD", "INTC", "AVGO", "QCOM"], "suppliers": ["TSM", "ASML", "MU", "SK"]},
+  "AMD":        {"competitors": ["NVDA", "INTC", "AVGO"], "suppliers": ["TSM", "ASML"]},
+  "MSFT":       {"competitors": ["GOOGL", "AMZN", "AAPL", "ORCL", "CRM"], "suppliers": ["NVDA", "AMD", "INTC"]},
+  "GOOGL":      {"competitors": ["MSFT", "META", "AMZN", "AAPL"], "suppliers": ["NVDA", "AVGO"]},
+  "AMZN":       {"competitors": ["MSFT", "GOOGL", "WMT", "BABA"], "suppliers": ["NVDA", "UPS", "FDX"]},
+  "META":       {"competitors": ["GOOGL", "SNAP", "PINS", "TTD"], "suppliers": ["NVDA", "AMD"]},
+  "JPM":        {"competitors": ["BAC", "WFC", "C", "GS", "MS"], "suppliers": []},
+  "TSM":        {"competitors": ["INTC", "005930.KS", "UMC", "GFS"], "suppliers": ["ASML", "AMAT", "LRCX", "KLAC"]},
+  "ASML":       {"competitors": ["AMAT", "LRCX", "KLAC", "TOELY"], "suppliers": ["IITSF"]},
+
+  "SAIL.NS":    {"competitors": ["TATASTEEL.NS", "JSWSTEEL.NS", "JINDALSTEL.NS", "JSL.NS"], "suppliers": ["NMDC.NS", "COALINDIA.NS"]},
+  "TATASTEEL.NS": {"competitors": ["JSWSTEEL.NS", "SAIL.NS", "JINDALSTEL.NS"], "suppliers": ["NMDC.NS", "COALINDIA.NS"]},
+  "JSWSTEEL.NS": {"competitors": ["TATASTEEL.NS", "SAIL.NS", "JINDALSTEL.NS"], "suppliers": ["NMDC.NS", "COALINDIA.NS"]},
+  "TATAMOTORS.NS": {"competitors": ["M&M.NS", "MARUTI.NS", "ASHOKLEY.NS", "EICHERMOT.NS", "TSLA"], "suppliers": ["MOTHERSON.NS", "BOSCHLTD.NS", "BHARATFORG.NS", "EXIDEIND.NS"]},
+  "RELIANCE.NS": {"competitors": ["ONGC.NS", "BPCL.NS", "IOC.NS"], "suppliers": []},
+  "INFY.NS":    {"competitors": ["TCS.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"], "suppliers": []},
+  "TCS.NS":     {"competitors": ["INFY.NS", "WIPRO.NS", "HCLTECH.NS", "TECHM.NS"], "suppliers": []},
+
+  "GM":         {"competitors": ["F", "TSLA", "TM", "STLA"], "suppliers": ["APTV", "BWA", "LEA", "MGA"]},
+  "F":          {"competitors": ["GM", "TSLA", "TM", "STLA"], "suppliers": ["APTV", "BWA", "LEA", "MGA"]},
+  "XOM":        {"competitors": ["CVX", "COP", "SHEL", "BP"], "suppliers": ["SLB", "HAL", "BKR"]},
+  "CVX":        {"competitors": ["XOM", "COP", "SHEL"], "suppliers": ["SLB", "HAL", "BKR"]},
+  "NUE":        {"competitors": ["STLD", "X", "CLF", "RS"], "suppliers": ["CMC"]},
+  "X":          {"competitors": ["NUE", "STLD", "CLF"], "suppliers": []}
+}
