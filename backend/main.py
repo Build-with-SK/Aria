@@ -998,6 +998,17 @@ def _ondemand_ticker_context(messages: List["ChatMsg"]) -> str:
         sup = ", ".join(s["symbol"] for s in rel.get("suppliers", [])) or "—"
         cur = f.get("currency", "")
         line = lambda k: f"{rr[k]:+.1f}%" if rr.get(k) is not None else "n/a"
+        # Investing.com-style technical consensus (best-effort, non-fatal)
+        tech = ""
+        try:
+            from src.data.technical_summary import multi_timeframe
+            mt = multi_timeframe(r["symbol"], ["1h", "1d", "1wk"])
+            per = " | ".join(f"{tf} {v.get('summary')}" for tf, v
+                             in mt["timeframes"].items() if v.get("summary"))
+            if per:
+                tech = f"\nTechnical consensus: {mt['consensus']} ({per})"
+        except Exception:
+            pass
         return (
             f"\n── ON-DEMAND DATA (fetched live just now) ──────────────\n"
             f"{r['symbol']} — {r.get('name')} [{r.get('exchange')}, {cur}]\n"
@@ -1006,7 +1017,7 @@ def _ondemand_ticker_context(messages: List["ChatMsg"]) -> str:
             f"Sector {f.get('sector','?')} / {f.get('industry','?')} | "
             f"P/E {f.get('trailingPE','?')} | ROE {f.get('returnOnEquity','?')} | "
             f"MktCap {f.get('marketCap','?')}\n"
-            f"Competitors: {comp}\nSuppliers: {sup}\n"
+            f"Competitors: {comp}\nSuppliers: {sup}{tech}\n"
             f"──────────────────────────────────────────────────────")
     except Exception as e:
         logger.warning(f"on-demand ticker context failed: {e}")
@@ -1458,6 +1469,31 @@ def universe_search(q: str, n: int = 20):
     if not q or len(q) < 1:
         return []
     return _get_universe().search(q, n=min(n, 50))
+
+
+@app.get("/api/technical/summary", tags=["Technical"])
+def technical_summary_endpoint(symbol: str, timeframes: Optional[str] = None):
+    """Investing.com-style technical summary (Strong Buy…Strong Sell) across
+    timeframes for ANY global symbol. `timeframes` = comma list (e.g.
+    5m,15m,1h,1d,1wk); omit for the default set."""
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol is required")
+    from src.data.technical_summary import multi_timeframe
+    tfs = [t.strip() for t in timeframes.split(",")] if timeframes else None
+    return _sanitize(multi_timeframe(symbol, tfs))
+
+
+@app.get("/api/technical/recommendations", tags=["Technical"])
+def technical_recommendations(timeframe: str = "1d", limit: int = 25,
+                              symbols: Optional[str] = None):
+    """Technical recommendations page — strongest setups. Scans `symbols`
+    (comma list) or the top-|composite| universe names on `timeframe`."""
+    from src.data.technical_summary import (recommendations,
+                                            scan_universe_recommendations)
+    if symbols:
+        recs = recommendations([s.strip() for s in symbols.split(",")], timeframe)
+        return _sanitize({"timeframe": timeframe, "recommendations": recs})
+    return _sanitize(scan_universe_recommendations(timeframe, min(limit, 60)))
 
 
 @app.get("/api/universe/explore", tags=["Universe"])
