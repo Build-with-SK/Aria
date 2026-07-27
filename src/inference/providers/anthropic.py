@@ -28,7 +28,11 @@ class AnthropicProvider(Provider):
         if not key:
             raise FatalError("ANTHROPIC_API_KEY not set", self.name, model)
         body: dict = {"model": model, "max_tokens": max_tokens,
-                      "temperature": temperature, "messages": messages}
+                      "messages": messages}
+        # `temperature` is deprecated on newer models (e.g. Fable) — only send
+        # it where it's accepted, and never when None (caller wants the default).
+        if temperature is not None and "fable" not in (model or "").lower():
+            body["temperature"] = temperature
         if system:
             body["system"] = system
         req = urllib.request.Request(

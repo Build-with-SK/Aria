@@ -251,6 +251,16 @@ class DeskDaemon:
             except Exception as e:
                 summary["errors"].append(f"learner: {e}")
 
+            # 0b. TEACH — Fable grades newly closed trades, writes lessons that
+            # future debates recall (opt-in, budget-capped, never blocks).
+            try:
+                from src.desk.teacher import teach_from_closed_trades
+                taught = teach_from_closed_trades(cfg)
+                if taught.get("reviewed"):
+                    summary["taught"] = taught["reviewed"]
+            except Exception as e:
+                summary["errors"].append(f"teacher: {e}")
+
             # 1. MACRO conditioner — market-wide, scales everything downstream
             conditioner = macro_agent.condition()
             summary["regime"] = conditioner.regime

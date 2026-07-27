@@ -1758,6 +1758,21 @@ def desk_tick_now():
             "message": "Management tick running. Poll /api/desk/status."}
 
 
+@app.get("/api/desk/lessons", tags=["Desk"])
+def desk_lessons(n: int = 50):
+    """Fable's teaching lessons from reviewing closed trades."""
+    from src.desk.teacher import read_lessons
+    return _sanitize({"lessons": list(reversed(read_lessons(n)))})
+
+
+@app.post("/api/desk/teach-now", tags=["Desk"])
+def desk_teach_now():
+    """Have Fable review any un-taught closed trades right now (opt-in;
+    needs teacher_enabled + ANTHROPIC_API_KEY, budget-capped)."""
+    from src.desk.teacher import teach_from_closed_trades
+    return _sanitize(teach_from_closed_trades())
+
+
 @app.get("/api/desk/playbooks", tags=["Desk"])
 def desk_playbooks():
     """Armed reflex playbooks (fast-lane triggers) + recent reflex config."""

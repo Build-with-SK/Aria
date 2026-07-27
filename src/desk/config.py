@@ -49,6 +49,11 @@ DEFAULTS = {
     "reflex_signal_spike": 40.0,     # |composite| crossing this arms a signal playbook
     "reflex_veto_max_tokens": 30,    # Haiku veto answer budget
     "reflex_on_llm_fail": "skip",    # veto unreachable → "skip" (safe) | "proceed"
+    # ── Fable teacher/reviewer (Fable grades closed trades, writes lessons) ──
+    "teacher_enabled": False,        # opt-in — costs API calls
+    "teacher_model": "claude-fable-5",   # the teacher brain (frontier)
+    "teacher_daily_cap": 40,         # max Fable reviews/day (bill guard)
+    "teacher_recall_lessons": 3,     # lessons injected into a future debate
     "llm_model": "qwen2.5-coder:7b",   # local model for debate prose (optional)
     "ntfy_topic": "",               # e.g. "aria-desk-<random>" → push via ntfy.sh
     "pushover_user": "",

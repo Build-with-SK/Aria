@@ -235,25 +235,35 @@ class DebateEngine:
     # ── memory recall (Module 5 reflection, read side) ────────────────────
 
     def _recall(self, ticker: str) -> str:
-        """'Last time this thesis fired, what happened?' — per-thesis memory."""
-        if self.memory is None:
-            return ""
+        """'Last time this thesis fired, what happened?' — per-thesis memory,
+        plus Fable's teacher lessons on this ticker (file-backed, works even
+        without ChromaDB, so the mini gets them too)."""
+        lines = []
+        # Fable's lessons first — they're the distilled 'what to do differently'
         try:
-            mems = self.memory.recall(f"desk debate {ticker} trade outcome", n=3)
-            lines = []
-            for m in mems:
-                if "desk-debate" not in (m.tags or []):
-                    continue
-                for _, o in (m.outcome or {}).items():
-                    if isinstance(o, dict) and "pnl_pct" in o:
-                        lines.append(
-                            f"- Past desk trade on {o.get('ticker')}: {o.get('side')} closed "
-                            f"{o['pnl_pct']:+.1f}% in {o.get('duration_days', '?')} days "
-                            f"(debate {m.id}).")
-            return "\n".join(lines[:3])
+            from src.desk.teacher import recall_lessons
+            from src.desk.config import load_config
+            n = int(load_config().get("teacher_recall_lessons", 3))
+            taught = recall_lessons(ticker, n)
+            if taught:
+                lines.append(taught)
         except Exception as e:
-            logger.debug(f"debate recall failed: {e}")
-            return ""
+            logger.debug(f"teacher recall failed: {e}")
+        if self.memory is not None:
+            try:
+                mems = self.memory.recall(f"desk debate {ticker} trade outcome", n=3)
+                for m in mems:
+                    if "desk-debate" not in (m.tags or []):
+                        continue
+                    for _, o in (m.outcome or {}).items():
+                        if isinstance(o, dict) and "pnl_pct" in o:
+                            lines.append(
+                                f"- Past desk trade on {o.get('ticker')}: {o.get('side')} closed "
+                                f"{o['pnl_pct']:+.1f}% in {o.get('duration_days', '?')} days "
+                                f"(debate {m.id}).")
+            except Exception as e:
+                logger.debug(f"debate recall failed: {e}")
+        return "\n".join(lines[:5])
 
     # ── contradiction guard ───────────────────────────────────────────────
 
