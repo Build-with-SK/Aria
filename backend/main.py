@@ -1496,6 +1496,22 @@ def technical_recommendations(timeframe: str = "1d", limit: int = 25,
     return _sanitize(scan_universe_recommendations(timeframe, min(limit, 60)))
 
 
+@app.post("/api/technical/snapshot", tags=["Technical"])
+def technical_snapshot(timeframe: str = "1d", limit: int = 30):
+    """Record today's technical recommendations for forward performance
+    tracking (also runs daily on its own at 21:30)."""
+    from src.data.technical_tracker import snapshot
+    return _sanitize(snapshot(timeframe, min(limit, 60)))
+
+
+@app.get("/api/technical/performance", tags=["Technical"])
+def technical_performance(min_age_days: int = 1):
+    """Honest hit-rate + average return of past technical recommendations,
+    by label (Strong Buy/Buy/Sell/…). Accumulates as daily snapshots age."""
+    from src.data.technical_tracker import evaluate
+    return _sanitize(evaluate(min_age_days=min_age_days))
+
+
 @app.get("/api/universe/explore", tags=["Universe"])
 def universe_explore(q: str, market: Optional[str] = None, peers: int = 5):
     """Explore ANY global ticker on demand — including names not in the index

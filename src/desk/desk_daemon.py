@@ -56,6 +56,16 @@ CRYPTO_MAJORS = {
 }
 
 
+def _snapshot_technical_recs():
+    """Record today's technical recommendations so their forward performance
+    can be measured. Runs once daily; safe no-op on any failure."""
+    try:
+        from src.data.technical_tracker import snapshot
+        snapshot(timeframe="1d", limit=30)
+    except Exception as e:
+        logger.warning(f"technical recs snapshot failed: {e}")
+
+
 def us_equities_open(now: datetime | None = None) -> bool:
     """US cash session 09:30–16:00 ET, Mon–Fri. Best-effort (holidays and
     early closes are not modelled — a closed-market order just queues at
@@ -111,6 +121,9 @@ class DeskDaemon:
         # Nightly state backup (cheap insurance against a corrupted JSON file)
         self.scheduler.add_job(_backup_desk_state, "cron", hour=2, minute=0,
                                id="desk_backup", replace_existing=True)
+        # Daily technical-recommendations snapshot (for forward hit-rate)
+        self.scheduler.add_job(_snapshot_technical_recs, "cron", hour=21,
+                               minute=30, id="tech_snapshot", replace_existing=True)
         self.scheduler.start()
         self.running = True
         # REFLEX fast lane — watches armed playbooks, fires in seconds

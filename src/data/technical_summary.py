@@ -128,13 +128,17 @@ def _osc_signals(df) -> dict:
 
 def score_frame(df) -> dict | None:
     """Full technical summary for one OHLC frame. None if too little data."""
-    if df is None or len(df) < 30:
+    if df is None or "Close" not in getattr(df, "columns", []):
+        return None
+    df = df.dropna(subset=["Close"])          # drop incomplete/latest-NaN bars
+    if len(df) < 30:
         return None
     ma = _ma_signals(df)
     osc = _osc_signals(df)
     ma_t, osc_t = tally(ma), tally(osc)
     overall = tally({**ma, **osc})
     return {
+        "price": round(float(df["Close"].iloc[-1]), 4),
         "summary": overall["label"],
         "counts": {"buy": overall["buy"], "sell": overall["sell"],
                    "neutral": overall["neutral"]},
@@ -213,7 +217,7 @@ def recommendations(symbols: list, timeframe: str = "1d",
         if "error" in r or r["summary"] not in want:
             continue
         out.append({"symbol": s, "summary": r["summary"], "counts": r["counts"],
-                    "score": _SCORE.get(r["summary"], 0)})
+                    "price": r.get("price"), "score": _SCORE.get(r["summary"], 0)})
     out.sort(key=lambda x: (-abs(x["score"]), -x["counts"]["buy"]))
     return out
 
