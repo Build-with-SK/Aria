@@ -21,6 +21,7 @@ const GROUPS = [
       { path: '/',          label: 'COMMAND',    icon: '⌂' },
       { path: '/explorer',  label: 'EXPLORER',   icon: '⌕' },
       { path: '/signals',   label: 'SIGNALS',    icon: '∿' },
+      { path: '/recommendations', label: 'RECOMMEND', icon: '★' },
       { path: '/macro',     label: 'MACRO',      icon: '⊕' },
       { path: '/futures',   label: 'FUTURES',    icon: '◆' },
       { path: '/options',   label: 'OPTIONS',    icon: '◇' },
