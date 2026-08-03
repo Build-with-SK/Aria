@@ -6,6 +6,7 @@ import ConnectionBanner from './components/ConnectionBanner'
 import CommandPalette from './components/CommandPalette'
 import Login from './pages/Login'
 import { useAuth } from './auth/AuthContext'
+import OwnerOnly from './auth/OwnerOnly'
 /* ── the twelve destinations ── */
 import Chat        from './pages/Chat'
 import CommandHub  from './pages/CommandHub'
@@ -166,13 +167,13 @@ export default function App() {
             <Route path="/v5"           element={<V5          />} />
             <Route path="/research"     element={<Research    />} />
             <Route path="/lab"          element={<LabHub      />} />
-            <Route path="/brain"        element={<BrainHub    />} />
+            <Route path="/brain"        element={<OwnerOnly what="ARIA's memory"><BrainHub    /></OwnerOnly>} />
             <Route path="/markets"      element={<Markets     />} />
             <Route path="/recommendations" element={<Recommendations />} />
-            <Route path="/portfolio"    element={<Portfolio   />} />
+            <Route path="/portfolio"    element={<OwnerOnly what="Portfolio"><Portfolio   /></OwnerOnly>} />
             <Route path="/stress"       element={<Quant       />} />
-            <Route path="/track-record" element={<TrackRecord />} />
-            <Route path="/desk"         element={<DeskHub     />} />
+            <Route path="/track-record" element={<OwnerOnly what="The owner’s track record"><TrackRecord /></OwnerOnly>} />
+            <Route path="/desk"         element={<OwnerOnly what="The trading desk"><DeskHub     /></OwnerOnly>} />
 
             {/* ── every pre-restructure path still resolves ──
                 Bookmarks, START_ARIA.bat and anything a user has open keep

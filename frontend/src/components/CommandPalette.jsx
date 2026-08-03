@@ -18,7 +18,8 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { GROUPS } from './Sidebar'
+import { groupsFor } from './Sidebar'
+import { useAuth } from '../auth/AuthContext'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -40,7 +41,7 @@ const EXTRA_KEYWORDS = {
   '/desk':        ['execute', 'execution', 'orders', 'debate', 'agents', 'trading'],
 }
 
-const DESTINATIONS = GROUPS.flatMap(g =>
+const buildDestinations = isOwner => groupsFor(isOwner).flatMap(g =>
   g.items.map(it => ({
     kind: 'page',
     path: it.path,
@@ -68,6 +69,7 @@ function score(item, q) {
 }
 
 export default function CommandPalette() {
+  const { owner } = useAuth()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [sel, setSel] = useState(0)
@@ -118,6 +120,11 @@ export default function CommandPalette() {
 
   useEffect(() => { if (open) inputRef.current?.focus() }, [open])
 
+  // Same list the rail shows. Leaving owner-only pages searchable here would
+  // undo the hiding — typing "portfolio" would still name a door that answers
+  // 403, which is the thing we set out to stop.
+  const DESTINATIONS = useMemo(() => buildDestinations(owner), [owner])
+
   const results = useMemo(() => {
     const query = q.trim().toLowerCase()
     const pages = query
@@ -146,7 +153,7 @@ export default function CommandPalette() {
       out.splice(pages.length === 0 ? 0 : 1, 0, ticker)
     }
     return out.slice(0, 20)
-  }, [q])
+  }, [q, DESTINATIONS])
 
   useEffect(() => { setSel(0) }, [q])
 

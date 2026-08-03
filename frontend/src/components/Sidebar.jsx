@@ -3,12 +3,18 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { useHealth } from '../hooks/useApi'
 import { CURRENCY_META, useCurrency } from '../currency/CurrencyContext'
 import Settings from './Settings'
+import { useAuth } from '../auth/AuthContext'
 import axios from 'axios'
 
 /* ── command rail — twelve destinations, grouped by the question they answer ──
    Was twenty-two. Four of those pages answered "should I buy this?" and five
    were "the AI thinking"; the merged ones are now tabs inside the page they
    belong to, and every old path still redirects.                            */
+/* `owner: true` means the destination is not merely refused for other people —
+   it is not shown to them at all. A rail full of doors that answer 403 is a
+   worse experience than a shorter rail, and it also stops advertising what
+   exists on the other side. The server refuses these regardless; hiding them
+   is courtesy, never the control. */
 export const GROUPS = [
   {
     label: 'INTELLIGENCE',
@@ -17,7 +23,7 @@ export const GROUPS = [
       { path: '/v5',        label: 'ARIA V5',    icon: '◆' },
       { path: '/research',  label: 'RESEARCH',   icon: '◬' },
       { path: '/lab',       label: 'QUANT LAB',  icon: '⚗' },
-      { path: '/brain',     label: 'BRAIN',      icon: '◈' },
+      { path: '/brain',     label: 'BRAIN',      icon: '◈', owner: true },
     ],
   },
   {
@@ -31,27 +37,36 @@ export const GROUPS = [
   {
     label: 'PORTFOLIO',
     items: [
-      { path: '/portfolio', label: 'PORTFOLIO',  icon: '▣' },
+      { path: '/portfolio', label: 'PORTFOLIO',  icon: '▣', owner: true },
       { path: '/stress',    label: 'STRESS',     icon: 'ƒ' },
     ],
   },
   {
     label: 'LEARNING',
     items: [
-      { path: '/track-record', label: 'TRACK RECORD', icon: '◎' },
+      { path: '/track-record', label: 'TRACK RECORD', icon: '◎', owner: true },
     ],
   },
   {
     label: 'OPERATIONS',
     items: [
-      { path: '/desk',      label: 'THE DESK',   icon: '▦', badge: true },
+      { path: '/desk',      label: 'THE DESK',   icon: '▦', badge: true, owner: true },
     ],
   },
 ]
 
+/** The rail as a given role should see it — groups that empty out disappear. */
+export function groupsFor(isOwner) {
+  if (isOwner) return GROUPS
+  return GROUPS
+    .map(g => ({ ...g, items: g.items.filter(i => !i.owner) }))
+    .filter(g => g.items.length > 0)
+}
+
 export default function Sidebar() {
   const { data: health } = useHealth()
   const { display } = useCurrency()
+  const { owner, user } = useAuth()
   const loc = useLocation()
   const [pendingCount, setPendingCount] = useState(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -59,7 +74,13 @@ export default function Sidebar() {
   // Close the off-canvas rail after a navigation on small screens.
   useEffect(() => { setRailOpen(false) }, [loc.pathname])
 
+  const groups = groupsFor(owner)
+
   useEffect(() => {
+    // The approval queue is owner-only, so polling it as anyone else was a 403
+    // every five seconds forever — noise in the audit log that would bury a
+    // real intrusion, and a request that could never succeed.
+    if (!owner) { setPendingCount(0); return }
     const poll = () => {
       axios.get('/api/execute/queue?status=pending')
         .then(r => setPendingCount(r.data?.count || 0))
@@ -68,7 +89,7 @@ export default function Sidebar() {
     poll()
     const id = setInterval(poll, 5000)
     return () => clearInterval(id)
-  }, [])
+  }, [owner])
 
   const live = health?.status === 'ok'
 
@@ -160,7 +181,7 @@ export default function Sidebar() {
 
       {/* ── nav groups ── */}
       <nav style={{ flex: 1, overflowY: 'auto', padding: '6px 0 10px' }}>
-        {GROUPS.map(g => (
+        {groups.map(g => (
           <div key={g.label}>
             <div style={{
               fontFamily: 'var(--mono)', fontSize: 8, fontWeight: 800,
