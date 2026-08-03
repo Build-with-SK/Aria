@@ -224,11 +224,24 @@ def check_network():
              "VPN blocking LAN, OLLAMA_HOST not set to 0.0.0.0, firewall, or the "
              "laptop's DHCP address changed.")
 
-    key = env.get("ANTHROPIC_API_KEY", "")
-    if key.startswith("sk-ant-"):
-        ok("ANTHROPIC_API_KEY present (router fallback + Fable teacher available)")
+    # Reading .env is NOT the same test the code performs. Only backend/main.py
+    # calls load_dotenv(); the inference router reads os.environ. So cron, the
+    # nightly pipeline and any manual script see no key at all even though .env
+    # sits right there — the teacher fails silently and looks like a dead API.
+    # Ask the question the way a plain subprocess would.
+    in_file = _read_env().get("ANTHROPIC_API_KEY", "").startswith("sk-ant-")
+    in_env = os.environ.get("ANTHROPIC_API_KEY", "").startswith("sk-ant-")
+
+    if in_env:
+        ok("ANTHROPIC_API_KEY visible in the environment (router + teacher work)")
+    elif in_file:
+        warn("ANTHROPIC_API_KEY is in .env but NOT in the environment. Anything "
+             "that does not call load_dotenv() — cron, main.py, the teacher run "
+             "standalone — will fail as 'ANTHROPIC_API_KEY not set'. Export it in "
+             "the shell profile, or put it in the cron line, if those must work.")
     else:
-        warn("no ANTHROPIC_API_KEY — with Ollama unreachable too, debates cannot run")
+        warn("no ANTHROPIC_API_KEY in .env or environment — with Ollama "
+             "unreachable too, debates cannot run at all")
 
     # Port the backend wants.
     s = socket.socket()
@@ -275,6 +288,44 @@ def check_safety():
 
 # ── 7. time ──────────────────────────────────────────────────────────────────
 
+def check_exposure():
+    """Who can reach this box, and what would they be allowed to do?"""
+    head("8. Exposure")
+
+    try:
+        from backend import main as bmain           # noqa
+        routes = [r for r in bmain.app.routes if getattr(r, "methods", None)]
+        n = len(routes)
+        guarded = 0
+        for r in routes:
+            deps = getattr(getattr(r, "dependant", None), "dependencies", []) or []
+            if deps:
+                guarded += 1
+        if guarded == 0:
+            warn(f"{n} endpoints, NONE requiring authentication. Among them are "
+                 "/api/execute/approve/<id> and /api/desk/auto-execute — the human "
+                 "approval gate is enforced by the port being unreachable, not by "
+                 "a check. Bind 127.0.0.1 and tunnel; never 0.0.0.0.")
+        else:
+            ok(f"{guarded}/{n} endpoints carry a dependency guard")
+    except Exception as e:
+        warn(f"could not introspect routes ({type(e).__name__}) — assume no auth")
+
+    # Chat answers are grounded in the owner's private notes. On a shared box
+    # that is a disclosure path, not a feature.
+    try:
+        from src.brain.vault import get_vault_path
+        vp = get_vault_path()
+        if vp and Path(vp).exists():
+            warn(f"chat is grounded in the vault at {vp}. Every answer may quote "
+                 "those notes verbatim. Anyone who can reach /api/chat can read "
+                 "them, and there is no per-user separation.")
+        else:
+            ok("no vault configured — chat will not surface personal notes")
+    except Exception:
+        pass
+
+
 def check_time():
     head("7. Time")
     from datetime import datetime, timezone
@@ -292,7 +343,8 @@ def main():
     print(f"{B}ARIA — Mac mini preflight{X}")
     print(f"repo: {ROOT}")
     for fn in (check_machine, check_deps, check_v5_without_chromadb,
-               check_filesystem, check_network, check_safety, check_time):
+               check_filesystem, check_network, check_safety, check_exposure,
+               check_time):
         try:
             fn()
         except Exception as e:

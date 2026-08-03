@@ -75,8 +75,18 @@ fi
 echo "preflight clean."
 echo
 cat <<EOF
-To start the backend now:
-  cd $ROOT && venv/bin/python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+To start the backend now (LOOPBACK ONLY — read the warning below):
+  cd $ROOT && venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+
+!! Do NOT bind --host 0.0.0.0 as things stand. None of the 106 endpoints
+   require authentication, and they include /api/execute/approve/<id> and
+   /api/desk/auto-execute. On 0.0.0.0 anyone on the Wi-Fi can approve a trade
+   or arm auto-execution, and every chat answer is grounded in the owner's
+   private Obsidian vault. The approval gate is currently enforced by the port
+   being unreachable, not by a check.
+
+   To reach the UI from another machine, tunnel instead of binding wide:
+     ssh -N -L 8000:127.0.0.1:8000 <user>@<mini>   # run on the other machine
 
 To run it permanently (survives logout/reboot), install the launchd agent
 described in docs/MAC_MINI_SETUP.md.
