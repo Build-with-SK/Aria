@@ -78,6 +78,12 @@ FREE_PREFIXES: tuple[str, ...] = (
     "/api/ml",
     "/api/summary",
     "/api/chat/local",     # Ollama only. /api/chat (cloud) is owner-only.
+    # Vital signs ONLY — no reasoning text, no memories, no controls. Watching
+    # ARIA think is the best thing this system does and should not need a
+    # login; but the brain reasons with the owner's vault in context, so
+    # /api/brain/memories, /recall and /last-cycle stay owner-only and every
+    # POST under /api/brain stays owner-only with them.
+    "/api/brain/pulse",
 )
 
 # Named so the reason survives someone reading the list in a hurry.

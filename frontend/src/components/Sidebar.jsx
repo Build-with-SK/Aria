@@ -23,7 +23,9 @@ export const GROUPS = [
       { path: '/v5',        label: 'ARIA V5',    icon: '◆' },
       { path: '/research',  label: 'RESEARCH',   icon: '◬' },
       { path: '/lab',       label: 'QUANT LAB',  icon: '⚗' },
-      { path: '/brain',     label: 'BRAIN',      icon: '◈', owner: true },
+      // Visible to everyone: signed-in users get the public pulse view, the
+      // owner gets the full console. See the /brain route in App.jsx.
+      { path: '/brain',     label: 'BRAIN',      icon: '◈' },
     ],
   },
   {

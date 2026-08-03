@@ -5,6 +5,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionBanner from './components/ConnectionBanner'
 import CommandPalette from './components/CommandPalette'
 import Login from './pages/Login'
+import BrainPublic from './pages/BrainPublic'
 import { useAuth } from './auth/AuthContext'
 import OwnerOnly from './auth/OwnerOnly'
 /* ── the twelve destinations ── */
@@ -107,7 +108,7 @@ function PageLoading() {
 
 export default function App() {
   const loc = useLocation()
-  const { ready, authenticated, role } = useAuth()
+  const { ready, authenticated, role, owner } = useAuth()
 
   // The break-glass path. The backend already grants owner on loopback when no
   // ARIA_OWNER_TOKEN is set, and honouring that here is what stops you being
@@ -167,7 +168,12 @@ export default function App() {
             <Route path="/v5"           element={<V5          />} />
             <Route path="/research"     element={<Research    />} />
             <Route path="/lab"          element={<LabHub      />} />
-            <Route path="/brain"        element={<OwnerOnly what="ARIA's memory"><BrainHub    /></OwnerOnly>} />
+            {/* Everyone may watch the brain; only the owner sees what it is
+                thinking about. BrainPublic renders the galaxy and the vital
+                signs from /api/brain/pulse — no transcripts, no memories, no
+                controls, because the reasoning loop runs with the owner's
+                vault in context. */}
+            <Route path="/brain"        element={owner ? <BrainHub /> : <BrainPublic />} />
             <Route path="/markets"      element={<Markets     />} />
             <Route path="/recommendations" element={<Recommendations />} />
             <Route path="/portfolio"    element={<OwnerOnly what="Portfolio"><Portfolio   /></OwnerOnly>} />

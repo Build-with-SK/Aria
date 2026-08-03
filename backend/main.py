@@ -1464,6 +1464,52 @@ def aria_chat_local(body: LocalChatRequest, request: Request):
         raise HTTPException(status_code=503, detail=str(e))
 
 
+@app.get("/api/brain/pulse", tags=["Local Brain"])
+def brain_pulse():
+    """The brain's vital signs — the ONE brain endpoint everybody may read.
+
+    ARIA thinking is the most compelling thing this system does, and it should
+    not be behind a login. But the brain reasons WITH the owner's Obsidian vault
+    in context (brain_daemon REASON step), so its cycle transcripts and its 783
+    stored memories can quote personal notes verbatim. /api/brain/memories also
+    returns the absolute ChromaDB path, which puts the owner's username back in
+    a response after we removed it from every file.
+
+    So this returns telemetry and no prose: is it alive, which step is it on,
+    how many cycles has it run, how many memories does it hold. Enough to drive
+    a living visualisation that is genuinely reflecting a real brain, without a
+    single line of what it is actually thinking about.
+
+    Nothing here is a control. Every POST — start, stop, run-now, consult,
+    pull-model, generate-training-data — stays owner-only, because those spend
+    the owner's CPU, disk and API budget.
+    """
+    daemon = {"running": False, "thinking": False, "cycle_count": 0,
+              "last_cycle_at": None, "memory_count": None, "model": None,
+              "step": None}
+    try:
+        from src.brain.brain_daemon import peek_brain
+        b = peek_brain()
+        if b is not None:
+            s = b.status() or {}
+            # Allowlist the fields. A blocklist would leak whatever gets added
+            # to status() next — and something will be.
+            daemon = {
+                "running": bool(s.get("running")),
+                "thinking": bool(s.get("thinking")),
+                "cycle_count": int(s.get("cycle_count") or 0),
+                "last_cycle_at": s.get("last_cycle_at"),
+                "memory_count": s.get("memory_count"),
+                "model": s.get("model"),
+                "step": s.get("step") or s.get("current_step"),
+            }
+    except Exception as e:
+        logger.debug(f"brain pulse peek failed: {e}")
+
+    return {"alive": bool(daemon["running"]), "daemon": daemon,
+            "ollama_running": _ollama_available()}
+
+
 @app.get("/api/brain/status", tags=["Local Brain"])
 def brain_status():
     """Full brain status — Ollama, models, daemon state, memory stats, adapters."""
