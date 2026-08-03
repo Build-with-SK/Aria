@@ -11,6 +11,17 @@ import './index.css'
 // never flashes at the default size for someone who needs it larger.
 applyA11y(loadA11y())
 
+// Install the service worker in production only. Registering it in dev would
+// put a cache in front of Vite's module graph and make HMR lie about what is
+// on screen. It caches the app shell and never the API — see public/sw.js.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      // An unavailable service worker costs offline launch, nothing else.
+    })
+  })
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>

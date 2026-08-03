@@ -1,0 +1,34 @@
+# ~/.cloudflared/config.yml — copy this, fill in the two placeholders.
+#
+# The tunnel dials OUT to Cloudflare and holds the connection open, so the mini
+# needs no inbound firewall rule, no static IP and no port forwarding. There is
+# no open port on your router for anyone to find.
+
+tunnel: PUT-YOUR-TUNNEL-UUID-HERE
+credentials-file: /Users/YOURNAME/.cloudflared/PUT-YOUR-TUNNEL-UUID-HERE.json
+
+# Keep the connection healthy on a home line.
+originRequest:
+  connectTimeout: 30s
+  noHappyEyeballs: true
+
+ingress:
+  - hostname: aria.yourdomain.com
+    # 127.0.0.1, never 0.0.0.0. uvicorn binds to loopback and ONLY cloudflared
+    # can reach it, so the API is unreachable from the LAN even if someone is
+    # on your Wi-Fi. That is the whole point of doing it this way.
+    service: http://127.0.0.1:8000
+
+  # If you serve the built frontend from the mini instead of Cloudflare Pages,
+  # run something static on 3000 and uncomment this ABOVE the rule below.
+  # Order matters: the first matching rule wins.
+  #
+  # - hostname: aria.yourdomain.com
+  #   path: ^/(api|health)/
+  #   service: http://127.0.0.1:8000
+  # - hostname: aria.yourdomain.com
+  #   service: http://127.0.0.1:3000
+
+  # Required last rule: everything unmatched gets a clean 404 rather than
+  # reaching anything.
+  - service: http_status:404

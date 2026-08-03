@@ -239,33 +239,49 @@ async def _role_guard(request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
 
-    from src.auth import session as sess
+    from src.auth import hardening, session as sess
+    from fastapi.responses import JSONResponse
+
+    ip = hardening.client_ip(request)
+
+    # Rate limit before authenticating: the cost of a request must not depend on
+    # whether the caller has an account, or an unauthenticated flood is free.
+    allowed, retry = hardening.rate_limit(ip, request.url.path)
+    if not allowed:
+        logger.info("rate_limit: %s throttled on %s", ip, request.url.path)
+        return JSONResponse(status_code=429,
+                            content={"detail": "Too many requests. Please slow down.",
+                                     "retry_after": retry},
+                            headers={"Retry-After": str(retry)})
+
     who = sess.read(request.cookies.get(sess.COOKIE))
-    role = policy.resolve_role(request.headers,
-                               request.client.host if request.client else None,
-                               who)
+    role = policy.resolve_role(request.headers, ip, who)
     request.state.role = role
     request.state.user = who
 
+    def _harden(resp):
+        for k, v in hardening.security_headers(hardening.is_https(request)).items():
+            resp.headers.setdefault(k, v)
+        return resp
+
     if not policy.is_allowed(request.url.path, role):
-        from fastapi.responses import JSONResponse
         logger.info("role_guard: %s denied %s %s",
                     role, request.method, request.url.path)
         # 401 means "sign in and try again"; 403 means "signed in, still no".
         # Collapsing them would leave the UI unable to tell a login prompt from
         # a dead end.
         if role == policy.ANON:
-            return JSONResponse(status_code=401, content={
+            return _harden(JSONResponse(status_code=401, content={
                 "detail": "Sign in to use ARIA.",
                 "login": "/api/auth/providers",
                 "role": role,
-            })
-        return JSONResponse(status_code=403, content={
+            }))
+        return _harden(JSONResponse(status_code=403, content={
             "detail": "This is owner-only.",
             "reason": policy.denial_reason(request.url.path),
             "role": role,
-        })
-    return await call_next(request)
+        }))
+    return _harden(await call_next(request))
 
 # ===========================================================================
 # Helper

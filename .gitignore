@@ -111,3 +111,8 @@ data/technical/
 # Session signing key — generated per install. Committing it would let anyone
 # mint a cookie for any identity, including the owner.
 data/.session_key
+
+# Real cloudflared config carries the tunnel UUID and credentials path.
+# Only the .example is tracked.
+scripts/cloudflared-config.yml
+.cloudflared/

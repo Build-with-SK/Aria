@@ -349,6 +349,12 @@ html[data-text-size="largest"] button { min-height: 26px; }
 }
 .aria-main {
   margin-left: var(--rail-w); margin-top: var(--tape-h); padding: 20px 24px;
+  /* Installed as a PWA the deck runs full-bleed, so the notch and the home
+     indicator sit ON the content unless the safe area is respected. env()
+     resolves to 0 in a normal browser tab, so this costs nothing there. */
+  padding-left: max(24px, env(safe-area-inset-left));
+  padding-right: max(24px, env(safe-area-inset-right));
+  padding-bottom: max(20px, env(safe-area-inset-bottom));
 }
 .aria-rail-toggle { display: none; }
 .aria-rail-scrim { display: none; }
