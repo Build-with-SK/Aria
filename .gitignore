@@ -107,3 +107,7 @@ configs/universe_phase4_backup.yaml
 # Technical recommendation outcomes — your own hit-rate record, same reasoning
 # as data/v5/ above: a real track record, not sample data to ship.
 data/technical/
+
+# Session signing key — generated per install. Committing it would let anyone
+# mint a cookie for any identity, including the owner.
+data/.session_key
