@@ -27,7 +27,9 @@ ARIA is a self-hosted AI finance terminal that runs entirely on your machine:
 - **✦ Live Mind** — watch it think: every reasoning step streams into a cinematic chain-of-thought view with an animated core.
 - **∿ A signal engine** — multi-asset composite scores (technicals + regime + ML ensemble) across equities, indices, FX, commodities and crypto, with risk parameters (stop, target, position size) attached to every call.
 - **◉ Signal Map** — the whole market as a force-directed living graph (Obsidian-style), nodes sized by conviction, coloured by direction.
-- **⌕ Explorer** — 3,300+ symbols across **India (₹ NSE), the UK (£ LSE), the US ($), and crypto**, loaded on demand: live quote, fundamentals, fresh news, sentiment, political-exposure flag, TradingView chart.
+- **◆ ARIA V5** — 41 independently-callable research modules across 7 families, combined into an ensemble, then meta-reasoning, a risk gate, a self-audit and a learning loop. Every module returns bull/bear/neutral summing to 100, a real confidence interval, sourced evidence, and its own declared weaknesses. Most price and quant modules state a condition and ask the instrument's own history how often that condition preceded a positive return, so the interval is Wilson on a genuine observation count rather than a stated prior. **Confidence means P(direction is correct)**, so it lives in [0.5, 1.0]; the trading bar is 55%.
+- **◎ Track Record** — the honesty page. Merges every labelling loop and reports **calibration**, not just accuracy: Brier score, skill against a coin flip, and expected calibration error. It refuses to report at all below 20 resolved calls, because a hit rate on twelve trades is noise wearing a percentage sign.
+- **◬ Research** — 3,300+ symbols across **India (₹ NSE), the UK (£ LSE), the US ($), and crypto**, loaded on demand: live quote, fundamentals, fresh news, sentiment, political-exposure flag, TradingView chart, plus a multi-timeframe indicator scan and ATR-based entry/stop/target.
 - **💱 Remittance watch** — GBP/INR monitored continuously with direction-framed alerts ("pound strong → good window to send UK→India") and user-set target levels.
 - **⚗ Quant Lab** — a self-learning researcher: reads new arXiv q-fin papers, maps them to strategy templates with the local LLM, backtests on real data, and ranks by out-of-sample Sharpe.
 - **ƒ Quant analytics** — Black-Scholes greeks, vol surfaces, multi-leg option strategies with payoff curves, and macro stress scenarios (rate shock, crash, vol spike, stagflation…) against your live book.
@@ -35,6 +37,31 @@ ARIA is a self-hosted AI finance terminal that runs entirely on your machine:
 - **▶ Execution with a hard paper gate** — by default **nothing executes without explicit human approval**. You can optionally arm **auto-execute on the paper account only**: fills happen on their own and you are *informed after* (feed + phone push), never asked. A live account **always** routes to the manual approval queue — this is enforced in code with no override.
 
 Everything runs locally. Your data, your keys, your machine.
+
+## The twelve destinations
+
+The deck used to have twenty-two pages. Four of them answered "should I buy this?"
+and five were variations on "what is the AI thinking", so the merged ones became
+tabs inside the page they belong to. Every old path still redirects, and nothing
+was dropped.
+
+| | Destination | What it answers |
+|---|---|---|
+| ◉ | **ARIA Chat** | Ask it anything, in words |
+| ◆ | **ARIA V5** | What do 41 independent engines make of this, and how sure are they? |
+| ◬ | **Research** | Everything known about one symbol (Overview and Deep tabs) |
+| ⚗ | **Quant Lab** | What has the automated researcher found and backtested? |
+| ◈ | **Brain** | What is it thinking, and what does it remember? |
+| ⌂ | **Command** | What matters right now — overview, alerts, the daily report |
+| ∿ | **Markets** | The board: signals, macro, futures, options |
+| ★ | **Recommend** | Where the technical consensus actually landed |
+| ▣ | **Portfolio** | What is held, and how concentrated is it? |
+| ƒ | **Stress** | What breaks the book — scenarios, greeks, payoffs |
+| ◎ | **Track Record** | Is any of this working? Calibration, not vibes |
+| ▦ | **The Desk** | The autonomous desk: debate, risk, execution queue |
+
+Press **Ctrl/⌘+K** anywhere for the command palette — type a page name, an old
+page name, or just a ticker to go straight to its dossier.
 
 ## The stack
 
@@ -71,6 +98,12 @@ The signal engine populates on first run (`python main.py`); the brain wakes aut
 ## Design
 
 Dark crimson command-deck aesthetic: canvas particle cores, force-directed graphs, CRT scanlines, animated chain-of-thought. The entire theme lives in one design system (`frontend/src/index.css`) — every page inherits it.
+
+It is also meant to be *usable*, which is a separate problem from being legible:
+hover or focus any dotted term for a plain-English explanation of what the number
+means for a decision; text size, contrast and motion are adjustable from the
+settings button; the rail collapses off-canvas on narrow screens and dense tables
+scroll inside themselves rather than pushing the page sideways.
 
 ## Safety principles (non-negotiable)
 
