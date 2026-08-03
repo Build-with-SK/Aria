@@ -87,19 +87,46 @@ def forward_return(closes: pd.Series, horizon: int) -> pd.Series:
 
 
 def conditional_hit_rate(closes: pd.Series, mask: pd.Series, horizon: int
-                         ) -> tuple[int, int, float]:
-    """(successes, n, mean_forward_return) for the periods where `mask` is True.
+                         ) -> tuple[int, int, float, int]:
+    """(successes, n_effective, mean_forward_return, n_raw) where `mask` is True.
 
-    `n` is deliberately the raw observation count; overlapping windows make
-    these observations correlated, which every caller must declare as a
-    weakness — the Wilson interval built from it is therefore optimistic, and
-    modules that use it say so.
+    `n_effective` is the INDEPENDENCE-DISCOUNTED count, and returning it in the
+    position callers already read is the whole point of this function's shape.
+
+    A 21-day forward return starting today and one starting tomorrow share
+    twenty of their twenty-one days. Counting both as independent evidence is
+    the classic way to manufacture statistical power: daily sampling of a
+    21-day horizon inflates the sample by ~21x, and Wilson — which is correct
+    arithmetic on a wrong n — dutifully returns an interval ~4.6x too narrow.
+
+    That did not merely look precise. `from_probability` maps interval width to
+    neutral mass with a floor of 0.10, so a fake-narrow interval hit the floor
+    and was granted the MAXIMUM permitted conviction. `seasonality` shipped
+    +20.9 net from ~10 real Junes dressed up as 210 daily observations, while
+    its own declared weakness said it "overstates the evidence badly". It did,
+    and the number that reached the user was the overstated one.
+
+    Non-overlapping windows are what independence actually looks like here, so
+    n_effective = n_raw / horizon, and successes are scaled with it to preserve
+    the hit rate. `quant.bayesian` already did exactly this; the rest of the
+    engine now does too.
+
+    n_raw is returned fourth for evidence text — "212 trading days" is a fair
+    description of the data, as long as it is not what the statistics are
+    built on.
     """
     fwd = forward_return(closes, horizon)
     sel = fwd[mask.reindex(fwd.index).fillna(False)].dropna()
     if sel.empty:
-        return (0, 0, 0.0)
-    return (int((sel > 0).sum()), int(len(sel)), float(sel.mean()))
+        return (0, 0, 0.0, 0)
+
+    n_raw = int(len(sel))
+    succ_raw = int((sel > 0).sum())
+    p = succ_raw / n_raw
+
+    n_eff = max(1, int(round(n_raw / max(1, int(horizon)))))
+    succ_eff = int(round(p * n_eff))
+    return (succ_eff, n_eff, float(sel.mean()), n_raw)
 
 
 def hit_rate_probability(successes: int, n: int, min_n: int = 20

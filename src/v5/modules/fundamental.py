@@ -64,6 +64,33 @@ def _band(value: float, cheap: float, rich: float) -> float:
     return clamp((rich - value) / (rich - cheap), 0.0, 1.0)
 
 
+# Ratios whose denominator can go negative, making the ratio undefined rather
+# than attractive. A loss-making company has no meaningful P/E; a company with
+# negative book equity has no meaningful P/B or debt/equity.
+UNDEFINED_IF_NOT_POSITIVE = {
+    "trailingPE", "forwardPE", "priceToBook", "debtToEquity",
+    "enterpriseToEbitda", "pegRatio",
+}
+
+
+def _ratio_is_meaningful(key: str, v: float) -> bool:
+    """False when a ratio is arithmetically undefined for this input.
+
+    Both scorers rank by raw magnitude — `_percentile` sorts numerically and
+    `_band` interpolates linearly — so a negative value lands at the "cheap"
+    end and scored 1.0, MAXIMALLY ATTRACTIVE. trailingPE=-8 (loss-making) and
+    priceToBook=-6 (negative book equity) both read as the best value in the
+    peer set. That is not a rounding problem: HD, MCD, SBUX and BA all carry
+    negative book equity today, so the bug fires on widely-held large caps.
+
+    `factor_exposure` already guarded this with `if float(pb) > 0`, so the
+    pattern was understood — it just was not applied to `value` or `quality`.
+    Skipping the metric is the honest handling: absence of a usable ratio is
+    not evidence of anything, in either direction.
+    """
+    return not (key in UNDEFINED_IF_NOT_POSITIVE and v <= 0)
+
+
 # ── Value ───────────────────────────────────────────────────────────────────
 
 @module("value", "fundamental",
@@ -87,6 +114,12 @@ def value(ticker: str) -> ModuleReport:
         if not isinstance(v, (int, float)):
             continue
         v = float(v)
+        if not _ratio_is_meaningful(key, v):
+            evidence.append(Evidence(
+                f"{label} is {v:.2f} — negative, so the ratio is undefined "
+                f"rather than cheap; excluded from the score",
+                round(v, 4), FSRC, "neutral"))
+            continue
         s = _percentile(v, peers.get(key, []), lower_better)
         if s is not None:
             used_peers = True
@@ -209,6 +242,12 @@ def quality(ticker: str) -> ModuleReport:
         if not isinstance(v, (int, float)):
             continue
         v = float(v)
+        if not _ratio_is_meaningful(key, v):
+            evidence.append(Evidence(
+                f"{label} is {v:.2f} — negative equity makes this ratio "
+                f"undefined; excluded from the score",
+                round(v, 4), FSRC, "neutral"))
+            continue
         s = _percentile(v, peers.get(key, []), lower_better)
         basis = f"{len(peers[key])} peers" if s is not None else "absolute band"
         if s is None:
@@ -345,8 +384,14 @@ def earnings(ticker: str) -> ModuleReport:
             f"Negative operating leverage: earnings growth trails revenue growth by {abs(lev) * 100:.1f}pp",
             round(lev, 4), FSRC, "bull" if lev > 0 else "bear"))
 
+    # Both legs must be positive. The guard checked only trailingPE, so a
+    # forward P/E of -5 gave implied = -5.0 and clamped to a HARD 0.0 — the
+    # most bearish input the module can produce — when the honest reading is
+    # that a company expected to swing to a loss has no forward P/E at all.
+    # A forward P/E of exactly 0 raised ZeroDivisionError, losing the module.
     tpe, fpe = f.get("trailingPE"), f.get("forwardPE")
-    if isinstance(tpe, (int, float)) and isinstance(fpe, (int, float)) and float(tpe) > 0:
+    if (isinstance(tpe, (int, float)) and isinstance(fpe, (int, float))
+            and float(tpe) > 0 and float(fpe) > 0):
         implied = float(tpe) / float(fpe) - 1
         scores.append(clamp(0.5 + implied, 0.0, 1.0))
         evidence.append(Evidence(f"Forward P/E {float(fpe):.1f} vs trailing {float(tpe):.1f} — the "

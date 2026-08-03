@@ -37,6 +37,14 @@ def Evidence(claim: str, value: Any, source: str, lean: str = "neutral") -> dict
 
 # ── confidence intervals ─────────────────────────────────────────────────────
 
+# How far from zero a net score must sit before it counts as a direction rather
+# than "no view". Shared with the ensemble deliberately: when every module reads
+# neutral, the ensemble must not read bull. The two used to disagree — modules
+# banded at ±10, the ensemble at ±5 — so a net of 9 was simultaneously "neutral"
+# on every constituent and "bull" on the aggregate.
+DIRECTION_BAND = 10.0
+
+
 def _finite(x) -> bool:
     """True only for a real, usable number. NaN and infinity are neither."""
     try:
@@ -117,9 +125,9 @@ class ModuleReport:
     def view(self) -> str:
         if self.insufficient_data:
             return "abstain"
-        if self.net > 10:
+        if self.net > DIRECTION_BAND:
             return "bull"
-        if self.net < -10:
+        if self.net < -DIRECTION_BAND:
             return "bear"
         return "neutral"
 

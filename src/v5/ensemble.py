@@ -47,7 +47,7 @@ from __future__ import annotations
 import math
 from dataclasses import asdict, dataclass, field
 
-from src.v5.contract import ModuleReport
+from src.v5.contract import DIRECTION_BAND, ModuleReport
 
 # Documented, reproducible family weights. They sum to 1.0.
 FAMILY_WEIGHTS = {
@@ -93,9 +93,28 @@ class EnsembleResult:
 
 
 def _module_p(r: ModuleReport) -> float:
-    """The module's implied P(bull), ignoring its neutral mass."""
-    side = r.bull + r.bear
-    return 0.5 if side <= 0 else r.bull / side
+    """The module's implied P(bull), WITH its neutral mass intact.
+
+    This used to be `bull / (bull + bear)`, which renormalised the neutral mass
+    away and handed back the module's raw point estimate — undoing the one
+    mechanism the contract exists to enforce.
+
+    `from_probability` spends the width of a module's interval on neutral mass
+    precisely so that a wide interval cannot produce a confident score. Dividing
+    it back out recovered the original p exactly: ten modules each reporting
+    p=0.80 with a maximally wide interval produced bull=12, bear=3, neutral=85
+    and view="neutral" individually, yet `bull/(bull+bear)` = 0.80 for every one
+    of them. The ensemble read 0.80, called it BULL at 65% confidence — above
+    the 55% trading bar — and the risk gate released the full budget, on ten
+    engines that had each said, in as many words, "I cannot say".
+
+    Deriving p from `net` instead keeps the neutral mass in the denominator:
+    net = bull - bear over a 200-point range, so p = 0.5 + net/200. The same ten
+    modules now give net=9 → p=0.545, a whisker off a coin flip, which is what
+    they actually meant. A genuinely confident module is barely touched: p=0.80
+    on a tight 0.10 interval gives net=54 → p=0.77.
+    """
+    return max(0.0, min(1.0, 0.5 + r.net / 200.0))
 
 
 def synthesise(reports: list[ModuleReport], ticker: str) -> EnsembleResult:
@@ -149,13 +168,23 @@ def synthesise(reports: list[ModuleReport], ticker: str) -> EnsembleResult:
     edge = edge_raw * (1 - p_disp) * (1 - p_width) * (1 - p_abst)
     confidence = 0.5 + edge / 2
 
-    direction = "bull" if net > 5 else "bear" if net < -5 else "neutral"
-    # The two aggregations must not point opposite ways. The net score is a
-    # weighted mean of signed scores; P(bull) discards each module's neutral
-    # mass. When they disagree on sign the ensemble has no view, and saying so
-    # is more useful than picking the one that reads better.
+    # Same band the modules use (contract.DIRECTION_BAND), so the aggregate
+    # cannot claim a direction that none of its constituents claimed.
+    direction = ("bull" if net > DIRECTION_BAND else
+                 "bear" if net < -DIRECTION_BAND else "neutral")
+    # The two aggregations must not point opposite ways. Both are now derived
+    # from the same signed scores, so a conflict means something is badly wrong
+    # rather than merely imprecise — keep the guard.
     if direction != "neutral" and (net > 0) != (p_bull > 0.5):
         direction = "neutral"
+        edge, confidence = 0.0, 0.5
+
+    # "neutral" means no view, so it cannot carry a confidence: confidence is
+    # defined as P(the stated direction is correct), and there is no stated
+    # direction. This used to fire only on a sign conflict, so a net of 4 with
+    # p_bull of 0.72 shipped "no position ... confidence 62%", and the learning
+    # log then averaged that meaningless number into its calibration stats.
+    if direction == "neutral":
         edge, confidence = 0.0, 0.5
 
     # Step 5: agreement map and preserved dissent.

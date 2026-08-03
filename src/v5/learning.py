@@ -140,6 +140,8 @@ def _rewrite(entries: list[dict]) -> None:
 
 def resolve_pending(*, now: Optional[datetime] = None) -> dict:
     """Score every prediction whose horizon has elapsed. Safe to call repeatedly."""
+    import pandas as pd
+
     from src.v5 import marketdata as md
 
     now = now or datetime.now()
@@ -160,15 +162,51 @@ def resolve_pending(*, now: Optional[datetime] = None) -> dict:
         c = md.closes(e["ticker"], period="6mo")
         if c is None or c.empty:
             continue
-        price_now = float(c.iloc[-1])
-        ret = price_now / float(e["price_at"]) - 1.0
+
+        # Score at the HORIZON DATE, not at whatever today happens to be.
+        #
+        # This used to take c.iloc[-1] — the latest close available whenever
+        # the resolver ran. A 21-day prediction that became due but was not
+        # resolved until sixty days later was graded on an 81-day return, and
+        # `_attribute` then judged that 81-day move against a noise band scaled
+        # to 21 days, so ordinary drift looked like a decisive outcome.
+        #
+        # Everything downstream is built on these labels: module hit rates,
+        # the weight multipliers they drive, and the Brier score, skill and ECE
+        # the track record reports. A calibration claim measured over the wrong
+        # window is not a weaker claim, it is a different one.
+        idx = c.index
+        try:
+            due_ts = pd.Timestamp(due)
+            if getattr(idx, "tz", None) is not None:
+                due_ts = due_ts.tz_localize(idx.tz) if due_ts.tz is None else due_ts.tz_convert(idx.tz)
+            at_or_before = c[idx <= due_ts]
+        except Exception:
+            at_or_before = None
+
+        if at_or_before is None or at_or_before.empty:
+            # The window is due but no bar at//before it survives in this
+            # window of history — leave it pending rather than grade it wrong.
+            continue
+
+        price_then = float(at_or_before.iloc[-1])
+        measured_at = at_or_before.index[-1]
+        ret = price_then / float(e["price_at"]) - 1.0
         correct = (ret > 0) if e["direction"] == "bull" else \
                   (ret < 0) if e["direction"] == "bear" else abs(ret) < 0.02
+
+        try:
+            elapsed = int((measured_at.to_pydatetime().replace(tzinfo=None)
+                           - datetime.fromisoformat(e["at"])).days)
+        except Exception:
+            elapsed = None
 
         e.update({
             "resolved": True,
             "resolved_at": now.isoformat(timespec="seconds"),
-            "price_then": price_now,
+            "measured_at": str(measured_at),
+            "elapsed_days": elapsed,          # so a mis-scored window is visible
+            "price_then": price_then,
             "realised_return": round(ret, 5),
             "correct": bool(correct),
             "attribution": _attribute(e, ret, bool(correct)),
