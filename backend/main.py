@@ -54,7 +54,7 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -180,6 +180,12 @@ _ALLOWED_ORIGINS = [
     "http://localhost:3000", "http://127.0.0.1:3000",
     "http://localhost:5173", "http://127.0.0.1:5173",
 ]
+
+# The model every non-owner gets. Small on purpose: the 24/7 host is a 2014
+# Intel Mac mini with no usable GPU, where a 7B runs at 1-3 tok/s and two
+# concurrent requests do not fit in 8GB. 4B is the largest thing that answers
+# in roughly a minute there instead of three.
+FREE_MODEL = os.environ.get("ARIA_FREE_MODEL", "gemma3:4b")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_ALLOWED_ORIGINS,
@@ -209,6 +215,43 @@ async def _mutation_guard(request, call_next):
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=401,
                                 content={"detail": "x-api-key required"})
+    return await call_next(request)
+
+
+# Registered last, so it is the OUTERMOST middleware and decides who you are
+# before anything else runs. _mutation_guard above only covers writes; the
+# vault, the portfolio and the desk leak through GETs, which is precisely how
+# 112 endpoints ended up readable by anyone who could reach the port.
+@app.middleware("http")
+async def _role_guard(request, call_next):
+    """Attach a role to every request and refuse anything outside it.
+
+    Deny is the default: free users reach only the research allowlist in
+    src/auth/policy.py, and everything else — vault, portfolio, execution,
+    desk, brain, cloud chat — is owner-only regardless of tier. A route added
+    tomorrow is invisible to free users until it is deliberately named, so
+    forgetting costs a 403 rather than a disclosure.
+    """
+    from src.auth import policy
+
+    # CORS preflight carries no credentials by design; 403-ing it would break
+    # the browser before the real, authenticated request is ever sent.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    role = policy.resolve_role(request.headers,
+                               request.client.host if request.client else None)
+    request.state.role = role
+
+    if not policy.is_allowed(request.url.path, role):
+        from fastapi.responses import JSONResponse
+        logger.info("role_guard: %s denied %s %s",
+                    role, request.method, request.url.path)
+        return JSONResponse(status_code=403, content={
+            "detail": "This is owner-only.",
+            "reason": policy.denial_reason(request.url.path),
+            "role": role,
+        })
     return await call_next(request)
 
 # ===========================================================================
@@ -857,9 +900,20 @@ def get_live_positions():
 # Obsidian Vault (direct filesystem — no MCP server)
 # ===========================================================================
 
-def _vault_context(messages) -> str:
-    """Relevant vault knowledge for the latest user message. '' on any failure."""
+def _vault_context(messages, role: str = "free") -> str:
+    """Relevant vault knowledge for the latest user message. '' on any failure.
+
+    The vault is the owner's Obsidian notes — 486 of them, including personal
+    folders — and this function decides whether a reply may be grounded in them.
+    It is owner-only structurally: the role has to be passed in and checked
+    here, rather than read from a config flag, so there is no setting anyone can
+    flip to share someone's private notes with a stranger. The default is the
+    safe one, so a caller that forgets to pass a role gets no vault.
+    """
     try:
+        from src.auth import policy
+        if not policy.can_read_vault(role):
+            return ""
         user_msgs = [m.content for m in messages if m.role == "user"]
         if not user_msgs:
             return ""
@@ -868,6 +922,14 @@ def _vault_context(messages) -> str:
     except Exception as e:
         logger.debug(f"Vault context unavailable: {e}")
         return ""
+
+
+def _role_of(request) -> str:
+    """Role attached by _role_guard; 'free' if anything is missing."""
+    try:
+        return getattr(request.state, "role", "free") or "free"
+    except Exception:
+        return "free"
 
 
 @app.get("/api/vault/status", tags=["Vault"])
@@ -1028,8 +1090,11 @@ def _ondemand_ticker_context(messages: List["ChatMsg"]) -> str:
 
 
 @app.post("/api/chat", tags=["ARIA"])
-def aria_chat(body: ChatRequest):
-    """Send a message to ARIA. Returns the assistant reply with market context baked in."""
+def aria_chat(body: ChatRequest, request: Request):
+    """Send a message to ARIA. Returns the assistant reply with market context baked in.
+
+    Owner-only: this is the cloud model, billed to the owner's key. Free users
+    are routed to /api/chat/local by the policy allowlist."""
     client = _get_anthropic()
     if not client:
         raise HTTPException(status_code=503, detail="Anthropic API key not configured")
@@ -1072,7 +1137,7 @@ ML Bearish tickers: {', '.join(ml_bear) or 'none'}
 Daily report summary: {report.get('summary', 'Not available')}
 ──────────────────────────────────────────────────────"""
 
-    vault_ctx = _vault_context(body.messages)
+    vault_ctx = _vault_context(body.messages, _role_of(request))
     ondemand_ctx = _ondemand_ticker_context(body.messages)
 
     # V5 identity: the Two Absolute Laws and the persona live in one place
@@ -1198,12 +1263,31 @@ class LocalChatRequest(BaseModel):
     model:    str = "qwen2.5-coder:7b"
 
 @app.post("/api/chat/local", tags=["Local Brain"])
-def aria_chat_local(body: LocalChatRequest):
-    """Chat with the local Ollama model — no cloud API needed."""
+def aria_chat_local(body: LocalChatRequest, request: Request):
+    """Chat with the local Ollama model — no cloud API needed.
+
+    This is the surface free users get. Three things are enforced here rather
+    than left to configuration:
+
+    * the model is pinned to FREE_MODEL, because the deployment target is a
+      2014 Intel Mac mini with no usable GPU — a 7B there runs at 1-3 tok/s and
+      cannot hold a second concurrent request in 8GB;
+    * `complete_with("ollama", ...)` names the provider directly, so there is no
+      tier that can fall back to Anthropic. A sleeping laptop must return "try
+      again", never a bill on the owner's key;
+    * no vault, ever — _vault_context checks the role itself.
+    """
+    role = _role_of(request)
     if not _ollama_available():
-        raise HTTPException(status_code=503, detail="Ollama is not running. Start it with: ollama serve")
+        raise HTTPException(
+            status_code=503,
+            detail="ARIA's local model is not reachable right now. Please try again shortly.")
+
+    # Free users may not choose the model; a 7B request would queue the box.
+    model = body.model if role == "owner" else FREE_MODEL
+
     ctx = _build_market_context()
-    vault_ctx = _vault_context(body.messages)
+    vault_ctx = _vault_context(body.messages, role)
     ondemand_ctx = _ondemand_ticker_context(body.messages)
     system = f"{_ARIA_SYSTEM}\n\n{ctx}{ondemand_ctx}"
     if vault_ctx:
@@ -1211,12 +1295,13 @@ def aria_chat_local(body: LocalChatRequest):
     try:
         from src.inference.router import get_router
         result = get_router().complete_with(
-            "ollama", body.model,
+            "ollama", model,
             [{"role": m.role, "content": m.content} for m in body.messages],
-            system=system, max_tokens=1024, timeout=120)
-        return {"content": result.text, "model": body.model, "tokens": {}}
+            system=system, max_tokens=1024, timeout=180)
+        return {"content": result.text, "model": model, "tokens": {}}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning("local chat failed for role=%s model=%s: %s", role, model, e)
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 @app.get("/api/brain/status", tags=["Local Brain"])
