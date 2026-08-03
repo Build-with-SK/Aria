@@ -8,7 +8,7 @@
 
 *Coding has its AI. Finance gets ARIA.*
 
-Created by **Ariyan** · built with Claude
+Created by **Soundariyan Karunakaran** · built with Claude
 
 </div>
 
