@@ -85,6 +85,11 @@ class BrainDaemon:
         self.memory = None            # LongTermMemory, lazily initialised
         self.running = False
         self.thinking = False         # True while a cycle is in progress
+        # The working memory of the cycle currently in flight. The reasoner
+        # appends each step to it as it goes, so holding the reference is what
+        # lets status() report which phase the brain is in RIGHT NOW rather
+        # than only what it did last time.
+        self._wm = None
         self.interval_minutes = 15
         self.last_cycle: dict = {}
         self.cycle_count = 0
@@ -148,6 +153,19 @@ class BrainDaemon:
                 mem_count = self.memory.stats()["total_memories"]
             except Exception:
                 pass
+        # Which phase of the reasoning loop is running right now. Read from the
+        # in-flight working memory while thinking, and from the last completed
+        # cycle otherwise, so the UI shows where the brain got to rather than
+        # going blank between cycles.
+        step = None
+        try:
+            src = self._wm.reasoning_steps if (self.thinking and self._wm is not None) \
+                else (self.last_cycle or {}).get("thinking_steps") or []
+            if src:
+                step = (src[-1] or {}).get("step")
+        except Exception:
+            pass
+
         return {
             "running":          self.running,
             "thinking":         self.thinking,
@@ -156,6 +174,7 @@ class BrainDaemon:
             "cycle_count":      self.cycle_count,
             "last_cycle_at":    self.last_cycle.get("timestamp"),
             "memory_count":     mem_count,
+            "step":             step,
         }
 
     # ── the cognitive cycle ──────────────────────────────────────────────
@@ -181,6 +200,7 @@ class BrainDaemon:
 
         cycle_id = str(uuid.uuid4())[:8]
         wm = WorkingMemory(cycle_id=cycle_id, started_at=datetime.now())
+        self._wm = wm
         self.thinking = True
         try:
             memory = self._get_memory()

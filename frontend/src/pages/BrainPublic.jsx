@@ -18,9 +18,22 @@ import LivingCore from '../components/LivingCore'
 
 const mono = { fontFamily: 'var(--mono)' }
 
-// The daemon's own cycle. Shown as a ring of labels so the live step reads as
-// a position in a loop rather than a status string.
-const STEPS = ['ORIENT', 'FOCUS', 'RECALL', 'ANALYSE', 'DECIDE', 'REFLECT']
+/* The six phases of one reasoning cycle, in order — the real names the
+   reasoner records against each thought (src/brain/cognitive/reasoner.py).
+
+   These are INDICATORS, not controls. They were first drawn as bordered chips,
+   which reads as a row of buttons, so they looked broken rather than
+   informative — nothing happens when you click, because nothing should. They
+   are now a progress track: the completed phases stay lit, the live one pulses,
+   and the ones still to come are dim. */
+const STEPS = [
+  ['ORIENT', 'takes in the state of the market'],
+  ['FOCUS', 'picks what is worth thinking about'],
+  ['RECALL', 'pulls up what it learned before'],
+  ['ANALYSE', 'works through the evidence'],
+  ['DECIDE', 'commits to a view'],
+  ['REFLECT', 'checks itself, and remembers'],
+]
 
 function Stat({ label, value, live }) {
   return (
@@ -87,28 +100,41 @@ export default function BrainPublic() {
         <Stat label="MODEL" value={d.model || '—'} />
       </div>
 
-      {/* The loop, with the live step lit. */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 18 }}>
-        {STEPS.map(s => {
-          const on = step === s
-          return (
-            <div key={s} style={{
-              ...mono, fontSize: 9, letterSpacing: '0.14em', padding: '5px 10px',
-              borderRadius: 3,
-              border: `1px solid ${on ? 'var(--orange)' : 'var(--border)'}`,
-              background: on ? 'rgba(255,36,71,0.10)' : 'transparent',
-              color: on ? 'var(--orange)' : 'var(--muted)',
-            }}>
-              {s}
-            </div>
-          )
-        })}
-        {d.thinking && (
-          <div style={{ ...mono, fontSize: 9, letterSpacing: '0.14em', padding: '5px 10px',
-                        color: 'var(--green)' }}>
-            ● THINKING
-          </div>
-        )}
+      {/* One cycle, as a progress track. Read-only: these report, they do not
+          control. `aria-current` marks the live phase for screen readers. */}
+      <div role="list" aria-label="Reasoning cycle" style={{ marginBottom: 20 }}>
+        <div style={{ ...mono, fontSize: 8.5, color: 'var(--muted)',
+                      letterSpacing: '0.16em', marginBottom: 8 }}>
+          ONE CYCLE OF THOUGHT{d.thinking ? ' · RUNNING NOW' :
+            step ? ' · LAST COMPLETED' : ''}
+        </div>
+        <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+          {STEPS.map(([name, what], i) => {
+            const at = STEPS.findIndex(([n]) => n === step)
+            const live = step === name && d.thinking
+            const done = at >= 0 && i <= at
+            const colour = live ? 'var(--orange)' : done ? 'var(--green)' : 'var(--muted)'
+            return (
+              <div key={name} role="listitem" title={`${name} — ${what}`}
+                aria-current={live ? 'step' : undefined}
+                style={{ flex: '1 1 120px', minWidth: 0 }}>
+                <div style={{
+                  height: 2, borderRadius: 2, marginBottom: 6,
+                  background: live || done ? colour : '#221e26',
+                  boxShadow: live ? '0 0 8px var(--orange)' : 'none',
+                  animation: live ? 'corePulse 1.6s ease-in-out infinite' : 'none',
+                }} />
+                <div style={{ ...mono, fontSize: 9, letterSpacing: '0.12em', color: colour }}>
+                  {name}
+                </div>
+                <div style={{ ...mono, fontSize: 8.5, color: 'var(--muted)',
+                              lineHeight: 1.5, marginTop: 2 }}>
+                  {what}
+                </div>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       <LivingCore height={520} />
