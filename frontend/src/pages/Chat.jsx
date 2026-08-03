@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
+import { startThinking, speakReply } from '../core/ariaVoice'
+import { setCoreState } from '../core/coreBus'
 
 // ─── Markdown-lite renderer (bold, code, bullets) ────────────────────────────
 function RenderText({ text }) {
@@ -210,6 +212,7 @@ export default function Chat() {
     setInput('')
     setError('')
     setLoading(true)
+    startThinking()   // drive the Living Core (visible on the Brain page)
 
     try {
       const history = newMsgs
@@ -228,6 +231,7 @@ export default function Chat() {
         model: mode === 'local' ? (r.data.model || localModel) : undefined,
       }
       setMessages(prev => [...prev, ariaMsg])
+      speakReply(r.data.content, null, { voice: false })   // beat the core through the reply
     } catch (e) {
       const detail = e.response?.data?.detail || e.message
       setError(detail)
@@ -236,6 +240,7 @@ export default function Chat() {
         content: `⚠ Error: ${detail}`,
         time: now(),
       }])
+      setCoreState('idle')
     } finally {
       setLoading(false)
       setTimeout(() => inputRef.current?.focus(), 100)
@@ -268,7 +273,7 @@ export default function Chat() {
             ARIA INTELLIGENCE
           </div>
           <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)' }}>
-            Adaptive Risk Intelligence Agent · 766-ticker universe · LightGBM ensemble
+            Autonomous Research &amp; Investment Architect · 766-ticker universe · LightGBM ensemble
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
