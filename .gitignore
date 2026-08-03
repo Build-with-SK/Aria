@@ -62,6 +62,18 @@ data/desk_config.json
 data/brain_state.json
 data/atlas_state.json
 data/quant_lab/
+# Documents and coursework — never part of the source tree. Six academic PDFs
+# and .docx files belonging to a named third party (with their student ID in
+# the filename) were committed here in the initial commit; keep them out.
+*.pdf
+*.docx
+*.doc
+!docs/**/*.pdf
+
+# V5 prediction log — your own calibration record, not sample data.
+# (.gitignore has no trailing comments: a comment on the pattern line makes
+#  the whole line a literal path and silently ignores nothing.)
+data/v5/
 data/outbox/
 data/journal/
 *.log
@@ -84,3 +96,14 @@ data/fx_state.json
 
 # Desk state backups (transient, rotated nightly)
 data/backups/
+
+# Superseded pre-refactor snapshots. Untracked from the index but deliberately
+# left on disk; without these patterns the next `git add -A` silently re-adds them.
+backup_v1_20260531_010758/
+main_backup_phase5.py
+main_phase4_backup.py
+configs/universe_phase4_backup.yaml
+
+# Technical recommendation outcomes — your own hit-rate record, same reasoning
+# as data/v5/ above: a real track record, not sample data to ship.
+data/technical/
