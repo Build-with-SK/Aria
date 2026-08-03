@@ -43,6 +43,11 @@ DOSSIER_DIR = ROOT / "data" / "cache" / "dossiers"
 UNIVERSE_YAML = ROOT / "configs" / "universe.yaml"
 
 NSE_EQUITY_LIST_URL = "https://archives.nseindia.com/content/equities/EQUITY_L.csv"
+# Full US market — NASDAQ Trader public symbol directory (pipe-delimited, no key).
+NASDAQ_LISTED_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/nasdaqlisted.txt"
+NASDAQ_OTHER_URL = "https://www.nasdaqtrader.com/dynamic/SymDir/otherlisted.txt"  # NYSE/AMEX/Arca/BATS
+# Full BSE — official UDiFF equity bhavcopy (dated; we walk back a few days).
+BSE_BHAV_URL = "https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_{d:%Y%m%d}_F_0000.CSV"
 
 QUOTE_TTL_MINUTES = 15        # tier-1 freshness
 DOSSIER_TTL_HOURS = 24        # tier-2 freshness
@@ -131,7 +136,10 @@ class UniverseManager:
                 return {"status": "fresh", "refreshed_at": last, **self._counts()}
 
         nse_added = self._load_nse_equities()
+        bse_added = self._load_bse_equities()
+        us_added = self._load_us_full()
         lse_added = self._load_lse_equities()
+        world_added = self._load_world_symbols()
         fx_added = self._load_fx_pairs()
         yaml_added = self._load_yaml_universe()
         fno_marked = self._load_nse_fno()
@@ -139,7 +147,10 @@ class UniverseManager:
         result = {
             "status": "refreshed",
             "nse_symbols": nse_added,
+            "bse_symbols": bse_added,
+            "us_symbols": us_added,
             "lse_symbols": lse_added,
+            "world_symbols": world_added,
             "yaml_symbols": yaml_added,
             "fno_marked": fno_marked,
             **self._counts(),
@@ -308,6 +319,148 @@ class UniverseManager:
                 count += 1
         return count
 
+    def _load_bse_equities(self) -> int:
+        """Official BSE equity master via the UDiFF bhavcopy (walk back up to 7
+        trading days until a file exists). Display = ticker symbol; yahoo = the
+        numeric BSE scrip code + .BO (the form Yahoo Finance uses)."""
+        self._ensure_currency_column()
+        text = None
+        for days_back in range(1, 8):
+            day = datetime.now() - timedelta(days=days_back)
+            try:
+                req = urllib.request.Request(
+                    BSE_BHAV_URL.format(d=day),
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                             "Accept": "*/*"})
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    text = resp.read().decode("utf-8", errors="replace")
+                break
+            except Exception:
+                continue
+        if text is None:
+            logger.warning("BSE bhavcopy unavailable for the last 7 days")
+            return 0
+
+        rows = list(csv.DictReader(io.StringIO(text)))
+        # equity-like series only (skip derivatives / debt / ETF-odd series)
+        eq_series = {"A", "B", "T", "X", "XT", "M", "MT", "Z", "E", "G"}
+        now = datetime.now().isoformat()
+        count = 0
+        with self._lock, self._conn() as conn:
+            for r in rows:
+                if (r.get("FinInstrmTp") or "").strip() not in ("", "EQ"):
+                    # UDiFF equity segment rows have blank/EQ instrument type
+                    pass
+                series = (r.get("SctySrs") or "").strip()
+                if series not in eq_series:
+                    continue
+                sym = (r.get("TckrSymb") or "").strip()
+                code = (r.get("FinInstrmId") or "").strip()
+                if not sym or not code:
+                    continue
+                name = (r.get("FinInstrmNm") or "").strip()
+                isin = (r.get("ISIN") or "").strip()
+                # display uses .BO-suffixed scrip form to avoid NSE symbol collisions
+                display = f"{sym}.BO"
+                conn.execute(
+                    """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, isin, currency, updated_at)
+                       VALUES(?,?,?,?,?,?,?,?)
+                       ON CONFLICT(symbol) DO UPDATE SET
+                         yahoo=excluded.yahoo, name=excluded.name, isin=excluded.isin,
+                         currency=excluded.currency, updated_at=excluded.updated_at""",
+                    (display, f"{code}.BO", name, "BSE", "equity", isin, "INR", now),
+                )
+                count += 1
+        logger.info(f"Loaded {count} BSE symbols")
+        return count
+
+    # NASDAQ Trader 'otherlisted' Exchange code → our label
+    _US_EXCH = {"N": "NYSE", "A": "AMEX", "P": "ARCA", "Z": "BATS", "V": "IEX"}
+
+    def _load_us_full(self) -> int:
+        """Full US market from NASDAQ Trader: nasdaqlisted (NASDAQ) + otherlisted
+        (NYSE/AMEX/Arca/BATS). Real, keyless, ~13k symbols. Yahoo uses the bare
+        symbol with '.'→'-' for share classes (BRK.A → BRK-A)."""
+        def _get(url):
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                              "Accept": "*/*"})
+            with urllib.request.urlopen(req, timeout=45) as resp:
+                return resp.read().decode("utf-8", errors="replace")
+
+        now = datetime.now().isoformat()
+        count = 0
+
+        def _rows(url):
+            try:
+                return list(csv.DictReader(io.StringIO(_get(url)), delimiter="|"))
+            except Exception as e:
+                logger.warning(f"US listing download failed ({url}): {e}")
+                return []
+
+        with self._lock, self._conn() as conn:
+            # NASDAQ-listed
+            for r in _rows(NASDAQ_LISTED_URL):
+                sym = (r.get("Symbol") or "").strip()
+                if not sym or (r.get("Test Issue") or "") == "Y" or "File Creation Time" in sym:
+                    continue
+                name = (r.get("Security Name") or "").strip()
+                etf = (r.get("ETF") or "") == "Y"
+                yahoo = sym.replace(".", "-")
+                conn.execute(
+                    """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, currency, updated_at)
+                       VALUES(?,?,?,?,?,?,?)
+                       ON CONFLICT(symbol) DO UPDATE SET
+                         yahoo=excluded.yahoo, name=excluded.name, exchange=excluded.exchange,
+                         currency=excluded.currency, updated_at=excluded.updated_at""",
+                    (sym, yahoo, name, "NASDAQ", "etf" if etf else "equity", "USD", now))
+                count += 1
+            # NYSE / AMEX / Arca / BATS
+            for r in _rows(NASDAQ_OTHER_URL):
+                sym = (r.get("ACT Symbol") or "").strip()
+                if not sym or (r.get("Test Issue") or "") == "Y" or "File Creation Time" in sym:
+                    continue
+                exch = self._US_EXCH.get((r.get("Exchange") or "").strip(), "US")
+                name = (r.get("Security Name") or "").strip()
+                etf = (r.get("ETF") or "") == "Y"
+                yahoo = sym.replace(".", "-")
+                conn.execute(
+                    """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, currency, updated_at)
+                       VALUES(?,?,?,?,?,?,?)
+                       ON CONFLICT(symbol) DO UPDATE SET
+                         yahoo=excluded.yahoo, name=excluded.name, exchange=excluded.exchange,
+                         currency=excluded.currency, updated_at=excluded.updated_at""",
+                    (sym, yahoo, name, exch, "etf" if etf else "equity", "USD", now))
+                count += 1
+        logger.info(f"Loaded {count} US (NASDAQ/NYSE/AMEX/Arca/BATS) symbols")
+        return count
+
+    def _load_world_symbols(self) -> int:
+        """Curated real large-caps for Europe / China / HK / Japan / Canada /
+        Australia (major index constituents) — geographic breadth alongside the
+        live full listings. Source: src/data/world_symbols.py."""
+        self._ensure_currency_column()
+        try:
+            from src.data.world_symbols import all_world_symbols
+        except Exception as e:
+            logger.warning(f"world_symbols load failed: {e}")
+            return 0
+        now = datetime.now().isoformat()
+        count = 0
+        with self._lock, self._conn() as conn:
+            for display, yahoo, name, exchange, currency, asset_class in all_world_symbols():
+                conn.execute(
+                    """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, currency, updated_at)
+                       VALUES(?,?,?,?,?,?,?)
+                       ON CONFLICT(symbol) DO UPDATE SET
+                         yahoo=excluded.yahoo, name=excluded.name, exchange=excluded.exchange,
+                         asset_class=excluded.asset_class, currency=excluded.currency,
+                         updated_at=excluded.updated_at""",
+                    (display, yahoo, name, exchange, asset_class, currency, now))
+                count += 1
+        logger.info(f"Loaded {count} curated world large-cap symbols")
+        return count
+
     def _load_nse_fno(self) -> int:
         """Official NSE F&O bhavcopy (UDiFF) — marks derivative-eligible symbols
         and stores their lot sizes (futures & options coverage for NSE).
@@ -433,6 +586,28 @@ class UniverseManager:
                 (like, like, q.upper(), f"{q.upper()}%", n),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def index(self, exchange: Optional[str] = None, asset_class: Optional[str] = None,
+              limit: int = 40000) -> Dict[str, Any]:
+        """Bulk tier-0 dump for the 3D universe map: lightweight rows only
+        (symbol, name, exchange, asset_class), never any network. Optionally
+        filter by exchange / asset_class."""
+        where, params = [], []
+        if exchange:
+            where.append("exchange=?"); params.append(exchange)
+        if asset_class:
+            where.append("asset_class=?"); params.append(asset_class)
+        clause = ("WHERE " + " AND ".join(where)) if where else ""
+        params.append(int(limit))
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"""SELECT symbol, name, exchange, asset_class FROM symbols
+                    {clause} ORDER BY exchange, symbol LIMIT ?""", params,
+            ).fetchall()
+            by_ex = {r["exchange"]: r["c"] for r in conn.execute(
+                "SELECT exchange, COUNT(*) c FROM symbols GROUP BY exchange")}
+        return {"count": len(rows), "by_exchange": by_ex,
+                "symbols": [dict(r) for r in rows]}
 
     def _lookup(self, symbol: str) -> Optional[Dict[str, Any]]:
         with self._conn() as conn:
@@ -580,6 +755,12 @@ class UniverseManager:
     # Currency by exchange — so a searched symbol always shows the right units.
     CURRENCY_BY_EXCHANGE = {
         "NSE": "INR", "BSE": "INR", "LSE": "GBP", "US": "USD",
+        "NASDAQ": "USD", "NYSE": "USD", "AMEX": "USD", "ARCA": "USD", "BATS": "USD", "IEX": "USD",
+        "XETRA": "EUR", "EURONEXT_PA": "EUR", "EURONEXT_AS": "EUR", "BORSA_IT": "EUR",
+        "BME": "EUR", "SIX": "CHF", "OMX_STO": "SEK", "EURONEXT_BR": "EUR",
+        "EURONEXT_LS": "EUR", "OMX_HEL": "EUR", "OSLO": "NOK", "OMX_CPH": "DKK",
+        "WIENER_BORSE": "EUR", "EURONEXT_DUB": "EUR", "ATHEX": "EUR",
+        "HKEX": "HKD", "SSE": "CNY", "SZSE": "CNY", "TSE": "JPY", "TSX": "CAD", "ASX": "AUD",
         "CRYPTO": "USD", "FX": "", "FUT": "USD", "INDEX": "",
     }
 
@@ -743,7 +924,7 @@ class UniverseManager:
 
         keys = [
             "longName", "sector", "industry", "marketCap", "trailingPE", "forwardPE",
-            "priceToBook", "bookValue", "dividendYield", "returnOnEquity",
+            "priceToBook", "bookValue", "dividendYield", "dividendRate", "returnOnEquity",
             "debtToEquity", "profitMargins", "operatingMargins", "revenueGrowth",
             "earningsGrowth", "totalRevenue", "freeCashflow", "operatingCashflow",
             "totalDebt", "totalCash", "beta", "fiftyTwoWeekHigh", "fiftyTwoWeekLow",

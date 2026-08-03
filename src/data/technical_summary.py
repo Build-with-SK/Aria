@@ -137,13 +137,62 @@ def score_frame(df) -> dict | None:
     osc = _osc_signals(df)
     ma_t, osc_t = tally(ma), tally(osc)
     overall = tally({**ma, **osc})
-    return {
-        "price": round(float(df["Close"].iloc[-1]), 4),
+    price = float(df["Close"].iloc[-1])
+    out = {
+        "price": round(price, 4),
         "summary": overall["label"],
         "counts": {"buy": overall["buy"], "sell": overall["sell"],
                    "neutral": overall["neutral"]},
         "moving_averages": {"label": ma_t["label"], **{k: v for k, v in ma.items()}},
         "oscillators": {"label": osc_t["label"], **{k: v for k, v in osc.items()}},
+    }
+    out.update(_levels(df, price, overall["label"]))
+    return out
+
+
+def _atr(df, n: int = 14) -> float | None:
+    """Average true range — the volatility unit stops are measured in."""
+    if not {"High", "Low"}.issubset(df.columns) or len(df) < n + 2:
+        return None
+    hl = df["High"] - df["Low"]
+    hc = (df["High"] - df["Close"].shift()).abs()
+    lc = (df["Low"] - df["Close"].shift()).abs()
+    tr = hl.combine(hc, max).combine(lc, max)
+    v = float(tr.rolling(n).mean().iloc[-1])
+    return v if v == v and v > 0 else None
+
+
+def _levels(df, price: float, label: str) -> dict:
+    """Stop, target and reward:risk for the signalled direction.
+
+    Volatility-scaled, not a flat percentage: the stop sits 2×ATR against the
+    position and the target 2R beyond entry, so a quiet stock gets a tight stop
+    and a violent one gets room. A flat "5% stop" would be hit constantly on
+    one and never on the other.
+
+    Returns nulls for a Neutral call — a level implies a direction, and
+    inventing one for a signal that has none would be false precision.
+    """
+    bullish = label in ("Strong Buy", "Buy")
+    bearish = label in ("Strong Sell", "Strong Sell", "Sell")
+    atr = _atr(df)
+    if atr is None or not (bullish or bearish):
+        return {"stop_loss": None, "target": None, "reward_risk": None,
+                "atr": round(atr, 4) if atr else None,
+                "levels_note": ("No directional consensus — no stop or target is implied."
+                                if atr else "Not enough high/low data to measure ATR.")}
+    risk = 2.0 * atr
+    stop = price - risk if bullish else price + risk
+    target = price + 2 * risk if bullish else price - 2 * risk
+    return {
+        "stop_loss": round(stop, 4),
+        "target": round(target, 4),
+        "reward_risk": 2.0,
+        "atr": round(atr, 4),
+        "stop_distance_pct": round(risk / price * 100, 2),
+        "levels_note": (f"Stop 2×ATR ({risk:.2f}) {'below' if bullish else 'above'} "
+                        f"{price:.2f}; target at 2R. Levels are volatility-scaled, "
+                        f"not a fixed percentage."),
     }
 
 
@@ -217,7 +266,14 @@ def recommendations(symbols: list, timeframe: str = "1d",
         if "error" in r or r["summary"] not in want:
             continue
         out.append({"symbol": s, "summary": r["summary"], "counts": r["counts"],
-                    "price": r.get("price"), "score": _SCORE.get(r["summary"], 0)})
+                    "price": r.get("price"), "score": _SCORE.get(r["summary"], 0),
+                    # Volatility-scaled levels for the signalled direction, from
+                    # the same fetch — a recommendation without a stop is only
+                    # half an idea.
+                    "stop_loss": r.get("stop_loss"), "target": r.get("target"),
+                    "reward_risk": r.get("reward_risk"), "atr": r.get("atr"),
+                    "stop_distance_pct": r.get("stop_distance_pct"),
+                    "levels_note": r.get("levels_note")})
     out.sort(key=lambda x: (-abs(x["score"]), -x["counts"]["buy"]))
     return out
 
