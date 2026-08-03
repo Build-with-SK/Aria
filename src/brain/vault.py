@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -24,7 +25,10 @@ CONFIG_FILE = ROOT / "data" / "vault_config.json"
 MANIFEST_FILE = ROOT / "data" / "brain_memory" / "vault_manifest.json"
 DB_PATH = ROOT / "data" / "brain_memory" / "chromadb"
 
-DEFAULT_VAULT = r"C:\Users\sound\Documents\DigitalBrain"
+# Resolution order: data/vault_config.json → ARIA_VAULT_PATH → a DigitalBrain
+# folder beside this repo. No absolute path from any one machine is baked in;
+# that leaked a username into the source and broke for every other user.
+DEFAULT_VAULT = os.environ.get("ARIA_VAULT_PATH") or str(ROOT.parent / "DigitalBrain")
 
 CHUNK_SIZE = 1200      # characters per chunk, split on paragraph boundaries
 MAX_FILE_BYTES = 512_000
@@ -192,10 +196,20 @@ class VaultIndex:
                 + "\n──────────────────────────────────────────────────────────────")
 
     def read_note(self, rel_path: str) -> str | None:
-        """Full text of one note, by vault-relative path."""
-        path = (self.vault / rel_path).resolve()
-        # keep reads inside the vault
-        if not str(path).startswith(str(self.vault.resolve())) or not path.exists():
+        """Full text of one note, by vault-relative path.
+
+        Containment is checked with `is_relative_to`, not a string prefix. A
+        prefix test passes for a SIBLING directory whose name merely starts
+        with the vault's — "…/DigitalBrain-backup" satisfies
+        startswith("…/DigitalBrain") — which would let a crafted path escape
+        the vault and read arbitrary files through the API.
+        """
+        root = self.vault.resolve()
+        try:
+            path = (root / rel_path).resolve()
+        except (OSError, ValueError):
+            return None
+        if not path.is_relative_to(root) or not path.is_file():
             return None
         return path.read_text(encoding="utf-8", errors="ignore")
 

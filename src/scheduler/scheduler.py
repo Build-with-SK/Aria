@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -58,17 +59,20 @@ def run_main(args: str = "") -> int:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file  = LOG_DIR / f"run_{timestamp}.log"
 
-    cmd = f'"{PYTHON_EXE}" "{MAIN_PY}" {args}'
-    logger.info(f"Running: {cmd}")
+    # No shell: the command is an argv list, so nothing in `args` can be
+    # interpreted as a shell operator. The same pattern was fixed in the API's
+    # pipeline runner; this scheduler path was still building a shell string.
+    argv = [str(PYTHON_EXE), str(MAIN_PY)] + shlex.split(args or "")
+    logger.info(f"Running: {argv}")
     logger.info(f"Log: {log_file}")
 
     with open(log_file, "w") as f:
         f.write(f"Run started: {datetime.now()}\n")
-        f.write(f"Command: {cmd}\n\n")
+        f.write(f"Command: {argv}\n\n")
         f.flush()
 
         result = subprocess.run(
-            cmd, shell=True, cwd=str(PROJECT_ROOT),
+            argv, shell=False, cwd=str(PROJECT_ROOT),
             stdout=f, stderr=subprocess.STDOUT,
         )
 

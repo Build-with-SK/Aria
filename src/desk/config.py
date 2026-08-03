@@ -21,8 +21,11 @@ CONFIG_FILE = ROOT / "data" / "desk_config.json"
 DESK_DIR = ROOT / "data" / "desk"
 
 DEFAULTS = {
-    "auto_execute": True,           # paper-only regardless (gate 1/5 rule); the
-                                    # UI toggle remains as the kill switch
+    # OFF by default. The paper-only env gate and the UI kill switch both still
+    # apply, but a public checkout must not begin placing orders — even paper
+    # ones — because someone ran the desk daemon before reading the safety
+    # contract. Turn it on deliberately in data/desk_config.json or the UI.
+    "auto_execute": False,
     "interval_minutes": 30,         # hunt cycle cadence (market-hours aware)
     "management_tick_minutes": 5,   # exit engine / bracket healing tick, 24/7
     "focus_tickers": 4,             # how many names get a full debate per cycle

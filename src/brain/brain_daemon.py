@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import uuid
 from datetime import datetime
@@ -23,7 +24,9 @@ logger = logging.getLogger(__name__)
 ROOT = Path(__file__).parent.parent.parent
 
 # ── Synapse: file-based peering with ATLAS (the user's personal AI) ─────────
-SYNAPSE = Path(r"C:\Users\sound\Documents\synapse")
+# Peering directory with ATLAS. Env-overridable; defaults beside this repo
+# rather than to one machine's absolute path.
+SYNAPSE = Path(os.environ.get("ARIA_SYNAPSE_PATH") or (ROOT.parent / "synapse"))
 SYNAPSE_IN = SYNAPSE / "atlas_to_aria.jsonl"      # ATLAS → ARIA
 SYNAPSE_OUT = SYNAPSE / "aria_to_atlas.jsonl"     # ARIA → ATLAS
 SYNAPSE_CURSOR = ROOT / "data" / "brain_memory" / "synapse_cursor.json"

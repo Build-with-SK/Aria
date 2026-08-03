@@ -58,5 +58,35 @@
     "value": 326.54,
     "threshold": null,
     "date": "2026-07-21T15:26:55.641039"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "WEAT",
+    "title": "\u25b2 BOUGHT 19 WEAT @ $24.52 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 88/100 \u00b7 The verdict of BUY is supported by a strong composite signal score of +50.7 (Buy), indicating a favorable overall market",
+    "value": 24.52,
+    "threshold": null,
+    "date": "2026-07-27T20:33:24.077039"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "ERX",
+    "title": "\u25b2 BOUGHT 5 ERX @ $91.60 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 77/100 \u00b7 The verdict of BUY follows from the evidence as the bullish signal is strongly supported by a composite score of +50.6 (",
+    "value": 91.604,
+    "threshold": null,
+    "date": "2026-07-27T20:33:56.620645"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "WEAT",
+    "title": "\u25b2 BOUGHT 19 WEAT @ $24.52 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 88/100 \u00b7 The verdict of BUY follows from the evidence because the bullish indicators outweigh the bearish ones. The strongest poi",
+    "value": 24.52,
+    "threshold": null,
+    "date": "2026-07-28T14:44:41.934760"
   }
 ]
