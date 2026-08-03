@@ -200,7 +200,7 @@ def check_network():
             if bind_all and host:
                 warn(f"OLLAMA_HOST={host} is a server BIND address, not somewhere to "
                      "connect. Set OLLAMA_BASE to the laptop's LAN IP "
-                     "(e.g. http://10.77.224.78:11434).")
+                     "(e.g. http://192.168.1.50:11434).")
             base = "http://localhost:11434"
 
     if not base.startswith("http"):

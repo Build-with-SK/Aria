@@ -25,7 +25,7 @@ desk, onto this Mac mini (late-2014, 2.6 GHz dual-core i5, 16 GB, macOS Monterey
   uvicorn, python-dotenv, anthropic, APScheduler, python-multipart); chromadb
   installed but `sentence_transformers` is intentionally absent.
 - `.env` is configured: `ALPACA_PAPER=true`, `ARIA_API_KEY` set,
-  `OLLAMA_BASE=http://10.77.224.78:11434` (the laptop's Ollama — reachable and
+  `OLLAMA_BASE=http://192.168.1.50:11434` (the laptop's Ollama — reachable and
   working). `ARIA_RUN_BRAIN=false` may already be appended.
 - The backend RUNS and the desk is LIVE: `curl http://localhost:8000/api/desk/status`
   returns `"account":"paper"`, `"connected":true`, `"auto_allowed":true`,

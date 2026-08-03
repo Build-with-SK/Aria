@@ -108,5 +108,45 @@
     "value": 33.140625,
     "threshold": null,
     "date": "2026-08-03T14:49:47.778391"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "BNO",
+    "title": "\u25b2 BOUGHT 9 BNO @ $47.95 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 70/100 \u00b7 Based on the evidence presented, the verdict of BUY is supported by the strong bullish probability score of 71%, indicat",
+    "value": 47.948889,
+    "threshold": null,
+    "date": "2026-08-03T16:26:17.212813"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "NET",
+    "title": "\u25b2 BOUGHT 1 NET @ $284.96 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 67/100 \u00b7 The verdict of BUY is supported by the strong bullish signal with a composite score of +46.5 and a heuristic probability",
+    "value": 284.96,
+    "threshold": null,
+    "date": "2026-08-03T16:26:49.125746"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "BNO",
+    "title": "\u25b2 BOUGHT 9 BNO @ $47.97 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 70/100 \u00b7 Based on the evidence provided, the BNO Bull team argues that the strong composite signal score of +47.3 (Buy), along wi",
+    "value": 47.968889,
+    "threshold": null,
+    "date": "2026-08-03T16:56:18.840703"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "BNO",
+    "title": "\u25b2 BOUGHT 9 BNO @ $47.77 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 70/100 \u00b7 The verdict of BUY is supported by a strong composite signal score of +47.3 (Buy), indicating an overall bullish sentime",
+    "value": 47.77,
+    "threshold": null,
+    "date": "2026-08-03T17:26:09.228923"
   }
 ]

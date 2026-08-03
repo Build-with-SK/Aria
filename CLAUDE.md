@@ -2,11 +2,21 @@
 
 ## User's Obsidian Vault (knowledge base)
 
-The user's personal knowledge base is an Obsidian vault at:
+The owner keeps a personal Obsidian vault alongside this repo — by default a
+`DigitalBrain` folder **next to the repository root** (i.e. `../DigitalBrain`).
+Resolve it rather than assuming a path:
 
 ```
-C:\Users\sound\Documents\DigitalBrain
+data/vault_config.json  →  $ARIA_VAULT_PATH  →  ../DigitalBrain
 ```
+
+`src/brain/vault.py:get_vault_path()` implements exactly that order, so ask it
+rather than hardcoding anything. The repo deliberately names no absolute path:
+this file is public, and the vault is not.
+
+**The vault is owner-only.** `_vault_context()` in `backend/main.py` checks the
+caller's role before a reply may be grounded in these notes, and no setting
+shares them with anyone else — see `src/auth/policy.py`.
 
 It is plain markdown — **read it directly with file tools** (Read/Grep/Glob); no MCP server is needed or wanted. Key locations:
 

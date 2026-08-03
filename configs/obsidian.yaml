@@ -1,7 +1,10 @@
 ﻿obsidian:
   enabled: true
-  vault_root: "C:/Users/sound/Documents/DigitalBrain"
-  tis_root: "C:/Users/sound/Documents/DigitalBrain/01 - Trading/TIS"
+  # Relative to the repo root, so this file names no particular machine or
+  # user. An absolute path works too. Resolution order for the brain's own
+  # vault index is: data/vault_config.json, then $ARIA_VAULT_PATH, then this.
+  vault_root: "../DigitalBrain"
+  tis_root: "../DigitalBrain/01 - Trading/TIS"
   folders:
     dashboard:    "00 Dashboard"
     daily_logs:   "01 Daily Market Logs"

@@ -60,7 +60,7 @@
 
 # PART 2 — AUDIT PROMPT FOR CLAUDE (Claude Code, with repo access)
 
-Copy everything between the lines into a **fresh Claude Code session** started in `C:\Users\sound\Documents\trading-intelligence-system`:
+Copy everything between the lines into a **fresh Claude Code session** started in `<repo-root>`:
 
 ---
 
@@ -125,7 +125,7 @@ Deliver exactly this structure:
 
 # PART 4 — FIX-EXECUTION PROMPT (run AFTER you have both audit reports)
 
-Paste this into Claude Code in `C:\Users\sound\Documents\trading-intelligence-system`, followed by the two audit reports:
+Paste this into Claude Code in `<repo-root>`, followed by the two audit reports:
 
 ---
 

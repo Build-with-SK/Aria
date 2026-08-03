@@ -1,5 +1,5 @@
 # ARIA — Ticker Intelligence + Timeframe Tabs + Brain Visualization
-## Build spec for a Claude Code session (run from `C:\Users\sound\Documents\trading-intelligence-system`)
+## Build spec for a Claude Code session (run from `<repo-root>`)
 
 Copy everything below into a fresh Claude Code session. Build in the order given,
 small reviewable commits, verify each feature live in the browser before moving on.

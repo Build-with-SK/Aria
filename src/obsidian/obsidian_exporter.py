@@ -4,7 +4,7 @@ Trading Intelligence System — Phase 4
 Obsidian Vault Exporter
 
 Exports all TIS model outputs as structured Markdown into:
-  C:/Users/sound/Documents/DigitalBrain/01 - Trading/TIS/
+  <vault-root>/01 - Trading/TIS/
 
 Asset notes are SMART-UPDATED:
   - YAML frontmatter + auto-generated sections are overwritten

@@ -21,11 +21,11 @@ The UI shows the brain's internal monologue in real time — you can watch it th
 ```
 OS            : Windows 11
 GPU           : NVIDIA GeForce RTX 4060 Laptop GPU, 8188 MiB VRAM
-Python venv   : C:\Users\sound\Documents\trading-intelligence-system\venv\Scripts\python.exe
+Python venv   : <repo-root>\venv\Scripts\python.exe
 PyTorch       : 2.1.0+cpu (replace with CUDA build before fine-tuning)
 Ollama        : v0.31.1 at localhost:11434
 Ollama models : qwen2.5-coder:7b (4.7GB), gemma3:4b (3.3GB)
-Project root  : C:\Users\sound\Documents\trading-intelligence-system
+Project root  : <repo-root>
 Backend       : FastAPI port 8000, backend/main.py
 Frontend      : React+Vite port 3000, frontend/src/
 ```

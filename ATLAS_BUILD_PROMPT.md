@@ -27,9 +27,9 @@ ATLAS is a **peer of ARIA**, not a module of it. ARIA is the trading specialist 
 ```
 OS            : Windows 11
 GPU           : NVIDIA GeForce RTX 4060 Laptop GPU, 8188 MiB VRAM
-Project root  : C:\Users\sound\Documents\atlas          (CREATE THIS — new, separate project)
+Project root  : <your-projects-dir>\atlas          (CREATE THIS — new, separate project)
 Python        : 3.11+, fresh venv at atlas\venv
-User's vault  : C:\Users\sound\Documents\DigitalBrain   (Obsidian, plain markdown — read directly)
+User's vault  : <vault-root>   (Obsidian, plain markdown — read directly)
 ARIA (peer)   : http://localhost:8000  (FastAPI; /api/brain/*, /api/vault/*, /api/signals ...)
 ATLAS port    : 8100 (API), 3100 (UI dev server)
 ```
@@ -219,7 +219,7 @@ Two minds, two mechanisms:
 - `get_market_state()` → GET `/api/summary`
 
 **2. The Synapse (bidirectional learning, file-based — no new infrastructure):**
-A shared folder both minds can reach: `C:\Users\sound\Documents\synapse\`
+A shared folder both minds can reach: `<your-projects-dir>\synapse\`
 - `atlas_to_aria.jsonl` — ATLAS writes lessons ARIA might use: *"my human said they're travelling next week — expect no trade approvals"*
 - `aria_to_atlas.jsonl` — ARIA writes lessons ATLAS might use: *"regime shifted to Risk-Off today; my human's stress may be elevated"*
 - Message schema: `{from, to, at, kind: lesson|fact|question|answer, text, refs}`

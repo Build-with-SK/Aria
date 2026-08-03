@@ -15,7 +15,8 @@ data:
 # OBSIDIAN
 # ─────────────────────────────────────────────────────────────────────────────
 obsidian:
-  vault_path: "C:/Users/sound/Documents/DigitalBrain"
+  # Relative to the repo root; an absolute path is equally fine.
+  vault_path: "../DigitalBrain"
   tis_folder: "01 - Trading/TIS"
   overwrite_files:
     - "latest_signals.md"

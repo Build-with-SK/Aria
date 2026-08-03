@@ -6,14 +6,14 @@ the laptop sleeping). The laptop keeps Ollama (the local LLM) and the heavy nigh
 ML pipeline, and pushes fresh signals to the mini each morning.
 
 **Your concrete values** (already filled in below):
-- Laptop Wi-Fi IP: **`10.77.224.78`** (both machines must be on the SAME Wi-Fi)
+- Laptop Wi-Fi IP: **`192.168.1.50`** (both machines must be on the SAME Wi-Fi)
 - Ollama models on the laptop: `qwen2.5-coder:7b`, `gemma3:4b`
 - ⚠️ **NordVPN**: while it's connected on the laptop it can block the mini from
   reaching Ollama. Either allow "local network / LAN" in NordVPN settings, or
   disconnect the VPN, or accept that debates fall back to the Anthropic API when
   the VPN is up (the router handles that automatically).
 
-> Tip: the laptop's Wi-Fi IP (`10.77.224.78`) is handed out by DHCP and can change
+> Tip: the laptop's Wi-Fi IP (`192.168.1.50`) is handed out by DHCP and can change
 > on reconnect. If it does, update `OLLAMA_BASE` in the mini's `.env` and the
 > `MINI_HOST` on the laptop. For a permanent fix, set a DHCP reservation in your
 > router, or we can switch to hostname-based discovery later.
@@ -36,11 +36,11 @@ PowerShell (as your normal user):
 Run PowerShell **as Administrator**:
 ```powershell
 New-NetFirewallRule -DisplayName "Ollama LAN (ARIA mini)" -Direction Inbound `
-  -Protocol TCP -LocalPort 11434 -Action Allow -RemoteAddress 10.77.224.0/24
+  -Protocol TCP -LocalPort 11434 -Action Allow -RemoteAddress 192.168.1.0/24
 ```
 
 ### 0.3 Verify Ollama is reachable (do this AFTER the mini is on the network, 1.x)
-From the mini later you'll run: `curl http://10.77.224.78:11434/api/tags` — it should
+From the mini later you'll run: `curl http://192.168.1.50:11434/api/tags` — it should
 return JSON listing the two models.
 
 ---
@@ -73,7 +73,7 @@ node --version            # any LTS (v20/v22) is fine
 
 ### 1.4 Turn on Remote Login (so the laptop can push signals via scp)
 System Settings → General → Sharing → toggle **Remote Login** ON.
-Note the line it shows: `ssh username@10.77.224.xx` — that username + the mini's IP
+Note the line it shows: `ssh username@192.168.1.xx` — that username + the mini's IP
 is your `MINI_HOST` for Part 5. Find the mini's own IP with:
 ```bash
 ipconfig getifaddr en0    # Wi-Fi address of the mini
@@ -119,7 +119,7 @@ nano .env
 Ensure these are present/added:
 ```
 # point the mini at the laptop's Ollama over Wi-Fi
-OLLAMA_BASE=http://10.77.224.78:11434
+OLLAMA_BASE=http://192.168.1.50:11434
 
 # a shared secret so only your UI/tools can POST to the trading API (pick any
 # long random string; you'll use the same value if you open the UI from a phone)
@@ -178,7 +178,7 @@ Test: `ssh USERNAME@MINI_IP "echo ok"` should print `ok` with no password.
 The `TradingIntelligenceSystem` scheduled task runs `main.py` at 07:30. Add a second
 action (or we can wrap both in one script) that runs after it:
 ```
-powershell.exe -ExecutionPolicy Bypass -File "C:\Users\sound\Documents\trading-intelligence-system\scripts\push_data_to_mini.ps1"
+powershell.exe -ExecutionPolicy Bypass -File "<repo-root>\scripts\push_data_to_mini.ps1"
 ```
 Ask me and I'll update the scheduled task to chain the push automatically.
 
@@ -225,7 +225,7 @@ launchctl load    ~/Library/LaunchAgents/com.aria.backend.plist   # start it
 ### Common issues
 - **Desk shows Ollama/debates failing** → the mini can't reach the laptop's Ollama.
   Check NordVPN (Part 0 warning), that both are on the same Wi-Fi, and
-  `curl http://10.77.224.78:11434/api/tags` from the mini. Debates fall back to the
+  `curl http://192.168.1.50:11434/api/tags` from the mini. Debates fall back to the
   Anthropic API automatically, so trading still works — you just lose the local LLM.
 - **`pip install` fails on a package** → make sure you used Python **3.12** (1.2),
   not the system Python. `~/aria/venv/bin/python --version` must say 3.12.
