@@ -248,3 +248,189 @@ input:focus, textarea:focus, select:focus { border-color: var(--orange-dim) !imp
   box-shadow: var(--glow);
   animation: bootBar 1.6s .35s cubic-bezier(.7,0,.3,1) both;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ACCESSIBILITY
+   The terminal aesthetic defaults to 8-11px text on low-contrast greys, which
+   is hard work for anyone over about forty and unusable for some. These three
+   controls (sidebar, bottom) make the whole app comfortable without giving up
+   the design. Settings persist and are applied to <html> as data attributes.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── text size ──
+   `zoom` scales EVERYTHING proportionally — including the hundreds of inline
+   px font sizes this codebase uses, which a root font-size cannot touch
+   because inline styles are absolute and win over any stylesheet rule.
+   Supported in Chrome, Edge, Safari and Firefox 126+.                        */
+html[data-text-size="large"]  #root { zoom: 1.18; }
+html[data-text-size="larger"] #root { zoom: 1.36; }
+html[data-text-size="largest"] #root { zoom: 1.55; }
+
+/* ── high contrast ──
+   Only the text and border tokens move; the crimson identity stays. Default
+   --muted (#5d4a52 on near-black) sits near 3:1, under the 4.5:1 WCAG AA
+   minimum for body text. These values clear it.                              */
+html[data-contrast="high"] {
+  --text:      #ffffff;
+  --text-dim:  #e2d8dc;
+  --muted:     #bcaeb4;
+  --border:    #5c3540;
+  --border-2:  #82495a;
+  --green:     #5cffab;
+  --red:       #ff959c;
+  --yellow:    #ffd166;
+  --blue:      #7bdcff;
+  --orange:    #ff6478;
+}
+html[data-contrast="high"] .bb-card { border-color: var(--border-2); }
+html[data-contrast="high"] table th { color: var(--text-dim); }
+
+/* ── reduced motion ──
+   Honours the OS setting automatically, and can be forced on. The tape,
+   pulses and boot animation all stop; nothing depends on motion to be
+   understood.                                                                */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+html[data-motion="reduced"] *,
+html[data-motion="reduced"] *::before,
+html[data-motion="reduced"] *::after {
+  animation-duration: .001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: .001ms !important;
+}
+html[data-motion="reduced"] .ticker-inner { animation: none !important; }
+
+/* ── keyboard focus ──
+   The app was navigable by mouse only: no visible focus ring anywhere. This
+   makes tabbing through it possible for keyboard and switch users.           */
+:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 2px;
+}
+
+/* Comfortable hit targets — 24px is the WCAG 2.2 minimum for pointer inputs. */
+html[data-text-size="large"] button,
+html[data-text-size="larger"] button,
+html[data-text-size="largest"] button { min-height: 26px; }
+
+/* Screen-reader-only text: announced, not displayed. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE SHELL
+   The rail, tape and content offset were hard-coded at 200px inline, so on a
+   phone the content had ~175px to live in and the app was unusable. These are
+   the same numbers, moved somewhere media queries can reach them.
+   ═══════════════════════════════════════════════════════════════════════════ */
+:root { --rail-w: 200px; --tape-h: 30px; }
+
+.aria-rail {
+  position: fixed; left: 0; top: 0; bottom: 0; width: var(--rail-w);
+  display: flex; flex-direction: column; z-index: 100;
+  transition: left .22s ease;
+}
+.aria-tape {
+  position: fixed; top: 0; left: var(--rail-w); right: 0; height: var(--tape-h);
+  overflow: hidden; z-index: 99; display: flex; align-items: center;
+}
+.aria-main {
+  margin-left: var(--rail-w); margin-top: var(--tape-h); padding: 20px 24px;
+}
+.aria-rail-toggle { display: none; }
+.aria-rail-scrim { display: none; }
+
+/* Tablet / small laptop — a narrower rail buys back real estate. */
+@media (max-width: 1100px) {
+  :root { --rail-w: 172px; }
+  .aria-main { padding: 16px 16px; }
+}
+
+/* Phone and narrow windows — the rail goes off-canvas behind a button. */
+@media (max-width: 780px) {
+  /* Off-canvas via `left`, not `transform`: a transformed position:fixed
+     element interacts badly with the compositor here — the .is-open rule won
+     the cascade but the painted position never updated. `left` is boring and
+     deterministic. */
+  .aria-rail {
+    left: -232px;
+    box-shadow: 0 0 40px rgba(0,0,0,.7);
+    width: 232px;
+  }
+  .aria-rail.is-open { left: 0; }
+  .aria-main { margin-left: 0; padding: 14px 12px; }
+  .aria-tape { left: 0; padding-left: 52px; }
+
+  .aria-rail-toggle {
+    display: block; position: fixed; top: 4px; left: 6px; z-index: 401;
+    width: 40px; height: 40px; border-radius: 6px; cursor: pointer;
+    background: #12060b; border: 1px solid var(--border-2);
+    color: var(--orange); font-size: 17px; line-height: 1;
+  }
+  .aria-rail.is-open ~ .aria-rail-toggle { left: 240px; }
+  .aria-rail-scrim {
+    display: block; position: fixed; inset: 0; z-index: 99;
+    background: rgba(0,0,0,.6);
+  }
+
+  /* Wide content must scroll inside itself, never push the page sideways. */
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   POLISH — skeletons, motion, hit feedback
+   Loading states that hold their shape, transitions that feel intentional,
+   and controls that answer immediately when touched.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Skeletons: a calm shimmer that occupies the space the content will take, so
+   the layout does not jump when data lands. */
+.aria-skeleton {
+  background: linear-gradient(90deg, #140a10 25%, #201018 50%, #140a10 75%);
+  background-size: 240% 100%;
+  animation: ariaShimmer 1.5s ease-in-out infinite;
+}
+@keyframes ariaShimmer { 0% { background-position: 200% 0 } 100% { background-position: -40% 0 } }
+
+/* Page transitions — short and downward-settling, never bouncy. */
+.page-enter { animation: ariaPageIn .26s cubic-bezier(.22,.7,.3,1) both; }
+@keyframes ariaPageIn { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
+
+/* Controls answer instantly to touch and hover. */
+button:not(:disabled), a[href], [role="button"] { transition: background .16s ease, border-color .16s ease, color .16s ease, transform .08s ease; }
+button:not(:disabled):hover { border-color: var(--orange); }
+button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Rows highlight as a unit, so dense tables are easy to track across. */
+tbody tr { transition: background .12s ease; }
+tbody tr:hover { background: rgba(255,36,71,.055); }
+
+/* Cards lift very slightly on hover — enough to read as interactive. */
+.bb-card { transition: border-color .18s ease, transform .18s ease; }
+
+/* Scrollbars that match the deck instead of the OS default. */
+* { scrollbar-width: thin; scrollbar-color: #3d1420 transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: #2f101a; border-radius: 6px; border: 2px solid transparent; background-clip: content-box; }
+*::-webkit-scrollbar-thumb:hover { background: #4d1a2a; background-clip: content-box; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* A term with a plain-English explanation behind it. */
+.aria-term {
+  border-bottom: 1px dotted var(--border-2);
+  cursor: help;
+}
+.aria-term:hover { border-bottom-color: var(--orange); }
