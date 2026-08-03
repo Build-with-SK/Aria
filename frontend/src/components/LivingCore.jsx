@@ -152,6 +152,17 @@ export default function LivingCore({ height = 640 }) {
           dim: sig ? 1 : dust,                                     // signals shine through the dust
           hasSig: !!sig,
           size: 0.010 + (sig ? 0.020 + conv * 0.05 : 0.0035),
+          // ── orbital motion ──
+          // The disc turns as a PATTERN, not as material. Real differential
+          // rotation (inner stars lapping outer ones) would shear these arms
+          // into mush within a minute — the classic winding problem — so the
+          // spiral rotates rigidly and each star only librates a little around
+          // its place in it. Phase is hashed from the symbol, so a given stock
+          // always breathes the same way and the galaxy is reproducible.
+          wob: 0.006 + rnd(h, 11) * 0.010,
+          wph: rnd(h, 12) * TAU,
+          twk: rnd(h, 13) * TAU,        // twinkle phase (signals only)
+          conv,
         }
       })
       nodesRef.current = nodes
@@ -234,7 +245,21 @@ export default function LivingCore({ height = 640 }) {
     resize()
     const ro = new ResizeObserver(resize); ro.observe(wrap)
 
-    const s = { contract: 1, coreBright: 1, beat: 0, bloom: true }
+    const s = { contract: 1, coreBright: 1, beat: 0, bloom: true, spin: 0, t: 0 }
+
+    // Shooting stars: rare, brief, and never near the middle — they exist to
+    // make the field feel observed rather than painted. One at a time.
+    const shots = []
+    function maybeShoot(rngv) {
+      if (shots.length > 2 || rngv > 0.006) return
+      const a = rng() * TAU, r0 = 3.4 + rng() * 1.8
+      shots.push({
+        x: Math.cos(a) * r0, y: (rng() - 0.5) * 1.6, z: Math.sin(a) * r0,
+        vx: -Math.cos(a) * (1.6 + rng()), vy: (rng() - 0.5) * 0.5,
+        vz: -Math.sin(a) * (1.6 + rng()),
+        life: 1,
+      })
+    }
     const FOV = 3.0
     let last = performance.now(), fpsEMA = 60, lowF = 0, highF = 0
     let raf = 0, running = true
@@ -262,6 +287,14 @@ export default function LivingCore({ height = 640 }) {
       if (bus.beat > 0) { s.beat = Math.min(3, s.beat + bus.beat); bus.beat = 0 }
       const breathe = 1 + Math.sin(now / 1000 * (TAU / 3.6)) * 0.05 + bus.intensity * 0.04
       const push = s.contract * (1 + s.beat * 0.05)
+
+      // The disc turns under its own steam, independently of the camera drift
+      // that was already here — so the galaxy is rotating even while you hold
+      // it still, and faster for a moment when she speaks.
+      s.t += dt
+      s.spin += dt * (0.026 + bus.intensity * 0.045 + s.beat * 0.02)
+      const cosS = Math.cos(s.spin), sinS = Math.sin(s.spin)
+      const lib = Math.sin(s.t * 0.9)          // one sin/frame, shared by every star
 
       function project(x, y, z) {
         const x1 = x * cosY + z * sinY, z1 = -x * sinY + z * cosY
@@ -327,20 +360,84 @@ export default function LivingCore({ height = 640 }) {
       let best = null, bestD = 15 * 15
       const invP = FOV / camDist
       const n = Math.min(nodes.length, maxDraw)
+      const movers = []
       for (let i = 0; i < n; i++) {
         const nd = nodes[i]
-        const pr = project(nd.x * push, nd.y * push, nd.z * push); if (!pr) continue
+        // Rotate the star into the spinning disc. Two multiplies and no trig
+        // per node — the cos/sin were computed once for the whole frame, which
+        // is what makes this affordable across 60,000 bodies.
+        const wob = 1 + nd.wob * lib
+        const bx = nd.x * wob, bz = nd.z * wob
+        const rx = bx * cosS - bz * sinS
+        const rz = bx * sinS + bz * cosS
+        const pr = project(rx * push, nd.y * push, rz * push); if (!pr) continue
         nd._sx = pr.sx; nd._sy = pr.sy; nd._zc = pr.zc
         const depth = Math.min(1, pr.p / invP)
         const sz = Math.max(nd.hasSig ? 3 : 1.25, nd.size * pr.p * scale * (1 + s.beat * 0.1))
         let a = nd.hasSig ? (0.42 + depth * 0.5) : (0.20 + depth * 0.34) * nd.dim
         a *= (0.85 + s.beat * 0.1 + bus.intensity * 0.15)
+        // Only the signalled few twinkle. Doing it to all 60k would cost a sin
+        // per star per frame and read as noise rather than starlight.
+        if (nd.hasSig) a *= 0.82 + 0.18 * Math.sin(s.t * 2.6 + nd.twk)
         ctx.globalAlpha = Math.min(0.95, a)
         ctx.drawImage(sprites[nd.region], pr.sx - sz / 2, pr.sy - sz / 2, sz, sz)
+        if (nd.conv > 0.55 && movers.length < 40) movers.push(nd)
         if (picking) {
           const dd = (pr.sx - mx) ** 2 + (pr.sy - my) ** 2
           if (dd < bestD && pr.zc < camDist + 2.4) { bestD = dd; best = nd }
         }
+      }
+
+      // The strongest convictions trail light behind them as the disc turns.
+      // Capped at 40 so a wild market cannot turn this into a cost centre.
+      for (let i = 0; i < movers.length; i++) {
+        const nd = movers[i]
+        if (nd._px !== undefined) {
+          const dx = nd._sx - nd._px, dy = nd._sy - nd._py
+          if (dx * dx + dy * dy < 400) {
+            const up = (nd.score || 0) >= 0
+            ctx.globalAlpha = 0.10 + nd.conv * 0.16
+            ctx.strokeStyle = up ? 'rgba(43,227,139,1)' : 'rgba(255,77,109,1)'
+            ctx.lineWidth = 0.9 + nd.conv * 1.1
+            ctx.beginPath()
+            ctx.moveTo(nd._px - dx * 5, nd._py - dy * 5)
+            ctx.lineTo(nd._sx, nd._sy)
+            ctx.stroke()
+          }
+        }
+        nd._px = nd._sx; nd._py = nd._sy
+      }
+
+      // Diffraction spikes on the hub — the giveaway that you are looking at
+      // something genuinely bright rather than a pale disc.
+      if (cc && s.bloom) {
+        const fl = coreBase * 0.9 * coreScale
+        ctx.globalAlpha = Math.min(0.5, 0.16 + s.coreBright * 0.14 + s.beat * 0.06)
+        ctx.strokeStyle = 'rgba(255,236,190,1)'
+        ctx.lineWidth = 1.1
+        for (let k = 0; k < 2; k++) {
+          const ang = k * Math.PI / 2 + 0.22
+          const ux = Math.cos(ang) * fl, uy = Math.sin(ang) * fl
+          ctx.beginPath()
+          ctx.moveTo(cc.sx - ux, cc.sy - uy)
+          ctx.lineTo(cc.sx + ux, cc.sy + uy)
+          ctx.stroke()
+        }
+      }
+
+      // Shooting stars.
+      maybeShoot(rng())
+      for (let i = shots.length - 1; i >= 0; i--) {
+        const q = shots[i]
+        const p0 = project(q.x, q.y, q.z)
+        q.x += q.vx * dt; q.y += q.vy * dt; q.z += q.vz * dt
+        q.life -= dt * 0.5
+        const p1 = project(q.x, q.y, q.z)
+        if (q.life <= 0 || !p0 || !p1) { shots.splice(i, 1); continue }
+        ctx.globalAlpha = Math.max(0, q.life) * 0.7
+        ctx.strokeStyle = 'rgba(226,240,255,1)'
+        ctx.lineWidth = 1.2
+        ctx.beginPath(); ctx.moveTo(p0.sx, p0.sy); ctx.lineTo(p1.sx, p1.sy); ctx.stroke()
       }
 
       // hover / select markers
