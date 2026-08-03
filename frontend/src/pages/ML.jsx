@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useML } from '../hooks/useApi'
 import { Spinner, ErrorBox, SectionHeader, MetricCard } from '../components/UI'
 
@@ -27,7 +28,14 @@ export default function ML() {
                 return (
                   <tr key={ticker} onClick={() => setSelected(ticker === selected ? null : ticker)}
                     style={{ cursor: 'pointer', background: selected === ticker ? 'rgba(88,166,255,0.08)' : '' }}>
-                    <td style={{ fontWeight: 600 }}>{ticker}</td>
+                    <td>
+                      <Link to={`/research?symbol=${encodeURIComponent(ticker)}`}
+                        onClick={e => e.stopPropagation()}
+                        title={`Open ${ticker} research`}
+                        style={{ fontWeight: 600, color: 'var(--orange)', textDecoration: 'none' }}>
+                        {ticker}
+                      </Link>
+                    </td>
                     <td style={{ color: sig === 'Bullish' ? '#3fb950' : sig === 'Bearish' ? '#f85149' : '#d29922', fontWeight: 600 }}>{sig}</td>
                     <td style={{ color: d1 > 0.55 ? '#3fb950' : d1 < 0.45 ? '#f85149' : '#8b949e' }}>{d1 ? `${(d1*100).toFixed(0)}%` : '—'}</td>
                     <td style={{ color: d5 > 0.55 ? '#3fb950' : d5 < 0.45 ? '#f85149' : '#8b949e' }}>{d5 ? `${(d5*100).toFixed(0)}%` : '—'}</td>

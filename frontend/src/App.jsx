@@ -1,28 +1,27 @@
-import React, { useEffect, useState } from 'react'
-import { Routes, Route, useLocation } from 'react-router-dom'
+import React, { lazy, Suspense, useEffect, useState } from 'react'
+import { Link, Navigate, Routes, Route, useLocation } from 'react-router-dom'
 import Sidebar   from './components/Sidebar'
-import Compare   from './pages/Compare'
-import Chat      from './pages/Chat'
-import Nexus     from './pages/Nexus'
-import QuantLab  from './pages/QuantLab'
-import Brain     from './pages/Brain'
-import Thinking  from './pages/Thinking'
-import Explorer  from './pages/Explorer'
-import Quant     from './pages/Quant'
-import Execution from './pages/Execution'
-import Desk      from './pages/Desk'
-import Recommendations from './pages/Recommendations'
-import Overview  from './pages/Overview'
-import Signals   from './pages/Signals'
-import Futures   from './pages/Futures'
-import Options   from './pages/Options'
-import ML        from './pages/ML'
-import Backtest  from './pages/Backtest'
-import Portfolio from './pages/Portfolio'
-import Macro     from './pages/Macro'
-import Alerts    from './pages/Alerts'
-import Report    from './pages/Report'
+import ErrorBoundary from './components/ErrorBoundary'
+import ConnectionBanner from './components/ConnectionBanner'
+/* ── the twelve destinations ── */
+import Chat        from './pages/Chat'
+import CommandHub  from './pages/CommandHub'
 import { useSummary } from './hooks/useApi'
+
+/* Route-level code splitting. The whole app used to ship as one 864 KB bundle,
+   so a phone on mobile data downloaded the desk, the quant lab and every chart
+   library before it could render the landing page. Chat and the command deck
+   stay eager (they are where people land); the rest arrive when opened. */
+const V5 = lazy(() => import('./pages/V5'))
+const Research = lazy(() => import('./pages/Research'))
+const LabHub = lazy(() => import('./pages/LabHub'))
+const BrainHub = lazy(() => import('./pages/BrainHub'))
+const Markets = lazy(() => import('./pages/Markets'))
+const Recommendations = lazy(() => import('./pages/Recommendations'))
+const Portfolio = lazy(() => import('./pages/Portfolio'))
+const Quant = lazy(() => import('./pages/Quant'))
+const TrackRecord = lazy(() => import('./pages/TrackRecord'))
+const DeskHub = lazy(() => import('./pages/DeskHub'))
 
 /* ── cinematic boot splash — plays once per browser session ── */
 function Boot() {
@@ -54,25 +53,50 @@ function TickerTape() {
   const tape = [...items, ...items] // double for seamless loop
 
   return (
-    <div style={{
-      position: 'fixed', top: 0, left: 200, right: 0, height: 30,
+    <div className="aria-tape" style={{
       background: 'linear-gradient(180deg, rgba(255,36,71,0.04), transparent), #060308',
       borderBottom: '1px solid var(--border)',
-      overflow: 'hidden', zIndex: 99, display: 'flex', alignItems: 'center',
     }}>
       <div className="ticker-inner" style={{ gap: 0 }}>
+        {/* Every ticker on the tape opens its research dossier. The tape keeps
+            scrolling; the CSS animation pauses on hover so a moving target can
+            actually be clicked. */}
         {tape.map((t, i) => (
-          <span key={i} style={{
-            fontFamily: 'var(--mono)', fontSize: 11, padding: '0 18px',
-            color: t.dir > 0 ? 'var(--green)' : 'var(--red)',
-            borderRight: '1px solid var(--border)',
-            whiteSpace: 'nowrap',
-            textShadow: t.dir > 0 ? '0 0 8px rgba(43,227,139,.35)' : '0 0 8px rgba(255,85,96,.35)',
-          }}>
+          <Link key={i} to={`/research?symbol=${encodeURIComponent(t.ticker)}`}
+            title={`Open ${t.ticker} research`}
+            style={{
+              fontFamily: 'var(--mono)', fontSize: 11, padding: '0 18px',
+              color: t.dir > 0 ? 'var(--green)' : 'var(--red)',
+              borderRight: '1px solid var(--border)',
+              whiteSpace: 'nowrap', textDecoration: 'none',
+              textShadow: t.dir > 0 ? '0 0 8px rgba(43,227,139,.35)' : '0 0 8px rgba(255,85,96,.35)',
+            }}>
             {t.ticker} <strong>{t.score > 0 ? '+' : ''}{parseFloat(t.score).toFixed(1)}</strong>
-          </span>
+          </Link>
         ))}
       </div>
+    </div>
+  )
+}
+
+/* Shown while a route chunk downloads — a calm skeleton, not a spinner. */
+function PageLoading() {
+  const bar = (w, h = 12, delay = 0) => (
+    <div className="aria-skeleton" style={{ width: w, height: h, borderRadius: 4, marginBottom: 10,
+      animationDelay: `${delay}s` }} />
+  )
+  return (
+    <div aria-busy="true" aria-live="polite" style={{ padding: '6px 2px' }}>
+      <span className="sr-only">Loading page…</span>
+      {bar('34%', 16)}
+      {bar('58%', 10, .06)}
+      <div style={{ display: 'flex', gap: 12, margin: '18px 0' }}>
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} className="aria-skeleton" style={{ flex: 1, height: 68, borderRadius: 6,
+            animationDelay: `${i * .05}s` }} />
+        ))}
+      </div>
+      {bar('100%', 190, .12)}
     </div>
   )
 }
@@ -85,35 +109,56 @@ export default function App() {
       {/* CRT scanlines + sweep + drifting grid */}
       <div className="scanline" />
 
+      <ConnectionBanner />
       <Sidebar />
       <TickerTape />
 
-      <main style={{ marginLeft: 200, marginTop: 30, flex: 1, padding: '20px 24px', minHeight: '100vh', maxWidth: '100%' }}>
+      <main className="aria-main" style={{ flex: 1, minHeight: '100vh', maxWidth: '100%' }}>
         {/* key on pathname → every page mounts with the rise-in transition */}
         <div key={loc.pathname} className="page-enter">
+          <ErrorBoundary resetKey={loc.pathname}>
+          <Suspense fallback={<PageLoading />}>
           <Routes>
-            <Route path="/chat"      element={<Chat      />} />
-            <Route path="/nexus"     element={<Nexus     />} />
-            <Route path="/quantlab"  element={<QuantLab  />} />
-            <Route path="/brain"     element={<Brain     />} />
-            <Route path="/thinking"  element={<Thinking  />} />
-            <Route path="/explorer"  element={<Explorer  />} />
-            <Route path="/quant"     element={<Quant     />} />
-            <Route path="/execute"   element={<Execution />} />
-            <Route path="/desk"      element={<Desk      />} />
+            {/* ── the twelve destinations ── */}
+            <Route path="/"             element={<CommandHub  />} />
+            <Route path="/chat"         element={<Chat        />} />
+            <Route path="/v5"           element={<V5          />} />
+            <Route path="/research"     element={<Research    />} />
+            <Route path="/lab"          element={<LabHub      />} />
+            <Route path="/brain"        element={<BrainHub    />} />
+            <Route path="/markets"      element={<Markets     />} />
             <Route path="/recommendations" element={<Recommendations />} />
-            <Route path="/compare"   element={<Compare   />} />
-            <Route path="/"          element={<Overview  />} />
-            <Route path="/signals"   element={<Signals   />} />
-            <Route path="/futures"   element={<Futures   />} />
-            <Route path="/options"   element={<Options   />} />
-            <Route path="/ml"        element={<ML        />} />
-            <Route path="/backtest"  element={<Backtest  />} />
-            <Route path="/portfolio" element={<Portfolio />} />
-            <Route path="/macro"     element={<Macro     />} />
-            <Route path="/alerts"    element={<Alerts    />} />
-            <Route path="/report"    element={<Report    />} />
+            <Route path="/portfolio"    element={<Portfolio   />} />
+            <Route path="/stress"       element={<Quant       />} />
+            <Route path="/track-record" element={<TrackRecord />} />
+            <Route path="/desk"         element={<DeskHub     />} />
+
+            {/* ── every pre-restructure path still resolves ──
+                Bookmarks, START_ARIA.bat and anything a user has open keep
+                working; a merged page is not a dead link. */}
+            <Route path="/signals"   element={<Navigate to="/markets" replace />} />
+            <Route path="/macro"     element={<Navigate to="/markets" replace />} />
+            <Route path="/futures"   element={<Navigate to="/markets" replace />} />
+            <Route path="/options"   element={<Navigate to="/markets" replace />} />
+            <Route path="/alerts"    element={<Navigate to="/" replace />} />
+            <Route path="/report"    element={<Navigate to="/" replace />} />
+            <Route path="/thinking"  element={<Navigate to="/brain" replace />} />
+            <Route path="/quantlab"  element={<Navigate to="/lab" replace />} />
+            <Route path="/backtest"  element={<Navigate to="/lab" replace />} />
+            <Route path="/execute"   element={<Navigate to="/desk" replace />} />
+            <Route path="/compare"   element={<Navigate to="/v5" replace />} />
+            <Route path="/quant"     element={<Navigate to="/stress" replace />} />
+            {/* Explorer and Nexus were one question asked at two depths. */}
+            <Route path="/explorer"  element={<Navigate to="/research" replace />} />
+            <Route path="/nexus"     element={<Navigate to="/research?view=deep" replace />} />
+            {/* ML predictions are half a story without outcomes — they live
+                with the track record now. */}
+            <Route path="/ml"        element={<Navigate to="/track-record" replace />} />
+
+            <Route path="*"          element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
+          </ErrorBoundary>
         </div>
       </main>
     </div>

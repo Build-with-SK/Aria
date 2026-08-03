@@ -2,9 +2,11 @@ import React, { useState } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts'
 import { useBacktest } from '../hooks/useApi'
 import { Spinner, ErrorBox, SectionHeader, MetricCard } from '../components/UI'
+import { useCurrency } from '../currency/CurrencyContext'
 
 export default function Backtest() {
   const { data, loading, error } = useBacktest()
+  const { price } = useCurrency()
   const [selected, setSelected] = useState(null)
   if (loading) return <Spinner />
   if (error)   return <ErrorBox message={error} />
@@ -56,8 +58,8 @@ export default function Backtest() {
                   <LineChart data={chartData}>
                     <CartesianGrid stroke="#21262d" />
                     <XAxis dataKey="date" tick={{ fill: '#8b949e', fontSize: 10 }} tickFormatter={d => d?.slice(5)} />
-                    <YAxis tick={{ fill: '#8b949e', fontSize: 10 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                    <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', color: '#e6edf3' }} formatter={v => [`$${v.toLocaleString()}`, 'Portfolio']} />
+                    <YAxis tick={{ fill: '#8b949e', fontSize: 10 }} tickFormatter={v => price(v, { from: 'USD', digits: 0 }).text} />
+                    <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', color: '#e6edf3' }} formatter={v => [price(v, { from: 'USD', digits: 0 }).text, 'Portfolio']} />
                     <Line type="monotone" dataKey="value" stroke="#3fb950" dot={false} strokeWidth={2} />
                   </LineChart>
                 </ResponsiveContainer>

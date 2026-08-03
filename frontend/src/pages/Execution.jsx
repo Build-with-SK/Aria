@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useCurrency } from '../currency/CurrencyContext'
 import { BBCard, SectionHeader, ScoreBadge, ActionBadge } from '../components/UI'
 import {
   useApprovalQueue, useBrokerStatus, useLivePositions,
@@ -27,6 +28,7 @@ function StatusPill({ status }) {
 
 // ─── Broker status panel ──────────────────────────────────────────────────────
 function BrokerPanel() {
+  const { price } = useCurrency()
   const { data, loading } = useBrokerStatus()
 
   const BrokerCard = ({ name, info }) => (
@@ -49,9 +51,9 @@ function BrokerPanel() {
       {info?.account ? (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           {[
-            ['Cash', `$${Number(info.account.cash).toLocaleString()}`],
-            ['Portfolio', `$${Number(info.account.portfolio_value).toLocaleString()}`],
-            ['Buying Power', `$${Number(info.account.buying_power).toLocaleString()}`],
+            ['Cash', price(info.account.cash, { from: 'USD', digits: 0 }).text],
+            ['Portfolio', price(info.account.portfolio_value, { from: 'USD', digits: 0 }).text],
+            ['Buying Power', price(info.account.buying_power, { from: 'USD', digits: 0 }).text],
           ].map(([label, val]) => (
             <div key={label}>
               <div style={{ color: 'var(--text-dim)', fontSize: 10, fontFamily: 'var(--mono)' }}>{label}</div>
@@ -112,6 +114,7 @@ function PositionsTable() {
 
 // ─── Single trade card ────────────────────────────────────────────────────────
 function TradeCard({ trade, onAction }) {
+  const { price } = useCurrency()
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
   const [rejectReason, setRejectReason] = useState('')
@@ -178,8 +181,8 @@ function TradeCard({ trade, onAction }) {
       {/* Key metrics grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 16 }}>
         {[
-          ['Est. Value', `$${Number(trade.est_value).toLocaleString()}`],
-          ['Risk Amount', `$${Number(trade.risk_amount).toFixed(2)}`],
+          ['Est. Value', price(trade.est_value, { from: 'USD', digits: 0 }).text],
+          ['Risk Amount', price(trade.risk_amount, { from: 'USD' }).text],
           ['Signal Score', `${trade.signal_score > 0 ? '+' : ''}${Number(trade.signal_score).toFixed(1)}`],
           ['Confidence', trade.confidence || '—'],
           ['Stop Loss', trade.stop_loss ? `$${trade.stop_loss}` : '—'],

@@ -132,7 +132,13 @@ function num(v, digits = 2) {
   return Number(v).toLocaleString(undefined, { maximumFractionDigits: digits })
 }
 
-export default function Nexus() {
+/**
+ * `symbol` prop: when the page is embedded in Research, the surrounding page
+ * owns the search box and drives the symbol. The internal search is then
+ * hidden — two search bars for one symbol is exactly the confusion the merge
+ * was meant to remove.
+ */
+export default function Nexus({ symbol: externalSymbol = null, embedded = false }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [report, setReport] = useState(null)
@@ -163,6 +169,12 @@ export default function Nexus() {
     }
   }
 
+  // Driven from outside: run the report whenever the parent's symbol changes.
+  useEffect(() => {
+    if (externalSymbol && externalSymbol !== chosen.current) select(externalSymbol)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalSymbol])
+
   const f = report?.fundamentals || {}
   const ret = report?.returns || {}
   const retColor = v => v === null || v === undefined ? 'var(--muted)' : v >= 0 ? 'var(--green)' : 'var(--red)'
@@ -177,7 +189,8 @@ export default function Nexus() {
 
   return (
     <div>
-      {/* Header + search */}
+      {/* Header + search — suppressed when the Research page owns the search */}
+      {!embedded && <>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 4 }}>
         <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: 'var(--orange)', letterSpacing: '0.15em' }}>
           ◬ NEXUS
@@ -223,6 +236,7 @@ export default function Nexus() {
           </div>
         )}
       </div>
+      </>}
 
       {loading && (
         <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--orange)', padding: 30 }}>

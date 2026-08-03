@@ -2,9 +2,11 @@ import React from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { usePortfolio } from '../hooks/useApi'
 import { Spinner, ErrorBox, SectionHeader, MetricCard } from '../components/UI'
+import { useCurrency } from '../currency/CurrencyContext'
 
 export default function Portfolio() {
   const { data, loading, error } = usePortfolio()
+  const { price } = useCurrency()
   if (loading) return <Spinner />
   if (error)   return <ErrorBox message={error} />
 
@@ -65,13 +67,13 @@ export default function Portfolio() {
             <MetricCard label="Allocated"   value={`${((opt.total_allocated||0)*100).toFixed(1)}%`} />
           </div>
           <table>
-            <thead><tr><th>Asset</th><th>Weight</th><th>$ Amount</th><th>Signal</th><th>Score</th></tr></thead>
+            <thead><tr><th>Asset</th><th>Weight</th><th>Amount</th><th>Signal</th><th>Score</th></tr></thead>
             <tbody>
               {(opt.allocation_table||[]).filter(r => r['Weight %'] > 0).slice(0, 10).map((r, i) => (
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{r.Ticker}</td>
                   <td style={{ color: '#58a6ff' }}>{r['Weight %']?.toFixed(1)}%</td>
-                  <td style={{ color: '#8b949e' }}>${r['$ Allocation']?.toLocaleString()}</td>
+                  <td style={{ color: '#8b949e' }}>{price(r['$ Allocation'], { from: 'USD', digits: 0 }).text}</td>
                   <td style={{ color: '#e6edf3' }}>{r.Signal}</td>
                   <td><span style={{ color: r.Score > 0 ? '#3fb950' : '#f85149', fontWeight: 600 }}>{r.Score > 0 ? '+' : ''}{r.Score?.toFixed(1)}</span></td>
                 </tr>

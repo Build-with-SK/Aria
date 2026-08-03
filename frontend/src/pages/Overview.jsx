@@ -116,13 +116,11 @@ function SignalRow({ s, dir }) {
 /* ═══ THE DECK ═══ */
 export default function Overview() {
   const [summary, setSummary] = useState(null)
-  const [fx, setFx] = useState(null)
   const [brain, setBrain] = useState(null)
   const [alerts, setAlerts] = useState(null)
 
   const load = useCallback(() => {
     axios.get('/api/summary').then(r => setSummary(r.data)).catch(() => {})
-    axios.get('/api/fx/gbpinr?check=false').then(r => setFx(r.data)).catch(() => {})
     axios.get('/api/brain/status').then(r => setBrain(r.data)).catch(() => {})
     axios.get('/api/alerts').then(r => setAlerts(r.data)).catch(() => {})
   }, [])
@@ -210,24 +208,10 @@ export default function Overview() {
         </div>
       </div>
 
-      {/* ═══ STRIPS — remittance + brain ═══ */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
-        {/* GBP/INR remittance strip */}
-        <Link to="/explorer" style={{ textDecoration: 'none' }}>
-          <div className="bb-card anim-rise-3" style={{ cursor: 'pointer' }}>
-            <div className="bb-card-header">GBP / INR · REMITTANCE WATCH</div>
-            <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, flexWrap: 'wrap' }}>
-              <span style={{ ...mono, fontSize: 24, fontWeight: 800, color: '#fff' }}>
-                {fx?.rate ? `£1 = ₹${Number(fx.rate).toFixed(2)}` : '—'}
-              </span>
-              <span style={{ ...mono, fontSize: 11, color: fx?.direction === 'pound_strong' ? 'var(--green)' : fx?.direction === 'rupee_strong' ? 'var(--orange)' : 'var(--text-dim)' }}>
-                {fx?.send_advice || (fx?.rate ? 'monitoring' : 'loading…')}
-              </span>
-            </div>
-          </div>
-        </Link>
+      {/* ═══ STRIP — the cognitive engine ═══ */}
+      <div style={{ marginBottom: 14 }}>
         {/* brain strip */}
-        <Link to="/thinking" style={{ textDecoration: 'none' }}>
+        <Link to="/brain" style={{ textDecoration: 'none' }}>
           <div className="bb-card anim-rise-4" style={{ cursor: 'pointer' }}>
             <div className="bb-card-header">COGNITIVE ENGINE</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>

@@ -1,9 +1,19 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import axios from 'axios'
+import { useCurrency } from '../currency/CurrencyContext'
+import LiveQuote from '../components/LiveQuote'
+import ResearchAnalysis from '../components/ResearchAnalysis'
 
 const mono = { fontFamily: 'var(--mono)' }
 const CCY = { INR: '₹', GBP: '£', USD: '$', EUR: '€' }
-const fmtPrice = (p, ccy) => p == null ? '—' : (CCY[ccy] || '') + Number(p).toLocaleString(undefined, { maximumFractionDigits: 2 })
+// "GBp" is pence, London's actual quoting unit — 1576 GBp is £15.76, and
+// rendering it as £1,576 is the classic 100× mistake.
+const fmtPrice = (p, ccy) => {
+  if (p == null) return '—'
+  const n = Number(p)
+  if (ccy === 'GBp') return `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}p (£${(n / 100).toFixed(2)})`
+  return (CCY[ccy] || '') + n.toLocaleString(undefined, { maximumFractionDigits: 2 })
+}
 
 // map our universe symbol → a TradingView symbol
 function tvSymbol(info) {
@@ -16,89 +26,50 @@ function tvSymbol(info) {
 }
 
 // ─── TradingView advanced chart embed ─────────────────────────────────────────
-function TVChart({ tv }) {
+/**
+ * The embed script REWRITES the style of the element it is mounted on, replacing
+ * our height with `height:100%`. A percentage height resolves against the parent,
+ * so unless an ancestor has a definite height the whole chart collapses — it was
+ * rendering ~148px tall instead of the intended full size.
+ *
+ * Fix: `autosize` lets the widget fill its box, and the box is given a real
+ * height here (`CHART_HEIGHT`) rather than a percentage of something auto.
+ */
+const CHART_HEIGHT = 480
+
+function TVChart({ tv, height = CHART_HEIGHT }) {
   const ref = useRef(null)
   useEffect(() => {
     if (!ref.current || !tv) return
-    ref.current.innerHTML = '<div class="tradingview-widget-container__widget" style="height:100%"></div>'
+    ref.current.innerHTML = '<div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>'
     const script = document.createElement('script')
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
     script.async = true
     script.innerHTML = JSON.stringify({
       symbol: tv, interval: 'D', timezone: 'Europe/London', theme: 'dark',
       style: '1', locale: 'en', hide_side_toolbar: true, allow_symbol_change: false,
-      width: '100%', height: '100%', backgroundColor: 'rgba(7,7,7,1)',
+      autosize: true, backgroundColor: 'rgba(7,7,7,1)',
     })
     ref.current.appendChild(script)
   }, [tv])
-  return <div ref={ref} className="tradingview-widget-container" style={{ height: 380, width: '100%' }} />
+  // height:100% of a parent that has a definite height — see the note above.
+  return (
+    <div style={{ height, width: '100%' }}>
+      <div ref={ref} className="tradingview-widget-container" style={{ height: '100%', width: '100%' }} />
+    </div>
+  )
 }
 
 // ─── sentiment badge ──────────────────────────────────────────────────────────
 const sentColor = (l) => l === 'Bullish' ? 'var(--green)' : l === 'Bearish' ? 'var(--red)' : 'var(--yellow)'
 
-// ─── GBP/INR remittance panel ─────────────────────────────────────────────────
-function Remittance() {
-  const [fx, setFx] = useState(null)
-  const [hi, setHi] = useState('')
-  const [lo, setLo] = useState('')
-  const [note, setNote] = useState('')
-
-  const load = useCallback(() => {
-    axios.get('/api/fx/gbpinr?check=true').then(r => setFx(r.data)).catch(() => {})
-  }, [])
-  useEffect(() => { load(); const id = setInterval(load, 120000); return () => clearInterval(id) }, [load])
-
-  const dir = fx?.direction
-  const col = dir === 'pound_strong' ? 'var(--green)' : dir === 'rupee_strong' ? 'var(--orange)' : 'var(--text-dim)'
-  const spark = fx?.history || []
-
-  const setTargets = () => {
-    const params = {}
-    if (hi) params.high = parseFloat(hi)
-    if (lo) params.low = parseFloat(lo)
-    axios.post('/api/fx/gbpinr/targets', null, { params }).then(() => { setNote('targets saved — you\'ll be alerted'); load() }).catch(() => setNote('failed'))
-  }
-
-  // sparkline
-  const Spark = () => {
-    if (spark.length < 2) return null
-    const vals = spark.map(p => p.rate), min = Math.min(...vals), max = Math.max(...vals)
-    const W = 160, H = 32
-    const pts = vals.map((v, i) => `${(i / (vals.length - 1)) * W},${H - 2 - ((v - min) / (max - min || 1)) * (H - 4)}`).join(' ')
-    return <svg width={W} height={H}><polyline points={pts} fill="none" stroke={col} strokeWidth="1.5" /></svg>
-  }
-
-  return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 14, marginBottom: 16, background: '#070707' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ ...mono, fontSize: 10, fontWeight: 800, color: 'var(--orange)', letterSpacing: 2 }}>GBP / INR · REMITTANCE</div>
-          <div style={{ ...mono, fontSize: 22, fontWeight: 800, color: '#fff', marginTop: 2 }}>{fx?.unit || '£1 = ₹…'}</div>
-          <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)' }}>₹1 = £{fx?.inverse ?? '—'} · vs avg {fx?.move_pct != null ? (fx.move_pct >= 0 ? '+' : '') + fx.move_pct + '%' : '—'}</div>
-        </div>
-        <div style={{ marginLeft: 8 }}><Spark /></div>
-        <div style={{ flex: 1, minWidth: 220, padding: '8px 12px', borderRadius: 6, background: 'rgba(255,255,255,0.02)', border: `1px solid ${col}` }}>
-          <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: 1 }}>SEND-MONEY SIGNAL</div>
-          <div style={{ ...mono, fontSize: 12, fontWeight: 700, color: col, lineHeight: 1.4 }}>{fx?.send_advice || '—'}</div>
-        </div>
-      </div>
-      {/* alert targets */}
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-        <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>ALERT ME WHEN £1 ≥ ₹</span>
-        <input value={hi} onChange={e => setHi(e.target.value)} placeholder={fx?.target_high || '132'} style={{ ...mono, width: 56, background: '#0d0d0d', border: '1px solid #222', color: 'var(--green)', fontSize: 11, padding: '4px 6px', borderRadius: 3, outline: 'none' }} />
-        <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>(send UK→India) · OR ≤ ₹</span>
-        <input value={lo} onChange={e => setLo(e.target.value)} placeholder={fx?.target_low || '126'} style={{ ...mono, width: 56, background: '#0d0d0d', border: '1px solid #222', color: 'var(--orange)', fontSize: 11, padding: '4px 6px', borderRadius: 3, outline: 'none' }} />
-        <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>(send India→UK)</span>
-        <button onClick={setTargets} style={{ ...mono, background: 'transparent', border: '1px solid var(--orange)', color: 'var(--orange)', borderRadius: 3, padding: '4px 12px', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>SET ALERTS</button>
-        {note && <span style={{ ...mono, fontSize: 9, color: 'var(--yellow)' }}>{note}</span>}
-      </div>
-    </div>
-  )
-}
-
 // ─── page ─────────────────────────────────────────────────────────────────────
-export default function Explorer() {
+/**
+ * `symbol` prop: when embedded in Research, the parent owns the search box and
+ * hands this view the chosen symbol.
+ */
+export default function Explorer({ symbol: externalSymbol = null, embedded = false }) {
+  const { price: toLocal } = useCurrency()
   const [q, setQ] = useState('')
   const [results, setResults] = useState([])
   const [sel, setSel] = useState(null)          // selected search-result info
@@ -128,12 +99,32 @@ export default function Explorer() {
     axios.get(`/api/universe/dossier/${info.symbol}`).then(r => setDossier(r.data)).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
+  // Driven from outside: resolve the parent's symbol through the universe so
+  // this view gets the same {symbol, exchange, currency, name} shape the search
+  // dropdown would have handed it.
+  useEffect(() => {
+    if (!externalSymbol || externalSymbol === sel?.symbol) return
+    axios.get('/api/universe/search', { params: { q: externalSymbol, n: 5 } })
+      .then(r => {
+        const rows = Array.isArray(r.data) ? r.data : r.data.results || []
+        const exact = rows.find(x => (x.symbol || '').toUpperCase() === externalSymbol.toUpperCase())
+        if (exact || rows[0]) select(exact || rows[0])
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalSymbol])
+
   const ccy = quote?.currency || sel?.currency || 'USD'
+  // The quote endpoint reports the native currency; hand it to the converter
+  // explicitly rather than letting it guess from the symbol.
+  const localPrice = toLocal(quote?.price, { from: quote?.currency || sel?.currency })
   const change = quote?.change_pct
   const tv = tvSymbol(sel)
 
   return (
     <div style={{ maxWidth: 1080, margin: '0 auto' }}>
+      {/* Header + search — suppressed when Research owns the search */}
+      {!embedded && <>
       <div style={{ marginBottom: 10 }}>
         <div style={{ ...mono, fontSize: 16, fontWeight: 800, color: 'var(--orange)' }}>EXPLORER</div>
         <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)' }}>
@@ -141,9 +132,6 @@ export default function Explorer() {
         </div>
       </div>
 
-      <Remittance />
-
-      {/* search */}
       <div style={{ position: 'relative', marginBottom: 14 }}>
         <input
           value={q} onChange={e => setQ(e.target.value)}
@@ -165,7 +153,9 @@ export default function Explorer() {
         )}
       </div>
 
-      {!sel && (
+      </>}
+
+      {!sel && !embedded && (
         <div style={{ ...mono, fontSize: 12, color: '#444', textAlign: 'center', padding: 50, border: '1px dashed #1a1a1a', borderRadius: 8 }}>
           Search a symbol above. The universe holds 3,000+ symbols (India, UK, US, crypto) — nothing is loaded until you look one up, then everything is fetched fresh.
         </div>
@@ -173,37 +163,59 @@ export default function Explorer() {
 
       {sel && (
         <div>
-          {/* header */}
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', marginBottom: 12 }}>
-            <span style={{ ...mono, fontSize: 22, fontWeight: 800, color: '#fff' }}>{sel.symbol}</span>
-            <span style={{ ...mono, fontSize: 11, color: 'var(--orange)' }}>{sel.exchange} · {ccy}</span>
-            <span style={{ ...mono, fontSize: 20, fontWeight: 700, color: '#ddd' }}>{fmtPrice(quote?.price, ccy)}</span>
-            {change != null && (
-              <span style={{ ...mono, fontSize: 13, fontWeight: 700, color: change >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                {change >= 0 ? '+' : ''}{change}%
-              </span>
-            )}
-            <span style={{ ...mono, fontSize: 11, color: 'var(--text-dim)', flex: 1 }}>{sel.name}</span>
-            {loading && <span style={{ ...mono, fontSize: 10, color: 'var(--yellow)' }}>loading…</span>}
+          {/* header — live price, market state, day range */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
+              <span style={{ ...mono, fontSize: 22, fontWeight: 800, color: '#fff' }}>{sel.symbol}</span>
+              <span style={{ ...mono, fontSize: 11, color: 'var(--orange)' }}>{sel.exchange} · {ccy}</span>
+              <span style={{ ...mono, fontSize: 11, color: 'var(--text-dim)', flex: 1 }}>{sel.name}</span>
+              {loading && <span style={{ ...mono, fontSize: 10, color: 'var(--yellow)' }}>loading…</span>}
+            </div>
+            {/* Polls the live endpoint. The old header read a 15-minute-cached
+                DAILY CLOSE, which is why it never moved. */}
+            <LiveQuote symbol={sel.symbol} nativeCurrency={ccy} />
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 14 }}>
             {/* left: chart + fundamentals */}
             <div>
-              <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 14, background: '#070707' }}>
+              {/* Definite height: the embed sizes itself against this box. */}
+              <div style={{
+                border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden',
+                marginBottom: 14, background: '#070707', height: CHART_HEIGHT,
+              }}>
                 {tv ? <TVChart tv={tv} /> : <div style={{ ...mono, padding: 30, color: '#444' }}>no chart</div>}
               </div>
               {dossier && !dossier.error && (
                 <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 14, background: '#070707' }}>
                   <div style={{ ...mono, fontSize: 11, fontWeight: 800, color: 'var(--orange)', letterSpacing: 2, marginBottom: 10 }}>FUNDAMENTALS</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '8px 16px' }}>
-                    {[['Sector', dossier.sector], ['Industry', dossier.industry],
-                      ['Market Cap', dossier.marketCap ? (CCY[ccy] || '') + (dossier.marketCap / 1e9).toFixed(1) + 'B' : '—'],
-                      ['P/E', dossier.trailingPE?.toFixed?.(1)], ['P/B', dossier.priceToBook?.toFixed?.(2)],
-                      ['ROE', dossier.returnOnEquity ? (dossier.returnOnEquity * 100).toFixed(1) + '%' : '—'],
-                      ['Div Yield', dossier.dividendYield ? (dossier.dividendYield * 100).toFixed(2) + '%' : '—'],
-                      ['52w Return', dossier.return_52w != null ? dossier.return_52w + '%' : dossier.ret_52w],
-                    ].map(([k, v], i) => (
+                    {/* These live under dossier.fundamentals, not at the top
+                        level — reading them from the root made every single
+                        field render as a dash. */}
+                    {(() => {
+                      const f = dossier.fundamentals || {}
+                      const r = dossier.returns || {}
+                      const n1 = v => (typeof v === 'number' ? v.toFixed(1) : null)
+                      const n2 = v => (typeof v === 'number' ? v.toFixed(2) : null)
+                      const p1 = v => (typeof v === 'number' ? (v * 100).toFixed(1) + '%' : null)
+                      const ret = v => (typeof v === 'number' ? (v > 0 ? '+' : '') + v + '%' : null)
+                      // dividendYield's units vary by yfinance version; derive
+                      // from the payout rate where possible (see currency.py).
+                      const dy = (typeof f.dividendRate === 'number' && dossier.price)
+                        ? (f.dividendRate / dossier.price * 100).toFixed(2) + '%'
+                        : (typeof f.dividendYield === 'number' && f.dividendYield >= 1
+                            ? f.dividendYield.toFixed(2) + '%' : null)
+                      return [
+                        ['Sector', f.sector], ['Industry', f.industry],
+                        ['Market Cap', typeof f.marketCap === 'number'
+                          ? (f.marketCap / 1e9).toFixed(1) + 'B ' + (f.currency || ccy) : null],
+                        ['P/E', n1(f.trailingPE)], ['P/B', n2(f.priceToBook)],
+                        ['ROE', p1(f.returnOnEquity)],
+                        ['Div Yield', dy],
+                        ['1Y Return', ret(r['1Y'])],
+                      ]
+                    })().map(([k, v], i) => (
                       <div key={i}>
                         <div style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>{k}</div>
                         <div style={{ ...mono, fontSize: 12, color: '#ddd' }}>{v ?? '—'}</div>
@@ -238,6 +250,10 @@ export default function Explorer() {
                   ))}
               </div>
             </div>
+          </div>
+          {/* Technical + fundamental, computed on live data */}
+          <div style={{ marginTop: 14 }}>
+            <ResearchAnalysis symbol={sel.symbol} dossier={dossier} currency={ccy} />
           </div>
         </div>
       )}

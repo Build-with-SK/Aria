@@ -4,12 +4,15 @@
  */
 
 import React, { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer } from 'recharts'
 import { useSignals } from '../hooks/useApi'
+import { Price, useCurrency, useResolveCurrencies } from '../currency/CurrencyContext'
 import { Spinner, ErrorBox, ScoreBadge, ActionBadge, ScoreBar, SectionHeader, MetricCard } from '../components/UI'
 
 export default function Signals() {
   const { data, loading, error } = useSignals()
+  const { price } = useCurrency()
   const [selected, setSelected]  = useState(null)
   const [filter,   setFilter]    = useState('all')
   const [search,   setSearch]    = useState('')
@@ -72,7 +75,13 @@ export default function Signals() {
                 <tr key={s.ticker} onClick={() => setSelected(s.ticker === selected ? null : s.ticker)}
                   style={{ cursor: 'pointer', background: selected === s.ticker ? 'rgba(88,166,255,0.08)' : '' }}>
                   <td>
-                    <div style={{ fontWeight: 600 }}>{s.ticker}</div>
+                    {/* every ticker in ARIA opens its research dossier */}
+                    <Link to={`/research?symbol=${encodeURIComponent(s.ticker)}`}
+                      onClick={e => e.stopPropagation()}
+                      title={`Open ${s.ticker} research`}
+                      style={{ fontWeight: 600, color: 'var(--orange)', textDecoration: 'none' }}>
+                      {s.ticker}
+                    </Link>
                     <div style={{ fontSize: 11, color: '#8b949e' }}>{s.asset_class}</div>
                   </td>
                   <td><ScoreBadge score={s.composite_score} /></td>
@@ -98,7 +107,7 @@ export default function Signals() {
                 <ActionBadge action={sel.action} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
-                <MetricCard label="Price"   value={`$${parseFloat(sel.current_price).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:4})}`} />
+                <MetricCard label="Price"   value={price(sel.current_price, { symbol: sel.ticker }).text} />
                 <MetricCard label="Score"   value={`${sel.composite_score > 0 ? '+' : ''}${sel.composite_score}`} />
                 <MetricCard label="Bull Prob" value={`${(sel.bullish_prob * 100).toFixed(0)}%`} color="bull" />
                 <MetricCard label="Bear Prob" value={`${(sel.bearish_prob * 100).toFixed(0)}%`} color="bear" />
@@ -131,8 +140,8 @@ export default function Signals() {
             <div className="card">
               <SectionHeader>Risk Parameters</SectionHeader>
               {[
-                ['Stop-Loss',   `$${parseFloat(sel.stop_loss || 0).toFixed(4)}`],
-                ['Take-Profit', `$${parseFloat(sel.take_profit || 0).toFixed(4)}`],
+                ['Stop-Loss',   price(sel.stop_loss, { symbol: sel.ticker }).text],
+                ['Take-Profit', price(sel.take_profit, { symbol: sel.ticker }).text],
                 ['Position Size', `${sel.position_size_pct?.toFixed(1)}%`],
                 ['ATR %',       `${(sel.atr_pct * 100).toFixed(2)}%`],
                 ['Risk Level',  sel.risk_level],

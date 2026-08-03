@@ -1,57 +1,63 @@
 import React, { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useHealth } from '../hooks/useApi'
+import { CURRENCY_META, useCurrency } from '../currency/CurrencyContext'
+import Settings from './Settings'
 import axios from 'axios'
 
-/* ── command rail — grouped, glowing, alive ── */
+/* ── command rail — twelve destinations, grouped by the question they answer ──
+   Was twenty-two. Four of those pages answered "should I buy this?" and five
+   were "the AI thinking"; the merged ones are now tabs inside the page they
+   belong to, and every old path still redirects.                            */
 const GROUPS = [
   {
     label: 'INTELLIGENCE',
     items: [
       { path: '/chat',      label: 'ARIA CHAT',  icon: '◉' },
-      { path: '/thinking',  label: 'LIVE MIND',  icon: '✦' },
-      { path: '/brain',     label: 'AI BRAIN',   icon: '◈' },
-      { path: '/nexus',     label: 'NEXUS',      icon: '◬' },
-      { path: '/quantlab',  label: 'QUANT LAB',  icon: '⚗' },
+      { path: '/v5',        label: 'ARIA V5',    icon: '◆' },
+      { path: '/research',  label: 'RESEARCH',   icon: '◬' },
+      { path: '/lab',       label: 'QUANT LAB',  icon: '⚗' },
+      { path: '/brain',     label: 'BRAIN',      icon: '◈' },
     ],
   },
   {
     label: 'MARKETS',
     items: [
       { path: '/',          label: 'COMMAND',    icon: '⌂' },
-      { path: '/explorer',  label: 'EXPLORER',   icon: '⌕' },
-      { path: '/signals',   label: 'SIGNALS',    icon: '∿' },
+      { path: '/markets',   label: 'MARKETS',    icon: '∿' },
       { path: '/recommendations', label: 'RECOMMEND', icon: '★' },
-      { path: '/macro',     label: 'MACRO',      icon: '⊕' },
-      { path: '/futures',   label: 'FUTURES',    icon: '◆' },
-      { path: '/options',   label: 'OPTIONS',    icon: '◇' },
     ],
   },
   {
-    label: 'ANALYTICS',
+    label: 'PORTFOLIO',
     items: [
-      { path: '/quant',     label: 'QUANT',      icon: 'ƒ' },
-      { path: '/ml',        label: 'ML / AI',    icon: '◎' },
       { path: '/portfolio', label: 'PORTFOLIO',  icon: '▣' },
-      { path: '/backtest',  label: 'BACKTEST',   icon: '▷' },
-      { path: '/compare',   label: 'COMPARE',    icon: '⚡' },
+      { path: '/stress',    label: 'STRESS',     icon: 'ƒ' },
+    ],
+  },
+  {
+    label: 'LEARNING',
+    items: [
+      { path: '/track-record', label: 'TRACK RECORD', icon: '◎' },
     ],
   },
   {
     label: 'OPERATIONS',
     items: [
-      { path: '/desk',      label: 'THE DESK',   icon: '▦' },
-      { path: '/execute',   label: 'EXECUTE',    icon: '▶', badge: true },
-      { path: '/alerts',    label: 'ALERTS',     icon: '▲' },
-      { path: '/report',    label: 'REPORT',     icon: '≡' },
+      { path: '/desk',      label: 'THE DESK',   icon: '▦', badge: true },
     ],
   },
 ]
 
 export default function Sidebar() {
   const { data: health } = useHealth()
+  const { display } = useCurrency()
   const loc = useLocation()
   const [pendingCount, setPendingCount] = useState(0)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [railOpen, setRailOpen] = useState(false)
+  // Close the off-canvas rail after a navigation on small screens.
+  useEffect(() => { setRailOpen(false) }, [loc.pathname])
 
   useEffect(() => {
     const poll = () => {
@@ -67,12 +73,21 @@ export default function Sidebar() {
   const live = health?.status === 'ok'
 
   return (
-    <div style={{
-      position: 'fixed', left: 0, top: 0, bottom: 0, width: 200,
+    <>
+    {/* Narrow screens: a button to reveal the rail, which is off-canvas there. */}
+    <button className="aria-rail-toggle" onClick={() => setRailOpen(o => !o)}
+      aria-label={railOpen ? 'Hide navigation' : 'Show navigation'} aria-expanded={railOpen}>
+      {railOpen ? '✕' : '☰'}
+    </button>
+    {railOpen && <div className="aria-rail-scrim" onClick={() => setRailOpen(false)} />}
+    {/* The open offset is set inline rather than by a `.is-open` CSS rule:
+        the class applied correctly but the media-query declaration kept
+        winning the cascade, so the rail never actually slid in. An inline
+        style is unambiguous and cannot be out-specified. */}
+    <div className={`aria-rail${railOpen ? ' is-open' : ''}`} style={{
       background: 'linear-gradient(180deg, rgba(255,36,71,0.03), transparent 30%), #050206',
       borderRight: '1px solid var(--border)',
-      display: 'flex', flexDirection: 'column',
-      zIndex: 100,
+      ...(railOpen ? { left: 0 } : null),
     }}>
       {/* ── wordmark + living core ── */}
       <div style={{ padding: '16px 16px 12px', borderBottom: '1px solid var(--border)' }}>
@@ -174,6 +189,26 @@ export default function Sidebar() {
         ))}
       </nav>
 
+      {/* ── settings ── */}
+      <div style={{ padding: '8px 16px', borderTop: '1px solid var(--border)' }}>
+        <button onClick={() => setSettingsOpen(true)} aria-label="Open settings"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 9, width: '100%',
+            background: 'none', border: '1px solid var(--border)', borderRadius: 4,
+            padding: '7px 9px', cursor: 'pointer', fontFamily: 'var(--mono)', minHeight: 30,
+          }}>
+          <span aria-hidden="true" style={{ fontSize: 12, color: 'var(--orange)' }}>⚙</span>
+          <span style={{
+            fontSize: 10, fontWeight: 700, letterSpacing: '.12em',
+            color: 'var(--text-dim)', flex: 1, textAlign: 'left',
+          }}>SETTINGS</span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--orange)' }}>
+            {CURRENCY_META[display]?.symbol}
+          </span>
+        </button>
+      </div>
+      <Settings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
       {/* ── footer ── */}
       <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)' }}>
         <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--muted)', lineHeight: 1.7, letterSpacing: '0.06em' }}>
@@ -182,5 +217,6 @@ export default function Sidebar() {
         </div>
       </div>
     </div>
+    </>
   )
 }

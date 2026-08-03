@@ -1,5 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import axios from 'axios'
+import LivingCore from '../components/LivingCore'
+import CoreTalk from '../components/CoreTalk'
+import { setCoreMeta } from '../core/coreBus'
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
 const mono = { fontFamily: 'var(--mono)' }
@@ -261,8 +264,23 @@ export default function Brain() {
   const steps = cycle?.thinking_steps || []
   const models = status?.models || []
 
+  // feed the Living Core real "mind size" data: vault notes + long-term memories
+  useEffect(() => {
+    axios.get('/api/vault/status')
+      .then(r => setCoreMeta({ notes: r.data?.notes_indexed ?? null }))
+      .catch(() => {})
+  }, [])
+  useEffect(() => {
+    const m = cycle?.memory_count ?? daemon.memory_count
+    if (m != null) setCoreMeta({ memories: m })
+  }, [cycle?.memory_count, daemon.memory_count])
+
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+
+      {/* ── Section 0: THE LIVING CORE (talk-reactive hero) ────────────── */}
+      <LivingCore height={520} />
+      <CoreTalk />
 
       {/* ── Section 1: Vital signs ─────────────────────────────────────── */}
       <div style={{

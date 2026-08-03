@@ -1,15 +1,22 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
+import { useCurrency } from '../currency/CurrencyContext'
 
 const mono = { fontFamily: 'var(--mono)' }
 const card = { border: '1px solid var(--border)', background: '#070707', borderRadius: 6, padding: 14, marginBottom: 14 }
 const H = ({ children }) => (
   <div style={{ ...mono, fontSize: 11, fontWeight: 800, color: 'var(--orange)', letterSpacing: 2, marginBottom: 10 }}>{children}</div>
 )
-const money = n => (n >= 0 ? '+' : '−') + '$' + Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })
+/* Scenario P&L is book-level and denominated in USD; the hook converts it
+   to whatever the viewer is reading in. */
+const useMoney = () => {
+  const { price } = useCurrency()
+  return n => (n >= 0 ? '+' : '−') + price(Math.abs(n), { from: 'USD', digits: 0 }).text
+}
 
 // ─── Scenario stress panel ────────────────────────────────────────────────────
 function Scenarios() {
+  const money = useMoney()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -125,6 +132,7 @@ const STRATS = [
   { id: 'iron_condor', label: 'Iron Condor' },
 ]
 function Strategies() {
+  const money = useMoney()
   const [ticker, setTicker] = useState('AAPL')
   const [strat, setStrat] = useState('bull_call_spread')
   const [res, setRes] = useState(null)
@@ -163,7 +171,7 @@ function Strategies() {
             <Stat label="Net" v={money(res.net_debit_credit)} c={res.net_debit_credit >= 0 ? 'var(--red)' : 'var(--green)'} sub={res.net_debit_credit >= 0 ? 'debit' : 'credit'} />
             <Stat label="Max Profit" v={money(res.max_profit)} c="var(--green)" />
             <Stat label="Max Loss" v={money(res.max_loss)} c="var(--red)" />
-            <Stat label="Breakeven" v={res.breakevens.map(b => '$' + b).join(' / ') || '—'} c="var(--yellow)" />
+            <Stat label="Breakeven" v={res.breakevens.map(b => money(b)).join(' / ') || '—'} c="var(--yellow)" />
             <Stat label="Net Δ" v={res.net_greeks.delta.toFixed(1)} c="#4da6ff" />
             <Stat label="Net Θ/day" v={money(res.net_greeks.theta)} c="#4da6ff" />
           </div>
@@ -189,9 +197,9 @@ export default function Quant() {
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
       <div style={{ marginBottom: 16 }}>
-        <div style={{ ...mono, fontSize: 16, fontWeight: 800, color: 'var(--orange)' }}>QUANT ANALYTICS</div>
+        <div style={{ ...mono, fontSize: 16, fontWeight: 800, color: 'var(--orange)' }}>STRESS &amp; SCENARIOS</div>
         <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)' }}>
-          GS-Quant-inspired · Black-Scholes greeks · macro stress scenarios · multi-leg derivatives · 100% local, no credentials
+          What the book loses under shocks · options pricing and greeks · multi-leg payoffs — all computed locally
         </div>
       </div>
       <Scenarios />

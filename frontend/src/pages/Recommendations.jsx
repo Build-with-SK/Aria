@@ -4,6 +4,8 @@
  * setups, a per-stock multi-timeframe summary, and the honest forward hit-rate.
  */
 import React, { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useCurrency, useResolveCurrencies } from '../currency/CurrencyContext'
 
 const MONO = 'var(--mono)'
 
@@ -36,6 +38,13 @@ function Meter({ counts }) {
 
 /* ── the strongest-setups scan ── */
 function ScanTable({ scan, loading }) {
+  const { price } = useCurrency()
+  // Register the symbols so their NATIVE quote currency is known before any
+  // conversion — without this the helper (correctly) refuses to guess and
+  // shows the raw number.
+  useResolveCurrencies((scan
+    ? [...(scan.strong_buy || []), ...(scan.buy || []), ...(scan.sell || [])]
+    : []).map(r => r.symbol))
   const rows = scan
     ? [...(scan.strong_buy || []), ...(scan.buy || []), ...(scan.sell || [])]
     : []
@@ -46,11 +55,18 @@ function ScanTable({ scan, loading }) {
       {!loading && !rows.length && <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 10 }}>No strong setups right now.</div>}
       {!!rows.length && (
         <table>
-          <thead><tr><th>SYMBOL</th><th>SIGNAL</th><th>BUY / NEU / SELL</th><th>PRICE</th></tr></thead>
+          <thead><tr><th>SYMBOL</th><th>SIGNAL</th><th>BUY / NEU / SELL</th><th>PRICE</th>
+            <th>STOP LOSS</th><th>TARGET</th><th>R:R</th><th>STOP DIST</th></tr></thead>
           <tbody>
             {rows.map((r, i) => (
               <tr key={i}>
-                <td className="white" style={{ fontWeight: 700 }}>{r.symbol}</td>
+                <td>
+                  <Link to={`/research?symbol=${encodeURIComponent(r.symbol)}`}
+                    title={`Open ${r.symbol} research`}
+                    style={{ fontWeight: 700, color: 'var(--orange)', textDecoration: 'none' }}>
+                    {r.symbol}
+                  </Link>
+                </td>
                 <td>{badge(r.summary)}</td>
                 <td><div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Meter counts={r.counts} />
@@ -58,7 +74,21 @@ function ScanTable({ scan, loading }) {
                     {r.counts?.buy}/{r.counts?.neutral}/{r.counts?.sell}
                   </span>
                 </div></td>
-                <td style={{ fontFamily: MONO }}>{r.price != null ? Number(r.price).toFixed(2) : '—'}</td>
+                <td style={{ fontFamily: MONO }}>{price(r.price, { symbol: r.symbol }).text}</td>
+                {/* Volatility-scaled: stop is 2xATR against the call, target 2R.
+                    A recommendation without a stop is only half an idea. */}
+                <td style={{ fontFamily: MONO, color: 'var(--red)' }} title={r.levels_note || ''}>
+                  {r.stop_loss != null ? price(r.stop_loss, { symbol: r.symbol }).text : '—'}
+                </td>
+                <td style={{ fontFamily: MONO, color: 'var(--green)' }} title={r.levels_note || ''}>
+                  {r.target != null ? price(r.target, { symbol: r.symbol }).text : '—'}
+                </td>
+                <td style={{ fontFamily: MONO, fontSize: 10 }}>
+                  {r.reward_risk != null ? `${Number(r.reward_risk).toFixed(1)}:1` : '—'}
+                </td>
+                <td style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)' }}>
+                  {r.stop_distance_pct != null ? `${Number(r.stop_distance_pct).toFixed(1)}%` : '—'}
+                </td>
               </tr>
             ))}
           </tbody>

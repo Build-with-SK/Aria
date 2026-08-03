@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { useCurrency } from '../currency/CurrencyContext'
 
 /*
   Desk.jsx — THE AUTONOMOUS TRADING DESK (ARIA v3)
@@ -316,6 +317,7 @@ function FillsFeed({ execs }) {
 
 /* ── paper P&L ── */
 function PaperPnL({ pnl }) {
+  const { price } = useCurrency()
   if (!pnl) return null
   const curve = pnl.equity_curve || []
   const w = 260, h = 60
@@ -334,13 +336,13 @@ function PaperPnL({ pnl }) {
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
         <div>
           <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 800, color: '#fff' }}>
-            ${(pnl.equity || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            {price(pnl.equity || 0, { from: 'USD', digits: 0 }).text}
           </div>
           <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)' }}>PAPER EQUITY</div>
         </div>
         <div style={{ fontFamily: MONO, fontSize: 11, lineHeight: 1.8 }}>
-          <div>DAY <span className={pc(pnl.day_pnl)}>{pnl.day_pnl >= 0 ? '+' : ''}{(pnl.day_pnl || 0).toFixed(2)} ({(pnl.day_pnl_pct || 0).toFixed(2)}%)</span></div>
-          <div>TOTAL <span className={pc(pnl.total_pnl)}>{pnl.total_pnl >= 0 ? '+' : ''}{(pnl.total_pnl || 0).toFixed(2)} ({(pnl.total_pnl_pct || 0).toFixed(2)}%)</span></div>
+          <div>DAY <span className={pc(pnl.day_pnl)}>{pnl.day_pnl >= 0 ? '+' : ''}{price(pnl.day_pnl || 0, { from: 'USD' }).text} ({(pnl.day_pnl_pct || 0).toFixed(2)}%)</span></div>
+          <div>TOTAL <span className={pc(pnl.total_pnl)}>{pnl.total_pnl >= 0 ? '+' : ''}{price(pnl.total_pnl || 0, { from: 'USD' }).text} ({(pnl.total_pnl_pct || 0).toFixed(2)}%)</span></div>
           <div>OPEN WIN RATE <span className="white">{pnl.open_win_rate == null ? '—' : `${Math.round(pnl.open_win_rate * 100)}%`}</span></div>
         </div>
         {path && (
@@ -378,6 +380,7 @@ function PaperPnL({ pnl }) {
 
 /* ── realized performance — the copy-trade judgment panel ── */
 function Performance({ perf }) {
+  const { price } = useCurrency()
   if (!perf) return null
   const s = perf.all || {}
   const day = perf.day || {}
@@ -385,7 +388,9 @@ function Performance({ perf }) {
   const agents = perf.agents || {}
   const weights = perf.judge_weights || {}
   const pc = v => (v > 0 ? 'bull' : v < 0 ? 'bear' : 'neut')
-  const fmt$ = v => `${v >= 0 ? '+' : '-'}$${Math.abs(v || 0).toFixed(2)}`
+  // Broker P&L is denominated in the account currency (Alpaca paper = USD);
+  // shown in whatever the viewer reads in.
+  const fmt$ = v => `${v >= 0 ? '+' : '-'}${price(Math.abs(v || 0), { from: 'USD' }).text}`
   const pctOrDash = v => (v == null ? '—' : `${Math.round(v * 100)}%`)
   const stat = (label, val, cls) => (
     <div style={{ minWidth: 86 }}>
