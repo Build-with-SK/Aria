@@ -88,3 +88,31 @@ def test_budget_cap(monkeypatch, tmp_path):
     assert teacher._budget_left({"teacher_daily_cap": 5}, state) == 5
     state["count"] = 5
     assert teacher._budget_left({"teacher_daily_cap": 5}, state) <= 0
+
+
+def test_failed_review_does_not_burn_the_trade(monkeypatch, tmp_path):
+    """A failed Fable call must leave the trade reviewable.
+
+    Regression: every trade was marked reviewed and the daily cap decremented
+    whether or not a lesson came back, so a single API outage silently consumed
+    every closed trade for good — they were never taught again — and spent the
+    bill guard on calls that cost nothing.
+    """
+    monkeypatch.setattr(teacher, "STATE_FILE", tmp_path / "state.json")
+    monkeypatch.setattr(teacher, "LESSONS_FILE", tmp_path / "lessons.jsonl")
+
+    trades = [{"ticker": "AAPL", "debate_id": "dbt-1", "fraction": 1.0},
+              {"ticker": "MSFT", "debate_id": "dbt-2", "fraction": 1.0}]
+    monkeypatch.setattr("src.desk.position_manager.read_closed_trades",
+                        lambda n=500: trades)
+    monkeypatch.setattr("src.desk.debate.load_debate", lambda d: {"judge": {}})
+    # The API is down: every call returns None.
+    monkeypatch.setattr(teacher, "_call_fable", lambda *a, **k: None)
+
+    res = teacher.teach_from_closed_trades(
+        cfg={"teacher_enabled": True, "teacher_daily_cap": 40}, limit=5)
+
+    assert res["reviewed"] == 0
+    state = teacher._load_state()
+    assert state.get("reviewed") == [], "failed trades must stay unreviewed"
+    assert state.get("count", 0) == 0, "a failed call must not spend the budget"

@@ -169,15 +169,31 @@ def teach_from_closed_trades(cfg: dict | None = None, limit: int = 20) -> dict:
               and not t.get("estimated")            # real fills only (audit H1)
               and float(t.get("fraction") or 1.0) >= 1.0]
     done = []
+    misses = 0
     for t in trades[-limit:]:
         if _budget_left(cfg, state) <= 0:
             break
         from src.desk.debate import load_debate
         lesson = review_trade(t, load_debate(t["debate_id"]), cfg)
+
+        if not lesson:
+            # A failed call must NOT burn the trade or the budget. Marking it
+            # reviewed regardless meant one API outage silently consumed every
+            # closed trade forever — they would never be taught again, and the
+            # daily cap (a BILL guard) was spent on calls that cost nothing.
+            # Learning is the whole point of this module; losing it to a
+            # transient 500 is not an acceptable failure mode.
+            misses += 1
+            if misses >= 2:
+                logger.warning("teacher: %d consecutive failures — stopping this "
+                               "pass; trades stay unreviewed and retry next cycle",
+                               misses)
+                break
+            continue
+
         reviewed.add(t["debate_id"])
         state["count"] = int(state.get("count", 0)) + 1
-        if lesson:
-            done.append({"ticker": t["ticker"], "lesson": lesson["key_lesson"]})
+        done.append({"ticker": t["ticker"], "lesson": lesson["key_lesson"]})
     state["reviewed"] = list(reviewed)[-2000:]
     _save_state(state)
     if done:
