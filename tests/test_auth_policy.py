@@ -22,26 +22,29 @@ def test_loopback_is_owner_when_no_token_configured(monkeypatch):
     assert policy.resolve_role({}, "127.0.0.1") == policy.OWNER
 
 
-def test_remote_is_free_when_no_token_configured(monkeypatch):
+def test_remote_without_a_session_is_anonymous(monkeypatch):
+    """No session and not loopback means not signed in — and anonymous callers
+    get nothing but the sign-in routes."""
     monkeypatch.delenv("ARIA_OWNER_TOKEN", raising=False)
-    assert policy.resolve_role({}, "192.168.1.55") == policy.FREE
+    assert policy.resolve_role({}, "192.168.1.55") == policy.ANON
 
 
 def test_token_beats_loopback(monkeypatch):
     """Once a token exists, being on localhost is not enough — otherwise
     anything running on the mini itself would inherit owner rights."""
     monkeypatch.setenv("ARIA_OWNER_TOKEN", "s3cret")
-    assert policy.resolve_role({}, "127.0.0.1") == policy.FREE
+    assert policy.resolve_role({}, "127.0.0.1") == policy.ANON
     hdr = {"authorization": "Bearer s3cret"}
     assert policy.resolve_role(hdr, "10.0.0.9") == policy.OWNER
 
 
-def test_wrong_and_partial_tokens_are_free(monkeypatch):
+def test_wrong_and_partial_tokens_get_no_access(monkeypatch):
     monkeypatch.setenv("ARIA_OWNER_TOKEN", "s3cret")
     # A prefix, a case variant and a mangled scheme must all fail. Case matters
-    # especially: tokens are compared as bytes, not case-folded.
+    # especially: tokens are compared as bytes, not case-folded. With no session
+    # to fall back on, a failed token is anonymous rather than demoted to free.
     for bad in ("", "s3cre", "s3crett", "S3CRET", "bearer s3cret"):
-        assert policy.resolve_role({"x-aria-token": bad}, "1.2.3.4") == policy.FREE
+        assert policy.resolve_role({"x-aria-token": bad}, "1.2.3.4") == policy.ANON
 
 
 def test_surrounding_whitespace_is_trimmed_not_rejected(monkeypatch):

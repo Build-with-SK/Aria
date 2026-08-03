@@ -43,8 +43,16 @@ logger = logging.getLogger(__name__)
 
 OWNER = "owner"
 FREE = "free"
+ANON = "anon"          # not signed in — gets nothing but the login routes
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost", "testclient"}
+
+# Reachable without a session. Deliberately tiny: the routes needed to sign in,
+# and a health check for the deploy script. Everything else requires an account.
+PUBLIC_PREFIXES: tuple[str, ...] = (
+    "/health",
+    "/api/auth/",          # providers, login, callback, me, logout
+)
 
 
 # ── what a free user may reach ───────────────────────────────────────────────
@@ -100,26 +108,45 @@ def _presented(headers) -> str:
     return (headers.get("x-aria-token") or "").strip()
 
 
-def resolve_role(headers, client_host: str | None) -> str:
-    """OWNER or FREE. Never raises — an unreadable header is simply not owner."""
+def resolve_role(headers, client_host: str | None, session: dict | None = None) -> str:
+    """OWNER, FREE or ANON. Never raises — anything unreadable is simply not owner.
+
+    Order matters. The owner token wins outright because it is the break-glass
+    path that must keep working when OAuth or the network is broken. Then a
+    signed session, whose `owner` flag was re-derived from ARIA_OWNER_EMAIL on
+    read and cannot be forged. Only then the loopback fallback, and only while
+    no token is configured, so the existing local workflow survives.
+    """
     token = owner_token()
     if token:
         presented = _presented(headers)
         # compare_digest: token checks must not leak length/prefix via timing.
         if presented and hmac.compare_digest(presented, token):
             return OWNER
-        return FREE
 
-    # No token configured — preserve the local single-user workflow.
-    if (client_host or "") in LOOPBACK:
+    if session:
+        return OWNER if session.get("owner") else FREE
+
+    if not token and (client_host or "") in LOOPBACK:
         return OWNER
-    return FREE
+
+    return ANON
+
+
+def is_public(path: str) -> bool:
+    p = (path or "").rstrip("/") or "/"
+    return any(p == q.rstrip("/") or p.startswith(q) for q in PUBLIC_PREFIXES)
 
 
 def is_allowed(path: str, role: str) -> bool:
-    """Default deny. Owner may do anything; free users only the allowlist."""
+    """Default deny. Owner may do anything; signed-in users get the research
+    allowlist; anonymous callers get only the sign-in routes."""
+    if is_public(path):
+        return True
     if role == OWNER:
         return True
+    if role != FREE:
+        return False
     p = (path or "").rstrip("/") or "/"
     # Longest-match first so /api/chat/local is not shadowed by /api/chat.
     for prefix in sorted(FREE_PREFIXES, key=len, reverse=True):

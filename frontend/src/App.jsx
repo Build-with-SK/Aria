@@ -4,6 +4,8 @@ import Sidebar   from './components/Sidebar'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionBanner from './components/ConnectionBanner'
 import CommandPalette from './components/CommandPalette'
+import Login from './pages/Login'
+import { useAuth } from './auth/AuthContext'
 /* ── the twelve destinations ── */
 import Chat        from './pages/Chat'
 import CommandHub  from './pages/CommandHub'
@@ -104,6 +106,43 @@ function PageLoading() {
 
 export default function App() {
   const loc = useLocation()
+  const { ready, authenticated, role } = useAuth()
+
+  // The break-glass path. The backend already grants owner on loopback when no
+  // ARIA_OWNER_TOKEN is set, and honouring that here is what stops you being
+  // locked out of your own machine before any OAuth provider is configured —
+  // a login screen whose every button is greyed out is a locked door. This
+  // grants nothing: the server reached the same conclusion independently, and
+  // is the thing actually enforcing it.
+  const admitted = authenticated || role === 'owner'
+
+  // Nothing renders until the session is known. Showing the deck first and
+  // yanking it away a moment later would flash the shape of the app — and on a
+  // slow link, briefly imply access that is not there.
+  if (!ready) {
+    return (
+      <div style={{
+        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: '#050206', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)',
+        letterSpacing: '0.18em',
+      }}>
+        <div className="aria-boot-pulse">AUTHENTICATING…</div>
+      </div>
+    )
+  }
+
+  // The gate. This is convenience, not enforcement — every route is refused
+  // server-side too, so a client that skips this sees nothing but 401s.
+  if (!admitted) {
+    const next = loc.pathname + loc.search
+    if (loc.pathname !== '/login') {
+      return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
+    }
+    return <Login />
+  }
+
+  if (loc.pathname === '/login') return <Navigate to="/" replace />
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
       <Boot />

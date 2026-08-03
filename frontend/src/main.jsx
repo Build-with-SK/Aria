@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { CurrencyProvider } from './currency/CurrencyContext'
+import { AuthProvider } from './auth/AuthContext'
 import { applyA11y, loadA11y } from './components/Accessibility'
 import './index.css'
 
@@ -15,9 +16,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       {/* Prices render in the viewer's own currency — detected from their
           region, overridable from the sidebar. */}
-      <CurrencyProvider>
-        <App />
-      </CurrencyProvider>
+      {/* Auth wraps everything: no deck, no data fetches, no currency probe
+          until we know who is asking. */}
+      <AuthProvider>
+        <CurrencyProvider>
+          <App />
+        </CurrencyProvider>
+      </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>
 )

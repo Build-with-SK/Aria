@@ -239,14 +239,27 @@ async def _role_guard(request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
 
+    from src.auth import session as sess
+    who = sess.read(request.cookies.get(sess.COOKIE))
     role = policy.resolve_role(request.headers,
-                               request.client.host if request.client else None)
+                               request.client.host if request.client else None,
+                               who)
     request.state.role = role
+    request.state.user = who
 
     if not policy.is_allowed(request.url.path, role):
         from fastapi.responses import JSONResponse
         logger.info("role_guard: %s denied %s %s",
                     role, request.method, request.url.path)
+        # 401 means "sign in and try again"; 403 means "signed in, still no".
+        # Collapsing them would leave the UI unable to tell a login prompt from
+        # a dead end.
+        if role == policy.ANON:
+            return JSONResponse(status_code=401, content={
+                "detail": "Sign in to use ARIA.",
+                "login": "/api/auth/providers",
+                "role": role,
+            })
         return JSONResponse(status_code=403, content={
             "detail": "This is owner-only.",
             "reason": policy.denial_reason(request.url.path),
@@ -894,6 +907,90 @@ def get_live_positions():
     if not mgr:
         return {"positions": []}
     return {"count": len(p := mgr.get_all_positions()), "positions": p}
+
+
+# ===========================================================================
+# Authentication — sign in with Google / GitHub / Apple
+# ===========================================================================
+
+@app.get("/api/auth/providers", tags=["Auth"])
+def auth_providers():
+    """Which sign-in buttons the login page should show, and why any are absent."""
+    from src.auth import oauth
+    return {"providers": oauth.providers(),
+            "configured": oauth.any_configured(),
+            "base_url": oauth.base_url()}
+
+
+@app.get("/api/auth/me", tags=["Auth"])
+def auth_me(request: Request):
+    """The current session. Always 200 so the frontend can ask before login."""
+    who = getattr(request.state, "user", None)
+    role = _role_of(request)
+    if not who:
+        return {"authenticated": False, "role": role}
+    return {"authenticated": True, "role": role,
+            "email": who.get("email"), "name": who.get("name"),
+            "avatar": who.get("avatar"), "provider": who.get("provider"),
+            "owner": bool(who.get("owner"))}
+
+
+@app.get("/api/auth/login/{provider}", tags=["Auth"])
+def auth_login(provider: str, next: str = "/"):
+    """Send the browser to the provider's consent screen."""
+    from fastapi.responses import RedirectResponse
+    from src.auth import oauth
+    if provider not in oauth.PROVIDERS:
+        raise HTTPException(status_code=404, detail="unknown provider")
+    avail = {p["id"]: p for p in oauth.providers()}
+    if not avail[provider]["available"]:
+        raise HTTPException(status_code=503,
+                            detail=f"{provider} is not configured: {avail[provider]['reason']}")
+    return RedirectResponse(oauth.authorize_url(provider, oauth.safe_next(next)),
+                            status_code=302)
+
+
+@app.get("/api/auth/callback/{provider}", tags=["Auth"])
+def auth_callback(provider: str, request: Request,
+                  code: str = "", state: str = "", error: str = ""):
+    """Provider redirect lands here. Verifies state, exchanges the code, sets
+    the session cookie, and bounces back into the app."""
+    from fastapi.responses import RedirectResponse
+    from src.auth import oauth
+    from src.auth import session as sess
+
+    import urllib.parse
+    front = os.environ.get("ARIA_FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
+    if error or not code:
+        return RedirectResponse(f"{front}/login?error={urllib.parse.quote(error or 'no_code')}",
+                                status_code=302)
+
+    st = oauth.read_state(state)
+    if not st or st.get("p") != provider:
+        # Rejected before any code is exchanged — a forged redirect cannot
+        # start a session.
+        return RedirectResponse(f"{front}/login?error=bad_state", status_code=302)
+
+    identity = oauth.exchange(provider, code)
+    if not identity:
+        return RedirectResponse(f"{front}/login?error=exchange_failed", status_code=302)
+
+    resp = RedirectResponse(f"{front}{oauth.safe_next(st.get('n'))}", status_code=302)
+    resp.set_cookie(sess.COOKIE, sess.issue(identity), **sess.cookie_kwargs())
+    logger.info("auth: %s signed in via %s (owner=%s)",
+                identity.get("email") or identity.get("sub"), provider,
+                sess.is_owner_identity(identity))
+    return resp
+
+
+@app.post("/api/auth/logout", tags=["Auth"])
+def auth_logout():
+    from fastapi.responses import JSONResponse
+    from src.auth import session as sess
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(sess.COOKIE, path="/")
+    return resp
 
 
 # ===========================================================================
