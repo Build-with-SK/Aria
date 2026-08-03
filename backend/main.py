@@ -59,6 +59,53 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+def _configure_logging():
+    """Give the application's own loggers somewhere to go.
+
+    Without this nothing configures the root logger — uvicorn sets up only its
+    own — so every logger.info() in this codebase was silently discarded. That
+    meant no record of who signed in, which requests were refused, or who was
+    being rate limited: the audit trail existed in the source and nowhere else.
+    On a machine with a broker attached that is the difference between noticing
+    someone probing and never knowing.
+
+    Rotating file plus stdout. data/*.log is gitignored, and the file is what
+    survives a restart on the mini where nobody is watching the console.
+    """
+    root = logging.getLogger()
+    if any(getattr(h, "_aria", False) for h in root.handlers):
+        return                                   # --reload runs this twice
+    root.setLevel(logging.INFO)
+
+    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+                            datefmt="%Y-%m-%d %H:%M:%S")
+
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(fmt)
+    console._aria = True
+    root.addHandler(console)
+
+    try:
+        from logging.handlers import RotatingFileHandler
+        (ROOT / "data").mkdir(parents=True, exist_ok=True)
+        fh = RotatingFileHandler(ROOT / "data" / "aria.log",
+                                 maxBytes=5_000_000, backupCount=3,
+                                 encoding="utf-8")
+        fh.setFormatter(fmt)
+        fh._aria = True
+        root.addHandler(fh)
+    except Exception as e:                       # read-only disk, permissions
+        console.handle(logging.LogRecord(
+            "aria", logging.WARNING, __file__, 0,
+            f"file logging unavailable: {e}", None, None))
+
+    # Third-party libraries are chatty at INFO and would bury the audit lines.
+    for noisy in ("httpx", "httpcore", "urllib3", "yfinance", "peewee",
+                  "watchfiles", "asyncio", "chromadb", "sentence_transformers"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+_configure_logging()
 logger = logging.getLogger(__name__)
 
 # Anthropic client (lazy)
