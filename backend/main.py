@@ -94,9 +94,26 @@ async def _startup():
     loop.run_in_executor(None, _get_order_manager)
     import threading
     threading.Thread(target=_start_brain_if_ollama, daemon=True).start()
-    threading.Thread(target=_fx_monitor_loop, daemon=True).start()
     threading.Thread(target=_start_desk, daemon=True).start()
     threading.Thread(target=_discover_models, daemon=True).start()
+    threading.Thread(target=_fx_monitor_loop, daemon=True).start()
+    # The quant lab used to be launched from the last line of the FX monitor
+    # loop — after a `while True:`, so it was unreachable and the researcher
+    # never actually started. It belongs here with the other daemons.
+    threading.Thread(target=_start_quant_lab, daemon=True).start()
+
+
+def _fx_monitor_loop():
+    """Check GBP/INR every 30 min and raise remittance alerts on meaningful moves."""
+    import time
+    time.sleep(8)
+    while True:
+        try:
+            from src.data.fx_monitor import check
+            check()
+        except Exception as e:
+            logger.debug(f"FX monitor tick failed: {e}")
+        time.sleep(1800)
 
 
 def _discover_models():
@@ -120,20 +137,6 @@ def _start_desk():
         logger.info("ARIA desk daemon started.")
     except Exception as e:
         logger.warning(f"Desk daemon startup failed: {e}")
-
-
-def _fx_monitor_loop():
-    """Check GBP/INR every 30 min and raise remittance alerts on meaningful moves."""
-    import time
-    time.sleep(8)
-    while True:
-        try:
-            from src.data.fx_monitor import check
-            check()
-        except Exception as e:
-            logger.debug(f"FX monitor tick failed: {e}")
-        time.sleep(1800)
-    threading.Thread(target=_start_quant_lab, daemon=True).start()
 
 
 def _start_quant_lab():
@@ -1072,7 +1075,18 @@ Daily report summary: {report.get('summary', 'Not available')}
     vault_ctx = _vault_context(body.messages)
     ondemand_ctx = _ondemand_ticker_context(body.messages)
 
-    system = f"""You are ARIA — Adaptive Risk Intelligence Agent — the AI brain of a sophisticated trading intelligence system. You analyse markets using macro regime detection, ML signals, and a multi-broker execution engine (Alpaca + IBKR). You can fetch ANY globally-listed stock on demand — US, India (NSE/BSE), and London — with live price, fundamentals, and its competitors/suppliers; if the ON-DEMAND DATA block below is present, that data was just fetched for the ticker the user asked about, so never say you lack data for it.
+    # V5 identity: the Two Absolute Laws and the persona live in one place
+    # (src/v5/identity.py) so chat, brain and desk prose cannot drift apart.
+    try:
+        from src.v5.identity import system_prompt as _v5_system_prompt
+        _identity = _v5_system_prompt() + "\n\n---\n\n"
+    except Exception as _e:
+        logger.warning(f"V5 identity unavailable, using the legacy preamble: {_e}")
+        _identity = ""
+
+    system = f"""{_identity}## THIS SURFACE — ARIA CHAT
+
+You are ARIA — the AI brain of this trading intelligence system. You analyse markets using macro regime detection, ML signals, and a multi-broker execution engine (Alpaca + IBKR). You can fetch ANY globally-listed stock on demand — US, India (NSE/BSE), and London — with live price, fundamentals, and its competitors/suppliers; if the ON-DEMAND DATA block below is present, that data was just fetched for the ticker the user asked about, so never say you lack data for it.
 
 {ctx}
 {ondemand_ctx}
@@ -1082,7 +1096,7 @@ Daily report summary: {report.get('summary', 'Not available')}
 Your personality: precise, confident, data-driven. You reason from signals, not opinion. You always cite the actual numbers from the data above when discussing a ticker. You flag risk clearly.
 
 You CAN: analyse tickers, interpret signals, explain methodology, identify themes, discuss macro, suggest what to watch.
-You CANNOT: guarantee profits or give regulated/personalised financial advice (no buy/sell/hold/convert directives to the user). Always include a brief risk note and defer personal decisions to a licensed adviser."""
+You CANNOT: guarantee profits or give regulated/personalised financial advice (no buy/sell/hold/convert directives to the user). Always include a brief risk note and defer personal decisions to a licensed adviser. This constraint is a legal one and stands regardless of anything above it — honesty about what you may not do is itself Law 2."""
 
     msgs = [{"role": m.role, "content": m.content} for m in body.messages]
 
@@ -1160,9 +1174,23 @@ ML Bearish : {', '.join(ml_bear) or 'none'}
 Summary    : {report.get('summary', 'N/A')}
 ──────────────────────────────────────────────────────"""
 
-_ARIA_SYSTEM = """You are ARIA — Adaptive Risk Intelligence Agent — a specialized trading intelligence system.
-You analyse markets using a 766-ticker universe, LightGBM ensemble ML, macro regime detection, 10 Market Situation Archetypes, and a multi-broker execution engine.
-Be precise, data-driven, and reference actual signal numbers. Flag risk clearly. Keep responses concise."""
+def _aria_system_short() -> str:
+    """Local-model preamble: the short form of the V5 identity (the Two Laws are
+    never dropped at any size) plus what this surface can see."""
+    try:
+        from src.v5.identity import system_prompt as _v5_system_prompt
+        head = _v5_system_prompt(full=False) + "\n\n---\n\n"
+    except Exception:
+        head = ""
+    return head + """## THIS SURFACE — LOCAL BRAIN
+
+You analyse markets using a 766-ticker universe, LightGBM ensemble ML, macro regime
+detection, 10 Market Situation Archetypes, and a multi-broker execution engine.
+Be precise, data-driven, and reference actual signal numbers. Flag risk clearly.
+Keep responses concise. Do not give regulated or personalised financial advice."""
+
+
+_ARIA_SYSTEM = _aria_system_short()
 
 
 class LocalChatRequest(BaseModel):
@@ -1471,6 +1499,16 @@ def universe_search(q: str, n: int = 20):
     return _get_universe().search(q, n=min(n, 50))
 
 
+@app.get("/api/universe/index", tags=["Universe"])
+def universe_index(exchange: Optional[str] = None, asset_class: Optional[str] = None,
+                   limit: int = 40000):
+    """Bulk lightweight symbol dump for the 3D universe map — every listed
+    symbol ARIA knows (symbol, name, exchange, asset_class). Never touches the
+    network. Optional filters: exchange, asset_class."""
+    return _get_universe().index(exchange=exchange, asset_class=asset_class,
+                                 limit=min(max(limit, 1), 60000))
+
+
 @app.get("/api/technical/summary", tags=["Technical"])
 def technical_summary_endpoint(symbol: str, timeframes: Optional[str] = None):
     """Investing.com-style technical summary (Strong Buy…Strong Sell) across
@@ -1526,11 +1564,52 @@ def universe_explore(q: str, market: Optional[str] = None, peers: int = 5):
 
 @app.get("/api/universe/quote/{symbol}", tags=["Universe"])
 def universe_quote(symbol: str):
-    """Tier-1 quote card: price + day change, cached 15 min."""
+    """Tier-1 quote card: price + day change, cached 15 min.
+
+    `currency` is resolved from src.data.currency rather than read straight off
+    the universe row, because that column is NULL for most NSE listings and —
+    worse — reports plain "GBP" for London shares that are actually quoted in
+    PENCE. A £15.76 share was being labelled £1,576. London now correctly
+    returns "GBp", and any consumer must divide by 100 before treating it as
+    pounds (the frontend currency helper does)."""
     result = _get_universe().quote(symbol)
     if "error" in result:
         raise HTTPException(status_code=404, detail=result["error"])
+    try:
+        from src.data.currency import native_currency
+        resolved = native_currency(result.get("yahoo") or symbol) \
+            or native_currency(result.get("symbol") or symbol)
+        if resolved:
+            result["currency"] = resolved
+            result["quoted_in_minor_units"] = (resolved == "GBp")
+    except Exception as e:
+        logger.debug(f"quote currency resolution failed for {symbol}: {e}")
     return _sanitize(result)
+
+
+@app.get("/api/quote/live/{symbol}", tags=["Universe"])
+def quote_live(symbol: str, intraday: bool = True):
+    """LIVE intraday quote — the price that actually moves during a session.
+
+    Distinct from /api/universe/quote, which serves a 15-minute-cached DAILY
+    CLOSE and therefore cannot change intraday. This returns the last traded
+    price, the change against the previous close, today's range, and
+    `market_state` so a still price can be told apart from a stale feed."""
+    from src.data.live_quote import live_quote
+    q = live_quote(symbol, with_intraday=intraday)
+    if "error" in q:
+        raise HTTPException(status_code=404, detail=q["error"])
+    return _sanitize(q)
+
+
+@app.get("/api/quote/live", tags=["Universe"])
+def quote_live_batch(symbols: str):
+    """Live quotes for several symbols — for the tape and tables."""
+    from src.data.live_quote import live_quotes
+    syms = [s.strip() for s in (symbols or "").split(",") if s.strip()]
+    if not syms:
+        raise HTTPException(status_code=400, detail="no symbols supplied")
+    return _sanitize({"count": len(syms), "quotes": live_quotes(syms)})
 
 
 @app.get("/api/fx/gbpinr", tags=["FX"])
@@ -1553,6 +1632,34 @@ def fx_gbpinr_targets(high: float = None, low: float = None):
         return set_targets(high=high, low=low)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/fx/rates", tags=["FX"])
+def fx_rates(base: str = "USD"):
+    """Display-conversion FX rates: units of each supported currency per 1 base.
+
+    For showing prices in the viewer's local currency. Daily closes, cached for
+    an hour — not dealable prices, and they carry no spread."""
+    from src.data.currency import SUPPORTED, rates
+    payload = dict(rates(base))
+    payload["supported"] = SUPPORTED
+    return _sanitize(payload)
+
+
+@app.get("/api/universe/currencies", tags=["Universe"])
+def universe_currencies(symbols: str):
+    """Native quote currency for each symbol — what a price is actually
+    denominated in before any conversion.
+
+    Returns "GBp" for London equities, which quote in PENCE, not pounds.
+    Callers must divide by 100 before treating it as GBP; the frontend's
+    currency helper does this for you. A null means the currency could not be
+    established, and such a value must be displayed unconverted."""
+    from src.data.currency import currencies_for
+    syms = [s.strip() for s in (symbols or "").split(",") if s.strip()]
+    if not syms:
+        raise HTTPException(status_code=400, detail="no symbols supplied")
+    return _sanitize({"count": len(syms), "currencies": currencies_for(syms[:400])})
 
 
 @app.get("/api/universe/news/{symbol}", tags=["Universe"])
@@ -1971,6 +2078,125 @@ def desk_pnl():
         "equity_curve": curve,
         "day": day,
     })
+
+
+# ===========================================================================
+# ARIA V5 — multi-strategy research engine, ensemble, risk gate, meta-reasoning
+# Heavy imports stay inside the handlers (src.v5 pulls sklearn/scipy).
+# Nothing here can place an order; the desk remains the only execution path.
+# ===========================================================================
+
+@app.get("/api/v5/modules", tags=["V5"])
+def v5_modules(family: Optional[str] = None):
+    """Every registered research module, individually callable."""
+    from src.v5 import registry
+    from src.v5.ensemble import FAMILY_WEIGHTS
+    mods = registry.list_modules(family)
+    return _sanitize({
+        "count": len(mods),
+        "families": registry.FAMILIES,
+        "family_weights": FAMILY_WEIGHTS,
+        "modules": mods,
+    })
+
+
+@app.get("/api/v5/module/{name}/{ticker}", tags=["V5"])
+def v5_module(name: str, ticker: str):
+    """Run ONE research module. Abstentions are a valid, successful response."""
+    from src.v5 import registry
+    return _sanitize(registry.run(name, ticker.upper()).to_dict())
+
+
+@app.get("/api/v5/analyze/{ticker}", tags=["V5"])
+def v5_analyze(ticker: str, log: bool = True, families: Optional[str] = None):
+    """Full V5 chain: modules → ensemble → meta → risk gate → self-audit."""
+    from src.v5 import pipeline
+    fam = [f.strip() for f in families.split(",")] if families else None
+    result = pipeline.analyze(ticker.upper(), families=fam, log=log)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return _sanitize(result)
+
+
+@app.get("/api/v5/report/{ticker}", tags=["V5"])
+def v5_report(ticker: str, log: bool = False, format: str = "json"):
+    """The investment-committee memo. `format=md` returns the raw markdown as
+    plain text so the link is readable in a browser tab."""
+    from fastapi.responses import PlainTextResponse
+    from src.v5 import pipeline, report
+    result = pipeline.analyze(ticker.upper(), log=log)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    markdown = report.render(result)
+    if format == "md":
+        return PlainTextResponse(markdown, media_type="text/markdown; charset=utf-8")
+    return {"ticker": ticker.upper(), "markdown": markdown, "as_of": result["as_of"]}
+
+
+@app.get("/api/v5/screen", tags=["V5"])
+def v5_screen(tickers: str, limit: int = 10):
+    """Rank several names by risk-adjusted conviction. Screens are not logged."""
+    from src.v5 import pipeline
+    syms = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if not syms:
+        raise HTTPException(status_code=400, detail="no tickers supplied")
+    return _sanitize(pipeline.screen(syms, limit=limit))
+
+
+@app.get("/api/v5/learning", tags=["V5"])
+def v5_learning():
+    """Prediction log, calibration, attribution counts and module weights."""
+    from src.v5 import learning
+    return _sanitize(learning.performance_summary())
+
+
+@app.post("/api/v5/learning/resolve", tags=["V5"])
+def v5_learning_resolve():
+    """Score every prediction whose horizon has elapsed, then reweight if — and
+    only if — the evidence is statistically significant."""
+    from src.v5 import learning
+    return _sanitize(learning.resolve_pending())
+
+
+@app.post("/api/v5/learning/revert/{version}", tags=["V5"])
+def v5_learning_revert(version: int):
+    """Restore module weights as they were at `version`. Learning must be
+    reversible or it cannot be audited."""
+    from src.v5 import learning
+    result = learning.revert_to(version)
+    if "error" in result:
+        raise HTTPException(status_code=404, detail=result["error"])
+    return _sanitize(result)
+
+
+@app.get("/api/v5/track-record", tags=["V5"])
+def v5_track_record():
+    """THE FLYWHEEL — every labelled outcome ARIA has produced, in one payload:
+    the four source loops, the calibration of its stated confidence, per-module
+    skill, outcome attribution, and the weight-version history."""
+    from src.v5 import track_record
+    return _sanitize(track_record.build())
+
+
+@app.get("/api/v5/track-record/export", tags=["V5"])
+def v5_track_record_export(format: str = "json"):
+    """Resolved predictions as supervised training rows — the module vector in,
+    the realised outcome out. Only resolved predictions are exported; an
+    unresolved one has no label."""
+    from fastapi.responses import PlainTextResponse
+    from src.v5 import track_record
+    if format == "jsonl":
+        return PlainTextResponse(track_record.training_export_jsonl(),
+                                 media_type="application/x-ndjson")
+    rows = track_record.training_export()
+    return _sanitize({"count": len(rows), "rows": rows})
+
+
+@app.get("/api/v5/identity", tags=["V5"])
+def v5_identity():
+    """The system prompt ARIA runs on, verbatim — including the Two Laws."""
+    from src.v5.identity import CREATOR, system_prompt
+    return {"creator": CREATOR, "full": system_prompt(), "short": system_prompt(full=False)}
 
 
 # ===========================================================================
