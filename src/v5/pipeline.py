@@ -132,7 +132,7 @@ def _ensemble_horizon(ens, reports) -> int:
 
 
 def _recommendation(ens, risk, meta) -> dict:
-    """The single sentence Ariyan reads first, and the numbers behind it."""
+    """The single sentence Soundariyan Karunakaran reads first, and the numbers behind it."""
     conf = meta.confidence_after
     if risk.verdict == "VETO":
         action = "NO POSITION — risk veto"

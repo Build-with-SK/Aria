@@ -254,7 +254,7 @@ export default function Sidebar() {
       <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)' }}>
         <div style={{ fontFamily: 'var(--mono)', fontSize: 8, color: 'var(--muted)', lineHeight: 1.7, letterSpacing: '0.06em' }}>
           RESEARCH & EDUCATION ONLY<br />NOT FINANCIAL ADVICE<br />
-          <span style={{ color: 'var(--orange-dim)' }}>ARIA · by Ariyan</span>
+          <span style={{ color: 'var(--orange-dim)' }}>ARIA · by Soundariyan Karunakaran</span>
         </div>
       </div>
     </div>

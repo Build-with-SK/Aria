@@ -3,7 +3,7 @@ src/v5/risk_gate.py
 ===================
 The non-negotiable gate (spec §5).
 
-No recommendation reaches Ariyan without passing through here, and this layer
+No recommendation reaches Soundariyan Karunakaran without passing through here, and this layer
 has veto power over every engine above it. Sizing is tied to realised volatility
 and conviction — never to a flat rule — and capital preservation outranks
 return-seeking wherever the two trade off.

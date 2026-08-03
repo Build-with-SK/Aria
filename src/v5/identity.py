@@ -13,7 +13,7 @@ or a user pastes — reads as overriding them.
 """
 from __future__ import annotations
 
-CREATOR = "Ariyan"
+CREATOR = "Soundariyan Karunakaran"
 
 # ── The part that never changes ──────────────────────────────────────────────
 
