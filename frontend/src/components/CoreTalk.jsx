@@ -63,7 +63,10 @@ export default function CoreTalk() {
 
   return (
     <div style={{ marginTop: 12, marginBottom: 14 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      {/* Wraps, because it has to. A label, a flex-1 input and three buttons
+          that all refuse to shrink came to more than a phone is wide, and SEND
+          was the one pushed off the edge — the row was unusable on mobile. */}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <span style={{ ...mono, fontSize: 11, fontWeight: 800, color: 'var(--orange)', letterSpacing: 1, flexShrink: 0 }}>
           ▸ TALK
         </span>
@@ -74,7 +77,10 @@ export default function CoreTalk() {
           placeholder="Speak to ARIA and watch the core beat…  (Enter to send)"
           disabled={busy}
           style={{
-            ...mono, flex: 1, background: '#0d060a', border: '1px solid var(--border)',
+            // minWidth: 0 — an input's intrinsic minimum ignores `flex: 1` and
+            // is what stops the row collapsing to fit.
+            ...mono, flex: '1 1 180px', minWidth: 0,
+            background: '#0d060a', border: '1px solid var(--border)',
             color: '#ddd', fontSize: 12, padding: '9px 12px', borderRadius: 4, outline: 'none',
           }}
         />

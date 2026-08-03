@@ -9,7 +9,7 @@ import axios from 'axios'
    Was twenty-two. Four of those pages answered "should I buy this?" and five
    were "the AI thinking"; the merged ones are now tabs inside the page they
    belong to, and every old path still redirects.                            */
-const GROUPS = [
+export const GROUPS = [
   {
     label: 'INTELLIGENCE',
     items: [
@@ -137,6 +137,26 @@ export default function Sidebar() {
           </span>
         </div>
       </div>
+
+      {/* ── search / command palette ──
+          A shortcut nobody knows about is worth very little, so the rail
+          advertises it and doubles as the button for anyone who would rather
+          click. Both routes end in the same palette. */}
+      <button
+        onClick={() => window.dispatchEvent(new CustomEvent('aria:palette'))}
+        aria-label="Open command palette"
+        style={{
+          fontFamily: 'var(--mono)', display: 'flex', alignItems: 'center', gap: 8,
+          margin: '10px 12px 2px', padding: '7px 9px', width: 'calc(100% - 24px)',
+          background: '#0c0a0c', border: '1px solid var(--border)', borderRadius: 3,
+          color: 'var(--muted)', fontSize: 10, letterSpacing: '0.08em', cursor: 'pointer',
+        }}>
+        <span aria-hidden="true" style={{ color: 'var(--orange)' }}>⌕</span>
+        <span style={{ flex: 1, textAlign: 'left' }}>SEARCH / TICKER</span>
+        <kbd style={{ fontFamily: 'var(--mono)', fontSize: 8, border: '1px solid var(--border)', borderRadius: 2, padding: '1px 4px' }}>
+          ⌘K
+        </kbd>
+      </button>
 
       {/* ── nav groups ── */}
       <nav style={{ flex: 1, overflowY: 'auto', padding: '6px 0 10px' }}>

@@ -124,11 +124,19 @@ export function Empty({ message }) {
 
 export function TabBar({ tabs, active, onChange }) {
   return (
-    <div style={{ display:'flex', borderBottom:'1px solid var(--border-2)', marginBottom:16, gap:0 }}>
+    /* The restructure put merged pages behind these tabs, so a tab you cannot
+       reach is a page you cannot reach. Four tabs do not fit across a phone,
+       and the row neither wrapped nor scrolled — everything past the third was
+       simply gone. It scrolls now, and the buttons refuse to be squashed. */
+    <div style={{
+      display:'flex', borderBottom:'1px solid var(--border-2)', marginBottom:16, gap:0,
+      overflowX:'auto', overflowY:'hidden', scrollbarWidth:'thin', WebkitOverflowScrolling:'touch',
+    }}>
       {tabs.map(t => (
         <button key={t.id} onClick={() => onChange(t.id)}
           style={{
             padding:'7px 16px', background:'none', border:'none', cursor:'pointer',
+            flexShrink:0, whiteSpace:'nowrap',
             fontFamily:'var(--mono)', fontSize:11, fontWeight:600, letterSpacing:'0.06em',
             textTransform:'uppercase',
             color: active === t.id ? 'var(--orange)' : 'var(--muted)',

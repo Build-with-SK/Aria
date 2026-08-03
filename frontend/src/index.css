@@ -388,6 +388,22 @@ html[data-text-size="largest"] button { min-height: 26px; }
 
   /* Wide content must scroll inside itself, never push the page sideways. */
   table { display: block; overflow-x: auto; white-space: nowrap; }
+
+  /* …but that rule alone did nothing. A panel wrapping a table is usually a
+     flex or grid child, whose default `min-width: auto` refuses to shrink below
+     its content — so the panel grew to the table's full 559px instead of the
+     available 351px, and the table, now exactly as wide as its own content,
+     had nothing left to scroll. The columns past the fold were simply clipped
+     and unreachable: no scrollbar, no overflow, no way to read them.
+
+     Letting these boxes shrink is what actually arms the rule above. */
+  .aria-main [class*="card"],
+  .aria-main [class*="panel"],
+  .aria-main section,
+  .aria-main article { min-width: 0; max-width: 100%; }
+
+  /* Charts size themselves from their container and hit the same floor. */
+  .recharts-responsive-container { min-width: 0 !important; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

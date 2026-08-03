@@ -2,6 +2,7 @@ import React from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { usePortfolio } from '../hooks/useApi'
 import { Spinner, ErrorBox, SectionHeader, MetricCard } from '../components/UI'
+import Term from '../components/Term'
 import { useCurrency } from '../currency/CurrencyContext'
 
 export default function Portfolio() {
@@ -67,7 +68,7 @@ export default function Portfolio() {
             <MetricCard label="Allocated"   value={`${((opt.total_allocated||0)*100).toFixed(1)}%`} />
           </div>
           <table>
-            <thead><tr><th>Asset</th><th>Weight</th><th>Amount</th><th>Signal</th><th>Score</th></tr></thead>
+            <thead><tr><th><Term>Asset</Term></th><th><Term>Weight</Term></th><th>Amount</th><th><Term>Signal</Term></th><th><Term>Score</Term></th></tr></thead>
             <tbody>
               {(opt.allocation_table||[]).filter(r => r['Weight %'] > 0).slice(0, 10).map((r, i) => (
                 <tr key={i}>

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import { useCurrency } from '../currency/CurrencyContext'
+import { GLOSSARY } from '../components/Term'
 
 const mono = { fontFamily: 'var(--mono)' }
 const card = { border: '1px solid var(--border)', background: '#070707', borderRadius: 6, padding: 14, marginBottom: 14 }
@@ -157,6 +158,7 @@ function Strategies() {
           style={{ ...mono, width: 110, background: '#0d0d0d', border: '1px solid #222', color: '#ddd', fontSize: 11, padding: '6px 8px', borderRadius: 3, outline: 'none' }} />
         {STRATS.map(s => (
           <button key={s.id} onClick={() => setStrat(s.id)}
+            title={GLOSSARY[s.label.toLowerCase()]}
             style={{ ...mono, fontSize: 10, fontWeight: 700, padding: '5px 10px', borderRadius: 3, cursor: 'pointer',
               background: strat === s.id ? 'var(--orange)' : 'transparent', color: strat === s.id ? '#000' : 'var(--text-dim)',
               border: `1px solid ${strat === s.id ? 'var(--orange)' : '#222'}` }}>{s.label}</button>

@@ -9,6 +9,7 @@ import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer } fro
 import { useSignals } from '../hooks/useApi'
 import { Price, useCurrency, useResolveCurrencies } from '../currency/CurrencyContext'
 import { Spinner, ErrorBox, ScoreBadge, ActionBadge, ScoreBar, SectionHeader, MetricCard } from '../components/UI'
+import Term from '../components/Term'
 
 export default function Signals() {
   const { data, loading, error } = useSignals()
@@ -44,14 +45,16 @@ export default function Signals() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>Signal Table</h1>
-        <div style={{ display: 'flex', gap: 10 }}>
+        {/* Search plus four filters is 477px of controls; on a phone Bearish and
+            Neutral sat off the edge with no way to reach them. */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <input
             placeholder="Search ticker..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 6, padding: '6px 12px', color: '#e6edf3', fontSize: 13 }}
+            style={{ background: '#161b22', border: '1px solid #30363d', borderRadius: 6, padding: '6px 12px', color: '#e6edf3', fontSize: 13, minWidth: 0, flex: '1 1 140px' }}
           />
           {['all','bullish','bearish','neutral'].map(f => (
             <button key={f} onClick={() => setFilter(f)}
@@ -68,7 +71,7 @@ export default function Signals() {
         <div className="card" style={{ padding: 0 }}>
           <table>
             <thead>
-              <tr><th>Ticker</th><th>Score</th><th>Signal</th><th>Regime</th><th>Vol</th><th>Risk</th></tr>
+              <tr><th>Ticker</th><th><Term>Score</Term></th><th><Term>Signal</Term></th><th><Term>Regime</Term></th><th><Term>Vol</Term></th><th><Term>Risk</Term></th></tr>
             </thead>
             <tbody>
               {filtered.map(s => (

@@ -3,6 +3,7 @@ import { Link, Navigate, Routes, Route, useLocation } from 'react-router-dom'
 import Sidebar   from './components/Sidebar'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionBanner from './components/ConnectionBanner'
+import CommandPalette from './components/CommandPalette'
 /* ── the twelve destinations ── */
 import Chat        from './pages/Chat'
 import CommandHub  from './pages/CommandHub'
@@ -111,6 +112,7 @@ export default function App() {
 
       <ConnectionBanner />
       <Sidebar />
+      <CommandPalette />
       <TickerTape />
 
       <main className="aria-main" style={{ flex: 1, minHeight: '100vh', maxWidth: '100%' }}>

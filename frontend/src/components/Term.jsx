@@ -66,6 +66,52 @@ export const GLOSSARY = {
   peg: 'The P/E compared with the growth rate. Around 1 or below is often considered reasonable value.',
   'free cash flow': 'Cash left after the company pays for running and investing in itself. Real money, harder to massage than profit.',
   'dividend yield': 'The yearly dividend as a percentage of the share price.',
+
+  // ── market state and signals ──
+  regime: 'What kind of market this is right now — trending, choppy, or stressed. The same signal means different things in different regimes.',
+  vol: 'How much the price jumps around. Higher means a wider stop and a smaller position.',
+  signal: 'The direction ARIA currently leans on this stock, before any risk check is applied.',
+  score: 'One number from −100 to +100 combining every engine that reported. Positive leans up.',
+  risk: 'How much could go wrong here — volatility, liquidity and concentration together. It shrinks position size.',
+  breadth_note: 'A rally carried by a handful of stocks is fragile.',
+
+  // ── portfolio ──
+  weight: 'The share of your total money sitting in this one position.',
+  asset: 'One holding — a stock, fund or cash line.',
+  qty: 'How many shares are held.',
+  'avg cost': 'The average price paid per share across every purchase of it.',
+  'unreal p&l': 'Profit or loss on paper — what you would make or lose if you closed the position right now. Nothing is banked until you sell.',
+  exposure: 'How much of the time money is actually in the market. Low exposure earning a good return is a better result than it first looks.',
+
+  // ── backtesting ──
+  oos: 'Out-of-sample — tested on data the strategy never saw while being built. In-sample results flatter almost everything; this is the honest number.',
+  'oos sharpe': 'Return per unit of risk, measured only on data the strategy never saw while being built. The honest version of Sharpe.',
+  cagr: 'The yearly growth rate the strategy averaged, smoothed as if it grew evenly.',
+  maxdd: 'The worst peak-to-trough fall the strategy suffered — the deepest hole you would have had to sit through.',
+  'max drawdown': 'The worst peak-to-trough fall — the deepest hole you would have had to sit through without abandoning it.',
+  template: 'The strategy pattern being tested, before any specific settings are filled in.',
+  params: 'The specific settings this run used — lookback windows, thresholds and so on.',
+  mapper: 'What turned a written research paper into runnable strategy settings.',
+  'source paper': 'The published research this strategy was derived from.',
+
+  // ── the debate desk ──
+  agent: 'One analyst voice in the debate. They argue independently and are scored separately.',
+  'judge weight': 'How much this analyst voice counts in the final decision, earned from its own past accuracy. Being right repeatedly is the only way it rises.',
+  'right/wrong': 'The raw tally of resolved calls behind the hit rate.',
+
+  // ── V5 tables ──
+  multiplier: 'How much this engine has earned the right to be listened to, from its own track record. Below 1 means it is being discounted.',
+  attribution: 'Which engines actually drove this call, so a result can be traced back to what caused it.',
+  horizon: 'How far ahead this engine is trying to see — days, weeks or months. A daily signal and a quarterly one are not comparable.',
+  family: 'The group an engine belongs to — price, quant, fundamental, macro, volatility, behavioural or machine.',
+  conf: 'The chance the direction is right. It starts at 50% — a coin flip — and 55% is the bar for acting.',
+  call: 'The direction ARIA committed to, recorded before the outcome was known.',
+
+  // ── options structures ──
+  'bull call spread': 'A bet on a moderate rise. Cheaper than buying a call outright, but the profit is capped.',
+  'bear put spread': 'A bet on a moderate fall, with both the cost and the maximum profit capped.',
+  'long straddle': 'A bet that the price moves sharply without picking a direction. It loses if the price sits still.',
+  'iron condor': 'A bet that the price stays inside a range. It earns while nothing happens and loses on a big move either way.',
 }
 
 /**

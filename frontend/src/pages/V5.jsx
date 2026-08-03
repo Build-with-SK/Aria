@@ -366,7 +366,7 @@ function Learning() {
         <div className="bb-card">
           <div className="bb-card-header">MODULE SCORECARD</div>
           <table>
-            <thead><tr><th>MODULE</th><th>RIGHT</th><th>WRONG</th><th>HIT RATE</th><th>p-VALUE</th><th>MULTIPLIER</th></tr></thead>
+            <thead><tr><th><Term>MODULE</Term></th><th>RIGHT</th><th>WRONG</th><th><Term k="hit rate">HIT RATE</Term></th><th><Term k="p-value">p-VALUE</Term></th><th><Term>MULTIPLIER</Term></th></tr></thead>
             <tbody>
               {Object.entries(sc).sort((a, b) => (b[1].n || 0) - (a[1].n || 0)).map(([name, r]) => (
                 <tr key={name}>
@@ -397,7 +397,7 @@ function Learning() {
       <div className="bb-card">
         <div className="bb-card-header">RECENT PREDICTIONS</div>
         <table>
-          <thead><tr><th>AT</th><th>TICKER</th><th>CALL</th><th>CONF</th><th>STATUS</th><th>RETURN</th><th>ATTRIBUTION</th></tr></thead>
+          <thead><tr><th>AT</th><th>TICKER</th><th><Term>CALL</Term></th><th><Term>CONF</Term></th><th>STATUS</th><th>RETURN</th><th><Term>ATTRIBUTION</Term></th></tr></thead>
           <tbody>
             {(d.recent || []).map((p, i) => (
               <tr key={i}>
@@ -439,7 +439,7 @@ function Catalogue() {
         <div className="bb-card" key={fam}>
           <div className="bb-card-header">{fam.toUpperCase()} · {mods.length}</div>
           <table>
-            <thead><tr><th>MODULE</th><th>HORIZON</th><th>WHAT IT DOES</th></tr></thead>
+            <thead><tr><th><Term>MODULE</Term></th><th><Term>HORIZON</Term></th><th>WHAT IT DOES</th></tr></thead>
             <tbody>
               {mods.map(m => (
                 <tr key={m.name}>
@@ -524,7 +524,7 @@ export default function V5() {
                 EVERY MODULE — {a.module_count.reporting} REPORTING, {a.module_count.abstained} ABSTAINED
               </div>
               <table>
-                <thead><tr><th>MODULE</th><th>FAMILY</th><th>VIEW</th><th>NET</th><th>BULL / NEUTRAL / BEAR</th><th>WEIGHT</th><th>THESIS</th></tr></thead>
+                <thead><tr><th><Term>MODULE</Term></th><th><Term>FAMILY</Term></th><th>VIEW</th><th><Term k="net score">NET</Term></th><th>BULL / NEUTRAL / BEAR</th><th><Term k="multiplier">WEIGHT</Term></th><th>THESIS</th></tr></thead>
                 <tbody>
                   {[...a.modules].sort((x, y) => (a.ensemble.weights[y.module] || 0) - (a.ensemble.weights[x.module] || 0))
                     .map(m => <ModuleRow key={m.module} m={m} weight={a.ensemble.weights[m.module]} onOpen={setOpen} />)}

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useCurrency } from '../currency/CurrencyContext'
+import Term from '../components/Term'
 
 /*
   Desk.jsx — THE AUTONOMOUS TRADING DESK (ARIA v3)
@@ -354,7 +355,7 @@ function PaperPnL({ pnl }) {
       </div>
       {(pnl.open_positions || []).length > 0 && (
         <table style={{ marginTop: 10 }}>
-          <thead><tr><th>TICKER</th><th>QTY</th><th>AVG COST</th><th>VALUE</th><th>UNREAL P&amp;L</th></tr></thead>
+          <thead><tr><th>TICKER</th><th><Term>QTY</Term></th><th><Term k="avg cost">AVG COST</Term></th><th>VALUE</th><th><Term k="unreal p&l">UNREAL P&amp;L</Term></th></tr></thead>
           <tbody>
             {pnl.open_positions.map((p, i) => (
               <tr key={i}>
@@ -420,7 +421,7 @@ function Performance({ perf }) {
             {' · '}WEEK <span className={pc(week.pnl)}>{fmt$(week.pnl)}</span> ({week.trades || 0} closed)
           </div>
           <table>
-            <thead><tr><th>AGENT</th><th>HIT RATE</th><th>RIGHT/WRONG</th><th>JUDGE WEIGHT</th></tr></thead>
+            <thead><tr><th><Term>AGENT</Term></th><th><Term k="hit rate">HIT RATE</Term></th><th><Term k="right/wrong">RIGHT/WRONG</Term></th><th><Term k="judge weight">JUDGE WEIGHT</Term></th></tr></thead>
             <tbody>
               {['technical', 'fundamental', 'sentiment'].map(a => {
                 const st = agents[a] || {}

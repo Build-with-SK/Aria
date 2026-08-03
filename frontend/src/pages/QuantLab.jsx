@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { useQuantStatus, useQuantStrategies, useQuantPapers, quantRunNow } from '../hooks/useApi'
+import Term from '../components/Term'
 
 /* ─────────────────────────────────────────────────────────────────────────
    QUANT LAB — the self-learning researcher's console.
@@ -88,8 +89,11 @@ export default function QuantLab() {
           ? <div className="muted mono" style={{ fontSize: 11 }}>no strategies yet — first cycle runs shortly after backend start</div>
           : <table>
               <thead><tr>
-                <th>#</th><th>TEMPLATE</th><th>PARAMS</th><th>OOS SHARPE</th><th>OOS CAGR</th><th>OOS MAXDD</th>
-                <th>FULL SHARPE</th><th>EXPOSURE</th><th>EQUITY (3Y)</th><th>MAPPER</th><th>SOURCE PAPER</th>
+                <th>#</th><th><Term>TEMPLATE</Term></th><th><Term>PARAMS</Term></th>
+                <th><Term k="oos sharpe">OOS SHARPE</Term></th><th><Term k="cagr">OOS CAGR</Term></th>
+                <th><Term k="maxdd">OOS MAXDD</Term></th>
+                <th><Term k="sharpe">FULL SHARPE</Term></th><th><Term>EXPOSURE</Term></th>
+                <th>EQUITY (3Y)</th><th><Term>MAPPER</Term></th><th><Term k="source paper">SOURCE PAPER</Term></th>
               </tr></thead>
               <tbody>
                 {strategies.map((s, i) => {
