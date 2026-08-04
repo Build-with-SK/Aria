@@ -117,9 +117,32 @@ def _module_p(r: ModuleReport) -> float:
     return max(0.0, min(1.0, 0.5 + r.net / 200.0))
 
 
+def _benched() -> set[str]:
+    """Modules measured as significantly WORSE than a coin flip on their own
+    resolved calls. Excluded from the vote by src/v5/tiers.live_eligible().
+
+    Lazily imported and failure-tolerant: the tier system reads the outcome log,
+    and a missing or unreadable log must degrade to "nothing is benched" rather
+    than emptying the ensemble.
+    """
+    try:
+        from src.v5.tiers import classify
+        return {n for n, r in classify().items() if r["tier"] == "benched"}
+    except Exception:      # pragma: no cover - defensive
+        return set()
+
+
 def synthesise(reports: list[ModuleReport], ticker: str) -> EnsembleResult:
-    voting = [r for r in reports if r.votes]
     n_total = len(reports)
+
+    # A module that has been measured as reliably wrong is not averaged into a
+    # number a human is asked to approve. This is deliberately the ONLY tier
+    # that changes the arithmetic — experimental and provisional modules still
+    # vote, and the learned reliability multipliers already discount the weak
+    # ones. Tiering is there to tell the reader what they are looking at, not
+    # to quietly prune the research surface.
+    benched = _benched()
+    voting = [r for r in reports if r.votes and r.module not in benched]
 
     if not voting:
         return EnsembleResult(

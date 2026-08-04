@@ -16,7 +16,7 @@ it is the honest answer, and the ensemble treats it as an abstention.
 from __future__ import annotations
 
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from typing import Any, Optional
 
@@ -111,6 +111,12 @@ class ModuleReport:
 
     horizon_days: int = 21
     n_obs: int = 0              # observations behind the estimate
+
+    # What kind of process produced this score — "statistical", "model" or
+    # "narrative". Stamped by the registry from the module's declaration, so a
+    # module cannot claim a provenance it was not registered with. See
+    # src/v5/registry.py:PROVENANCE for what each one is worth.
+    provenance: str = "statistical"
     as_of: str = field(default_factory=lambda: datetime.now().isoformat(timespec="seconds"))
     error: str = ""             # set when the module raised; still a valid abstention
 
@@ -207,6 +213,51 @@ class ModuleReport:
             ci_low=round(lo, 4), ci_high=round(hi, 4),
             thesis=thesis, evidence=evidence, weaknesses=weaknesses,
             horizon_days=horizon_days, n_obs=n_obs,
+        )
+
+
+    def widened_to(self, min_width: float) -> "ModuleReport":
+        """This report with its confidence interval widened to at least
+        `min_width`, and its scores recomputed through the same documented
+        mapping `from_probability` uses.
+
+        Used to enforce the narrative-provenance floor (registry.run): a
+        language model has no observation count behind it, so it is not entitled
+        to a narrow interval no matter how decisive its prose was. Widening the
+        interval and re-deriving the scores is the honest correction, because it
+        moves the removed conviction into `neutral` rather than deleting the
+        module's view outright.
+
+        Abstentions and intervals already wide enough pass through untouched.
+        """
+        if self.insufficient_data or self.ci_low is None or self.ci_high is None:
+            return self
+        width = self.ci_high - self.ci_low
+        if width >= min_width:
+            return self
+
+        # Widen symmetrically about the midpoint, then clip to [0, 1]. Clipping
+        # can shrink the width again at the boundaries; shifting the interval
+        # back inside the unit range keeps the requested width where possible.
+        mid = (self.ci_low + self.ci_high) / 2.0
+        lo, hi = mid - min_width / 2.0, mid + min_width / 2.0
+        if lo < 0.0:
+            lo, hi = 0.0, min(1.0, min_width)
+        elif hi > 1.0:
+            lo, hi = max(0.0, 1.0 - min_width), 1.0
+
+        conviction_p = self.bull / (self.bull + self.bear) if (self.bull + self.bear) > 0 else 0.5
+        neutral = 100.0 * max(0.10, min(0.85, hi - lo))
+        conviction = 100.0 - neutral
+        return replace(
+            self,
+            bull=round(conviction * conviction_p, 2),
+            bear=round(conviction * (1 - conviction_p), 2),
+            neutral=round(neutral, 2),
+            ci_low=round(lo, 4), ci_high=round(hi, 4),
+            weaknesses=list(self.weaknesses) + [
+                "Confidence interval widened to the floor required of a language-model "
+                "score: fluent reasoning is not an observation count."],
         )
 
 
