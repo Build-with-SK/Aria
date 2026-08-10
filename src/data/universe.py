@@ -436,9 +436,21 @@ class UniverseManager:
         return count
 
     def _load_world_symbols(self) -> int:
-        """Curated real large-caps for Europe / China / HK / Japan / Canada /
-        Australia (major index constituents) — geographic breadth alongside the
-        live full listings. Source: src/data/world_symbols.py."""
+        """Curated real large-caps across 34 exchanges (major index constituents)
+        — geographic breadth alongside the live full listings.
+        Source: src/data/world_symbols.py.
+
+        Also PRUNES curated symbols that have left the source list. That is not
+        housekeeping, it is correctness: this loader only ever upserted, so a
+        symbol deleted or corrected in world_symbols.py stayed in the database
+        forever. Fixing a mistyped ticker therefore did nothing on any install
+        that had already refreshed once — the bad symbol survived alongside the
+        good one, and the bad one is the one that abstains on every request.
+
+        The prune is scoped to exchanges this loader actually owns, so it can
+        never touch a US, NSE, BSE or LSE row from the live listings, nor a
+        symbol the resolver inserted on demand.
+        """
         self._ensure_currency_column()
         try:
             from src.data.world_symbols import all_world_symbols
@@ -446,9 +458,10 @@ class UniverseManager:
             logger.warning(f"world_symbols load failed: {e}")
             return 0
         now = datetime.now().isoformat()
+        rows = list(all_world_symbols())
         count = 0
         with self._lock, self._conn() as conn:
-            for display, yahoo, name, exchange, currency, asset_class in all_world_symbols():
+            for display, yahoo, name, exchange, currency, asset_class in rows:
                 conn.execute(
                     """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, currency, updated_at)
                        VALUES(?,?,?,?,?,?,?)
@@ -458,6 +471,19 @@ class UniverseManager:
                          updated_at=excluded.updated_at""",
                     (display, yahoo, name, exchange, asset_class, currency, now))
                 count += 1
+
+            live = {r[0] for r in rows}
+            owned = sorted({r[3] for r in rows})
+            placeholders = ",".join("?" * len(owned))
+            stale = [r[0] for r in conn.execute(
+                f"SELECT symbol FROM symbols WHERE exchange IN ({placeholders})", owned)
+                if r[0] not in live]
+            for sym in stale:
+                conn.execute("DELETE FROM symbols WHERE symbol=?", (sym,))
+
+        if stale:
+            logger.info(f"Pruned {len(stale)} curated world symbols no longer listed: "
+                        f"{', '.join(stale[:10])}")
         logger.info(f"Loaded {count} curated world large-cap symbols")
         return count
 

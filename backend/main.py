@@ -153,6 +153,43 @@ async def _startup():
     # loop — after a `while True:`, so it was unreachable and the researcher
     # never actually started. It belongs here with the other daemons.
     threading.Thread(target=_start_quant_lab, daemon=True).start()
+    threading.Thread(target=_outcome_resolver_loop, daemon=True).start()
+
+
+def _outcome_resolver_loop():
+    """Grade V5 predictions whose horizon has elapsed.
+
+    This is the flywheel's drive belt, and until now it was not attached to
+    anything. `learning.resolve_pending()` existed and worked, but the ONLY
+    caller was the manual `POST /api/v5/learning/resolve` endpoint — so unless
+    somebody remembered to hit it by hand, no prediction was ever graded.
+
+    Everything downstream is built on those labels: the calibration numbers, the
+    Brier score, the baseline comparison, the per-module tiers, and the learned
+    reliability multipliers that reweight the ensemble. With no resolver running
+    they all correctly reported "not measurable", forever, no matter how long
+    the system ran. The track record was not empty because ARIA was young; it
+    was empty because nothing was closing the loop.
+
+    Hourly is ample — horizons are measured in weeks, and `resolve_pending` is
+    idempotent and cheap when there is nothing due. It runs on the same clock
+    whether or not anyone is looking at the deck, which is the point: a measured
+    track record has to accumulate while you are not watching it.
+    """
+    import time
+    time.sleep(20)          # let the vendor caches and universe DB settle
+    while True:
+        try:
+            from src.v5 import learning
+            out = learning.resolve_pending()
+            if out.get("resolved"):
+                logger.info(f"V5 outcomes resolved: {out['resolved']} "
+                            f"of {out.get('checked', 0)} pending")
+        except Exception as e:
+            # A vendor outage must not kill the resolver thread — the calls it
+            # could not grade today are still pending tomorrow.
+            logger.warning(f"outcome resolver tick failed: {e}")
+        time.sleep(3600)
 
 
 def _fx_monitor_loop():
@@ -2580,6 +2617,26 @@ def v5_data_health(ticker: Optional[str] = None):
         out["citation"] = md.source_label(t)
         out["stale"] = md.is_stale(t)
     return _sanitize(out)
+
+
+@app.get("/api/v5/baselines", tags=["V5"])
+def v5_baselines():
+    """THE HARDER QUESTION — would a rule you could write on a napkin have done
+    the same thing? Re-runs buy-and-hold, an SMA cross and 60-day momentum over
+    exactly the calls ARIA made, and compares on the paired sample with
+    McNemar's test. `measurable: false` until enough calls have resolved."""
+    from src.v5 import baselines
+    return _sanitize(baselines.report())
+
+
+@app.get("/api/v5/tiers", tags=["V5"])
+def v5_tiers():
+    """Which of the 41 research engines have EARNED a vote. Tiers are computed
+    from each module's own resolved calls — nothing here is hand-set — and are
+    reported both raw and after correcting for having run 41 simultaneous
+    tests, because roughly two modules clear p<0.05 by chance alone."""
+    from src.v5 import tiers
+    return _sanitize(tiers.report())
 
 
 @app.get("/api/v5/identity", tags=["V5"])

@@ -406,6 +406,178 @@ function Ledger({ perf }) {
 }
 
 /* ── page ── */
+/* ── would a napkin have done this too? ──
+   Calibration says the confidence numbers are honest. It does not say the calls
+   were worth making. This tab is the second question, and it is the harder one. */
+const VERDICT_COLOR = {
+  ahead: 'var(--green)', behind: 'var(--red)',
+  tied: 'var(--orange)', undetermined: 'var(--muted)',
+}
+
+function Baselines({ vs }) {
+  const dir = vs?.directional || {}
+  const prob = vs?.probabilistic || {}
+
+  return (
+    <>
+      <div className="bb-card" style={{ borderLeft: '3px solid var(--orange)' }}>
+        <div className="bb-card-header">VS NAIVE BASELINES — IS THIS BETTER THAN A NAPKIN?</div>
+        {!dir.measurable ? (
+          <div style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.7, padding: '6px 2px' }}>
+            {dir.note}
+          </div>
+        ) : (
+          <>
+            <div style={{ color: 'var(--text)', fontSize: 13, lineHeight: 1.75, padding: '6px 2px' }}>
+              {dir.headline}
+            </div>
+            <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', marginTop: 10 }}>
+              <Tile label="RESOLVED CALLS" value={dir.n_resolved} />
+              <Tile label="ARIA HIT RATE" value={pct(dir.aria?.hit_rate, 1)}
+                    sub={dir.aria?.hit_rate_ci
+                      ? `95% CI ${pct(dir.aria.hit_rate_ci[0], 0)}–${pct(dir.aria.hit_rate_ci[1], 0)}`
+                      : null} />
+              <Tile label="BEATS EVERY BASELINE"
+                    value={dir.beats_all_baselines == null ? '—' : dir.beats_all_baselines ? 'YES' : 'NO'}
+                    color={dir.beats_all_baselines ? 'var(--green)' : 'var(--muted)'} />
+            </div>
+
+            <table style={{ marginTop: 14 }}>
+              <thead><tr>
+                <th>BASELINE</th><th>PAIRED</th><th>ARIA</th><th>RULE</th>
+                <th>DISAGREED</th><th>ARIA WON</th><th>P</th><th>VERDICT</th>
+              </tr></thead>
+              <tbody>
+                {(dir.baselines || []).map((b, i) => (
+                  <tr key={i} title={b.note}>
+                    <td><Mono size={10} color="var(--text)">{b.baseline}</Mono></td>
+                    <td><Mono size={10}>{b.n_paired ?? '—'}</Mono></td>
+                    <td><Mono size={10}>{b.measurable ? pct(b.aria_hit_rate, 1) : '—'}</Mono></td>
+                    <td><Mono size={10}>{b.measurable ? pct(b.baseline_hit_rate, 1) : '—'}</Mono></td>
+                    <td><Mono size={10}>{b.measurable ? b.n_discordant : '—'}</Mono></td>
+                    <td><Mono size={10}>{b.measurable ? b.aria_only_right : '—'}</Mono></td>
+                    <td><Mono size={10}>{b.p_value == null ? '—' : num(b.p_value, 3)}</Mono></td>
+                    <td><Mono size={10} weight={700}
+                              color={VERDICT_COLOR[b.verdict] || 'var(--muted)'}>
+                      {(b.verdict || 'not measurable').toUpperCase()}</Mono></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {(dir.baselines || []).some(b => b.note) && (
+              <div style={{ marginTop: 10, display: 'grid', gap: 5 }}>
+                {(dir.baselines || []).map((b, i) => (
+                  <Mono key={i} size={9.5}>{b.baseline} — {b.note}</Mono>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: 12 }}><Mono size={9.5}>{dir.method}</Mono></div>
+          </>
+        )}
+      </div>
+
+      <div className="bb-card">
+        <div className="bb-card-header">DO THE CONFIDENCE NUMBERS ADD ANYTHING?</div>
+        {!prob.measurable ? (
+          <div style={{ color: 'var(--muted)', fontSize: 12, lineHeight: 1.7, padding: '6px 2px' }}>
+            {prob.note}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap' }}>
+              <Tile label={<Term k="brier score">BRIER — ARIA</Term>} value={num(prob.brier_aria, 3)}
+                    sub="lower is better" />
+              <Tile label="BRIER — COIN FLIP" value={num(prob.brier_coin_flip, 3)} sub="the easy bar" />
+              <Tile label="BRIER — BASE RATE" value={num(prob.brier_constant_base_rate, 3)}
+                    sub={`always saying ${pct(prob.base_rate, 0)}`} />
+              <Tile label="SKILL VS BASE RATE" value={pct(prob.skill_vs_base_rate, 1)}
+                    color={prob.skill_vs_base_rate == null ? 'var(--muted)'
+                      : prob.skill_vs_base_rate > 0 ? 'var(--green)' : 'var(--red)'}
+                    sub="the real bar" />
+            </div>
+            <div style={{ color: 'var(--text)', fontSize: 11.5, lineHeight: 1.65, marginTop: 12 }}>
+              {prob.verdict}
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+/* ── which of the 41 engines have earned a vote ── */
+const TIER_COLOR = {
+  core: 'var(--green)', provisional: 'var(--orange)',
+  experimental: 'var(--muted)', benched: 'var(--red)',
+}
+
+function Tiers({ summary }) {
+  const [rows, setRows] = useState(null)
+  useEffect(() => {
+    fetch('/api/v5/tiers').then(r => (r.ok ? r.json() : null))
+      .then(d => setRows(d?.modules || [])).catch(() => setRows([]))
+  }, [])
+  const s = summary || {}
+  const counts = s.counts || {}
+
+  return (
+    <div className="bb-card">
+      <div className="bb-card-header">
+        MODULE TIERS — WHICH ENGINES HAVE EARNED A VOTE
+      </div>
+      <div style={{ color: 'var(--text)', fontSize: 13, lineHeight: 1.75, padding: '6px 2px' }}>
+        {s.headline}
+      </div>
+      <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', marginTop: 10 }}>
+        {['core', 'provisional', 'experimental', 'benched'].map(t => (
+          <Tile key={t} label={t.toUpperCase()} value={counts[t] ?? '—'}
+                color={TIER_COLOR[t]} sub={(s.tier_definitions || {})[t]} />
+        ))}
+        <Tile label="CORE AFTER CORRECTION" value={s.n_core_after_correction ?? '—'}
+              color={s.n_core_after_correction ? 'var(--green)' : 'var(--muted)'}
+              sub={`of ${s.n_modules ?? '—'} tested — the number to trust`} />
+      </div>
+
+      {rows == null ? <Mono>loading tiers…</Mono> : (
+        <table style={{ marginTop: 14 }}>
+          <thead><tr>
+            <th>MODULE</th><th>FAMILY</th><th>PROVENANCE</th><th>TIER</th>
+            <th>N</th><th>HIT</th><th>P</th><th>P (ADJ)</th><th>WHY</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td><Mono size={10} color="var(--text)">{r.module}</Mono></td>
+                <td><Mono size={10}>{r.family}</Mono></td>
+                <td><Mono size={10}
+                          color={r.provenance === 'narrative' ? 'var(--orange)' : 'var(--muted)'}>
+                  {r.provenance}</Mono></td>
+                <td><Mono size={10} weight={700} color={TIER_COLOR[r.tier]}>
+                  {r.tier.toUpperCase()}</Mono></td>
+                <td><Mono size={10}>{r.n_resolved}</Mono></td>
+                <td><Mono size={10}>{pct(r.hit_rate, 1)}</Mono></td>
+                <td><Mono size={10}>{r.p_value == null ? '—' : num(r.p_value, 3)}</Mono></td>
+                <td><Mono size={10}
+                          color={r.core_after_correction ? 'var(--green)' : 'var(--muted)'}>
+                  {r.p_value_bh_adjusted == null ? '—' : num(r.p_value_bh_adjusted, 3)}</Mono></td>
+                <td><Mono size={9.5}>{r.reason}</Mono></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <Mono size={9.5}>
+          Tiers are computed from each module's own resolved calls — nothing here is hand-set.
+          With {s.n_modules ?? 41} modules tested at p&lt;0.05, roughly two clear the bar by chance
+          alone, so P (ADJ) — Benjamini-Hochberg across the whole family of tests — is the column
+          to read. Only BENCHED modules lose their vote.
+        </Mono>
+      </div>
+    </div>
+  )
+}
+
 export default function TrackRecord() {
   const [d, setD] = useState(null)
   const [err, setErr] = useState('')
@@ -473,6 +645,8 @@ export default function TrackRecord() {
 
       <TabBar
         tabs={[{ id: 'record', label: 'Calibration', icon: '◎' },
+               { id: 'baseline', label: 'Vs baselines', icon: '⊘' },
+               { id: 'tiers', label: 'Module tiers', icon: '▤' },
                { id: 'skill', label: 'Module skill', icon: '⚖' },
                { id: 'why', label: 'Attribution', icon: '⌕' },
                { id: 'ledger', label: 'Ledger', icon: '≡' },
@@ -480,6 +654,8 @@ export default function TrackRecord() {
         active={tab} onChange={setTab} />
 
       {tab === 'record' && <><Calibration cal={d.calibration} /><Sources sources={d.sources} /></>}
+      {tab === 'baseline' && <Baselines vs={d.vs_baseline} />}
+      {tab === 'tiers' && <Tiers summary={d.module_tiers} />}
       {tab === 'skill' && <ModuleSkill perf={d.performance} onRevert={revert} />}
       {tab === 'why' && <Attribution perf={d.performance} lessons={d.lessons || []} />}
       {tab === 'ledger' && <Ledger perf={d.performance} />}

@@ -364,12 +364,35 @@ def build() -> dict:
     cal = calibration()
     srcs = sources()
 
+    # Calibration answers "are the confidence numbers honest". It does NOT
+    # answer "is any of this better than buying and holding", and a page that
+    # reports only the first invites the reader to assume the second. Both are
+    # carried here so they are read together; see src/v5/baselines.py.
+    #
+    # Failure-tolerant: the baseline comparison re-fetches price history, and a
+    # dead vendor must not blank the calibration numbers, which need no network.
+    try:
+        from src.v5 import baselines as baselines_mod
+        vs_baseline = baselines_mod.report()
+    except Exception as e:                          # pragma: no cover - defensive
+        logger.warning(f"baseline comparison unavailable: {e}")
+        vs_baseline = {"measurable": False, "note": f"baseline comparison unavailable: {e}"}
+
+    try:
+        from src.v5 import tiers as tiers_mod
+        module_tiers = tiers_mod.summary()
+    except Exception as e:                          # pragma: no cover - defensive
+        logger.warning(f"module tiers unavailable: {e}")
+        module_tiers = {"headline": f"module tiers unavailable: {e}"}
+
     total_labels = sum(s.get("resolved", 0) or 0 for s in srcs)
     return {
         "as_of": datetime.now().isoformat(timespec="seconds"),
         "headline": _headline(perf, cal, total_labels),
         "flywheel": flywheel(),
         "calibration": cal,
+        "vs_baseline": vs_baseline,
+        "module_tiers": module_tiers,
         "performance": perf,
         "sources": srcs,
         "lessons": lessons(),

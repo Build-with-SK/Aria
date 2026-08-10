@@ -207,11 +207,16 @@ class VaultIndex:
         root = self.vault.resolve()
         try:
             path = (root / rel_path).resolve()
+            if not path.is_relative_to(root) or not path.is_file():
+                return None
+            return path.read_text(encoding="utf-8", errors="ignore")
         except (OSError, ValueError):
+            # A malformed path can raise at any of these steps, not just
+            # resolve(): a 300-character name reaches stat() and raises
+            # ENAMETOOLONG on macOS/Linux, where Windows fails earlier.
+            # Every step stays inside the guard so the API returns None
+            # rather than a 500 on any platform.
             return None
-        if not path.is_relative_to(root) or not path.is_file():
-            return None
-        return path.read_text(encoding="utf-8", errors="ignore")
 
     def stats(self) -> dict:
         manifest = self._load_manifest()

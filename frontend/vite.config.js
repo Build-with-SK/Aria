@@ -6,6 +6,10 @@ import react from '@vitejs/plugin-react'
 const API = process.env.ARIA_API || 'http://localhost:8000'
 
 export default defineConfig({
+  // The backend mounts frontend/dist at /app (backend/main.py), so the build
+  // must emit /app/assets/... Without this, vite defaults to '/' and every
+  // asset 404s behind a blank white page.
+  base: '/app/',
   plugins: [react()],
   server: {
     port: 3000,
