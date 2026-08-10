@@ -119,10 +119,37 @@ which is the correct answer.
 
 ## 5a. The full-registry result: twelve significant modules, all negative
 
-40 tickers, 6 folds, 8 dates, corrected harness. 33 of 41 modules measured;
+40 tickers, 6 folds, 8 dates, corrected harness. 31 of 41 modules measured;
 **12 cleared significance, and every one of them is negative.** No module in
 this system has a statistically significant *positive* edge over the base rate.
-The best positive number, `sentiment_extremes` at +8.3%, has p = 0.35.
+
+Benjamini-Hochberg across the family of 41 tests **changed nothing**: only
+`crowding` (0.001 → 0.0020) and `currency_strength` (0.001 → 0.0035) moved at
+all, and both stayed under 0.05. The correction is still the right thing to
+apply — it would have mattered had the results been marginal, and its absence
+was a real defect — but it should not be presented as having rescued the
+analysis. It did not.
+
+| module | calls | n_eff | edge | adj. p | IC |
+|---|---|---|---|---|---|
+| carry | 716 | 626 | −31.8% | 0.0000 | −0.215 |
+| commodity_cycle | 545 | 486 | −28.6% | 0.0000 | −0.064 |
+| value | 1056 | 983 | −28.2% | 0.0000 | −0.226 |
+| yield_curve | 183 | 142 | −27.2% | 0.0000 | −0.059 |
+| quality | 800 | 619 | −18.6% | 0.0000 | **+0.188** |
+| global_macro | 432 | 390 | −15.9% | 0.0000 | −0.001 |
+| breadth | 664 | 513 | −12.4% | 0.0000 | −0.176 |
+| crowding | 321 | 243 | −10.7% | 0.0020 | −0.008 |
+| credit | 1244 | 1093 | −7.7% | 0.0000 | −0.036 |
+| growth | 864 | 830 | −7.5% | 0.0000 | **+0.150** |
+| currency_strength | 585 | 486 | −7.0% | 0.0035 | **+0.096** |
+| kalman | 1346 | 1010 | −6.9% | 0.0000 | −0.062 |
+
+**These numbers are not stable across runs.** Between two runs a day apart,
+`yield_curve` moved from 119 calls at −18.5% to 183 at −27.2%, and `value`'s IC
+from −0.254 to −0.226, purely from which symbols the vendors served that day
+(yfinance began rate-limiting mid-sweep). Treat one decimal place as noise, and
+treat the direction and rough magnitude as the finding.
 
 That sentence is true and, on its own, misleading. Hit-rate-versus-base-rate
 punishes anything that is not permanently long over a decade that rose. The
