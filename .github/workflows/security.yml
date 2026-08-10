@@ -1,0 +1,75 @@
+name: security
+
+# The three audit findings have regression tests. This runs them on every push
+# and every pull request, so a fix that quietly stops working fails the build
+# instead of failing in production with a broker attached.
+#
+# Keep this job fast and dependency-light — a security check that takes ten
+# minutes and breaks when an unrelated SDK releases is a security check people
+# start skipping.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  security-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+
+      - name: Finding 1 — no unauthenticated execution endpoints
+        run: python -m pytest tests/test_security_execution_auth.py -v
+
+      - name: Finding 2 — IBKR order status matches IBKR
+        run: python -m pytest tests/test_security_ibkr_status.py -v
+
+      - name: Finding 3 — live accounts cannot skip human approval
+        run: python -m pytest tests/test_security_live_gate.py -v
+
+      - name: Phase 2 — market data fails over and says so
+        run: python -m pytest tests/test_data_failover.py -v
+
+      - name: Phase 3 — walk-forward replay is point-in-time
+        run: python -m pytest tests/test_walkforward.py tests/test_weightfit.py -v
+
+      - name: Phase 4 — the track record starts reporting at its threshold
+        run: python -m pytest tests/test_track_record_threshold.py -v
+
+      - name: Phase 3 — walk-forward statistics do not overstate
+        run: python -m pytest tests/test_walkforward.py tests/test_weightfit.py -v
+
+      - name: Earlier audit regressions
+        run: python -m pytest tests/test_audit_fixes.py tests/test_auth_policy.py tests/test_auth_session.py tests/test_vault_security.py -v
+
+  # The rest of the suite. Allowed to need more of the stack; still blocking,
+  # because "the security tests pass but nothing else does" is not a green build.
+  full-suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-ci.txt
+      - name: Run the full test suite
+        run: python -m pytest tests/ -q

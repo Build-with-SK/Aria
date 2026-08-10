@@ -17,6 +17,7 @@ interval, mostly neutral mass.
 from __future__ import annotations
 
 import math
+import os
 from typing import Optional
 
 import pandas as pd
@@ -127,6 +128,34 @@ def conditional_hit_rate(closes: pd.Series, mask: pd.Series, horizon: int
     n_eff = max(1, int(round(n_raw / max(1, int(horizon)))))
     succ_eff = int(round(p * n_eff))
     return (succ_eff, n_eff, float(sel.mean()), n_raw)
+
+
+# The history a CONDITIONAL base-rate module needs, and the arithmetic behind
+# the number.
+#
+# These modules ask "what happened after this state historically", so their
+# sample is (bars x how often the state occurs) / horizon, because
+# conditional_hit_rate discounts overlapping forward windows down to
+# independent ones. For a tercile state at the house 21-day horizon:
+#
+#     5 years  ~ 1256 bars x 0.33 / 21  ~  20 effective observations
+#    10 years  ~ 2513 bars x 0.33 / 21  ~  39 effective observations
+#
+# min_n is 20. Five years therefore lands exactly ON the threshold and falls
+# under it whenever the state is slightly rarer than a third — which is why
+# momentum, clustering, market_regime and volatility abstained on every single
+# one of 240 walk-forward evaluations while looking, from the outside, like
+# modules that simply had no opinion.
+#
+# Ten years is not a tuned number and was not chosen by trying values until the
+# modules spoke: it is the history marketdata already fetches and caches
+# (FULL_PERIOD), so these modules were discarding half of what was in memory.
+# Whether the extra history HELPS is a separate question from whether it clears
+# the threshold, and it is answered by walk-forward, not by this comment.
+# Overridable so the walk-forward harness can run BOTH arms under identical
+# harness code — otherwise "the new lookback is better" is a comparison between
+# two different measuring instruments as well as two different settings.
+BASE_RATE_LOOKBACK = os.environ.get("ARIA_BASE_RATE_LOOKBACK", "10y").strip() or "10y"
 
 
 def hit_rate_probability(successes: int, n: int, min_n: int = 20

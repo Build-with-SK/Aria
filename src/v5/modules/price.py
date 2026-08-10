@@ -15,7 +15,8 @@ import pandas as pd
 
 from src.v5 import marketdata as md
 from src.v5.contract import Evidence, ModuleReport, bootstrap_interval, insufficient
-from src.v5.modules._util import (clamp, conditional_hit_rate, effective_interval,
+from src.v5.modules._util import (BASE_RATE_LOOKBACK, clamp,
+                                  conditional_hit_rate, effective_interval,
                                   hit_rate_probability, logistic, overlap_weakness,
                                   pct, regime_weakness, rsi, sma, zscore)
 from src.v5.registry import module
@@ -30,7 +31,7 @@ MIN_BARS = 260        # a year of daily data before any base rate is credible
         "12-1 month price momentum, scored against its own historical base rate.",
         horizon_days=HORIZON)
 def momentum(ticker: str) -> ModuleReport:
-    c = md.closes(ticker, period="5y")
+    c = md.closes(ticker, period=BASE_RATE_LOOKBACK)
     if c is None or len(c) < MIN_BARS:
         return insufficient("momentum", "price", ticker,
                             "fewer than 260 daily closes available")
@@ -62,7 +63,7 @@ def momentum(ticker: str) -> ModuleReport:
     lean = "bull" if p > 0.55 else "bear" if p < 0.45 else "neutral"
 
     evidence = [
-        Evidence(f"12-1 momentum is {pct(current)}, the {rank:.0%}th percentile of its own 5y history",
+        Evidence(f"12-1 momentum is {pct(current)}, the {rank:.0%}th percentile of its own {len(mom)}-session history",
                  round(current, 4), src, lean),
         Evidence(f"In the {state} momentum tercile historically, the next {HORIZON} sessions were "
                  f"positive {hr[0]}/{hr[1]} times ({p:.0%})", round(p, 4), src, lean),

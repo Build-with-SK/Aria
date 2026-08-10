@@ -80,6 +80,10 @@ def _parse_status(alpaca_status: str) -> OrderStatus:
 class AlpacaBroker(BrokerBase):
     """Alpaca Markets adapter — equities + crypto."""
 
+    # Read by src/execution/live_guard.py — see IBKRBroker for why the adapter
+    # names its own variable instead of the gate guessing from the class name.
+    PAPER_ENV_VAR = "ALPACA_PAPER"
+
     def __init__(self):
         self._api_key    = os.getenv("ALPACA_API_KEY", "")
         self._secret_key = os.getenv("ALPACA_SECRET_KEY", "")

@@ -156,6 +156,17 @@ def client_ip(request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def peer_ip(request) -> str:
+    """The address of the socket that actually connected — never a header.
+
+    client_ip() above answers "who is the human", which behind a proxy means
+    reading a header the human controls. This answers "who opened the
+    connection", which nobody can forge, and is the only address an
+    authorisation decision may be based on.
+    """
+    return request.client.host if request.client else "unknown"
+
+
 def is_https(request) -> bool:
     if request.url.scheme == "https":
         return True

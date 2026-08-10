@@ -243,8 +243,51 @@ def _source_brain() -> dict:
     return out
 
 
+def _bounded(fn, seconds: float, fallback: dict) -> dict:
+    """Run a source with a deadline; return `fallback` if it overruns.
+
+    Two of these sources reach for live prices across the whole recommendation
+    log. On a cold cache that is minutes — measured at roughly eight — and it
+    made /api/v5/track-record effectively unusable: a page that answers in
+    eight minutes is a page nobody loads, so the numbers it exists to publish
+    were invisible in practice.
+    """
+    import concurrent.futures as cf
+    with cf.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(fn)
+        try:
+            return future.result(timeout=seconds)
+        except cf.TimeoutError:
+            logger.warning("track_record: %s exceeded %.0fs — reporting it as "
+                           "unavailable rather than blocking the response",
+                           getattr(fn, "__name__", "source"), seconds)
+            return {**fallback,
+                    "error": f"timed out after {seconds:.0f}s",
+                    "note": "this loop's live numbers were too slow to fetch; "
+                            "the counts above are from disk"}
+        except Exception as e:
+            return {**fallback, "error": f"{type(e).__name__}: {e}"[:160]}
+
+
 def sources() -> list[dict]:
-    return [_source_v5(), _source_desk(), _source_technical(), _source_brain()]
+    """The four loops that produce labelled outcomes.
+
+    v5 and brain read files and are instant. desk and technical can reach the
+    network, so they get a deadline — a slow loop must degrade this response,
+    never hold it open.
+    """
+    return [
+        _source_v5(),
+        _bounded(_source_desk, 10.0,
+                 {"id": "desk", "name": "The desk",
+                  "endpoint": "/api/desk/performance", "total": 0,
+                  "resolved": 0, "live": False}),
+        _bounded(_source_technical, 10.0,
+                 {"id": "technical", "name": "Technical tracker",
+                  "endpoint": "/api/technical/performance", "total": 0,
+                  "resolved": 0, "live": False}),
+        _source_brain(),
+    ]
 
 
 # ── lessons ─────────────────────────────────────────────────────────────────

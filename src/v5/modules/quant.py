@@ -24,7 +24,8 @@ import pandas as pd
 
 from src.v5 import marketdata as md
 from src.v5.contract import Evidence, ModuleReport, insufficient, wilson_interval
-from src.v5.modules._util import (ann_vol, clamp, conditional_hit_rate,
+from src.v5.modules._util import (BASE_RATE_LOOKBACK, ann_vol, clamp,
+                                  conditional_hit_rate,
                                   effective_interval, hit_rate_probability,
                                   overlap_weakness, pct, regime_weakness, rsi, sma)
 from src.v5.registry import module
@@ -301,7 +302,7 @@ def pca(ticker: str) -> ModuleReport:
 def clustering(ticker: str) -> ModuleReport:
     from sklearn.cluster import KMeans
 
-    c = md.closes(ticker, period="5y")
+    c = md.closes(ticker, period=BASE_RATE_LOOKBACK)
     if c is None or len(c) < 400:
         return insufficient("clustering", "quant", ticker,
                             "fewer than 400 daily closes — clusters would be unreliable")

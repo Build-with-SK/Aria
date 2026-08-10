@@ -75,6 +75,15 @@ _LOCK = threading.Lock()
 _FETCH_LOCKS: dict[str, threading.Lock] = {}
 _MISSES: dict[str, datetime] = {}       # symbols that just failed, to avoid hammering
 
+# How every series this layer served was actually obtained. Written on every
+# load, read by provenance() — see the PROVENANCE section below.
+_PROVENANCE: dict[str, dict] = {}
+
+# A daily series whose newest bar is older than this is stale. Five days clears
+# a Friday close read on a Monday, and a long weekend, without clearing a feed
+# that has genuinely stopped updating.
+STALE_AFTER_DAYS = 5
+
 # Benchmarks the cross-sectional / macro modules lean on.
 BENCH = "SPY"
 SECTOR_ETFS = {
@@ -111,6 +120,38 @@ def _safe(name: str) -> str:
 
 # ── history ──────────────────────────────────────────────────────────────────
 
+# ── point-in-time replay ─────────────────────────────────────────────────────
+#
+# Historical validation needs every module to see the world as it was on some
+# past date, and there are 41 modules. Rewriting each one to accept an as-of
+# date would be 41 chances to leak the future; putting the clock HERE, in the
+# one function they all read data through, is one chance.
+#
+# Thread-local because the registry runs modules in a thread pool: a global
+# would leak one evaluation's date into another's, which is the same class of
+# bug the mechanism exists to prevent.
+_AS_OF = threading.local()
+
+
+@contextmanager
+def as_of(when):
+    """Inside this block, every series is truncated to `when`.
+
+    A module run under it cannot see a bar it could not have seen on the day —
+    which is what makes a walk-forward result mean anything.
+    """
+    previous = getattr(_AS_OF, "when", None)
+    _AS_OF.when = pd.Timestamp(when) if when is not None else None
+    try:
+        yield
+    finally:
+        _AS_OF.when = previous
+
+
+def current_as_of():
+    return getattr(_AS_OF, "when", None)
+
+
 def history(symbol: str, period: str = "2y", interval: str = "1d") -> Optional[pd.DataFrame]:
     """Daily (or `interval`) OHLCV for one symbol, or None.
 
@@ -120,6 +161,11 @@ def history(symbol: str, period: str = "2y", interval: str = "1d") -> Optional[p
     full = _full_history(symbol, interval)
     if full is None or full.empty:
         return None
+    cutoff_date = current_as_of()
+    if cutoff_date is not None:
+        full = full[full.index <= cutoff_date]
+        if full.empty:
+            return None
     days = PERIOD_DAYS.get(period)
     if days:
         cutoff = full.index.max() - pd.Timedelta(days=days)
@@ -144,25 +190,128 @@ def _full_history(symbol: str, interval: str) -> Optional[pd.DataFrame]:
             if hit and datetime.now() - hit[0] < timedelta(minutes=30):
                 return hit[1]
 
+        prov = {"symbol": symbol, "interval": interval}
         df = _from_raw(symbol) if interval == "1d" else None
+        if df is not None:
+            prov.update(served_from="raw_csv", vendor=None, degraded=False,
+                        detail=f"data/raw/{_safe(symbol)}.csv")
         if df is None:
             df = _from_cache(symbol, interval)
+            if df is not None:
+                prov.update(served_from="disk_cache", vendor=None, degraded=False,
+                            detail=f"cache within {CACHE_TTL_HOURS}h TTL")
         if df is None:
-            df = _from_yfinance(symbol, interval)
+            df, prov = _from_vendors(symbol, interval, prov)
 
         df = _normalise(df) if df is not None else None
         with _LOCK:
             if df is None or len(df) < 5:
                 _MISSES[key] = datetime.now()
+                _PROVENANCE[key] = {**prov, "ok": False,
+                                    "stale": True, "last_bar": None,
+                                    "last_bar_age_days": None,
+                                    "at": datetime.now().isoformat(timespec="seconds")}
                 return None
+            _PROVENANCE[key] = _finish_provenance(prov, df)
             _MEM[key] = (datetime.now(), df)
         return df
 
 
+# ── PROVENANCE ───────────────────────────────────────────────────────────────
+#
+# A number is not a fact without its source and its date. This section answers,
+# for any series this layer has served: which vendor produced it, when it was
+# fetched, how old the newest bar is, and whether that makes it stale.
+#
+# It is deliberately a side channel rather than a change to history()'s return
+# type — 41 modules call these functions, and a signature change would be a
+# migration where what is needed is a fact they can ask for.
+
+
+def _finish_provenance(prov: dict, df: pd.DataFrame) -> dict:
+    """Add the facts that can only be known once the data is in hand."""
+    last_bar = None
+    age_days = None
+    try:
+        last = df.index.max()
+        if last is not None and not pd.isna(last):
+            last_bar = pd.Timestamp(last).to_pydatetime()
+            age_days = round((datetime.now() - last_bar.replace(tzinfo=None))
+                             .total_seconds() / 86400, 2)
+    except Exception:
+        pass
+
+    too_old = age_days is not None and age_days > STALE_AFTER_DAYS
+    stale = bool(prov.get("degraded")) or too_old
+    reasons = []
+    if prov.get("degraded"):
+        reasons.append(prov.get("detail") or "degraded source")
+    if too_old:
+        reasons.append(f"newest bar is {age_days:.1f} days old "
+                       f"(stale after {STALE_AFTER_DAYS})")
+
+    return {**prov,
+            "ok": True,
+            "last_bar": last_bar.date().isoformat() if last_bar else None,
+            "last_bar_age_days": age_days,
+            "stale": stale,
+            "stale_reason": "; ".join(reasons),
+            "rows": int(len(df)),
+            "at": datetime.now().isoformat(timespec="seconds")}
+
+
+def provenance(symbol: str, interval: str = "1d") -> dict:
+    """How the series for `symbol` was obtained, or {} if it was never loaded.
+
+    Ask AFTER loading (history/closes/returns); this reports, it does not fetch.
+    """
+    with _LOCK:
+        return dict(_PROVENANCE.get(f"{symbol}|{interval}") or {})
+
+
+def is_stale(symbol: str, interval: str = "1d") -> bool:
+    """True when the data behind `symbol` is degraded, old, or absent.
+
+    Unknown counts as stale. A caller asking this question is deciding how much
+    to trust a number, and "I have no idea where that came from" is not the
+    answer that should read as fine.
+    """
+    p = provenance(symbol, interval)
+    return True if not p else bool(p.get("stale", True))
+
+
 def source_label(symbol: str) -> str:
-    """The provenance string modules cite for price-derived claims."""
-    p = RAW_DIR / f"{_safe(symbol)}.csv"
-    if p.exists() and _age_days(p) <= RAW_MAX_AGE_DAYS:
+    """The provenance string modules cite for price-derived claims.
+
+    Carries staleness in the citation itself, so a stale number cannot be
+    quoted as a fresh one anywhere the label is printed.
+    """
+    p = provenance(symbol)
+    if p.get("ok"):
+        served = p.get("served_from") or "unknown source"
+        if served == "raw_csv":
+            base = f"data/raw/{_safe(symbol)}.csv"
+        elif served == "disk_cache":
+            base = f"cached daily close ({symbol})"
+        elif served == "stale_cache":
+            base = f"CACHED daily close ({symbol})"
+        elif served.startswith("vendor:"):
+            vendor = served.split(":", 1)[1]
+            pretty = {"yfinance": "Yahoo Finance",
+                      "alphavantage": "Alpha Vantage",
+                      "stooq": "Stooq"}.get(vendor, vendor)
+            base = f"{pretty} ({symbol}, daily close)"
+        else:
+            base = f"{served} ({symbol})"
+        if p.get("stale"):
+            return (f"{base} — STALE as of {p.get('last_bar') or 'unknown date'}"
+                    f" ({p.get('stale_reason') or 'degraded source'})")
+        if p.get("last_bar"):
+            return f"{base}, to {p['last_bar']}"
+        return base
+
+    q = RAW_DIR / f"{_safe(symbol)}.csv"
+    if q.exists() and _age_days(q) <= RAW_MAX_AGE_DAYS:
         return f"data/raw/{_safe(symbol)}.csv"
     return f"Yahoo Finance ({symbol}, daily close)"
 
@@ -196,43 +345,60 @@ def _from_cache(symbol: str, interval: str) -> Optional[pd.DataFrame]:
         return None
 
 
-def _from_yfinance(symbol: str, interval: str) -> Optional[pd.DataFrame]:
-    import time
+def _from_vendors(symbol: str, interval: str,
+                  prov: dict) -> tuple[Optional[pd.DataFrame], dict]:
+    """Live fetch through the vendor chain, then the stale cache as last resort.
+
+    The stale cache is still here — old data beats no data for a research
+    system that cites the dates it used — but it is no longer indistinguishable
+    from a fresh fetch. It comes back labelled `stale_cache`, and everything
+    downstream, up to and including the confidence number on the report, is
+    told.
+    """
+    from src.v5 import vendors
+
     with _quiet_vendor():
         yahoo = resolve(symbol)
-    for attempt in range(2):
+
+    df, report = vendors.fetch(yahoo, interval, FULL_PERIOD)
+    if df is not None:
         try:
-            import yfinance as yf
-            with _quiet_vendor():
-                df = yf.Ticker(yahoo).history(period=FULL_PERIOD, interval=interval,
-                                              auto_adjust=True)
-            if df is not None and not df.empty:
-                try:
-                    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-                    out = df.copy()
-                    if getattr(out.index, "tz", None) is not None:
-                        out.index = out.index.tz_localize(None)
-                    out.to_csv(_cache_path(symbol, interval))
-                except Exception as e:
-                    logger.debug(f"v5 cache write failed for {symbol}: {e}")
-                return df
+            CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            out = df.copy()
+            if getattr(out.index, "tz", None) is not None:
+                out.index = out.index.tz_localize(None)
+            out.to_csv(_cache_path(symbol, interval))
         except Exception as e:
-            logger.debug(f"v5 yfinance fetch failed for {symbol} "
-                         f"(attempt {attempt + 1}): {e}")
-        if attempt == 0:
-            time.sleep(0.6)
-    # Fall back to a stale cache rather than abstaining — the modules cite the
-    # dates they used, so old data is usable as long as it is not passed off
-    # as current.
+            logger.debug(f"v5 cache write failed for {symbol}: {e}")
+        return df, {**prov,
+                    "served_from": f"vendor:{report['vendor']}",
+                    "vendor": report["vendor"],
+                    # A fallback vendor is degraded even when its data is
+                    # perfectly fresh: the primary is down and somebody should
+                    # know before it matters.
+                    "degraded": not report["is_primary"],
+                    "detail": ("primary vendor" if report["is_primary"] else
+                               f"FALLBACK vendor — {vendors.PRIMARY} failed"),
+                    "vendor_attempts": report["attempts"]}
+
     p = _cache_path(symbol, interval)
     if p.exists():
         try:
-            logger.info(f"v5 using stale cache for {symbol} "
-                        f"({_age_days(p):.1f} days old) — live fetch failed")
-            return pd.read_csv(p, index_col=0, parse_dates=True)
+            age = _age_days(p)
+            logger.warning(f"v5 using STALE cache for {symbol} "
+                           f"({age:.1f} days old) — every vendor failed")
+            return pd.read_csv(p, index_col=0, parse_dates=True), {
+                **prov,
+                "served_from": "stale_cache",
+                "vendor": None,
+                "degraded": True,
+                "detail": f"every vendor failed; cache is {age:.1f} days old",
+                "vendor_attempts": report["attempts"]}
         except Exception:
             pass
-    return None
+    return None, {**prov, "served_from": None, "vendor": None, "degraded": True,
+                  "detail": "no vendor and no cache",
+                  "vendor_attempts": report["attempts"]}
 
 
 def _normalise(df: pd.DataFrame) -> Optional[pd.DataFrame]:

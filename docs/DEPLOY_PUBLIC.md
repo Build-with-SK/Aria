@@ -62,9 +62,21 @@ headers. **Only set it when actually behind the tunnel.** Set it on a directly
 exposed server and anyone can spoof `X-Forwarded-For` and walk straight through
 every rate limit by inventing a new IP per request.
 
-Set `ARIA_OWNER_TOKEN` before you go public. Without it, owner is granted by
-loopback — which is fine on a laptop, but on the mini means anything running
-*on that machine* is you.
+Both of these are load-bearing for the same reason, and it is worth being blunt
+about it: **cloudflared connects to ARIA from 127.0.0.1.** Every request that
+arrives through the tunnel looks, at the socket, like it came from the machine
+itself. So the "requests from loopback are the owner" fallback does not mean
+"me at my desk" here — it means everyone.
+
+`ARIA_TRUST_PROXY=1` retires that fallback outright (as well as switching on the
+Cloudflare headers for rate limiting). Set `ARIA_OWNER_TOKEN` so ownership is
+something you can prove rather than something inferred from an address.
+
+If you forget both, ARIA does not simply trust the tunnel: routes that can reach
+a broker refuse ownership they only inferred, so execution, the desk and the
+approval queue answer 403 with an explanation until one of them is configured.
+That is a deliberate failure direction — an unusable Execute tab is recoverable,
+a stranger's order is not.
 
 Generate one:
 

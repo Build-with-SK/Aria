@@ -47,22 +47,37 @@ def analyze(ticker: str, *, families: list[str] | None = None,
     # "no position, risk veto" for a ticker that does not exist. Checking first
     # is both honest and fast: no module runs, no vendor retry storm.
     if md.closes(ticker, period="1y") is None:
+        # "Unknown symbol" and "every vendor is down" look identical from here
+        # unless the vendor attempts are read. Telling a user their ticker does
+        # not exist when the truth is an outage sends them to fix the wrong
+        # thing, so the two are separated by what the vendors actually said.
+        prov = md.provenance(ticker)
+        attempts = prov.get("vendor_attempts") or []
+        all_vendors_failed = bool(attempts) and not any(a.get("ok") for a in attempts)
+        if all_vendors_failed:
+            return _failure(
+                ticker, t0,
+                f"Price history for '{ticker}' could not be loaded because every "
+                f"market-data vendor failed. This is a feed outage, not a verdict on "
+                f"the instrument, and no analysis was attempted.",
+                data_outage=True, data=_data_block(ticker, prov))
         return _failure(
             ticker, t0,
             f"No price history could be loaded for '{ticker}'. It is either not a listed "
             f"symbol, not covered by the data vendor, or the feed is unreachable. No "
             f"analysis was attempted — a verdict here would be about the market, not "
             f"about this instrument.",
-            unknown_instrument=True)
+            unknown_instrument=True, data=_data_block(ticker, prov))
 
     reports = registry.run_all(ticker, families=families,
                                include_research_only=include_research_only)
+    provenance = md.provenance(ticker)
     ens = ensemble_mod.synthesise(reports, ticker)
-    meta = meta_mod.review(ticker, ens, reports)
+    meta = meta_mod.review(ticker, ens, reports, data_quality=provenance)
     risk = risk_gate.assess(ticker, ens, reports, meta)
     self_audit = audit_mod.build(ticker, ens, reports, meta, risk)
 
-    recommendation = _recommendation(ens, risk, meta)
+    recommendation = _recommendation(ens, risk, meta, provenance)
 
     prediction_id = None
     if log:
@@ -86,6 +101,7 @@ def analyze(ticker: str, *, families: list[str] | None = None,
         "as_of": datetime.now().isoformat(timespec="seconds"),
         "elapsed_ms": int((time.time() - t0) * 1000),
         "prediction_id": prediction_id,
+        "data": _data_block(ticker, provenance),
         "recommendation": recommendation,
         "ensemble": ens.to_dict(),
         "risk": risk.to_dict(),
@@ -97,6 +113,36 @@ def analyze(ticker: str, *, families: list[str] | None = None,
                          "abstained": len(reports) - ens.n_voting},
         "weights_version": ens.weights_version,
     }
+
+
+def _data_block(ticker: str, prov: dict) -> dict:
+    """What the analysis was built on, in the response rather than in a log.
+
+    Present on every reply, including failures. A caller must be able to tell a
+    signal computed from this morning's prices from one computed from last
+    week's cache WITHOUT reading the server logs — that was the whole failure
+    mode: the two were byte-identical in the API response.
+    """
+    stale = bool(prov.get("stale", True)) if prov else True
+    block = {
+        "source": prov.get("served_from") if prov else None,
+        "vendor": prov.get("vendor") if prov else None,
+        "primary_vendor_used": (prov.get("served_from") == "vendor:yfinance"
+                                if prov else False),
+        "last_bar": prov.get("last_bar") if prov else None,
+        "last_bar_age_days": prov.get("last_bar_age_days") if prov else None,
+        "stale": stale,
+        "stale_reason": prov.get("stale_reason", "") if prov else "no data was loaded",
+        "citation": md.source_label(ticker),
+    }
+    if prov.get("vendor_attempts"):
+        block["vendor_attempts"] = prov["vendor_attempts"]
+    if stale:
+        block["warning"] = (
+            "This analysis is built on data that is not current. Confidence has "
+            "been reduced accordingly, and the numbers below describe the market "
+            f"as of {prov.get('last_bar') or 'an unknown date'}.")
+    return block
 
 
 def _failure(ticker: str, t0: float, message: str, **extra) -> dict:
@@ -131,7 +177,7 @@ def _ensemble_horizon(ens, reports) -> int:
     return max(5, min(126, int(round(mean))))
 
 
-def _recommendation(ens, risk, meta) -> dict:
+def _recommendation(ens, risk, meta, provenance: dict | None = None) -> dict:
     """The single sentence Soundariyan Karunakaran reads first, and the numbers behind it."""
     conf = meta.confidence_after
     if risk.verdict == "VETO":
@@ -161,9 +207,18 @@ def _recommendation(ens, risk, meta) -> dict:
                     f"equity, stop {risk.stop_price:.2f}, risking {risk.max_loss_pct:.2f}% of equity. "
                     f"Confidence {band} across {ens.n_voting} reporting modules.")
 
+    # The headline is the one sentence that gets read, quoted and pasted
+    # elsewhere. If the data is not current, the sentence says so — a warning
+    # that lives only in a sibling field travels nowhere.
+    stale = bool(provenance.get("stale")) if provenance else False
+    if stale:
+        as_of = (provenance or {}).get("last_bar") or "an unknown date"
+        headline = f"[STALE DATA — as of {as_of}] " + headline
+
     return {
         "action": action,
         "headline": headline,
+        "data_stale": stale,
         "direction": ens.direction,
         "confidence": round(conf, 4),
         "confidence_band": band,

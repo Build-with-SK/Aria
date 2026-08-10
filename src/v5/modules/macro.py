@@ -22,7 +22,8 @@ import pandas as pd
 
 from src.v5 import marketdata as md
 from src.v5.contract import Evidence, ModuleReport, insufficient
-from src.v5.modules._util import (ann_vol, clamp, conditional_hit_rate, effective_interval,
+from src.v5.modules._util import (BASE_RATE_LOOKBACK, ann_vol, clamp,
+                                  conditional_hit_rate, effective_interval,
                                   hit_rate_probability, logistic, overlap_weakness, pct,
                                   regime_weakness, sma)
 from src.v5.registry import module
@@ -67,8 +68,8 @@ def _trend(sym: str, days: int, period: str = "1y") -> tuple[float, float] | Non
         "Volatility regime from VIX terciles, with the instrument's own base rate inside it.",
         horizon_days=HORIZON)
 def market_regime(ticker: str) -> ModuleReport:
-    vix = md.closes("^VIX", period="5y")
-    c = md.closes(ticker, period="5y")
+    vix = md.closes("^VIX", period=BASE_RATE_LOOKBACK)
+    c = md.closes(ticker, period=BASE_RATE_LOOKBACK)
     if vix is None or c is None or len(vix) < 300 or len(c) < 300:
         return insufficient("market_regime", "macro", ticker,
                             "VIX or instrument history unavailable")
@@ -101,7 +102,7 @@ def market_regime(ticker: str) -> ModuleReport:
     src = "Yahoo Finance (^VIX and instrument daily closes, 5y)"
 
     ev = [
-        Evidence(f"VIX {v_now:.1f} — {label} regime (5y terciles {lo:.1f} / {hi:.1f})",
+        Evidence(f"VIX {v_now:.1f} — {label} regime (terciles over {len(df)} sessions: {lo:.1f} / {hi:.1f})",
                  round(v_now, 2), src, "bear" if label == "high-volatility" else
                  "bull" if label == "low-volatility" else "neutral"),
         Evidence(f"{ticker} forward {HORIZON}-day returns in the {label} regime: {hr[0]}/{hr[1]} "

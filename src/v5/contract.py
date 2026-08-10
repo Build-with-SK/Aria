@@ -157,6 +157,16 @@ class ModuleReport:
     def to_dict(self) -> dict:
         d = asdict(self)
         d.update({"net": self.net, "view": self.view, "ci_width": self.ci_width})
+        # Whether this engine's opinion has ever been tested against history,
+        # travelling WITH the opinion. A module that has never been validated
+        # and one that has been validated and works produced byte-identical
+        # output before this — so the distinction existed only in a document
+        # nobody reading the API could see.
+        try:
+            from src.v5 import walkforward
+            d.update(walkforward.status(self.module))
+        except Exception:                      # never let reporting break a report
+            d.setdefault("walk_forward_validated", False)
         return d
 
     # ── constructors ─────────────────────────────────────────────────────────

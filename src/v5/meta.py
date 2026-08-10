@@ -219,7 +219,15 @@ def _falsification_tests(reports: list[ModuleReport], ens: EnsembleResult) -> li
 
 # ── entry point ─────────────────────────────────────────────────────────────
 
-def review(ticker: str, ens: EnsembleResult, reports: list[ModuleReport]) -> MetaResult:
+# Stale or degraded price data does not make a thesis wrong; it makes every
+# number in it less current than it looks. The edge is cut hard enough that a
+# stale signal cannot masquerade as a fresh one, and the reason says so in the
+# same sentence as every other penalty.
+STALE_DATA_PENALTY = 0.55
+
+
+def review(ticker: str, ens: EnsembleResult, reports: list[ModuleReport],
+           data_quality: dict | None = None) -> MetaResult:
     counter, counter_ev = _counterargument(reports, ens)
     paths = [_path_median(reports, ens.direction), _path_evidence(reports, ens.direction)]
 
@@ -244,6 +252,15 @@ def review(ticker: str, ens: EnsembleResult, reports: list[ModuleReport]) -> Met
     if contradictions:
         edge *= max(0.7, 1 - 0.06 * len(contradictions))
         reasons.append(f"{len(contradictions)} internal contradiction(s) found in the evidence")
+
+    # Data quality is an input to confidence, not a footnote under it. Applying
+    # it HERE rather than to the final number means the risk gate sizes on the
+    # reduced edge and the learning log records the reduced confidence — the
+    # penalty reaches everything downstream instead of only the display.
+    if data_quality and data_quality.get("stale"):
+        edge *= STALE_DATA_PENALTY
+        why = data_quality.get("stale_reason") or "source is degraded or old"
+        reasons.append(f"the price data behind this analysis is not current ({why})")
 
     conf = 0.5 + edge / 2
     reason = ("Independent paths corroborate the primary aggregation and no contradictions were "
