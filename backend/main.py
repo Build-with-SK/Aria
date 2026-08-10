@@ -54,10 +54,15 @@ try:
 except ImportError:
     pass
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import Depends, FastAPI, HTTPException, BackgroundTasks, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+# Not lazy on purpose: this is the guard on every order-placing route, and a
+# guard that is imported inside the handler is a guard that can fail to import
+# at the worst possible moment.
+from src.auth.guard import require_owner
 
 def _configure_logging():
     """Give the application's own loggers somewhere to go.
@@ -301,8 +306,28 @@ async def _role_guard(request, call_next):
                                      "retry_after": retry},
                             headers={"Retry-After": str(retry)})
 
+    # Before deciding anything: does this request prove a proxy is in front of
+    # us? If so the loopback fallback is retired from here on, whatever the
+    # configuration says. A tunnel makes every caller look like localhost.
+    policy.note_proxy_evidence(request.headers)
+
     who = sess.read(request.cookies.get(sess.COOKIE))
-    role = policy.resolve_role(request.headers, ip, who)
+    # `ip` may have come from X-Forwarded-For, which the caller writes. The
+    # rate limiter wants it (count the human, not the proxy); the ownership
+    # decision must not have it, or "X-Forwarded-For: 127.0.0.1" is a login.
+    role, basis = policy.resolve_role_with_basis(
+        request.headers, ip, who, peer_host=hardening.peer_ip(request))
+
+    # NOTE on what is deliberately NOT done here. A review argued that inferred
+    # ownership should also be refused the vault and the portfolio, not only a
+    # broker. The tunnel case it was worried about is closed above — a proxied
+    # request carries a forwarding header, which retires the fallback before
+    # this line runs. What remains is a caller who reached this process on a
+    # real loopback socket with no proxy anywhere, i.e. someone already on the
+    # machine, which is the documented single-user design. Downgrading that
+    # would break the owner's own laptop to defend against an attacker who is
+    # already inside it.
+    request.state.role_basis = basis
     request.state.role = role
     request.state.user = who
 
@@ -859,7 +884,7 @@ class ProposeTrade(BaseModel):
     broker:        str = "auto"
 
 
-@app.post("/api/execute/propose", tags=["Execution"])
+@app.post("/api/execute/propose", tags=["Execution"], dependencies=[Depends(require_owner)])
 def propose_trade(body: ProposeTrade):
     """Add a trade proposal to the approval queue. Sits there until user approves."""
     try:
@@ -897,7 +922,7 @@ def propose_trade(body: ProposeTrade):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/execute/queue", tags=["Execution"])
+@app.get("/api/execute/queue", tags=["Execution"], dependencies=[Depends(require_owner)])
 def get_approval_queue(status: Optional[str] = None):
     """Get all trades in the approval queue."""
     try:
@@ -915,7 +940,7 @@ def get_approval_queue(status: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/execute/approve/{trade_id}", tags=["Execution"])
+@app.post("/api/execute/approve/{trade_id}", tags=["Execution"], dependencies=[Depends(require_owner)])
 def approve_and_execute(trade_id: str):
     """Approve and immediately execute a pending trade via the broker."""
     mgr = _get_order_manager()
@@ -927,7 +952,7 @@ def approve_and_execute(trade_id: str):
     return result
 
 
-@app.post("/api/execute/reject/{trade_id}", tags=["Execution"])
+@app.post("/api/execute/reject/{trade_id}", tags=["Execution"], dependencies=[Depends(require_owner)])
 def reject_trade(trade_id: str, reason: str = ""):
     """Reject a pending trade — it will not be executed."""
     try:
@@ -943,7 +968,7 @@ def reject_trade(trade_id: str, reason: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/execute/cancel/{trade_id}", tags=["Execution"])
+@app.post("/api/execute/cancel/{trade_id}", tags=["Execution"], dependencies=[Depends(require_owner)])
 def cancel_trade(trade_id: str):
     """Cancel a pending trade before it reaches the broker."""
     try:
@@ -954,7 +979,7 @@ def cancel_trade(trade_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/execute/brokers", tags=["Execution"])
+@app.get("/api/execute/brokers", tags=["Execution"], dependencies=[Depends(require_owner)])
 def get_broker_status():
     """Connection status and account info for all brokers."""
     mgr = _get_order_manager()
@@ -963,7 +988,7 @@ def get_broker_status():
     return mgr.get_broker_status()
 
 
-@app.get("/api/execute/positions", tags=["Execution"])
+@app.get("/api/execute/positions", tags=["Execution"], dependencies=[Depends(require_owner)])
 def get_live_positions():
     """Live positions across Alpaca and IBKR."""
     mgr = _get_order_manager()
@@ -1109,7 +1134,7 @@ def vault_status():
         return {"error": str(e)}
 
 
-@app.post("/api/vault/reindex", tags=["Vault"])
+@app.post("/api/vault/reindex", tags=["Vault"], dependencies=[Depends(require_owner)])
 def vault_reindex(force: bool = False):
     """(Re)index the Obsidian vault into the semantic store."""
     try:
@@ -1249,7 +1274,7 @@ def _ondemand_ticker_context(messages: List["ChatMsg"]) -> str:
         return ""
 
 
-@app.post("/api/chat", tags=["ARIA"])
+@app.post("/api/chat", tags=["ARIA"], dependencies=[Depends(require_owner)])
 def aria_chat(body: ChatRequest, request: Request):
     """Send a message to ARIA. Returns the assistant reply with market context baked in.
 
@@ -1555,7 +1580,7 @@ def brain_consult_status():
     return consult_status()
 
 
-@app.post("/api/brain/consult", tags=["Local Brain"])
+@app.post("/api/brain/consult", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def brain_consult_set(enabled: bool = True, frontier_model: str = ""):
     """Toggle frontier-consult. When on, ARIA's ORIENT/ANALYSE/DECIDE/REFLECT
     steps route to a frontier model (needs ANTHROPIC_API_KEY). Budget-capped."""
@@ -1568,7 +1593,7 @@ def brain_consult_set(enabled: bool = True, frontier_model: str = ""):
     return set_consult_config(updates)
 
 
-@app.post("/api/brain/run-now", tags=["Local Brain"])
+@app.post("/api/brain/run-now", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def brain_run_now():
     """Trigger an immediate reasoning cycle (doesn't wait for the scheduler)."""
     if not _ollama_available():
@@ -1581,7 +1606,7 @@ def brain_run_now():
     return {"status": "started", "message": "Reasoning cycle started. Poll /api/brain/last-cycle for the thought stream."}
 
 
-@app.post("/api/brain/start", tags=["Local Brain"])
+@app.post("/api/brain/start", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def brain_start(model: str = "qwen2.5-coder:7b"):
     """Start (or resume) the brain daemon."""
     if not _ollama_available():
@@ -1593,7 +1618,7 @@ def brain_start(model: str = "qwen2.5-coder:7b"):
     return {"status": "started", **brain.status()}
 
 
-@app.post("/api/brain/stop", tags=["Local Brain"])
+@app.post("/api/brain/stop", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def brain_stop():
     """Pause the brain daemon."""
     from src.brain.brain_daemon import peek_brain
@@ -1604,7 +1629,7 @@ def brain_stop():
     return {"status": "stopped", **brain.status()}
 
 
-@app.patch("/api/brain/interval", tags=["Local Brain"])
+@app.patch("/api/brain/interval", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def brain_set_interval(minutes: int = 15):
     """Change the reasoning cycle interval."""
     if minutes < 1 or minutes > 1440:
@@ -1651,7 +1676,7 @@ def brain_recall(q: str, n: int = 10):
         return {"query": q, "count": 0, "memories": [], "error": str(e)}
 
 
-@app.post("/api/brain/generate-training-data", tags=["Local Brain"])
+@app.post("/api/brain/generate-training-data", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def generate_training_data(background_tasks: BackgroundTasks):
     """Generate fine-tuning training data from current signals and historical data."""
     def _run():
@@ -1665,7 +1690,7 @@ def generate_training_data(background_tasks: BackgroundTasks):
     return {"status": "started", "message": "Generating training data in background. Check /api/brain/status for progress."}
 
 
-@app.post("/api/brain/pull-model", tags=["Local Brain"])
+@app.post("/api/brain/pull-model", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def pull_model(model: str = "llama3.1:8b"):
     """Pull a model from Ollama registry (runs in background)."""
     import subprocess as sp
@@ -1691,7 +1716,7 @@ def _run_pipeline(args: str = "--no-sentiment"):
         _run_in_progress = False
 
 
-@app.post("/api/run", tags=["System"])
+@app.post("/api/run", tags=["System"], dependencies=[Depends(require_owner)])
 def trigger_run(background_tasks: BackgroundTasks, no_sentiment: bool = True):
     """
     Trigger a fresh main.py run in the background.
@@ -1775,7 +1800,7 @@ def universe_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/universe/refresh", tags=["Universe"])
+@app.post("/api/universe/refresh", tags=["Universe"], dependencies=[Depends(require_owner)])
 def universe_refresh(background_tasks: BackgroundTasks, force: bool = False):
     """Rebuild the tier-0 symbol index (all NSE equities + global universe.yaml)."""
     background_tasks.add_task(lambda: _get_universe().refresh_index(force=force))
@@ -1825,7 +1850,7 @@ def technical_recommendations(timeframe: str = "1d", limit: int = 25,
     return _sanitize(scan_universe_recommendations(timeframe, min(limit, 60)))
 
 
-@app.post("/api/technical/snapshot", tags=["Technical"])
+@app.post("/api/technical/snapshot", tags=["Technical"], dependencies=[Depends(require_owner)])
 def technical_snapshot(timeframe: str = "1d", limit: int = 30):
     """Record today's technical recommendations for forward performance
     tracking (also runs daily on its own at 21:30)."""
@@ -1914,7 +1939,7 @@ def fx_gbpinr(check: bool = True):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/fx/gbpinr/targets", tags=["FX"])
+@app.post("/api/fx/gbpinr/targets", tags=["FX"], dependencies=[Depends(require_owner)])
 def fx_gbpinr_targets(high: float = None, low: float = None):
     """Set alert levels: high = alert when £ buys ≥ high INR (send UK→India),
     low = alert when £ buys ≤ low INR (send India→UK)."""
@@ -2021,7 +2046,7 @@ def quant_status():
     return _get_lab().status()
 
 
-@app.post("/api/quant/run-now", tags=["Quant Lab"])
+@app.post("/api/quant/run-now", tags=["Quant Lab"], dependencies=[Depends(require_owner)])
 def quant_run_now():
     _get_lab().run_now()
     return {"status": "started", "message": "Cycle running in background. Poll /api/quant/status."}
@@ -2055,7 +2080,7 @@ def lse_status():
     return _sanitize({"configured": True, "usage": lse_data.usage()})
 
 
-@app.post("/api/inference/discover", tags=["Inference"])
+@app.post("/api/inference/discover", tags=["Inference"], dependencies=[Depends(require_owner)])
 def inference_discover():
     """Re-run Ollama model discovery and refresh the router's registry."""
     from src.inference.ollama_discovery import discover
@@ -2070,7 +2095,7 @@ def inference_status():
     return _sanitize({**get_router().status(), "registry": list_models(False)})
 
 
-@app.get("/api/desk/status", tags=["Desk"])
+@app.get("/api/desk/status", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_status():
     """Desk state: daemon, safety gates, auto_execute flag, day budget,
     account=paper|live|disconnected."""
@@ -2078,7 +2103,7 @@ def desk_status():
     return _sanitize(get_desk().status())
 
 
-@app.post("/api/desk/auto-execute", tags=["Desk"])
+@app.post("/api/desk/auto-execute", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_auto_execute(enabled: bool):
     """Arm/disarm autonomous paper execution.
     REFUSES (409) to arm when the connected account is live — auto-exec can
@@ -2092,16 +2117,20 @@ def desk_auto_execute(enabled: bool):
                 detail="ALPACA_PAPER is not exactly 'true' — auto-execute cannot be "
                        "armed. Set ALPACA_PAPER=true in .env (paper account) first.")
         account = account_snapshot()
-        if account.get("paper") is False:
+        # Arm only on a POSITIVELY confirmed paper account. `paper is False`
+        # alone let it arm while the broker was disconnected or unreadable —
+        # "not known to be live" is not the same as "known to be paper".
+        if account.get("paper") is False or account.get("paper_confirmed") is not True:
             raise HTTPException(
                 status_code=409,
-                detail="LIVE account detected — auto-execute is paper-only and will "
-                       "not arm. Real money always goes through human approval.")
+                detail="LIVE or unconfirmed account — auto-execute is paper-only and "
+                       "will not arm. Real money always goes through human approval. "
+                       f"Gate: {account.get('paper_status')}")
     cfg = save_config({"auto_execute": bool(enabled)})
     return {"ok": True, "auto_execute": cfg["auto_execute"]}
 
 
-@app.post("/api/desk/run-now", tags=["Desk"])
+@app.post("/api/desk/run-now", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_run_now():
     """Run one analysts→debate→slate→(exec) cycle immediately."""
     from src.desk.desk_daemon import get_desk
@@ -2114,7 +2143,7 @@ def desk_run_now():
             "message": "Desk cycle started. Poll /api/desk/status."}
 
 
-@app.patch("/api/desk/config", tags=["Desk"])
+@app.patch("/api/desk/config", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_config(updates: Dict[str, Any]):
     """Update desk config (interval, budgets, caps, notification topics).
     auto_execute is NOT settable here — use /api/desk/auto-execute."""
@@ -2132,14 +2161,14 @@ def desk_config(updates: Dict[str, Any]):
     return cfg
 
 
-@app.get("/api/desk/slate", tags=["Desk"])
+@app.get("/api/desk/slate", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_slate():
     """Latest ranked trade slate + debate summaries."""
     return _sanitize(_load_optional("desk/slate.json") or
                      {"slate": [], "rejected": [], "debates": []})
 
 
-@app.get("/api/desk/debate/{debate_id}", tags=["Desk"])
+@app.get("/api/desk/debate/{debate_id}", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_debate(debate_id: str):
     """Full debate transcript — every argument, evidence citation, and the verdict."""
     from src.desk.debate import load_debate
@@ -2149,7 +2178,7 @@ def desk_debate(debate_id: str):
     return _sanitize(t)
 
 
-@app.get("/api/desk/debates", tags=["Desk"])
+@app.get("/api/desk/debates", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_debates(n: int = 12):
     """Most recent debate transcripts, newest first."""
     from src.desk.debate import DEBATES_DIR
@@ -2166,7 +2195,7 @@ def desk_debates(n: int = 12):
     return _sanitize({"count": len(out), "debates": out})
 
 
-@app.get("/api/desk/executions", tags=["Desk"])
+@app.get("/api/desk/executions", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_executions(n: int = 100):
     """Auto-execution log — what ARIA bought/queued, when, and why."""
     from src.desk.auto_executor import read_executions
@@ -2179,7 +2208,7 @@ def desk_executions(n: int = 100):
     })
 
 
-@app.get("/api/desk/health", tags=["Desk"])
+@app.get("/api/desk/health", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_health():
     """Liveness for watchdogs: fresh = a management tick ran in the last
     15 minutes. Cheap — reads one small file, no broker calls."""
@@ -2198,7 +2227,7 @@ def desk_health():
             "tick_count": hb.get("tick_count"), "last_errors": hb.get("errors")}
 
 
-@app.post("/api/desk/tick-now", tags=["Desk"])
+@app.post("/api/desk/tick-now", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_tick_now():
     """Run one PositionManager management tick immediately (exit rules,
     trailing stops, bracket healing, legacy triage)."""
@@ -2208,14 +2237,14 @@ def desk_tick_now():
             "message": "Management tick running. Poll /api/desk/status."}
 
 
-@app.get("/api/desk/lessons", tags=["Desk"])
+@app.get("/api/desk/lessons", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_lessons(n: int = 50):
     """Fable's teaching lessons from reviewing closed trades."""
     from src.desk.teacher import read_lessons
     return _sanitize({"lessons": list(reversed(read_lessons(n)))})
 
 
-@app.post("/api/desk/teach-now", tags=["Desk"])
+@app.post("/api/desk/teach-now", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_teach_now():
     """Have Fable review any un-taught closed trades right now (opt-in;
     needs teacher_enabled + ANTHROPIC_API_KEY, budget-capped)."""
@@ -2223,7 +2252,7 @@ def desk_teach_now():
     return _sanitize(teach_from_closed_trades())
 
 
-@app.get("/api/desk/playbooks", tags=["Desk"])
+@app.get("/api/desk/playbooks", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_playbooks():
     """Armed reflex playbooks (fast-lane triggers) + recent reflex config."""
     from src.desk.config import load_config
@@ -2239,14 +2268,14 @@ def desk_playbooks():
     })
 
 
-@app.post("/api/desk/reflex-scan", tags=["Desk"])
+@app.post("/api/desk/reflex-scan", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_reflex_scan():
     """Run one reflex scan pass immediately (for testing the fast lane)."""
     from src.desk.reflex import get_reflex
     return _sanitize({"results": get_reflex().scan_once()})
 
 
-@app.get("/api/desk/positions", tags=["Desk"])
+@app.get("/api/desk/positions", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_positions():
     """Tracked positions (exit-engine state) + latest closed trades."""
     from src.desk.position_manager import PositionManager, read_closed_trades
@@ -2256,7 +2285,7 @@ def desk_positions():
     })
 
 
-@app.get("/api/desk/performance", tags=["Desk"])
+@app.get("/api/desk/performance", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_performance():
     """REALIZED performance from closed trades — the numbers a human uses to
     judge whether this desk deserves real-money copy-trading elsewhere.
@@ -2331,7 +2360,7 @@ def desk_performance():
     })
 
 
-@app.get("/api/desk/pnl", tags=["Desk"])
+@app.get("/api/desk/pnl", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_pnl():
     """Paper equity curve + open positions + day/total P&L."""
     from src.desk.auto_executor import account_snapshot
@@ -2441,7 +2470,7 @@ def v5_learning():
     return _sanitize(learning.performance_summary())
 
 
-@app.post("/api/v5/learning/resolve", tags=["V5"])
+@app.post("/api/v5/learning/resolve", tags=["V5"], dependencies=[Depends(require_owner)])
 def v5_learning_resolve():
     """Score every prediction whose horizon has elapsed, then reweight if — and
     only if — the evidence is statistically significant."""
@@ -2449,7 +2478,7 @@ def v5_learning_resolve():
     return _sanitize(learning.resolve_pending())
 
 
-@app.post("/api/v5/learning/revert/{version}", tags=["V5"])
+@app.post("/api/v5/learning/revert/{version}", tags=["V5"], dependencies=[Depends(require_owner)])
 def v5_learning_revert(version: int):
     """Restore module weights as they were at `version`. Learning must be
     reversible or it cannot be audited."""
@@ -2483,11 +2512,177 @@ def v5_track_record_export(format: str = "json"):
     return _sanitize({"count": len(rows), "rows": rows})
 
 
+@app.get("/api/v5/walk-forward", tags=["V5"])
+def v5_walk_forward(module: Optional[str] = None):
+    """Per-module walk-forward validation: hit rate against the base rate, the
+    information coefficient, and — for every module that has never been through
+    it — that fact, stated.
+
+    Regenerated by `python scripts/run_walkforward.py`, which is a batch job:
+    this endpoint reads the stored record and never runs the replay."""
+    from src.v5 import walkforward
+    if module:
+        return _sanitize({"module": module, **walkforward.status(module)})
+    return _sanitize(walkforward.summary())
+
+
+@app.get("/api/v5/loop-health", tags=["V5"])
+def v5_loop_health():
+    """Is the research flywheel actually turning? Reports when each leg last
+    ran, from the heartbeat on disk — not from whether an object exists in
+    memory, which is true even when the loop has silently stopped."""
+    from src.v5 import loop
+    return _sanitize(loop.health())
+
+
+@app.post("/api/v5/loop/run", tags=["V5"],
+          dependencies=[Depends(require_owner)])
+def v5_loop_run(leg: str = "both"):
+    """Run the research loop now: predict, resolve, or both.
+
+    Owner-only despite living under the free /api/v5 prefix — it analyses a
+    whole watchlist, which is minutes of CPU, and it writes to the prediction
+    log that the track record is computed from."""
+    from src.v5 import loop
+    if leg == "predict":
+        return _sanitize({"predict": loop.predict_once()})
+    if leg == "resolve":
+        return _sanitize({"resolve": loop.resolve_once()})
+    return _sanitize(loop.run_once())
+
+
+@app.get("/api/v5/weight-fit", tags=["V5"])
+def v5_weight_fit():
+    """Out-of-sample proposal for the ensemble's family weights, or an honest
+    statement of how far short of the required sample we still are.
+
+    Applies nothing — adoption is a human decision, made through the versioned
+    weights mechanism in src/v5/learning.py."""
+    from src.v5 import weightfit
+    return _sanitize(weightfit.propose())
+
+
+@app.get("/api/v5/data-health", tags=["V5"])
+def v5_data_health(ticker: Optional[str] = None):
+    """Which market-data vendors are configured and reachable, and — if a
+    ticker is given — exactly where that instrument's prices came from.
+
+    Exists so "the numbers look odd today" has an answer that is not "read the
+    server logs": a degraded feed is visible from the API itself."""
+    from src.v5 import marketdata as md, vendors
+    out = {"as_of": datetime.now().isoformat(timespec="seconds"),
+           **vendors.health()}
+    if ticker:
+        t = ticker.strip().upper()
+        md.closes(t, period="1y")          # load so provenance exists to report
+        out["ticker"] = t
+        out["provenance"] = md.provenance(t)
+        out["citation"] = md.source_label(t)
+        out["stale"] = md.is_stale(t)
+    return _sanitize(out)
+
+
 @app.get("/api/v5/identity", tags=["V5"])
 def v5_identity():
     """The system prompt ARIA runs on, verbatim — including the Two Laws."""
     from src.v5.identity import CREATOR, system_prompt
     return {"creator": CREATOR, "full": system_prompt(), "short": system_prompt(full=False)}
+
+
+# ===========================================================================
+# The guard on the guard.
+#
+# Every route that can reach a broker carries Depends(require_owner). A
+# dependency you have to remember to add is a convention, and conventions decay
+# — so the app refuses to start if one is missing. Adding an execution endpoint
+# without a guard is now a crash on import, not a quiet hole in production.
+# ===========================================================================
+
+def _is_guarded(route) -> bool:
+    names = {getattr(getattr(d, "call", None), "__name__", "")
+             for d in getattr(getattr(route, "dependant", None), "dependencies", [])}
+    return "require_owner" in names
+
+
+def _assert_execution_routes_guarded() -> list[str]:
+    """Raise if anything that can change state is reachable without the guard.
+
+    The first version of this check only inspected routes under
+    /api/execute and /api/desk — which is the same path-prefix reasoning the
+    guard exists to escape. An independent review pointed out the obvious
+    consequence: a write endpoint added under /api/v5 or /api/universe was
+    invisible to it, and four such endpoints were reachable by any signed-in
+    free user, including one that moves the ensemble weights the desk sizes
+    trades from.
+
+    So the rule is now about METHOD, not path. Every POST/PATCH/PUT/DELETE in
+    the application must either carry Depends(require_owner) or be named in
+    policy.PUBLIC_WRITE_ROUTES as a deliberate exception. Adding a write
+    endpoint without deciding which it is stops the app from starting.
+    """
+    import inspect
+    from src.auth import policy
+
+    # Names that mean "this handler can reach a broker". A GET is not covered
+    # by the method rule, and a read-only broker endpoint added under a free
+    # prefix (/api/v5/my-positions) would be caught by neither the method rule
+    # nor the path rule — so the handler's own source is the third signal.
+    BROKER_TOUCHING = ("_get_order_manager", "OrderManager", "AlpacaBroker",
+                       "IBKRBroker", "account_snapshot", "get_order_manager")
+
+    def _touches_a_broker(route) -> bool:
+        fn = getattr(route, "endpoint", None)
+        if fn is None:
+            return False
+        try:
+            src = inspect.getsource(fn)
+        except (OSError, TypeError):
+            return False
+        return any(token in src for token in BROKER_TOUCHING)
+
+    guarded, unguarded = [], []
+    for route in app.routes:
+        path = getattr(route, "path", "")
+        methods = set(getattr(route, "methods", set()) or set())
+        mutating = bool(methods & {"POST", "PATCH", "PUT", "DELETE"})
+        if not (mutating or policy.is_execution_path(path)
+                or _touches_a_broker(route)):
+            continue
+        if _is_guarded(route):
+            guarded.append(path)
+        elif path in policy.PUBLIC_WRITE_ROUTES:
+            continue                        # declared public, on purpose
+        else:
+            unguarded.append(f"{'/'.join(sorted(methods & {'POST','PATCH','PUT','DELETE'})) or 'GET'} {path}")
+    if unguarded:
+        raise RuntimeError(
+            "State-changing routes without Depends(require_owner): "
+            + ", ".join(sorted(set(unguarded)))
+            + " — every route that can change state must either declare the "
+              "guard or be listed in policy.PUBLIC_WRITE_ROUTES as a "
+              "deliberate exception. See src/auth/guard.py.")
+    return sorted(set(guarded))
+
+
+_GUARDED_EXECUTION_ROUTES = _assert_execution_routes_guarded()
+logger.info("guarded state-changing routes: %d", len(_GUARDED_EXECUTION_ROUTES))
+
+
+@app.on_event("startup")
+async def _warn_about_auth_configuration():
+    from src.auth import policy
+    policy.warn_if_unprotected()
+
+
+@app.on_event("startup")
+async def _recheck_route_guards():
+    """Run the same check again once every route is registered.
+
+    The import-time call above executes at whatever line it sits on, so a route
+    decorated below it is never examined — and the bottom of the file is
+    exactly where new routes get appended. Re-checking at startup closes that.
+    """
+    _assert_execution_routes_guarded()
 
 
 # ===========================================================================

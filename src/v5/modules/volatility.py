@@ -16,7 +16,8 @@ import pandas as pd
 
 from src.v5 import marketdata as md
 from src.v5.contract import Evidence, ModuleReport, insufficient
-from src.v5.modules._util import (ann_vol, clamp, conditional_hit_rate, effective_interval,
+from src.v5.modules._util import (BASE_RATE_LOOKBACK, ann_vol, clamp,
+                                  conditional_hit_rate, effective_interval,
                                   hit_rate_probability, overlap_weakness, pct, regime_weakness)
 from src.v5.registry import module
 
@@ -27,7 +28,7 @@ HORIZON = 21
         "Realised volatility regime, term structure and the forward base rate inside it.",
         horizon_days=HORIZON)
 def volatility(ticker: str) -> ModuleReport:
-    c = md.closes(ticker, period="5y")
+    c = md.closes(ticker, period=BASE_RATE_LOOKBACK)
     if c is None or len(c) < 300:
         return insufficient("volatility", "volatility", ticker, "fewer than 300 daily closes")
     r = c.pct_change().dropna()
@@ -55,7 +56,7 @@ def volatility(ticker: str) -> ModuleReport:
 
     ev = [
         Evidence(f"21-day realised volatility {pct(cur21)} annualised — {label} regime "
-                 f"(5y terciles {pct(lo)} / {pct(hi)})", round(cur21, 4), src,
+                 f"(terciles over {len(rv21.dropna())} sessions: {pct(lo)} / {pct(hi)})", round(cur21, 4), src,
                  "bear" if label == "high" else "neutral"),
         Evidence(f"63-day realised volatility {pct(cur63)}; short-term vol is "
                  f"{'above' if cur21 > cur63 else 'below'} it, so vol is "
@@ -76,7 +77,7 @@ def volatility(ticker: str) -> ModuleReport:
     return ModuleReport.from_probability(
         "volatility", "volatility", ticker, p, ci,
         thesis=(f"{ticker} runs {pct(cur21)} annualised volatility — the {label} tercile of its own "
-                f"five-year range, and {'expanding' if cur21 > cur63 else 'compressing'}. Position "
+                f"own history, and {'expanding' if cur21 > cur63 else 'compressing'}. Position "
                 f"size must scale inversely to this number; the risk layer enforces that."),
         evidence=ev,
         weaknesses=[overlap_weakness(HORIZON), regime_weakness(),

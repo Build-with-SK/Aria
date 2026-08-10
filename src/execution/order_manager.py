@@ -211,40 +211,68 @@ class OrderManager:
             logger.error(f"place_protective_orders({ticker}) failed: {e}")
         return out
 
+    def _connected_brokers(self) -> list[BrokerBase]:
+        return [b for b in (self._alpaca, self._ibkr) if b and b.is_connected()]
+
     def open_orders_by_ticker(self, broker: Optional[BrokerBase] = None) -> dict:
-        """{ticker: [open order dicts]} — for bracket healing and stale cleanup."""
-        broker = broker or self._alpaca
-        if not broker or not broker.is_connected():
-            return {}
+        """{ticker: [open order dicts]} — for bracket healing and stale cleanup.
+
+        Single-broker by default, and that is deliberate rather than an
+        oversight. Merging every broker's orders into one dict keyed only by
+        ticker briefly looked like the fix for "IBKR's open orders are never
+        read", and a review pointed out what it actually did: consumers pass
+        each order's id straight back to ONE broker's cancel_order, and
+        bracket healing concluded an Alpaca position was protected because an
+        IBKR stop existed on the same symbol — a naked position produced by a
+        safety check.
+
+        So callers that mean "every broker" say so by passing one explicitly in
+        a loop (see cancel_stale_orders). IBKR's orders are read there.
+        """
+        brokers = [broker] if broker is not None else (
+            [self._alpaca] if self._alpaca else [])
         grouped: dict = {}
-        for o in broker.get_open_orders():
-            grouped.setdefault(o["ticker"], []).append(o)
+        for b in brokers:
+            if not b or not b.is_connected():
+                continue
+            try:
+                for o in b.get_open_orders():
+                    grouped.setdefault(o["ticker"], []).append(
+                        {**o, "broker": getattr(b, "name", "")})
+            except Exception as e:
+                logger.error(f"open_orders_by_ticker({getattr(b, 'name', '?')}): {e}")
         return grouped
 
     def cancel_stale_orders(self, max_age_days: float = 1.0) -> list[dict]:
         """Cancel unfilled orders older than max_age_days for tickers with NO
         open position (i.e. stale entries). Protective GTC stops/targets belong
         to held tickers and are deliberately left alone."""
-        broker = self._alpaca
-        if not broker or not broker.is_connected():
-            return []
-        held = {p.ticker for p in broker.get_positions()}
         cutoff = datetime.utcnow() - timedelta(days=max_age_days)
         cancelled = []
-        for ticker, orders in self.open_orders_by_ticker(broker).items():
-            if ticker in held:
-                continue
-            for o in orders:
-                try:
-                    sub = datetime.fromisoformat(
-                        (o.get("submitted_at") or "").replace("Z", "+00:00"))
-                    sub = sub.replace(tzinfo=None)
-                except Exception:
+        for broker in self._connected_brokers():
+            held = {p.ticker for p in broker.get_positions()}
+            for ticker, orders in self.open_orders_by_ticker(broker).items():
+                if ticker in held:
                     continue
-                if sub < cutoff and broker.cancel_order(o["id"]):
-                    cancelled.append(o)
-                    logger.info(f"Cancelled stale order {o['id']} "
-                                f"({o['side']} {o['qty']:g} {ticker})")
+                for o in orders:
+                    raw = (o.get("submitted_at") or "").replace("Z", "+00:00")
+                    try:
+                        sub = datetime.fromisoformat(raw).replace(tzinfo=None)
+                    except Exception:
+                        # An unparseable timestamp means "cannot judge its
+                        # age", which is not the same as "not stale". Say so
+                        # rather than skipping in silence — a broker adapter
+                        # returning the wrong shape here disables the whole
+                        # cleanup and looks exactly like having nothing stale.
+                        logger.warning(
+                            "stale-order check: %s order %s has an unreadable "
+                            "submitted_at (%r) — leaving it alone",
+                            getattr(broker, "name", "?"), o.get("id"), raw)
+                        continue
+                    if sub < cutoff and broker.cancel_order(o["id"]):
+                        cancelled.append(o)
+                        logger.info(f"Cancelled stale order {o['id']} "
+                                    f"({o['side']} {o['qty']:g} {ticker})")
         return cancelled
 
     def _place_stop_loss(self, broker: BrokerBase, trade: PendingTrade, fill_price: float) -> Optional[dict]:

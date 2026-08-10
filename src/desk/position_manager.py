@@ -440,7 +440,14 @@ class PositionManager:
             return None
 
         # SAFETY: live account never auto-closes — queue for the human.
-        if not (paper_mode_confirmed() and broker.paper):
+        # Uses the same gate as the broker wrapper (env + adapter flag +
+        # destination) rather than a weaker two-check version of it, so this
+        # layer cannot quietly pass something PaperOnlyBroker would refuse.
+        # Works on the wrapper directly: PaperOnlyBroker passes non-callable
+        # attributes straight through, so this asks the same question of the
+        # same account without unwrapping anything.
+        from src.execution.live_guard import paper_confirmed
+        if not paper_confirmed(broker):
             self._queue_manual_exit(ticker, pos, qty, long, reason)
             return {"ticker": ticker, "reason": reason, "mode": "queued (live account)"}
 

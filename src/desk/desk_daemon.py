@@ -108,7 +108,21 @@ class DeskDaemon:
         cfg = load_config()
         interval = cfg["interval_minutes"]
         mgmt_interval = int(cfg.get("management_tick_minutes", 5))
-        self.scheduler = BackgroundScheduler()
+        # APScheduler's defaults are wrong for a box like this one.
+        #
+        #   misfire_grace_time defaults to 1 SECOND: a job that cannot start
+        #   within a second of its slot — routine on a 2014 Mac mini running an
+        #   LLM — is dropped with a log line nobody reads. An unattended loop
+        #   that silently skips runs is the failure mode this whole phase is
+        #   about, so the grace is an hour and misfires coalesce into one run.
+        #
+        #   max_instances=1 stays: two hunt cycles at once would debate and
+        #   size against each other's half-finished state.
+        self.scheduler = BackgroundScheduler(job_defaults={
+            "misfire_grace_time": 3600,
+            "coalesce": True,
+            "max_instances": 1,
+        })
         # Hunt cycle — analysts→debate→slate, only when the market is open
         self.scheduler.add_job(self._run_cycle, "interval", minutes=interval,
                                id="desk_cycle", replace_existing=True)
@@ -118,6 +132,24 @@ class DeskDaemon:
                                minutes=mgmt_interval, id="desk_mgmt",
                                replace_existing=True,
                                next_run_time=datetime.now())
+        # ── the research flywheel (src/v5/loop.py) ───────────────────────────
+        # PREDICT once a day after the close, RESOLVE every few hours. Without
+        # these two jobs the track record cannot accumulate no matter how long
+        # the machine stays up: predictions were only ever logged when a human
+        # opened a page, and resolution only ever ran from a manual POST.
+        from src.v5 import loop as v5_loop
+        self.scheduler.add_job(v5_loop.predict_once, "cron",
+                               hour=v5_loop.PREDICT_HOUR, minute=10,
+                               id="v5_predict", replace_existing=True)
+        self.scheduler.add_job(v5_loop.resolve_once, "interval",
+                               hours=v5_loop.RESOLVE_INTERVAL_HOURS,
+                               id="v5_resolve", replace_existing=True,
+                               next_run_time=datetime.now())
+        # Watchdog: the scheduler is in-process, so if it dies the app keeps
+        # serving requests and quietly stops trading and learning. Checking
+        # every 15 minutes turns that from invisible into logged and repaired.
+        self.scheduler.add_job(self._watchdog, "interval", minutes=15,
+                               id="desk_watchdog", replace_existing=True)
         # Nightly state backup (cheap insurance against a corrupted JSON file)
         self.scheduler.add_job(_backup_desk_state, "cron", hour=2, minute=0,
                                id="desk_backup", replace_existing=True)
@@ -134,6 +166,40 @@ class DeskDaemon:
             logger.warning(f"reflex engine start failed: {e}")
         logger.info(f"Desk daemon started (hunt every {interval} min, "
                     f"management tick every {mgmt_interval} min)")
+
+    def _watchdog(self):
+        """Notice when the loop has stopped being a loop.
+
+        Three things can go wrong quietly on a long-running box: the scheduler
+        shuts itself down, a job disappears from the table, or a leg of the
+        research flywheel stops firing while everything else keeps working. All
+        three present identically from outside — the app answers requests
+        normally and simply stops learning.
+        """
+        try:
+            if self.scheduler is None or not self.scheduler.running:
+                logger.error("desk watchdog: scheduler is not running — restarting")
+                self.running = False
+                self.start()
+                return
+
+            expected = {"desk_cycle", "desk_mgmt", "v5_predict", "v5_resolve"}
+            present = {j.id for j in self.scheduler.get_jobs()}
+            missing = expected - present
+            if missing:
+                logger.error("desk watchdog: jobs vanished from the scheduler "
+                             "(%s) — rebuilding the schedule", sorted(missing))
+                self.running = False
+                self.start()
+                return
+
+            from src.v5 import loop as v5_loop
+            health = v5_loop.health()
+            if not health["healthy"] and health["predict"]["last_run"]:
+                logger.error("desk watchdog: the research loop has stalled — %s",
+                             health["note"])
+        except Exception:
+            logger.exception("desk watchdog failed")
 
     def stop(self):
         self.running = False

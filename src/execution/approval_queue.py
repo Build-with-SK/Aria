@@ -165,10 +165,17 @@ class ApprovalQueue:
         return None
 
     def reject(self, trade_id: str, reason: str = "") -> Optional[PendingTrade]:
+        """Record a refusal — by the human before it was sent, or by the broker
+        after. "approved" is accepted deliberately: OrderManager.execute()
+        marks a trade approved *before* it calls the broker, so a broker
+        rejection arriving afterwards used to find the trade already out of
+        "pending" and silently do nothing. The queue then read "approved" for
+        an order that never existed — the audit trail claiming a trade the
+        market rejected."""
         with _QUEUE_LOCK:
             items = _load_queue()
             for d in items:
-                if d["id"] == trade_id and d["status"] == "pending":
+                if d["id"] == trade_id and d["status"] in ("pending", "approved"):
                     d["status"] = "rejected"
                     d["rejection_reason"] = reason
                     _save_queue(items)

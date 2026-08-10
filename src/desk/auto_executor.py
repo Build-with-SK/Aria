@@ -42,15 +42,25 @@ _order_manager = None
 def get_order_manager(rebuild: bool = False):
     """Desk-local lazy OrderManager (Alpaca only — desk trades are equity/crypto).
     rebuild=True discards the cached instance — a broker client can wedge
-    after a network drop while a fresh one connects fine."""
+    after a network drop while a fresh one connects fine.
+
+    The broker is wrapped in PaperOnlyBroker, and that wrapping is the whole
+    safety contract for gate 5 rather than a check somewhere inside the entry
+    path. Everything autonomous — entries, bracket healing, stop replacement,
+    stale-order cleanup, anything added later — reaches the broker through this
+    object, so none of them can place or cancel a real order. The human
+    approval path in backend/main.py builds its own OrderManager on the
+    unwrapped broker: an approved live trade still executes.
+    """
     global _order_manager
     if rebuild:
         _order_manager = None
     if _order_manager is None:
         try:
             from src.execution.alpaca_broker import AlpacaBroker
+            from src.execution.live_guard import PaperOnlyBroker
             from src.execution.order_manager import OrderManager
-            _order_manager = OrderManager(alpaca=AlpacaBroker())
+            _order_manager = OrderManager(alpaca=PaperOnlyBroker(AlpacaBroker()))
         except Exception as e:
             logger.warning(f"desk order manager init failed: {e}")
     return _order_manager
@@ -67,10 +77,22 @@ def account_snapshot() -> dict:
             if mgr and mgr._alpaca and mgr._alpaca.is_connected():
                 logger.info("broker client rebuilt after stale connection")
         if mgr and mgr._alpaca and mgr._alpaca.is_connected():
+            from src.execution.live_guard import paper_status
             acct = mgr._alpaca.get_account()
             snap["equity"] = acct.portfolio_value or acct.cash
             snap["connected"] = True
-            snap["paper"] = bool(mgr._alpaca.paper)
+            # Three separate facts, not one flag reported twice: the operator's
+            # env var, the adapter's flag, and the endpoint the client will
+            # actually call. `paper` stays the adapter's view of the ACCOUNT
+            # (so the UI says "live" for a live account even when the env var
+            # is wrong); `paper_confirmed` is what the gate is allowed to use.
+            st = (mgr._alpaca.status() if hasattr(mgr._alpaca, "status")
+                  else paper_status(mgr._alpaca))
+            snap["paper_status"] = st
+            snap["paper_confirmed"] = st["confirmed_paper"]
+            snap["paper"] = (st["endpoint_is_paper"]
+                             if st["endpoint_is_paper"] is not None
+                             else bool(mgr._alpaca.paper))
             snap["cash"] = acct.cash
             snap["buying_power"] = acct.buying_power
             for p in mgr._alpaca.get_positions():
@@ -109,8 +131,14 @@ class AutoExecutor:
             "account": "paper" if broker_paper else
                        ("live" if broker_paper is False else "disconnected"),
         }
+        # paper_confirmed folds in the endpoint check. It is absent when the
+        # broker never connected, and its absence must not read as True.
+        confirmed = account.get("paper_confirmed")
+        g["paper_confirmed"] = confirmed
+        g["paper_status"] = account.get("paper_status")
         g["auto_allowed"] = (env_paper and armed and account.get("connected")
                              and broker_paper is True
+                             and confirmed is True
                              and budget_left > 0 and trades_left > 0)
         return g
 
@@ -242,6 +270,9 @@ class AutoExecutor:
             reasons.append("ALPACA_PAPER is not exactly 'true' — auto-exec hard-disabled")
         if g["broker_paper"] is False:
             reasons.append("LIVE account detected — live always requires human approval")
+        if g.get("paper_confirmed") is not True and g["broker_paper"] is not False:
+            reasons.append("paper status unconfirmed (endpoint check did not pass) "
+                           "— autonomous execution stays closed")
         if not g["armed"]:
             reasons.append("auto-execute is not armed")
         if not g["broker_connected"]:
