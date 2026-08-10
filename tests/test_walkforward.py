@@ -275,6 +275,35 @@ def test_successes_are_scaled_with_the_discounted_sample():
     assert scaled_way is not None and scaled_way > 0.5  # the right, dull one
 
 
+def test_the_family_of_41_tests_is_corrected_for():
+    """Forty-one modules are forty-one simultaneous tests. At p<0.05 about two
+    clear by chance under a null where nothing works, so an uncorrected count
+    of "significant" modules manufactures findings from noise.
+
+    Uses the same Benjamini-Hochberg routine as src/v5/tiers.py, so the platform
+    has one convention rather than two that drift apart.
+    """
+    from src.v5.tiers import _bh_adjust
+
+    # PURE NOISE looks like uniformly distributed p-values, not like a pile of
+    # them at 0.04. Under a true null across 41 tests you expect about two below
+    # 0.05 by chance — and those two are exactly the false findings this
+    # correction exists to suppress.
+    noise = {f"m{i}": (i + 1) / 41 for i in range(41)}
+    raw_hits = [k for k, v in noise.items() if v < 0.05]
+    assert len(raw_hits) >= 1, "the fixture should contain a chance hit to suppress"
+    adjusted_noise = _bh_adjust(noise)
+    assert all(v >= 0.05 for v in adjusted_noise.values()), (
+        "a chance hit among 41 null tests survived correction")
+
+    # A genuine effect, far below the family threshold, still gets through —
+    # a correction that suppresses everything is not a correction, it is a mute
+    # button.
+    with_real = dict(noise)
+    with_real["real"] = 1e-6
+    assert _bh_adjust(with_real)["real"] < 0.05
+
+
 def test_significance_is_reported_not_just_the_point_estimate():
     """A number without an error bar invites acting on noise."""
     assert wf._binomial_p(60, 100, 0.5) is not None

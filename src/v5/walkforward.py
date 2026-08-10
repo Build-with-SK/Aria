@@ -394,17 +394,19 @@ def _verdict(n_calls: int, hit_rate: Optional[float], base: Optional[float],
 
     sample = (f"{n_calls} calls, but only ~{n_eff} independent after "
               f"discounting for names that move together")
+    # p is the Benjamini-Hochberg adjusted value once run_all has seen the whole
+    # family of 41 tests; before that it is the raw one.
     if not significant:
         return (f"not distinguishable from the base rate — {hit_rate:.1%} vs "
                 f"{base:.1%} ({edge:+.1%}), {sample}"
-                + (f", p={p_value}" if p_value is not None else "")
+                + (f", adjusted p={p_value}" if p_value is not None else "")
                 + ". Do not act on this number.")
     if edge > 0:
         return (f"positive and significant — {hit_rate:.1%} vs a {base:.1%} base "
-                f"rate ({edge:+.1%}), p={p_value}, IC {ic:+.3f} ({sample})")
+                f"rate ({edge:+.1%}), adjusted p={p_value}, IC {ic:+.3f} ({sample})")
     return (f"NEGATIVE and significant — {hit_rate:.1%} vs a {base:.1%} base "
-            f"rate ({edge:+.1%}), p={p_value}; this module has been worse than "
-            f"the coin ({sample})")
+            f"rate ({edge:+.1%}), adjusted p={p_value}; this module has been "
+            f"worse than the coin ({sample})")
 
 
 # ── the whole registry ───────────────────────────────────────────────────────
@@ -431,6 +433,34 @@ def run_all(*, universe: list[str] | None = None, modules: list[str] | None = No
             results[name] = {"module": name, "error": str(e)[:300],
                              "validated": False,
                              "at": datetime.now().isoformat(timespec="seconds")}
+
+    # MULTIPLE COMPARISONS. Forty-one modules are forty-one simultaneous tests,
+    # so at p<0.05 roughly two of them clear by chance under a null where
+    # nothing works at all. Reporting the raw count as "12 significant modules"
+    # would be the single most likely thing in this file to embarrass anyone who
+    # quoted it.
+    #
+    # Benjamini-Hochberg, borrowed from src/v5/tiers.py rather than
+    # reimplemented, so the platform has ONE convention for this rather than two
+    # that can drift apart.
+    from src.v5.tiers import _bh_adjust
+
+    raw_p = {name: r["p_value"] for name, r in results.items()
+             if r.get("p_value") is not None}
+    adjusted = _bh_adjust(raw_p)
+    for name, r in results.items():
+        adj = adjusted.get(name)
+        r["p_value_adjusted"] = adj
+        r["significant_uncorrected"] = bool(r.get("significant"))
+        r["significant"] = bool(adj is not None and adj < 0.05)
+        # The verdict sentence has to be recomputed: it is written inside
+        # evaluate_module, which cannot know the size of the family it belongs to.
+        if r.get("n_calls"):
+            r["verdict"] = _verdict(
+                r["n_calls"], r.get("hit_rate"), r.get("base_rate_up"),
+                r.get("information_coefficient"),
+                n_eff=r.get("n_effective", 0), p_value=adj,
+                significant=r["significant"])
 
     validated = [r for r in results.values() if r.get("validated")]
     bases = [r["base_rate_up"] for r in results.values()
