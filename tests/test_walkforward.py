@@ -248,8 +248,11 @@ def test_correlated_names_are_discounted_to_a_realistic_sample():
     # is warranted and none should be applied.
     import random
     rng = random.Random(11)
+    # `net` must vary by name too: a module emitting one score for every ticker
+    # has made one bet regardless of how independent the outcomes were, which
+    # the signal-breadth ceiling now enforces separately.
     spread = [{"at": d, "ticker": f"T{i}", "fwd_return": rng.gauss(0, 0.05),
-               "correct": rng.random() > 0.5, "net": 30}
+               "correct": rng.random() > 0.5, "net": rng.uniform(-60, 60)}
               for d in dates for i in range(40)]
     n_eff2, rho2 = wf.effective_sample_size(spread)
     assert rho2 < 0.3, f"independent outcomes scored rho={rho2}"
@@ -273,6 +276,38 @@ def test_successes_are_scaled_with_the_discounted_sample():
 
     assert raw_way is not None and raw_way < 0.01      # the wrong, exciting answer
     assert scaled_way is not None and scaled_way > 0.5  # the right, dull one
+
+
+def test_a_macro_module_is_not_credited_with_one_bet_per_ticker():
+    """`credit` and `breadth` emit the IDENTICAL score for every ticker on a
+    date — measured standard deviation across names is 0.000. Running them on
+    forty names produces one macro opinion replicated forty times, not forty
+    observations, and the harness scored `credit` as 1,093 independent calls
+    when it had made about 48 bets.
+
+    Every module that came out "significantly negative" was a macro signal,
+    which is precisely the population this error would manufacture.
+    """
+    dates = [f"2024-{m:02d}-05" for m in range(1, 11)]
+    moves = [0.05, -0.04, 0.06, -0.03, 0.02, -0.05, 0.04, -0.02, 0.03, -0.06]
+
+    # A macro module: same score for every name, outcomes genuinely differ.
+    import random
+    rng = random.Random(3)
+    macro = [{"at": d, "ticker": f"T{i}", "fwd_return": mv + rng.gauss(0, 0.04),
+              "correct": mv > 0, "net": 20.0}          # identical score
+             for d, mv in zip(dates, moves) for i in range(40)]
+    n_macro, _ = wf.effective_sample_size(macro)
+    assert n_macro <= len(dates) + 5, (
+        f"400 replications of one macro opinion counted as {n_macro}")
+
+    # A stock-picking module on the same dates and outcomes, but with a score
+    # that genuinely differs by name, keeps its sample.
+    picker = [{**c, "net": rng.uniform(-60, 60)} for c in macro]
+    n_picker, _ = wf.effective_sample_size(picker)
+    assert n_picker > n_macro * 3, (
+        f"a genuine cross-sectional signal was discounted like a macro one "
+        f"({n_picker} vs {n_macro})")
 
 
 def test_the_family_of_41_tests_is_corrected_for():
