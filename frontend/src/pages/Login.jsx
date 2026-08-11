@@ -12,6 +12,7 @@
  */
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
+import { setOwnerToken, clearOwnerToken } from '../auth/ownerToken'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -47,6 +48,9 @@ export default function Login() {
   const [providers, setProviders] = useState(null)
   const [err, setErr] = useState('')
   const [down, setDown] = useState(false)
+  const [tokenInput, setTokenInput] = useState('')
+  const [tokenErr, setTokenErr] = useState('')
+  const [checking, setChecking] = useState(false)
 
   useEffect(() => {
     const q = new URLSearchParams(location.search).get('error')
@@ -149,17 +153,71 @@ export default function Login() {
             ))}
           </div>
 
-          {providers !== null && available.length === 0 && !down && (
-            <div style={{
-              ...mono, fontSize: 11, color: 'var(--muted)', lineHeight: 1.65,
-              border: '1px solid var(--border)', borderRadius: 3, padding: '11px 12px',
-            }}>
-              <strong style={{ color: 'var(--orange)' }}>No sign-in provider is configured yet.</strong>
-              <div style={{ marginTop: 7 }}>
-                Register an OAuth app with a provider, then put its client ID and
-                secret in <code>.env</code> and restart the backend.
-              </div>
-            </div>
+          {/* Owner sign-in. OAuth identifies other people; this identifies the
+              one person who owns the instance, and it is the only door that
+              works before a provider is registered. The token is checked by
+              the server with a constant-time compare and counts as PROVEN
+              ownership — the same standing a signed OAuth session has. */}
+          {providers !== null && !down && (
+            <form
+              onSubmit={e => {
+                e.preventDefault()
+                const t = setOwnerToken(tokenInput)
+                if (!t) { setTokenErr('Paste the token first.'); return }
+                setTokenErr('')
+                setChecking(true)
+                axios.get('/api/auth/me')
+                  .then(r => {
+                    if (r.data?.role === 'owner') window.location.href = next
+                    else { clearOwnerToken(); setTokenErr('That token was not accepted.'); }
+                  })
+                  .catch(() => { clearOwnerToken(); setTokenErr('That token was not accepted.') })
+                  .finally(() => setChecking(false))
+              }}
+              style={{ marginTop: available.length ? 16 : 0 }}
+            >
+              {available.length > 0 && (
+                <div style={{ ...mono, fontSize: 9.5, color: 'var(--muted)', letterSpacing: '0.10em', margin: '0 0 10px' }}>
+                  OR SIGN IN AS THE OWNER
+                </div>
+              )}
+              <label htmlFor="owner-token" style={{ ...mono, fontSize: 11, color: '#c9c4d0' }}>
+                Owner token
+              </label>
+              <input
+                id="owner-token" type="password" autoComplete="current-password"
+                value={tokenInput} onChange={e => setTokenInput(e.target.value)}
+                placeholder="ARIA_OWNER_TOKEN from your .env"
+                style={{
+                  ...mono, width: '100%', boxSizing: 'border-box', marginTop: 7,
+                  padding: '10px 11px', fontSize: 12, color: '#e8e8e8',
+                  background: '#121016', border: '1px solid #2a2630', borderRadius: 4,
+                }}
+              />
+              {tokenErr && (
+                <div role="alert" style={{ ...mono, fontSize: 10.5, color: 'var(--red)', marginTop: 7 }}>
+                  {tokenErr}
+                </div>
+              )}
+              <button type="submit" disabled={checking}
+                style={{
+                  ...mono, width: '100%', marginTop: 10, padding: '11px 13px',
+                  cursor: checking ? 'default' : 'pointer',
+                  background: checking ? '#1a1620' : 'var(--orange)',
+                  color: checking ? 'var(--muted)' : '#140407',
+                  border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 700,
+                  letterSpacing: '0.06em',
+                }}>
+                {checking ? 'CHECKING…' : 'SIGN IN'}
+              </button>
+              {available.length === 0 && (
+                <p style={{ ...mono, fontSize: 10, color: 'var(--muted)', lineHeight: 1.6, marginTop: 12 }}>
+                  No OAuth provider is configured, so this is the only way in.
+                  To let other people sign in, register an OAuth app and put its
+                  client ID and secret in <code>.env</code>.
+                </p>
+              )}
+            </form>
           )}
 
           {missing.length > 0 && available.length > 0 && (

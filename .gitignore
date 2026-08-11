@@ -124,3 +124,8 @@ scripts/cloudflared-config.yml
 install_scheduler.ps1
 uninstall_scheduler.ps1
 docs/audit/PR_BODY.md
+
+# service logs and one-off run logs
+data/logs/
+wf_rerun.log
+backend_run.log

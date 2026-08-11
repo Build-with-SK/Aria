@@ -19,7 +19,7 @@ duplicate what is there.
 
 | Faculty | Where it lives now | State |
 |---|---|---|
-| Brain | `src/brain/cognitive/` — perception, working_memory, planner, reasoner, executor, learner, long_term_memory | A real cognitive loop. Works. |
+| Brain | `src/brain/cognitive/` — perception, working_memory, planner, reasoner, executor, learner, long_term_memory | A real cognitive loop. Works. **Must run on a frontier model — see below.** |
 | Long memory | `src/brain/vault.py` + ChromaDB index of the owner's Obsidian vault | Works. Owner-only, structurally. |
 | Mouth | `frontend/src/core/ariaVoice.js`, `spokenDigest.js`, `CoreTalk.jsx`, `LivingCore.jsx` | Browser speech synthesis. Partly built. |
 | Hands | `src/execution/` + `src/desk/` | Works, and is deliberately gated. See INVARIANTS. |
@@ -28,6 +28,44 @@ duplicate what is there.
 | Ears | — | **Missing.** |
 | Eyes | — | **Missing.** |
 | Reading | — | **Missing.** No pipeline ingests books. |
+
+### The brain is a frontier model. Local models are not the reasoner.
+
+The owner's instruction, and it is a design decision rather than a preference:
+**no local model does the thinking.** Ollama is not the router, not the mapper,
+not the planner, and not the fallback that quietly answers when the good model
+is unavailable.
+
+Route every reasoning step — planning, the analyst debate, the teacher, the
+chat replies, the daily briefing — through `src/inference/` to a frontier model
+(Claude). Where the router currently prefers a local model, change the
+preference, not the interface.
+
+Local models may keep exactly two jobs, both of which are mechanical rather
+than cognitive: embeddings for the vault index, and speech-to-text if you run
+Whisper locally for privacy. Neither of those decides anything.
+
+Three consequences to design for rather than discover:
+
+- **Cost is now per call, and the loops run unattended.** The desk ticks every
+  5 minutes and the research loop runs nightly over 30 names. Put a hard daily
+  spend ceiling in config, log spend per subsystem, and make ARIA refuse and
+  say so when the ceiling is hit. A silent overspend is worse than a pause.
+- **A frontier model needs the network.** When it is unreachable ARIA
+  ABSTAINS and says why. She does not silently downgrade to a 4B local model
+  and keep talking — the whole point of this codebase is that a stated
+  confidence means something, and an answer from a different, weaker brain
+  wearing the same voice is a lie about provenance.
+- **She is one mind, not a committee of models.** Whatever answers should be
+  identifiable in the response, so `data-health`-style provenance applies to
+  reasoning too: which model, which version, what it cost.
+
+Be honest about what this does and does not buy. It makes her far more capable.
+It does not make her "an LLM that performs on its own" in the sense of being
+self-contained — she is an application built around a model she calls over the
+network, and the model's weights are not hers and do not change. Anything that
+implies otherwise in the UI is the kind of embellishment §"WHAT THIS IS,
+PLAINLY" tells you to delete.
 
 ### Build order
 
