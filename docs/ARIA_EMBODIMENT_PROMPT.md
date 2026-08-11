@@ -1,3 +1,10 @@
+> **SUPERSEDED — do not paste this into a new session.**
+> The single current brief is [`ARIA_NEXT_SESSION.md`](ARIA_NEXT_SESSION.md).
+>
+> Kept for its reasoning on the senses (ears, eyes, reading pipeline) and the presence layer. Its brain
+> section is OUT OF DATE - it assumed a frontier API.
+> Where this file disagrees with ARIA_NEXT_SESSION.md, that file wins.
+
 # Prompt: give ARIA a body
 
 Paste the section below into a fresh Claude Code session in this repo. Read

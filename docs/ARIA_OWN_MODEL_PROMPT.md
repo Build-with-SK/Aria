@@ -1,3 +1,10 @@
+> **SUPERSEDED — do not paste this into a new session.**
+> The single current brief is [`ARIA_NEXT_SESSION.md`](ARIA_NEXT_SESSION.md).
+>
+> Kept for its reasoning on the training ladder, the cluster constraints (SLURM, AUP, data governance)
+> and the honest cost of each tier.
+> Where this file disagrees with ARIA_NEXT_SESSION.md, that file wins.
+
 # Prompt: ARIA's own model, on serious compute
 
 Paste the section below into a fresh Claude Code session in this repo. Read

@@ -1,3 +1,10 @@
+> **SUPERSEDED — do not paste this into a new session.**
+> The single current brief is [`ARIA_NEXT_SESSION.md`](ARIA_NEXT_SESSION.md).
+>
+> Kept for its reasoning on the self-modification fence and the 8 GB laptop sizing. Its 'decision to be
+> made' section is RESOLVED - he chose self-hosted weights.
+> Where this file disagrees with ARIA_NEXT_SESSION.md, that file wins.
+
 # Prompt: ARIA's own brain, and the right to change herself
 
 Paste the section below into a fresh Claude Code session in this repo. Read
