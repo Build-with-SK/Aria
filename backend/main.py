@@ -1103,10 +1103,38 @@ def auth_callback(provider: str, request: Request,
 
     resp = RedirectResponse(f"{front}{oauth.safe_next(st.get('n'))}", status_code=302)
     resp.set_cookie(sess.COOKIE, sess.issue(identity), **sess.cookie_kwargs())
+    is_owner = sess.is_owner_identity(identity)
+    # With OAuth there is no separate registration step: the first sign-in IS
+    # the sign-up, and this is where it happens. Recorded here rather than in a
+    # middleware so it captures the verified identity the provider returned,
+    # not a role derived from a cookie later.
+    from src.auth import users
+    users.record_sign_in(identity, owner=is_owner)
     logger.info("auth: %s signed in via %s (owner=%s)",
-                identity.get("email") or identity.get("sub"), provider,
-                sess.is_owner_identity(identity))
+                identity.get("email") or identity.get("sub"), provider, is_owner)
     return resp
+
+
+@app.get("/api/auth/users", tags=["Auth"],
+         dependencies=[Depends(require_owner)])
+def auth_users():
+    """Everyone who has ever signed in. Owner-only.
+
+    The moment real people use this, the file behind it holds personal data and
+    the owner is a controller under UK GDPR — which needs a lawful basis, a
+    privacy notice saying what is kept, and a way to erase someone. The record
+    is deliberately minimal so those obligations are cheap to honour; see
+    src/auth/users.py and the DELETE below."""
+    from src.auth import users
+    return _sanitize({"stats": users.stats(), "users": users.list_users()})
+
+
+@app.delete("/api/auth/users/{key:path}", tags=["Auth"],
+            dependencies=[Depends(require_owner)])
+def auth_delete_user(key: str):
+    """Erase one person's record — the deletion request path. Owner-only."""
+    from src.auth import users
+    return {"ok": users.delete(key), "key": key}
 
 
 @app.post("/api/auth/logout", tags=["Auth"])

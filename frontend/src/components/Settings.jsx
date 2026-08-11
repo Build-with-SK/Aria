@@ -13,6 +13,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { CURRENCY_META, useCurrency } from '../currency/CurrencyContext'
 import { applyA11y, loadA11y } from './Accessibility'
+import { useAuth } from '../auth/AuthContext'
+import { clearOwnerToken } from '../auth/ownerToken'
 
 const MONO = 'var(--mono)'
 const A11Y_KEY = 'aria-a11y'
@@ -58,6 +60,79 @@ function Choice({ options, value, onChange, ariaLabel }) {
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/**
+ * The account block.
+ *
+ * Sign-up is not a separate flow and pretending otherwise would be a lie in the
+ * UI: ARIA has no passwords, so the first time you sign in with a provider IS
+ * your registration. The button says what actually happens.
+ */
+function Account() {
+  const { ready, authenticated, owner, role, user, logout } = useAuth()
+  const [busy, setBusy] = useState(false)
+
+  const signOut = async () => {
+    setBusy(true)
+    clearOwnerToken()          // the browser's proof of ownership, if it held one
+    try { await logout() } finally { window.location.href = '/app/login' }
+  }
+
+  const go = () => { window.location.href = '/app/login' }
+  const label = !ready ? 'checking…'
+    : owner ? 'Owner'
+    : authenticated ? 'Signed in'
+    : 'Not signed in'
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 12, padding: '10px 12px', borderRadius: 4,
+        border: '1px solid var(--border-2)', background: 'rgba(255,255,255,.02)',
+      }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--text)' }}>
+            {user?.email || user?.name || label}
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+            {label}{role ? ` · ${role}` : ''}
+          </div>
+        </div>
+        {authenticated ? (
+          <button onClick={signOut} disabled={busy}
+            style={{
+              fontFamily: MONO, fontSize: 11, padding: '7px 14px', minHeight: 30,
+              cursor: busy ? 'default' : 'pointer', borderRadius: 4,
+              background: 'none', border: '1px solid var(--border-2)', color: 'var(--muted)',
+            }}>{busy ? 'SIGNING OUT…' : 'SIGN OUT'}</button>
+        ) : (
+          <button onClick={go}
+            style={{
+              fontFamily: MONO, fontSize: 11, fontWeight: 700, padding: '7px 14px',
+              minHeight: 30, cursor: 'pointer', borderRadius: 4, border: 'none',
+              background: 'var(--orange)', color: '#140407',
+            }}>SIGN IN</button>
+        )}
+      </div>
+
+      {!authenticated && ready && (
+        <button onClick={go}
+          style={{
+            fontFamily: MONO, fontSize: 11, padding: '8px 12px', cursor: 'pointer',
+            borderRadius: 4, background: 'none', textAlign: 'left',
+            border: '1px dashed var(--border-2)', color: 'var(--muted)',
+          }}>
+          New here? Create an account →
+          <span style={{ display: 'block', marginTop: 3, fontSize: 10 }}>
+            Signing in with a provider for the first time creates your account.
+            ARIA never sees a password.
+          </span>
+        </button>
+      )}
     </div>
   )
 }
@@ -125,7 +200,7 @@ export default function Settings({ open, onClose }) {
               SETTINGS
             </div>
             <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
-              Saved on this device only — nothing leaves your machine
+              Display preferences stay on this device. Your account lives on the server.
             </div>
           </div>
           <button ref={firstRef} onClick={onClose} aria-label="Close settings"
@@ -134,6 +209,13 @@ export default function Settings({ open, onClose }) {
               background: 'none', border: '1px solid var(--border-2)', color: 'var(--muted)', borderRadius: 4,
             }}>CLOSE</button>
         </div>
+
+        <Section
+          title="ACCOUNT"
+          hint="Who you are signed in as. Signing out clears this browser's
+                session and any owner token stored on this device.">
+          <Account />
+        </Section>
 
         <Section
           title="DISPLAY CURRENCY"
