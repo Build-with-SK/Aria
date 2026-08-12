@@ -212,10 +212,24 @@ class BrainDaemon:
                 logger.warning(f"Learner step failed (non-fatal): {e}")
                 wm.warnings.append(f"Learner failed: {e}")
 
-            # 2. PERCEIVE
+            # 2. PERCEIVE — prices, and then the world those prices live in.
             perception = MarketPerception().perceive()
             if perception.regime_shift:
                 wm.warnings.append("Macro regime shifted since last cycle")
+
+            # The eye looks on its own cadence; this step only reads what it
+            # already saw. Blinking here would put a dozen network sweeps on
+            # the critical path of every reasoning cycle, and a slow feed
+            # would then look like a slow brain.
+            world = ""
+            try:
+                from src.research import eye
+                world = eye.briefing(hours=12)
+                if world:
+                    logger.info("eye: %d observations in context",
+                                len(world.splitlines()) - 1)
+            except Exception as e:
+                logger.warning(f"Eye unavailable for this cycle: {e}")
 
             # 3. REASON — with access to the user's Obsidian vault knowledge
             vault = None
@@ -225,7 +239,8 @@ class BrainDaemon:
             except Exception as e:
                 logger.warning(f"Vault unavailable for this cycle: {e}")
             reasoner = ReasoningLoop(model=self.model, vault=vault,
-                                     peer_context=_synapse_read())
+                                     peer_context=_synapse_read(),
+                                     world_context=world)
             result = reasoner.run_cycle(perception, memory, wm)
 
             # 4. PLAN

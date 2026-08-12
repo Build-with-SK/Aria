@@ -124,10 +124,11 @@ class ReasoningLoop:
     HARD_STEPS = ("ORIENT", "ANALYSE", "DECIDE", "REFLECT")
 
     def __init__(self, model: str = "qwen2.5-coder:7b", vault=None,
-                 peer_context: str = ""):
+                 peer_context: str = "", world_context: str = ""):
         self.model = model
         self.vault = vault   # optional VaultIndex — the user's Obsidian knowledge
         self.peer_context = peer_context   # lessons from peer minds (e.g. ATLAS)
+        self.world_context = world_context  # what the eye saw (src/research/eye.py)
         self.brains: dict = {}   # step -> "local" | "frontier" (for the UI)
         self._consult = _consult_config()
 
@@ -204,10 +205,21 @@ For each, one sentence why it's interesting. Format: TICKER: reason""",
         if self.peer_context:
             recall_context += f"\nFROM MY PEER ATLAS (the user's personal AI):\n{self.peer_context[:600]}"
 
+        if self.world_context:
+            # Observations, not conclusions. The wording matters: the eye
+            # reports that something was said, never that it is true, and a
+            # headline is not evidence for a trade on its own.
+            recall_context += (
+                "\nWHAT I SAW ON THE INTERNET (observations only — a headline "
+                "is not evidence, and none of this has been verified):\n"
+                f"{self.world_context[:900]}"
+            )
+
         wm.add_thought("RECALL", recall_context,
                        f"Found {len(past_memories)} relevant past cycles"
                        + (" + vault knowledge" if self.vault else "")
-                       + (" + peer lessons" if self.peer_context else ""))
+                       + (" + peer lessons" if self.peer_context else "")
+                       + (" + world observations" if self.world_context else ""))
 
         # Step 4: ANALYSE — deep dive on each focused ticker (cap 4 for token budget)
         analyses = {}

@@ -2799,6 +2799,85 @@ def research_doc(content_id: str):
 
 
 # ===========================================================================
+# THE EYE — standing attention on the internet.
+#
+# /read and /hunt are a hand: they fetch what they are told to. These routes
+# drive the eye, which looks on its own cadence and reports only what changed.
+# It observes and hands what it saw to the brain; it does not propose, size or
+# execute anything.
+# ===========================================================================
+
+@app.get("/api/research/eye", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_eye(hours: int = 24, limit: int = 50, min_salience: float = 0.0):
+    """What the eye has noticed lately, most salient first.
+
+    An empty list is a real answer: nothing new crossed the threshold. A
+    perception layer that always has something to say is filling airtime."""
+    from dataclasses import asdict
+
+    from src.research import eye
+    return _sanitize({
+        "hours": hours,
+        "watches": [asdict(w) for w in eye.watches()],
+        "observations": eye.recent(hours=hours, limit=limit,
+                                   min_salience=min_salience),
+        "briefing": eye.briefing(hours=min(hours, 12)),
+    })
+
+
+@app.post("/api/research/eye/blink", tags=["Research"],
+          dependencies=[Depends(require_owner)])
+def research_eye_blink(force: bool = False, max_observations: int = 12):
+    """Look now at every watch that is due. `force=true` ignores cadence.
+
+    A watch's first look reports nothing and records a baseline instead —
+    everything is new the first time you open your eyes, and reporting that
+    is how a perception system loses its reader on day one."""
+    from src.research import eye
+    return _sanitize(eye.blink(force=force, max_observations=max_observations))
+
+
+@app.post("/api/research/eye/watch", tags=["Research"],
+          dependencies=[Depends(require_owner)])
+def research_eye_watch(query: str, kind: str = "topic", cadence_minutes: int = 60):
+    """Add or update a standing watch (kind: ticker | topic | feed).
+
+    Re-adding an existing watch keeps its baseline, so it will not re-report
+    what it has already shown you."""
+    from dataclasses import asdict
+
+    from src.research import eye
+    if kind not in ("ticker", "topic", "feed"):
+        raise HTTPException(status_code=400, detail="kind must be ticker, topic or feed")
+    return _sanitize(asdict(eye.watch(query, kind=kind,
+                                           cadence_minutes=cadence_minutes)))
+
+
+@app.delete("/api/research/eye/watch/{watch_id:path}", tags=["Research"],
+            dependencies=[Depends(require_owner)])
+def research_eye_unwatch(watch_id: str):
+    """Stop watching, and forget the baseline with it."""
+    from src.research import eye
+    if not eye.unwatch(watch_id):
+        raise HTTPException(status_code=404, detail=f"no watch {watch_id}")
+    return {"removed": watch_id}
+
+
+@app.post("/api/research/eye/attend-portfolio", tags=["Research"],
+          dependencies=[Depends(require_owner)])
+def research_eye_attend_portfolio():
+    """Point the eye at every open position.
+
+    Attention should follow exposure without anyone remembering to update a
+    list — the position you forgot to watch is the one that gaps."""
+    from dataclasses import asdict
+
+    from src.research import eye
+    added = eye.attend_to_portfolio()
+    return _sanitize({"watching": [asdict(w) for w in added]})
+
+
+# ===========================================================================
 # The guard on the guard.
 #
 # Every route that can reach a broker carries Depends(require_owner). A

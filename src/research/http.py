@@ -9,6 +9,7 @@ not re-decided (or forgotten) once per source.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,18 +36,37 @@ def _agent_for(url: str) -> str:
     return SEC_UA if host_matches(url, "sec.gov") else UA
 
 
-def get(url: str, headers: dict | None = None, timeout: int = TIMEOUT) -> bytes:
+def get(url: str, headers: dict | None = None, timeout: int = TIMEOUT,
+        retries: int = 2) -> bytes:
+    """GET with one polite retry on 429/503.
+
+    Unauthenticated endpoints — Reddit's Atom feeds especially — throttle a
+    burst of requests, and a lead sweep is exactly a burst. Honoring
+    Retry-After costs a second and is the difference between a source that
+    works and one that reports HTTP 429 every cycle. Retries stop at `retries`
+    so a hard block fails fast instead of stalling the sweep.
+    """
     clean = normalize_public_url(url)
-    req = urllib.request.Request(
-        clean, headers={"User-Agent": _agent_for(clean), **(headers or {})}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read(MAX_BYTES + 1)
-    except urllib.error.HTTPError as exc:
-        raise SourceError(f"{clean} returned HTTP {exc.code}") from exc
-    except (urllib.error.URLError, OSError, TimeoutError) as exc:
-        raise SourceError(f"{clean} unreachable: {exc}") from exc
+    request_headers = {"User-Agent": _agent_for(clean), **(headers or {})}
+
+    for attempt in range(retries + 1):
+        req = urllib.request.Request(clean, headers=request_headers)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                body = resp.read(MAX_BYTES + 1)
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code in (429, 503) and attempt < retries:
+                try:
+                    wait = float(exc.headers.get("Retry-After", "") or 0)
+                except (TypeError, ValueError):
+                    wait = 0.0
+                time.sleep(min(max(wait, 1.5 * (attempt + 1)), 10.0))
+                continue
+            raise SourceError(f"{clean} returned HTTP {exc.code}") from exc
+        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+            raise SourceError(f"{clean} unreachable: {exc}") from exc
+
     if len(body) > MAX_BYTES:
         raise SourceError(f"{clean} response exceeds {MAX_BYTES} bytes")
     return body
