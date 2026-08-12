@@ -129,3 +129,7 @@ docs/audit/PR_BODY.md
 data/logs/
 wf_rerun.log
 backend_run.log
+
+# Research reach: fetched content, provenance index and API keys
+data/research/
+data/research_keys.json

@@ -2674,6 +2674,130 @@ def v5_identity():
     return {"creator": CREATOR, "full": system_prompt(), "short": system_prompt(full=False)}
 
 
+@app.get("/api/aria/state", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_self_state():
+    """Whether her own parts are working: reasoning model reachable, market
+    state fresh, research loop turning, how many calls have resolved.
+
+    The failure this exists to catch is the quiet one — everything answers
+    normally while nothing accumulates. Every check degrades to "unknown"
+    rather than to "fine", because a health report that says OK when it could
+    not run turns an outage into a false assurance.
+
+    `speak` is empty when nothing is wrong; when something is, it is one
+    sentence she can volunteer before answering."""
+    from src.brain import self_state
+    return _sanitize(self_state.report())
+
+
+# ===========================================================================
+# RESEARCH REACH — read the open internet, and keep the receipts.
+#
+# Everything except /status carries require_owner. Not because the data is
+# secret, but because these routes make the server fetch a URL the caller
+# chose: unguarded, that is an SSRF gadget and a way to spend ARIA's rate
+# limits on someone else's crawl. src/research/url.py rejects private and
+# loopback targets; the guard is the second lock, not the first.
+# ===========================================================================
+
+@app.get("/api/research/status", tags=["Research"])
+def research_status():
+    """Which sources can actually serve a request right now, and why not.
+
+    A source that needs a binary (yt-dlp) or a credential (X, Meta) reports
+    `available: false` with the specific fix, rather than failing at fetch
+    time. Nine of the eleven need neither."""
+    from src.research import status
+    return _sanitize({"as_of": datetime.now().isoformat(timespec="seconds"),
+                      "sources": status()})
+
+
+@app.get("/api/research/read", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_read(url: str, store: bool = True):
+    """Read one URL through whichever source claims it, and archive it.
+
+    The response carries `content_id` — the SHA-256 of exactly the bytes
+    returned. A later report citing this retrieval can be checked against
+    the archived copy even after the page changes underneath it."""
+    from src.research import read
+    from src.research.base import SourceError
+    try:
+        doc = read(url, store=store)
+    except ValueError as e:          # rejected by the URL guard
+        raise HTTPException(status_code=400, detail=str(e))
+    except SourceError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return _sanitize({
+        "url": doc.url, "title": doc.title, "source": doc.source,
+        "backend": doc.backend, "fetched_at": doc.fetched_at,
+        "chars": len(doc.text), "text": doc.text, "meta": doc.meta,
+    })
+
+
+@app.get("/api/research/feed", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_feed(url: str, limit: int = 50, store: bool = True):
+    """Expand an RSS/Atom feed into its entries without fetching each page.
+
+    Entries pointing somewhere non-public are dropped rather than fetched —
+    a feed is a list of links written by someone else."""
+    from src.research import read_feed
+    from src.research.base import SourceError
+    try:
+        docs = read_feed(url, limit=limit, store=store)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except SourceError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return _sanitize({"feed": url, "count": len(docs), "entries": [
+        {"url": d.url, "title": d.title, "excerpt": d.text[:400], "meta": d.meta}
+        for d in docs
+    ]})
+
+
+@app.post("/api/research/hunt", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_hunt(query: str, ticker: Optional[str] = None,
+                  limit_per_source: int = 15, store: bool = True):
+    """Sweep every available source for one query, in parallel.
+
+    POST because it is expensive and it writes: a sweep spends rate limit on
+    nine services and archives everything it finds.
+
+    The response separates `ran`, `failed` and `skipped` per source on
+    purpose. A sweep where Reddit was throttled and returned nothing looks
+    identical to a sweep where Reddit had nothing to say, unless the API
+    says which happened — and those two facts mean opposite things about a
+    quiet ticker."""
+    from src.research import hunt
+    sweep = hunt(query, ticker=ticker, limit_per_source=limit_per_source, store=store)
+    return _sanitize(sweep.as_dict())
+
+
+@app.get("/api/research/records", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_records(day: Optional[str] = None, limit: int = 200):
+    """The provenance log for one UTC day (YYYY-MM-DD, default today).
+
+    One record per retrieval, with a ready-made citation line. Repeated
+    retrievals of unchanged content appear repeatedly and share a
+    content_id — that is how a source going stale becomes visible."""
+    from src.research.store import citation, records
+    rows = records(day)[-limit:]
+    return _sanitize({"day": day or "today", "count": len(rows),
+                      "records": [{**r, "citation": citation(r)} for r in rows]})
+
+
+@app.get("/api/research/doc/{content_id}", tags=["Research"],
+         dependencies=[Depends(require_owner)])
+def research_doc(content_id: str):
+    """The archived bytes behind a citation, by content id."""
+    from src.research.store import load
+    if not content_id.isalnum() or len(content_id) != 64:
+        raise HTTPException(status_code=400, detail="content_id must be a sha256 hex digest")
+    text = load(content_id)
+    if text is None:
+        raise HTTPException(status_code=404, detail=f"no archived document {content_id}")
+    return {"content_id": content_id, "chars": len(text), "text": text}
+
+
 # ===========================================================================
 # The guard on the guard.
 #
