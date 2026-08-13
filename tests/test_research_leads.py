@@ -431,3 +431,49 @@ def test_hunt_asks_sources_for_the_symbol_when_given_a_ticker(monkeypatch):
     leads.hunt("ignored phrase", ticker="nvda")
     assert ("ticker", "NVDA") in calls
     assert not any(kind == "search" for kind, _ in calls)
+
+
+def test_a_429_starts_a_cooldown_so_the_rest_of_the_blink_stops_asking(monkeypatch):
+    """Five watches must not each rediscover that Reddit is throttling us."""
+    import urllib.error
+
+    from src.research import http
+
+    monkeypatch.setattr(http, "_last_request", {})
+    monkeypatch.setattr(http, "_cooldown_until", {})
+    monkeypatch.setattr(http.time, "sleep", lambda s: None)
+
+    attempts = []
+
+    def always_429(req, timeout=None):
+        attempts.append(req.full_url)
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many", {}, None)
+
+    monkeypatch.setattr(http.urllib.request, "urlopen", always_429)
+
+    with pytest.raises(http.SourceError):
+        http.get("https://www.reddit.com/search.rss?q=BILL")
+    first_round = len(attempts)
+    assert first_round == 3, "one attempt plus two retries"
+
+    # Every later watch in the same blink must fail instantly, without asking.
+    for ticker in ("BNO", "ERX", "NET", "WEAT"):
+        with pytest.raises(http.Throttled):
+            http.get(f"https://www.reddit.com/search.rss?q={ticker}")
+    assert len(attempts) == first_round, "cooldown must prevent further requests"
+
+    assert http.cooling_down("https://www.reddit.com/x") > 0
+    assert http.cooling_down("https://news.google.com/rss") == 0, "per host"
+
+
+def test_cooldown_expires(monkeypatch):
+    from src.research import http
+
+    monkeypatch.setattr(http, "_cooldown_until", {})
+    clock = {"t": 100.0}
+    monkeypatch.setattr(http.time, "monotonic", lambda: clock["t"])
+
+    http._begin_cooldown("https://www.reddit.com/x", seconds=60)
+    assert http.cooling_down("https://www.reddit.com/x") == 60
+    clock["t"] += 61
+    assert http.cooling_down("https://www.reddit.com/x") == 0

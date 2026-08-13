@@ -52,6 +52,35 @@ _DEFAULT_MIN_INTERVAL = 0.25
 _last_request: dict[str, float] = {}
 _throttle_lock = threading.Lock()
 
+# After a host says 429, stop asking it for a while. A blink over five tickers
+# would otherwise learn nothing from the first refusal and go on to spend four
+# more sweeps — each burning its retries and their sleeps — to be refused four
+# more times. Backing off is both politer and faster: one honest "cooling down"
+# per remaining watch, instantly, instead of a minute of hammering.
+_COOLDOWN_SECONDS = 600.0
+_cooldown_until: dict[str, float] = {}
+
+
+class Throttled(SourceError):
+    """This host refused us recently; we are deliberately not asking again yet."""
+
+
+def _host_key(url: str) -> str:
+    from urllib.parse import urlsplit
+    host = (urlsplit(url).hostname or "").lower()
+    return next((h for h in _HOST_MIN_INTERVAL if host.endswith(h)), host)
+
+
+def cooling_down(url: str) -> float:
+    """Seconds remaining before this host may be asked again (0 = go ahead)."""
+    with _throttle_lock:
+        return max(0.0, _cooldown_until.get(_host_key(url), 0.0) - time.monotonic())
+
+
+def _begin_cooldown(url: str, seconds: float = _COOLDOWN_SECONDS) -> None:
+    with _throttle_lock:
+        _cooldown_until[_host_key(url)] = time.monotonic() + seconds
+
 
 def _throttle(url: str) -> None:
     """Block until this host may be called again. Thread-safe."""
@@ -85,6 +114,13 @@ def get(url: str, headers: dict | None = None, timeout: int = TIMEOUT,
     clean = normalize_public_url(url)
     request_headers = {"User-Agent": _agent_for(clean), **(headers or {})}
 
+    remaining = cooling_down(clean)
+    if remaining:
+        raise Throttled(
+            f"{_host_key(clean)} rate-limited us; backing off for another "
+            f"{remaining:.0f}s rather than asking again"
+        )
+
     for attempt in range(retries + 1):
         _throttle(clean)
         req = urllib.request.Request(clean, headers=request_headers)
@@ -100,6 +136,10 @@ def get(url: str, headers: dict | None = None, timeout: int = TIMEOUT,
                     wait = 0.0
                 time.sleep(min(max(wait, 1.5 * (attempt + 1)), 10.0))
                 continue
+            if exc.code == 429:
+                # Out of retries and still refused: that is the host telling us
+                # our rate is wrong, not that this one URL is unlucky.
+                _begin_cooldown(clean)
             raise SourceError(f"{clean} returned HTTP {exc.code}") from exc
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             raise SourceError(f"{clean} unreachable: {exc}") from exc
