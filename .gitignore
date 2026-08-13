@@ -133,3 +133,4 @@ backend_run.log
 # Research reach: fetched content, provenance index and API keys
 data/research/
 data/research_keys.json
+data/evolution/

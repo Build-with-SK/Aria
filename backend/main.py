@@ -2829,6 +2829,57 @@ def research_doc(content_id: str):
 
 
 # ===========================================================================
+# THE BREEDING LAB — thousands of strategies, and a bar that knows it.
+#
+# Evolutionary search over quant_lab's templates, where survivors must beat
+# the Sharpe the luckiest of N worthless strategies would have posted. Most
+# campaigns return nothing, and that is reported as success: see
+# src/evolution/statistics.py for why a single out-of-sample test cannot
+# clear a strategy that a search chose.
+# ===========================================================================
+
+@app.get("/api/evolution/space", tags=["Evolution"])
+def evolution_space():
+    """What the search is allowed to explore, and the bar survivors must clear."""
+    from src.evolution import SPACE, SURVIVAL_THRESHOLD
+    return _sanitize({
+        "templates": {name: {p: {"low": lo, "high": hi, "kind": kind}
+                             for p, (lo, hi, kind) in params.items()}
+                      for name, params in SPACE.items()},
+        "survival_threshold": SURVIVAL_THRESHOLD,
+        "rule": "a survivor must beat the Sharpe the luckiest of N worthless "
+                "strategies would post, where N is every strategy this "
+                "campaign evaluated",
+    })
+
+
+@app.post("/api/evolution/run", tags=["Evolution"], dependencies=[Depends(require_owner)])
+def evolution_run(population: int = 120, generations: int = 12,
+                  seed: Optional[int] = None):
+    """Run one breeding campaign. Minutes, not seconds.
+
+    Returns every finalist with its in-sample fitness, its holdout Sharpe and
+    the deflated probability — including the ones that failed, because the
+    gap between a 2.70 in-sample and a 0.67 holdout is the most useful thing
+    the lab produces."""
+    if population < 10 or population > 2000:
+        raise HTTPException(status_code=400, detail="population must be 10..2000")
+    if generations < 1 or generations > 100:
+        raise HTTPException(status_code=400, detail="generations must be 1..100")
+    from src.evolution import run_campaign
+    return _sanitize(run_campaign(population=population,
+                                  generations=generations, seed=seed))
+
+
+@app.get("/api/evolution/campaigns", tags=["Evolution"],
+         dependencies=[Depends(require_owner)])
+def evolution_campaigns(limit: int = 20):
+    """Past campaigns, newest first."""
+    from src.evolution import history
+    return _sanitize({"campaigns": history(limit=limit)})
+
+
+# ===========================================================================
 # THE EYE — standing attention on the internet.
 #
 # /read and /hunt are a hand: they fetch what they are told to. These routes
