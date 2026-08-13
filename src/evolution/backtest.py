@@ -205,6 +205,14 @@ def sharpe_of(rets, periods: int = 252) -> float | None:
     return value if np.isfinite(value) else None
 
 
+def max_drawdown(rets) -> float:
+    """Worst peak-to-trough of the equity curve, as a positive fraction."""
+    if rets is None or len(rets) < 2:
+        return 0.0
+    equity = (1 + rets).cumprod()
+    return float(-(equity / equity.cummax() - 1).min())
+
+
 def moments(rets) -> tuple[float, float]:
     """(skew, kurtosis) of the return series, for the deflated Sharpe.
 

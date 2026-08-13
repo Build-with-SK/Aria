@@ -461,3 +461,91 @@ def test_the_widened_space_still_rejects_noise():
     assert campaign.survivors == [], (
         f"noise produced {len(campaign.survivors)} survivors on the widened space"
     )
+
+
+# ══════════════════════════════════════ the drawdown ceiling
+
+def test_max_drawdown_is_measured_as_a_positive_fraction():
+    from src.evolution.backtest import max_drawdown
+
+    idx = pd.bdate_range("2022-01-01", periods=4)
+    halved = pd.Series([0.0, -0.5, 0.0, 0.0], index=idx)
+    assert abs(max_drawdown(halved) - 0.5) < 1e-9
+    assert max_drawdown(pd.Series([0.01, 0.01, 0.01], index=idx[:3])) == 0.0
+
+
+def test_a_deep_drawdown_disqualifies_regardless_of_sharpe(monkeypatch):
+    """Sharpe cannot see drawdown. Without a ceiling the search rewards
+    leverage — measured on real data, vol targeting nearly doubled holdout
+    drawdown to buy 0.12 of Sharpe."""
+    from src.evolution import lab as lab_module
+
+    closes = _prices(days=900, seed=51)
+    lab = Evolution(closes, seed=1, population=8, generations=1)
+    genome = Genome("ma_cross", {"fast": 10, "slow": 40, "direction": "long",
+                                 "vol_target": 0.0, "vol_lookback": 60})
+
+    monkeypatch.setattr(lab_module, "max_drawdown", lambda rets: 0.99)
+    assert lab.fitness(genome) is None, "a 99% drawdown must not be selectable"
+    assert lab.trials[genome.key()] == float("-inf")
+
+
+def test_a_disqualified_genome_still_counts_as_a_trial():
+    """It really was evaluated. Hiding it would deflate the bar survivors
+    must clear, which is the exact failure this lab exists to prevent."""
+    from src.evolution import lab as lab_module
+
+    closes = _prices(days=900, seed=53)
+    lab = Evolution(closes, seed=2, population=8, generations=1)
+    genome = Genome("ma_cross", {"fast": 5, "slow": 30, "direction": "long",
+                                 "vol_target": 0.0, "vol_lookback": 60})
+
+    original = lab_module.max_drawdown
+    lab_module.max_drawdown = lambda rets: 0.99
+    try:
+        lab.fitness(genome)
+    finally:
+        lab_module.max_drawdown = original
+    assert genome.key() in lab.trials, "disqualified genomes remain trials"
+
+
+def test_finalists_report_their_holdout_drawdown():
+    closes = _prices(days=900, seed=57)
+    campaign = Evolution(closes, seed=4, population=30, generations=3).run()
+    for row in campaign.best_in_sample:
+        assert "holdout_max_dd" in row
+        assert row["holdout_max_dd"] is None or row["holdout_max_dd"] >= 0
+
+
+def test_the_trial_count_includes_disqualified_genomes(monkeypatch):
+    """Dropping risk-disqualified genomes from the count would lower the bar
+    in proportion to how strict the risk ceiling is — making a tighter risk
+    limit look like finding alpha."""
+    from src.evolution import lab as lab_module
+
+    closes = _prices(days=1200, seed=61)
+    lab = Evolution(closes, seed=6, population=40, generations=3)
+
+    real = lab_module.max_drawdown
+    calls = {"n": 0}
+
+    def sometimes_awful(rets):
+        calls["n"] += 1
+        # Occasionally, so plenty of genomes still survive to be ranked.
+        return 0.99 if calls["n"] % 7 == 0 else real(rets)
+
+    monkeypatch.setattr(lab_module, "max_drawdown", sometimes_awful)
+    campaign = lab.run()
+
+    disqualified = sum(1 for v in lab.trials.values() if v == float("-inf"))
+    assert disqualified > 0, "the fixture must actually disqualify some"
+    assert campaign.best_in_sample, "some genomes must still be rankable"
+    reported = campaign.best_in_sample[0]["deflated"]["n_trials"]
+    assert reported == campaign.evaluated == len(lab.trials)
+    assert reported > len(lab.trials) - disqualified
+
+
+def test_campaign_note_agrees_with_the_reported_trial_count():
+    closes = _prices(days=1000, seed=63)
+    campaign = Evolution(closes, seed=7, population=30, generations=3).run()
+    assert str(campaign.evaluated) in campaign.note

@@ -43,7 +43,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .backtest import moments, net_returns, sharpe_of
+from .backtest import max_drawdown, moments, net_returns, sharpe_of
 from .genome import Genome, crossover, mutate, random_genome
 from .statistics import deflated_sharpe, purged_walk_forward
 
@@ -60,6 +60,19 @@ CAMPAIGNS = LAB_DIR / "campaigns.jsonl"
 SURVIVAL_THRESHOLD = 0.95
 HOLDOUT_FRACTION = 0.25
 
+# A fold drawdown worse than this disqualifies a genome outright, whatever its
+# Sharpe. This is a risk limit, not a tuned parameter.
+#
+# It exists because fitness is a Sharpe ratio and SHARPE CANNOT SEE DRAWDOWN.
+# Measured on 2005-2026 NSE: the search's favourite genome used volatility
+# targeting to nearly double holdout drawdown (-15.6% to -26.2%) in exchange
+# for 0.12 of Sharpe, because in a calm rising market vol targeting is
+# leverage wearing a risk-management label. Ranking on Sharpe alone rewards
+# exactly that, so the ceiling is a constraint rather than a penalty term:
+# blending drawdown into the score just invites a search to trade one against
+# the other, which is the behaviour being ruled out.
+MAX_FOLD_DRAWDOWN = 0.35
+
 
 @dataclass
 class Candidate:
@@ -68,6 +81,7 @@ class Candidate:
     params: dict
     fitness: float                       # mean Sharpe across purged folds
     holdout_sharpe: float | None = None
+    holdout_max_dd: float | None = None
     deflated: dict = field(default_factory=dict)
     survived: bool = False
 
@@ -131,9 +145,17 @@ class Evolution:
         scores = []
         for _, test in self.folds:
             window = self.evolve_closes.iloc[test.start:test.stop]
-            value = sharpe_of(net_returns(genome, window))
-            if value is not None:
-                scores.append(value)
+            rets = net_returns(genome, window)
+            value = sharpe_of(rets)
+            if value is None:
+                continue
+            if max_drawdown(rets) > MAX_FOLD_DRAWDOWN:
+                # Disqualified, not merely penalised. Still recorded as a trial:
+                # the search really did evaluate it, and hiding it from the
+                # count would deflate the bar the survivors must clear.
+                self.trials[genome.key()] = float("-inf")
+                return None
+            scores.append(value)
 
         if len(scores) < max(2, len(self.folds) // 2):
             self.trials[genome.key()] = float("-inf")
@@ -206,8 +228,21 @@ class Evolution:
     def _judge(self, campaign: Campaign) -> Campaign:
         """Sit the best candidates an exam on data evolution never saw."""
         finite = {k: v for k, v in self.trials.items() if v > float("-inf")}
-        trial_sharpes = list(finite.values())
         ranked = sorted(finite.items(), key=lambda kv: kv[1], reverse=True)[:10]
+
+        # Two different counts, and the distinction is load-bearing.
+        #
+        # The SPREAD of trial results is estimated from genomes that produced a
+        # usable Sharpe — a genome disqualified on drawdown has no comparable
+        # number, and feeding -inf into a variance would destroy it.
+        #
+        # The NUMBER of trials is every genome the search evaluated, including
+        # the disqualified ones. They were real attempts and each was a real
+        # chance to stumble on a lucky Sharpe; dropping them would lower the bar
+        # in proportion to how strict the risk ceiling is, which would make
+        # tightening risk look like finding alpha.
+        trial_sharpes = list(finite.values())
+        n_trials = len(self.trials)
 
         by_key = {}
         for genome_key, _ in ranked:
@@ -221,18 +256,20 @@ class Evolution:
             rets = net_returns(genome, self.holdout_closes)
             observed = sharpe_of(rets)
             skew, kurt = moments(rets)
+            holdout_dd = max_drawdown(rets)
 
             verdict = deflated_sharpe(
                 observed_sharpe=observed if observed is not None else float("nan"),
                 trial_sharpes=trial_sharpes,
                 n_observations=holdout_n,
                 skew=skew, kurtosis=kurt,
-                n_trials=len(finite),
+                n_trials=n_trials,
             )
             candidate = Candidate(
                 genome_key=genome_key, template=genome.template,
                 params=genome.params, fitness=round(fit, 4),
                 holdout_sharpe=round(observed, 4) if observed is not None else None,
+                holdout_max_dd=round(holdout_dd, 4),
                 deflated=verdict,
                 survived=bool(verdict.get("probability") is not None
                               and verdict["probability"] >= SURVIVAL_THRESHOLD),
@@ -245,14 +282,14 @@ class Evolution:
         campaign.finished_at = datetime.now(timezone.utc).isoformat()
         if not campaign.survivors:
             campaign.note = (
-                f"no survivors — with {len(finite)} trials, luck alone reaches a "
+                f"no survivors — with {n_trials} trials, luck alone reaches a "
                 f"Sharpe of {campaign.luck_threshold:.2f} and nothing beat it "
                 "convincingly. This is the expected result and it is a success: "
                 "the lab declined to hand you a coin flip."
             )
         else:
             campaign.note = (
-                f"{len(campaign.survivors)} of {len(finite)} strategies cleared a "
+                f"{len(campaign.survivors)} of {n_trials} strategies cleared a "
                 f"luck threshold of {campaign.luck_threshold:.2f} on data they had "
                 "never seen."
             )
