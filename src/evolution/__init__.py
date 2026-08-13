@@ -21,6 +21,8 @@ from .lab import (SURVIVAL_THRESHOLD, Campaign, Candidate, Evolution, history,
                   run_campaign)
 from .statistics import (deflated_sharpe, expected_max_sharpe,
                          purged_walk_forward)
+from .universe import describe as describe_universe
+from .universe import load as load_universe
 
 __all__ = [
     "Campaign",
@@ -30,9 +32,11 @@ __all__ = [
     "SPACE",
     "SURVIVAL_THRESHOLD",
     "crossover",
+    "describe_universe",
     "deflated_sharpe",
     "expected_max_sharpe",
     "history",
+    "load_universe",
     "mutate",
     "net_returns",
     "purged_walk_forward",

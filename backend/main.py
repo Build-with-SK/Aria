@@ -2855,7 +2855,7 @@ def evolution_space():
 
 @app.post("/api/evolution/run", tags=["Evolution"], dependencies=[Depends(require_owner)])
 def evolution_run(population: int = 120, generations: int = 12,
-                  seed: Optional[int] = None):
+                  seed: Optional[int] = None, universe: Optional[str] = None):
     """Run one breeding campaign. Minutes, not seconds.
 
     Returns every finalist with its in-sample fitness, its holdout Sharpe and
@@ -2867,8 +2867,8 @@ def evolution_run(population: int = 120, generations: int = 12,
     if generations < 1 or generations > 100:
         raise HTTPException(status_code=400, detail="generations must be 1..100")
     from src.evolution import run_campaign
-    return _sanitize(run_campaign(population=population,
-                                  generations=generations, seed=seed))
+    return _sanitize(run_campaign(population=population, generations=generations,
+                                  seed=seed, universe=universe))
 
 
 @app.get("/api/evolution/campaigns", tags=["Evolution"],

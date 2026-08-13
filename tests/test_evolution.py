@@ -549,3 +549,69 @@ def test_campaign_note_agrees_with_the_reported_trial_count():
     closes = _prices(days=1000, seed=63)
     campaign = Evolution(closes, seed=7, population=30, generations=3).run()
     assert str(campaign.evaluated) in campaign.note
+
+
+# ══════════════════════════════════════ the universe
+
+def test_universe_declares_its_survivorship_bias(tmp_path, monkeypatch):
+    """The caveat must ship with the data, not live only in a docstring.
+
+    Both panels are today's index membership run backwards, so every company
+    that failed is missing. A result quoted without that is misleading.
+    """
+    from src.evolution import universe
+
+    meta = universe.describe("sp500")
+    assert meta["survivorship_biased"] is True
+    assert "delisted" in meta["caveat"] or "failed" in meta["caveat"]
+    # And it must say which direction the bias runs.
+    assert "flattered" in meta["caveat"]
+
+
+def test_universe_describe_reports_the_drawdowns_present():
+    from src.evolution import universe
+
+    idx = pd.bdate_range("2005-01-01", periods=600)
+    # A panel that halves and recovers.
+    path = np.concatenate([np.linspace(100, 50, 300), np.linspace(50, 120, 300)])
+    panel = pd.DataFrame({"A": path, "B": path * 1.01}, index=idx)
+
+    meta = universe.describe("nse", panel)
+    assert meta["max_drawdown_pct"] < -45
+    assert meta["days"] == 600 and meta["names"] == 2
+    assert meta["years_below_20pct"], "a 50% fall must be reported"
+
+
+def test_universe_drops_short_history_rather_than_inventing_prices(tmp_path,
+                                                                   monkeypatch):
+    """Forward-filling a stock backwards through years it had not listed
+    invents a price series, and a strategy will happily trade the invention."""
+    from src.evolution import universe
+
+    idx = pd.bdate_range("2005-01-01", periods=500)
+    full = pd.Series(np.linspace(100, 200, 500), index=idx)
+    late = full.copy()
+    late.iloc[:400] = np.nan            # only listed for the last 100 days
+
+    monkeypatch.setattr(universe, "CACHE", tmp_path)
+    pd.DataFrame({"OLD": full, "NEW": late}).to_pickle(tmp_path / "prices_long.pkl")
+
+    panel = universe.load("nse")
+    assert "OLD" in panel.columns
+    assert "NEW" not in panel.columns, "a late lister must be dropped, not padded"
+
+
+def test_unknown_universe_is_refused():
+    from src.evolution import universe
+
+    with pytest.raises(ValueError):
+        universe.load("moon")
+
+
+def test_missing_panel_says_how_to_fetch_it(tmp_path, monkeypatch):
+    from src.evolution import universe
+
+    monkeypatch.setattr(universe, "CACHE", tmp_path)
+    with pytest.raises(FileNotFoundError) as exc:
+        universe.load("sp500")
+    assert "fetch" in str(exc.value)

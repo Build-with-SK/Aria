@@ -323,14 +323,30 @@ def _persist(campaign: Campaign) -> None:
 
 
 def run_campaign(closes=None, seed: int | None = None, population: int = 120,
-                 generations: int = 12) -> dict:
-    """Run one campaign. Loads quant_lab's cached basket when given no data."""
-    if closes is None:
+                 generations: int = 12, universe: str | None = None) -> dict:
+    """Run one campaign.
+
+    `universe` picks a cached panel ("sp500", "nse"); with neither that nor
+    `closes`, it falls back to quant_lab's 3-year basket. The universe's
+    survivorship caveat is attached to the result, because a campaign result
+    quoted without it is misleading.
+    """
+    provenance = {}
+    if closes is None and universe:
+        from .universe import describe, load
+        closes = load(universe)
+        provenance = describe(universe, closes)
+    elif closes is None:
         from src.brain.quant_lab import get_lab
         closes = get_lab()._get_closes()
+        provenance = {"universe": "quant_lab basket (3y NSE)",
+                      "survivorship_biased": True}
+
     lab = Evolution(closes, seed=seed, population=population,
                     generations=generations)
-    return lab.run().as_dict()
+    out = lab.run().as_dict()
+    out["universe"] = provenance
+    return out
 
 
 def history(limit: int = 20) -> list[dict]:
