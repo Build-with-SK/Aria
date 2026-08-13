@@ -25,8 +25,10 @@ np = pytest.importorskip("numpy")
 from src.evolution import (SPACE, crossover, deflated_sharpe,  # noqa: E402
                            expected_max_sharpe, mutate, purged_walk_forward,
                            random_genome)
-from src.evolution.backtest import fast_positions, sharpe_of  # noqa: E402
-from src.evolution.genome import Genome  # noqa: E402
+from src.evolution.backtest import (fast_positions, net_returns,  # noqa: E402
+                                    sharpe_of, signed_positions)
+from src.evolution.genome import (MAX_LEVERAGE, OVERLAY, Genome,  # noqa: E402
+                                  full_space)
 from src.evolution.lab import Evolution, _parse_key  # noqa: E402
 
 
@@ -222,7 +224,7 @@ def test_crossover_across_templates_picks_one_rather_than_averaging():
     b = random_genome(rng, "rsi_reversal")
     child = crossover(a, b, rng)
     assert child.template in ("breakout", "rsi_reversal")
-    assert set(child.params) == set(SPACE[child.template])
+    assert set(child.params) == set(full_space(child.template))
 
 
 def test_genome_key_round_trips():
@@ -282,3 +284,180 @@ def test_the_lab_cannot_trade():
         forbidden = {"approve_and_execute", "OrderManager", "submit_order",
                      "place_order", "AlpacaBroker", "IBKRBroker"}
         assert not (referenced & forbidden), f"{name} must not reach execution"
+
+
+# ══════════════════════════════════════ shorts
+
+def test_long_only_genomes_are_untouched_by_the_widening():
+    """The overlay must not change what a long-only genome does."""
+    closes = _prices(days=400, seed=17, cols=4)
+    params = {"window": 20, "entry_z": -2.0, "exit_z": 0.0, "direction": "long"}
+    with_overlay = signed_positions("mean_reversion_z", params, closes)
+    original = fast_positions("mean_reversion_z", params, closes)
+    pd.testing.assert_frame_equal(with_overlay, original)
+    assert (original >= 0).all().all()
+
+
+@pytest.mark.parametrize("template,params", [
+    ("mean_reversion_z", {"window": 20, "entry_z": -1.5, "exit_z": 0.3}),
+    ("rsi_reversal", {"period": 14, "buy_below": 30, "sell_above": 70}),
+    ("ma_cross", {"fast": 10, "slow": 50}),
+    ("breakout", {"window": 30, "exit_ma": 20}),
+    ("momentum_topn", {"lookback": 60, "top_n": 2}),
+])
+def test_long_short_actually_goes_short(template, params):
+    closes = _prices(days=700, seed=23, cols=6)
+    pos = signed_positions(template, {**params, "direction": "long_short"}, closes)
+    assert (pos < 0).any().any(), f"{template} never took a short"
+    assert (pos > 0).any().any(), f"{template} never took a long"
+    assert pos.abs().max().max() <= 1.0, "positions must stay within -1..+1"
+
+
+def test_market_neutral_book_is_not_secretly_levered():
+    """Three longs against three shorts sums to zero. Normalising by the
+    SIGNED sum would divide by ~0 and hand the strategy huge leverage in
+    exactly the state it was built to hold."""
+    idx = pd.bdate_range("2022-01-01", periods=5)
+    pos = pd.DataFrame(
+        [[1.0, 1.0, 1.0, -1.0, -1.0, -1.0]] * 5,
+        index=idx, columns=[f"S{i}" for i in range(6)])
+    gross = pos.abs().sum(axis=1)
+    weights = pos.div(gross.replace(0, 1), axis=0)
+    assert weights.abs().sum(axis=1).round(6).eq(1.0).all(), "gross exposure must be 1x"
+    assert abs(weights.sum(axis=1).iloc[0]) < 1e-9, "and the book stays neutral"
+
+
+def test_a_short_book_profits_when_prices_fall():
+    """Direction has to mean something in the returns, not just the signs."""
+    idx = pd.bdate_range("2022-01-01", periods=300)
+    falling = pd.DataFrame({"S0": 100 * (0.999 ** np.arange(300))}, index=idx)
+
+    long_only = Genome("ma_cross", {"fast": 5, "slow": 20, "direction": "long",
+                                    "vol_target": 0.0, "vol_lookback": 60})
+    both_ways = Genome("ma_cross", {"fast": 5, "slow": 20,
+                                    "direction": "long_short",
+                                    "vol_target": 0.0, "vol_lookback": 60})
+    assert net_returns(both_ways, falling).sum() > net_returns(long_only, falling).sum()
+
+
+# ══════════════════════════════════════ vol targeting
+
+def test_vol_targeting_does_not_peek_at_the_future():
+    """The sizing at time t must not depend on returns after t.
+
+    This is the bug that makes every backtest beautiful and every live
+    account poor, and it is invisible in the results.
+    """
+    closes = _prices(days=500, seed=29, cols=4)
+    genome = Genome("ma_cross", {"fast": 10, "slow": 40, "direction": "long",
+                                 "vol_target": 0.10, "vol_lookback": 40})
+    baseline = net_returns(genome, closes)
+
+    tampered = closes.copy()
+    cut = 400
+    tampered.iloc[cut:] *= 1.5          # rewrite the future only
+
+    after = net_returns(genome, tampered)
+    pd.testing.assert_series_equal(
+        baseline.iloc[:cut - 1], after.iloc[:cut - 1],
+        check_names=False,
+        obj="returns before the tampering must be unchanged")
+
+
+def test_leverage_is_capped_when_volatility_collapses():
+    """As realised vol approaches zero the target/realised ratio approaches
+    infinity. A search will find that corner if it is left open."""
+    idx = pd.bdate_range("2022-01-01", periods=400)
+    # A near-straight line: realised vol is tiny but not zero.
+    calm = pd.DataFrame(
+        {"S0": 100 * (1 + 1e-6 * np.arange(400)),
+         "S1": 100 * (1 + 1.1e-6 * np.arange(400))}, index=idx)
+
+    from src.evolution.backtest import _vol_target
+
+    genome = Genome("ma_cross", {"fast": 5, "slow": 20, "direction": "long",
+                                 "vol_target": 0.20, "vol_lookback": 30})
+    rets = net_returns(genome, calm)
+    assert np.isfinite(rets).all(), "leverage must never become inf or nan"
+
+    # Assert on the sizing itself rather than inferring it from returns, which
+    # also carry turnover costs.
+    pos = signed_positions("ma_cross", genome.params, calm)
+    weights = pos.div(pos.abs().sum(axis=1).replace(0, 1), axis=0)
+    daily = calm.pct_change().fillna(0.0)
+    sized = _vol_target(weights, daily, 0.20, lookback=30)
+
+    assert np.isfinite(sized.to_numpy()).all()
+    assert sized.abs().sum(axis=1).max() <= MAX_LEVERAGE + 1e-9, (
+        "gross exposure must never exceed the leverage cap"
+    )
+
+
+def test_vol_targeting_moves_realised_volatility_toward_the_target():
+    closes = _prices(days=900, seed=31, cols=6)
+    base = {"fast": 10, "slow": 40, "direction": "long", "vol_lookback": 60}
+
+    quiet = net_returns(Genome("ma_cross", {**base, "vol_target": 0.05}), closes)
+    loud = net_returns(Genome("ma_cross", {**base, "vol_target": 0.25}), closes)
+
+    quiet_vol = float(quiet.tail(400).std() * np.sqrt(252))
+    loud_vol = float(loud.tail(400).std() * np.sqrt(252))
+    assert quiet_vol < loud_vol, "a lower target must produce a smaller book"
+
+
+def test_vol_target_can_be_switched_off_and_zero_means_off():
+    closes = _prices(days=400, seed=33, cols=4)
+    off = Genome("ma_cross", {"fast": 10, "slow": 40, "direction": "long",
+                              "vol_target": 0.0, "vol_lookback": 60})
+    rets = net_returns(off, closes)
+    assert rets.abs().sum() > 0, "with targeting off the book still trades"
+
+
+def test_tiny_vol_targets_snap_to_off_rather_than_to_a_dust_position():
+    rng = random.Random(5)
+    g = mutate(Genome("ma_cross", {"fast": 10, "slow": 40, "direction": "long",
+                                   "vol_target": 0.001, "vol_lookback": 60}),
+               rng, rate=0.0)
+    assert g.params["vol_target"] == 0.0
+
+
+# ══════════════════════════════════════ the widened search
+
+def test_overlay_genes_are_present_and_within_bounds():
+    rng = random.Random(11)
+    for _ in range(300):
+        g = random_genome(rng)
+        assert g.params["direction"] in ("long", "long_short")
+        assert 0.0 <= g.params["vol_target"] <= 0.30
+        assert 20 <= g.params["vol_lookback"] <= 120
+
+
+def test_genome_key_round_trips_with_categorical_genes():
+    rng = random.Random(13)
+    for _ in range(100):
+        g = random_genome(rng)
+        back = _parse_key(g.key())
+        assert back is not None
+        assert back.params["direction"] == g.params["direction"]
+        assert back.params == g.params
+
+
+def test_long_short_mean_reversion_is_never_inert():
+    """A neutral band wider than the entry level can never open a position —
+    not a weak genome, an inert one."""
+    rng = random.Random(17)
+    for _ in range(300):
+        g = random_genome(rng, "mean_reversion_z")
+        if g.params["direction"] == "long_short":
+            assert abs(g.params["exit_z"]) < abs(g.params["entry_z"])
+
+
+def test_the_widened_space_still_rejects_noise():
+    """Shorts and leverage give the search more ways to fool itself. The bar
+    has to hold anyway — this is the headline test on the bigger space."""
+    closes = _prices(days=900, seed=41)
+    campaign = Evolution(closes, seed=3, population=80, generations=6).run()
+    assert campaign.evaluated > 150
+    assert campaign.survivors == [], (
+        f"noise produced {len(campaign.survivors)} survivors on the widened space"
+    )

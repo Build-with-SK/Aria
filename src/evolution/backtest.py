@@ -26,6 +26,80 @@ from __future__ import annotations
 from src.brain.quant_lab import COST_PER_SIDE
 
 
+def signed_positions(template: str, params: dict, closes):
+    """-1/0/+1 positions when direction is long_short, else 0/1.
+
+    The long_short mappings are STATELESS — the signal's own zones decide the
+    position on every bar — rather than the entry/exit state machine used
+    long-only. A symmetric state machine needs a third state and an exit rule
+    per side, and every extra rule is another thing fitted to this sample.
+    Zones are symmetric about the signal's neutral point, so a genome cannot
+    quietly become a long-only strategy wearing a short's label.
+
+    A consequence worth knowing: `exit_z` and the RSI midpoint stop mattering
+    for long_short genomes, so those genomes search a smaller space than their
+    long-only siblings.
+    """
+    import numpy as np
+    import pandas as pd
+
+    if params.get("direction", "long") != "long_short":
+        return fast_positions(template, params, closes)
+
+    if template == "mean_reversion_z":
+        w = int(params["window"])
+        z = (closes - closes.rolling(w).mean()) / closes.rolling(w).std()
+        entry = abs(float(params["entry_z"]))
+        band = abs(float(params["exit_z"]))
+        pos = pd.DataFrame(0.0, index=closes.index, columns=closes.columns)
+        pos[z <= -entry] = 1.0
+        pos[z >= entry] = -1.0
+        pos[(z > -band) & (z < band)] = 0.0
+        return pos.where(z.notna(), 0.0)
+
+    if template == "rsi_reversal":
+        p = int(params["period"])
+        delta = closes.diff()
+        up = delta.clip(lower=0).rolling(p).mean()
+        dn = (-delta.clip(upper=0)).rolling(p).mean()
+        rsi = 100 - 100 / (1 + up / dn)
+        buy, sell = float(params["buy_below"]), float(params["sell_above"])
+        pos = pd.DataFrame(0.0, index=closes.index, columns=closes.columns)
+        pos[rsi <= buy] = 1.0
+        pos[rsi >= sell] = -1.0
+        return pos.where(rsi.notna(), 0.0)
+
+    if template == "ma_cross":
+        fast = closes.rolling(int(params["fast"])).mean()
+        slow = closes.rolling(int(params["slow"])).mean()
+        pos = (fast > slow).astype(float) - (fast < slow).astype(float)
+        return pos.where(slow.notna(), 0.0)
+
+    if template == "breakout":
+        w, ema = int(params["window"]), int(params["exit_ma"])
+        hi = closes.rolling(w).max().shift(1)
+        lo = closes.rolling(w).min().shift(1)
+        ma = closes.rolling(ema).mean()
+        longs = ((closes >= hi) | (closes > ma)) & (closes > ma)
+        shorts = ((closes <= lo) | (closes < ma)) & (closes < ma)
+        pos = longs.astype(float) - shorts.astype(float)
+        return pos.where(ma.notna() & hi.notna(), 0.0)
+
+    if template == "momentum_topn":
+        # The classic cross-sectional long/short: buy the strongest names,
+        # sell the weakest, which is what this template was always reaching
+        # for when it could only go long.
+        look, n = int(params["lookback"]), int(params["top_n"])
+        mom = closes.pct_change(look)
+        monthly = mom.resample("ME").last()
+        best = monthly.rank(axis=1, ascending=False) <= n
+        worst = monthly.rank(axis=1, ascending=True) <= n
+        pos = best.astype(float) - worst.astype(float)
+        return pos.reindex(closes.index, method="ffill").fillna(0.0)
+
+    raise ValueError(f"unknown template {template}")
+
+
 def fast_positions(template: str, params: dict, closes):
     """0/1 positions, vectorised. Identical output to quant_lab._positions."""
     import numpy as np
@@ -58,14 +132,59 @@ def fast_positions(template: str, params: dict, closes):
 
 
 def net_returns(genome, closes):
-    """Daily net-of-cost portfolio returns for one genome."""
-    pos = fast_positions(genome.template, genome.params, closes)
-    active = pos.sum(axis=1)
-    weights = pos.div(active.replace(0, 1), axis=0)
+    """Daily net-of-cost portfolio returns for one genome.
+
+    Weights are normalised by GROSS exposure — the sum of absolute positions
+    — not by the signed sum. With shorts allowed the signed sum of three
+    longs and three shorts is zero, and dividing by it (or by the 1 it gets
+    replaced with) would silently hand the strategy six times leverage in
+    exactly the market-neutral state it was built to hold. For a long-only
+    genome the two are identical, so nothing changes underneath the original
+    behaviour.
+    """
+    params = genome.params
+    pos = signed_positions(genome.template, params, closes)
+
+    gross_exposure = pos.abs().sum(axis=1)
+    weights = pos.div(gross_exposure.replace(0, 1), axis=0)
+
     daily = closes.pct_change().fillna(0.0)
+    target = float(params.get("vol_target", 0.0) or 0.0)
+    if target > 0:
+        weights = _vol_target(weights, daily, target,
+                              lookback=int(params.get("vol_lookback", 60)))
+
     gross = (weights.shift(1).fillna(0.0) * daily).sum(axis=1)
     turnover = (weights - weights.shift(1)).abs().sum(axis=1).fillna(0.0)
     return gross - turnover * COST_PER_SIDE
+
+
+def _vol_target(weights, daily, target: float, lookback: int = 60,
+                periods: int = 252):
+    """Scale the book so its realised volatility tracks `target`.
+
+    The sizing decision at time t uses volatility measured THROUGH t, and the
+    resulting weights first earn a return at t+1 (net_returns shifts weights
+    by one). That ordering is the whole ballgame: sizing today from today's
+    realised vol — computed with today's return in it — is a lookahead that
+    makes every backtest beautiful and every live account poor.
+
+    Leverage is capped at MAX_LEVERAGE. In the calmest stretch of any sample
+    realised vol approaches zero and the uncapped ratio approaches infinity,
+    and a search WILL find that corner if it is left open.
+    """
+    import numpy as np
+
+    from .genome import MAX_LEVERAGE
+
+    unlevered = (weights.shift(1).fillna(0.0) * daily).sum(axis=1)
+    realised = unlevered.rolling(lookback).std() * np.sqrt(periods)
+
+    leverage = (target / realised.replace(0.0, np.nan)).clip(upper=MAX_LEVERAGE)
+    # Before enough history exists to measure vol there is no basis for a
+    # size, and 1.0 would be a guess dressed as a default.
+    leverage = leverage.fillna(0.0)
+    return weights.mul(leverage, axis=0)
 
 
 def sharpe_of(rets, periods: int = 252) -> float | None:

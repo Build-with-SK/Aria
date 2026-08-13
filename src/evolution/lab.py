@@ -269,7 +269,10 @@ def _parse_key(key: str) -> Genome | None:
             if not chunk:
                 continue
             name, _, value = chunk.partition("=")
-            params[name] = float(value) if "." in value else int(value)
+            if value.lstrip("-").replace(".", "", 1).isdigit():
+                params[name] = float(value) if "." in value else int(value)
+            else:
+                params[name] = value          # categorical, e.g. direction
         return Genome(template, params)
     except (ValueError, AttributeError):
         logger.warning("could not parse genome key %r", key)

@@ -46,6 +46,34 @@ SPACE: dict[str, dict[str, tuple]] = {
 
 TEMPLATES = tuple(SPACE)
 
+# Portfolio construction, orthogonal to the signal. Every genome carries these
+# whatever its template, because "which way may I face" and "how big may I be"
+# are not properties of a moving-average crossover — they are decisions taken
+# on top of one. Keeping them separate multiplies the search space instead of
+# doubling the number of templates.
+OVERLAY: dict[str, tuple] = {
+    # long: the original behaviour, 0/1 positions.
+    # long_short: the same signal mapped symmetrically to -1/0/+1.
+    "direction": (("long", "long_short"), None, "choice"),
+
+    # Annualised volatility to size the book at. 0.0 means off — kept as a
+    # reachable value so the search can decide targeting is not worth it
+    # rather than being forced to use it.
+    "vol_target": (0.0, 0.30, "float"),
+    "vol_lookback": (20, 120, "int"),
+}
+
+# Leverage is capped rather than searched. As realised vol approaches zero the
+# ratio target/realised approaches infinity, and a strategy that discovers it
+# can borrow without limit during the calmest month of the sample will always
+# win a backtest and always blow up live.
+MAX_LEVERAGE = 3.0
+
+
+def full_space(template: str) -> dict[str, tuple]:
+    """Signal parameters plus the overlay every genome carries."""
+    return {**SPACE[template], **OVERLAY}
+
 
 @dataclass(frozen=True)
 class Genome:
@@ -62,7 +90,11 @@ class Genome:
 
 
 def _draw(low, high, kind, rng: random.Random):
-    return rng.randint(low, high) if kind == "int" else round(rng.uniform(low, high), 3)
+    if kind == "choice":
+        return rng.choice(low)          # `low` holds the options
+    if kind == "int":
+        return rng.randint(low, high)
+    return round(rng.uniform(low, high), 3)
 
 
 def _repair(genome: Genome) -> Genome:
@@ -84,13 +116,24 @@ def _repair(genome: Genome) -> Genome:
             p["sell_above"] = min(90, p["buy_below"] + 10)
     if genome.template == "mean_reversion_z" and p["exit_z"] <= p["entry_z"]:
         p["exit_z"] = p["entry_z"] + 0.5
+
+    # A long_short mean-reversion genome is symmetric about zero, so its
+    # neutral band is ±|exit_z|. If that band swallows the entry level the
+    # strategy can never open a position — not a weak genome, an inert one.
+    if (genome.template == "mean_reversion_z"
+            and p.get("direction") == "long_short"
+            and abs(p["exit_z"]) >= abs(p["entry_z"])):
+        p["exit_z"] = round(abs(p["entry_z"]) * 0.5, 3)
+
+    if "vol_target" in p and p["vol_target"] < 0.01:
+        p["vol_target"] = 0.0           # snap noise to a clean "off"
     return Genome(genome.template, p)
 
 
 def random_genome(rng: random.Random, template: str | None = None) -> Genome:
     template = template or rng.choice(TEMPLATES)
     params = {name: _draw(lo, hi, kind, rng)
-              for name, (lo, hi, kind) in SPACE[template].items()}
+              for name, (lo, hi, kind) in full_space(template).items()}
     return _repair(Genome(template, params))
 
 
@@ -99,14 +142,18 @@ def mutate(genome: Genome, rng: random.Random, rate: float = 0.3) -> Genome:
 
     Gaussian rather than uniform-resample: a good strategy's neighbours are
     usually also good, and re-rolling a parameter from scratch throws away
-    everything the search has learned about where it should be.
+    everything the search has learned about where it should be. Categorical
+    genes have no neighbours, so those do flip outright.
     """
     params = dict(genome.params)
-    for name, (lo, hi, kind) in SPACE[genome.template].items():
+    for name, (lo, hi, kind) in full_space(genome.template).items():
         if rng.random() >= rate:
             continue
+        if kind == "choice":
+            params[name] = rng.choice(lo)
+            continue
         span = (hi - lo) * 0.2
-        value = params[name] + rng.gauss(0, span)
+        value = params.get(name, lo) + rng.gauss(0, span)
         value = max(lo, min(hi, value))
         params[name] = int(round(value)) if kind == "int" else round(value, 3)
     return _repair(Genome(genome.template, params))
@@ -125,12 +172,13 @@ def crossover(a: Genome, b: Genome, rng: random.Random) -> Genome:
         return mutate(rng.choice([a, b]), rng, rate=0.2)
 
     params = {}
-    for name, (lo, hi, kind) in SPACE[a.template].items():
-        if rng.random() < 0.5:
-            params[name] = a.params[name]
-        else:
-            params[name] = b.params[name]
-        if rng.random() < 0.3:                      # blend
-            mixed = (a.params[name] + b.params[name]) / 2
+    for name, (lo, hi, kind) in full_space(a.template).items():
+        source = a if rng.random() < 0.5 else b
+        params[name] = source.params.get(name, _draw(lo, hi, kind, rng))
+        # Categorical genes cannot be averaged — "half long, half long_short"
+        # is not a direction — so only numeric genes blend.
+        if kind != "choice" and rng.random() < 0.3:
+            mixed = (a.params.get(name, params[name])
+                     + b.params.get(name, params[name])) / 2
             params[name] = int(round(mixed)) if kind == "int" else round(mixed, 3)
     return _repair(Genome(a.template, params))
