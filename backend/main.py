@@ -1705,6 +1705,36 @@ def brain_set_interval(minutes: int = 15):
     return {"status": "ok", "interval_minutes": brain.interval_minutes}
 
 
+@app.patch("/api/brain/eye-interval", tags=["Local Brain"],
+           dependencies=[Depends(require_owner)])
+def brain_set_eye_interval(minutes: int = 20):
+    """Change how often the eye is offered a look.
+
+    This is not how often she looks: blink() only visits watches whose own
+    cadence is due, so a 20-minute offer against a 60-minute watch costs
+    three cheap no-ops an hour and one real sweep. Lower it to make her more
+    responsive to breaking news; raise it to spend fewer requests."""
+    if minutes < 1 or minutes > 1440:
+        raise HTTPException(status_code=400, detail="Interval must be between 1 and 1440 minutes")
+    from src.brain.brain_daemon import get_brain
+    brain = get_brain()
+    brain.set_eye_interval(minutes)
+    return {"status": "ok", "eye_interval_minutes": brain.eye_interval_minutes}
+
+
+@app.post("/api/brain/blink-now", tags=["Local Brain"],
+          dependencies=[Depends(require_owner)])
+def brain_blink_now():
+    """Look at the internet now, ignoring every cadence.
+
+    Unlike run-now this does not need Ollama: looking is not thinking."""
+    from src.brain.brain_daemon import get_brain
+    brain = get_brain()
+    brain.blink_now()
+    return {"status": "looking",
+            "message": "Blink started. Poll /api/brain/status or /api/research/eye."}
+
+
 @app.get("/api/brain/memories", tags=["Local Brain"])
 def brain_memories(n: int = 20):
     """Most recent memories from the long-term store."""

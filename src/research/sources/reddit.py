@@ -41,6 +41,13 @@ API = "https://www.reddit.com"
 OAUTH = "https://oauth.reddit.com"
 ATOM = "{http://www.w3.org/2005/Atom}"
 
+# Where a bare ticker means a ticker. Searched as one multireddit so a symbol
+# lookup costs one request rather than six.
+FINANCE_SUBS = (
+    "stocks+investing+wallstreetbets+StockMarket+options+SecurityAnalysis"
+    "+ValueInvesting+Daytrading+thetagang"
+)
+
 _token_cache: dict[str, tuple[str, float]] = {}
 
 
@@ -214,3 +221,13 @@ class RedditSource(Source):
         params = q(q=query, sort=sort, t=time_filter,
                    restrict_sr="on" if subreddit else None)
         return _atom_docs(get(f"{base}?{params}"))[:limit]
+
+    def search_ticker(self, ticker: str, limit: int = 15) -> list[Document]:
+        """Search only where people discuss tickers.
+
+        Site-wide, a symbol collides with everything: ERX returned a Fallout
+        mod, and NET returns the English word. Restricting to a finance
+        multireddit is what makes the result about the position.
+        """
+        return self.search(ticker, subreddit=FINANCE_SUBS, limit=limit,
+                           sort="new")

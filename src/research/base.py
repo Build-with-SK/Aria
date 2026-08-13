@@ -60,6 +60,19 @@ class Source(ABC):
         """(usable, human-readable reason). Override when a binary is needed."""
         return True, self.backends[0] if self.backends else "builtin"
 
+    def search_ticker(self, ticker: str, limit: int = 15):
+        """Search for a TICKER rather than a phrase.
+
+        A bare symbol is a terrible general-purpose query — ERX is a Fallout
+        mod, NET is a common word, BNO is an airport code. Sources that can
+        narrow the context (a finance subreddit, a "stock" qualifier) override
+        this; the rest fall back to a plain search and are no worse off.
+        """
+        search = getattr(self, "search", None)
+        if not callable(search):
+            return []
+        return search(ticker, limit=limit)
+
 
 def probe_command(argv: list[str], timeout: int = 10) -> bool:
     """Really execute a cheap command; True only if it exits 0.

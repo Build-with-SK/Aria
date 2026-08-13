@@ -9,6 +9,7 @@ not re-decided (or forgotten) once per source.
 from __future__ import annotations
 
 import json
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -36,6 +37,41 @@ def _agent_for(url: str) -> str:
     return SEC_UA if host_matches(url, "sec.gov") else UA
 
 
+# Minimum spacing between requests to the same host, in seconds. A blink over
+# five watched tickers fires five sweeps at once, and each sweep asks every
+# source — so without this the eye opens by sending Reddit a dozen simultaneous
+# requests and gets 429 for all of them. Retrying does not help a burst; not
+# making a burst does. Values are per host, since the limits are per host.
+_HOST_MIN_INTERVAL = {
+    "reddit.com": 2.0,
+    "api.stocktwits.com": 1.5,
+    "efts.sec.gov": 0.15,        # SEC asks for <10 req/s
+    "www.sec.gov": 0.15,
+}
+_DEFAULT_MIN_INTERVAL = 0.25
+_last_request: dict[str, float] = {}
+_throttle_lock = threading.Lock()
+
+
+def _throttle(url: str) -> None:
+    """Block until this host may be called again. Thread-safe."""
+    from urllib.parse import urlsplit
+    host = (urlsplit(url).hostname or "").lower()
+    key = next((h for h in _HOST_MIN_INTERVAL if host.endswith(h)), host)
+    gap = _HOST_MIN_INTERVAL.get(key, _DEFAULT_MIN_INTERVAL)
+
+    while True:
+        with _throttle_lock:
+            now = time.monotonic()
+            earliest = _last_request.get(key, 0.0) + gap
+            if now >= earliest:
+                _last_request[key] = now
+                return
+            wait = earliest - now
+        # Sleep outside the lock so other hosts are never blocked by this one.
+        time.sleep(min(wait, 5.0))
+
+
 def get(url: str, headers: dict | None = None, timeout: int = TIMEOUT,
         retries: int = 2) -> bytes:
     """GET with one polite retry on 429/503.
@@ -50,6 +86,7 @@ def get(url: str, headers: dict | None = None, timeout: int = TIMEOUT,
     request_headers = {"User-Agent": _agent_for(clean), **(headers or {})}
 
     for attempt in range(retries + 1):
+        _throttle(clean)
         req = urllib.request.Request(clean, headers=request_headers)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:

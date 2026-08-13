@@ -80,6 +80,10 @@ class GoogleNewsSource(Source):
                       "ceid": f"{country}:{lang.split('-')[0]}"})
         return self._parse(get(f"{GOOGLE_NEWS}/search?{params}"))[:limit]
 
+    def search_ticker(self, ticker: str, limit: int = 15) -> list[Document]:
+        """Qualify the symbol so the index knows it is a stock, not a word."""
+        return self.search(f'"{ticker}" stock', limit=limit)
+
 
 class HackerNewsSource(Source):
     name = "hackernews"
@@ -118,6 +122,12 @@ class HackerNewsSource(Source):
             meta={"item_id": item_id, "points": data.get("points"),
                   "author": data.get("author", "")},
         )
+
+    def search_ticker(self, ticker: str, limit: int = 15) -> list[Document]:
+        """Nothing. HN has no ticker context, and pretending otherwise is worse
+        than silence: searching it for NET returns Netflix and Netscape, and
+        ERX returns a Fallout mod. It stays valuable for topic sweeps."""
+        return []
 
     def search(self, query: str, limit: int = 25, days: int = 7) -> list[Document]:
         cutoff = int(datetime.now(timezone.utc).timestamp()) - days * 86400

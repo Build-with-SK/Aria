@@ -113,7 +113,15 @@ def hunt(query: str, ticker: str | None = None, limit_per_source: int = 15,
             if not ok:
                 sweep.skipped[source.name] = detail
                 continue
-            jobs[pool.submit(source.search, query, limit=limit_per_source)] = source.name
+            # A ticker sweep asks each source for the SYMBOL, letting sources
+            # that can disambiguate one do so — a bare symbol searched
+            # site-wide returns whatever else shares those three letters.
+            if ticker:
+                jobs[pool.submit(source.search_ticker, ticker.upper(),
+                                 limit=limit_per_source)] = source.name
+            else:
+                jobs[pool.submit(source.search, query,
+                                 limit=limit_per_source)] = source.name
 
         if ticker:
             from .sources.markets import StockTwitsSource

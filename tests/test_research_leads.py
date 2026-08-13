@@ -267,3 +267,167 @@ def test_hunt_deduplicates_across_sources(monkeypatch):
     sweep = leads.hunt("q")
     assert len(sweep.leads) == 1
     assert sum(sweep.ran.values()) == 1
+
+
+# --------------------------------------------------------------- throttling
+
+def test_same_host_requests_are_spaced(monkeypatch):
+    """A blink fans out across watches at once; without spacing that is a
+    burst, and a burst is what gets a 429."""
+    import time as time_module
+
+    from src.research import http
+
+    monkeypatch.setattr(http, "_last_request", {})
+    slept = []
+    monkeypatch.setattr(http.time, "sleep", lambda s: slept.append(s))
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(http.time, "monotonic", lambda: clock["t"])
+
+    http._throttle("https://www.reddit.com/a")     # first call is free
+    assert slept == []
+
+    # A second call at the same instant must wait out the host's interval.
+    # The fake clock does not advance on sleep, so break out after one wait.
+    def advancing_sleep(seconds):
+        slept.append(seconds)
+        clock["t"] += seconds
+    monkeypatch.setattr(http.time, "sleep", advancing_sleep)
+
+    http._throttle("https://www.reddit.com/b")
+    assert slept and abs(sum(slept) - 2.0) < 0.01, "reddit spacing is 2s"
+
+    assert time_module is not None      # imported for clarity, not used
+
+
+def test_throttling_is_per_host(monkeypatch):
+    from src.research import http
+
+    monkeypatch.setattr(http, "_last_request", {})
+    monkeypatch.setattr(http.time, "monotonic", lambda: 500.0)
+    slept = []
+    monkeypatch.setattr(http.time, "sleep", lambda s: slept.append(s))
+
+    http._throttle("https://www.reddit.com/a")
+    http._throttle("https://news.google.com/rss")   # different host, no wait
+    assert slept == []
+
+
+# ------------------------------------------------------ ticker disambiguation
+
+def test_ticker_search_is_restricted_to_finance_subreddits(monkeypatch):
+    """ERX site-wide returned a Fallout mod. A symbol only means a symbol
+    where people discuss symbols."""
+    seen = {}
+
+    def fake_get(url, *a, **k):
+        seen["url"] = url
+        return b'<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"/>'
+
+    monkeypatch.setattr("src.research.sources.reddit._oauth_token", lambda: None)
+    monkeypatch.setattr("src.research.sources.reddit.get", fake_get)
+
+    RedditSource().search_ticker("ERX")
+    assert "wallstreetbets" in seen["url"] and "stocks" in seen["url"]
+    assert "restrict_sr=on" in seen["url"]
+
+
+def test_google_news_qualifies_a_bare_ticker(monkeypatch):
+    seen = {}
+
+    def fake_get(url, *a, **k):
+        seen["url"] = url
+        return b'<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>'
+
+    monkeypatch.setattr("src.research.sources.news.get", fake_get)
+    GoogleNewsSource().search_ticker("NET")
+    assert "stock" in seen["url"], "a bare symbol is ambiguous to a news index"
+
+
+def test_sources_without_an_override_fall_back_to_plain_search():
+    from src.research.base import Source
+
+    called = {}
+
+    class Plain(Source):
+        name = "plain"
+
+        def can_handle(self, url):
+            return False
+
+        def fetch(self, url):
+            raise NotImplementedError
+
+        def search(self, query, limit=15):
+            called["query"] = query
+            return []
+
+    Plain().search_ticker("NVDA")
+    assert called["query"] == "NVDA"
+
+
+def test_hackernews_declines_ticker_searches():
+    """HN has no ticker context. NET returns Netflix and Netscape there, so
+    silence beats filling the slot with noise."""
+    assert HackerNewsSource().search_ticker("NET") == []
+
+
+def test_edgar_resolves_tickers_through_the_official_cik_map(monkeypatch):
+    import src.research.sources.markets as markets
+
+    monkeypatch.setattr(markets, "_ticker_map", {})
+    calls = []
+
+    def fake_get_json(url, *a, **k):
+        calls.append(url)
+        if "company_tickers" in url:
+            return {"0": {"ticker": "NET", "cik_str": 1477333}}
+        return {"hits": {"hits": [{
+            "_id": "0001477333-26-000030:net-10q.htm",
+            "_source": {"file_type": "10-Q", "file_date": "2026-08-01",
+                        "display_names": ["Cloudflare, Inc. (NET)"]},
+        }]}}
+
+    monkeypatch.setattr(markets, "get_json", fake_get_json)
+
+    docs = markets.EdgarSource().search_ticker("NET")
+    assert "ciks=0001477333" in calls[-1], "must query by CIK, not by the word"
+    assert docs[0].meta["form"] == "10-Q"
+    assert "Cloudflare" in docs[0].title
+
+
+def test_edgar_says_nothing_for_a_ticker_the_sec_does_not_list(monkeypatch):
+    """ERX is a leveraged ETF with no CIK. Zero results beats every filing
+    containing the word 'erx'."""
+    import src.research.sources.markets as markets
+
+    monkeypatch.setattr(markets, "_ticker_map", {"NET": "0001477333"})
+    monkeypatch.setattr(markets, "get_json",
+                        lambda *a, **k: pytest.fail("must not query EDGAR"))
+    assert markets.EdgarSource().search_ticker("ERX") == []
+
+
+def test_hunt_asks_sources_for_the_symbol_when_given_a_ticker(monkeypatch):
+    from src.research import leads
+
+    calls = []
+    source = type("S", (), {
+        "name": "s",
+        "available": lambda self: (True, "ok"),
+        "search": lambda self, q, limit=10: calls.append(("search", q)) or [],
+        "search_ticker": lambda self, t, limit=10: calls.append(("ticker", t)) or [],
+    })()
+    monkeypatch.setattr(leads, "_searchable", lambda: iter([source]))
+    monkeypatch.setattr(leads.StockTwitsSource if hasattr(leads, "StockTwitsSource")
+                        else leads, "_unused", None, raising=False)
+
+    import src.research.sources.markets as markets
+    monkeypatch.setattr(markets.StockTwitsSource, "symbol",
+                        lambda self, t, limit=30: Document(
+                            url="u", title="t", text="", source="stocktwits",
+                            backend="b"))
+
+    leads.hunt("ignored phrase", ticker="nvda")
+    assert ("ticker", "NVDA") in calls
+    assert not any(kind == "search" for kind, _ in calls)

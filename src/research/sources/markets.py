@@ -20,10 +20,34 @@ from ..base import Document, Source, SourceError
 from ..http import get_json, q
 from ..url import host_matches, normalize_public_url
 
+TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"
+_ticker_map: dict[str, str] = {}
+
 STOCKTWITS = "https://api.stocktwits.com/api/2"
 EDGAR_SEARCH = "https://efts.sec.gov/LATEST/search-index"
 EDGAR_FTS = "https://efts.sec.gov/LATEST/search-index?q="
 EDGAR_UI = "https://www.sec.gov/cgi-bin/browse-edgar"
+
+
+def ticker_to_cik(ticker: str) -> str:
+    """Zero-padded CIK for a ticker, or "" if the SEC does not list it.
+
+    SEC publishes the authoritative map; it is fetched once per process and
+    kept in memory. A failure returns "" rather than raising, because not
+    knowing a CIK should cost one silent source, not the sweep.
+    """
+    global _ticker_map
+    if not _ticker_map:
+        try:
+            payload = get_json(TICKER_MAP_URL)
+            _ticker_map = {
+                str(row.get("ticker", "")).upper(): str(row.get("cik_str", "")).zfill(10)
+                for row in (payload or {}).values()
+                if isinstance(row, dict)
+            }
+        except Exception:                 # noqa: BLE001 — optional enrichment
+            _ticker_map = {"": ""}        # mark as attempted; do not retry per call
+    return _ticker_map.get(ticker.upper(), "")
 
 
 class StockTwitsSource(Source):
@@ -137,5 +161,38 @@ class EdgarSource(Source):
                     "company": names[0] if names else "",
                     "accession": accession,
                 },
+            ))
+        return sorted(out, key=lambda d: d.meta.get("filed", ""), reverse=True)
+
+    def search_ticker(self, ticker: str, limit: int = 15) -> list[Document]:
+        """This company's recent filings, resolved by ticker → CIK.
+
+        Not a full-text search for the symbol: searching EDGAR for "NET"
+        returns every filing containing the word "net", and `entityName=NET`
+        fuzzy-matches a company called "H NET NET". Only the official
+        ticker→CIK map gets the right company, and a new 8-K from a company
+        you hold is the highest-signal thing this module can produce.
+        """
+        cik = ticker_to_cik(ticker)
+        if not cik:
+            return []          # unlisted or foreign: say nothing, not noise
+        payload = get_json(
+            f"https://efts.sec.gov/LATEST/search-index?{q(ciks=cik, forms='8-K,10-Q,10-K')}"
+        )
+        hits = ((payload.get("hits") or {}).get("hits") or [])[:limit]
+        out = []
+        for hit in hits:
+            src = hit.get("_source", {}) or {}
+            accession, _, doc_name = hit.get("_id", "").partition(":")
+            names = src.get("display_names") or []
+            out.append(Document(
+                url=(f"https://www.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/"
+                     f"{accession.replace('-', '')}/{doc_name}"),
+                title=f"{src.get('file_type', '')} filed by {names[0] if names else ticker}",
+                text=src.get("file_description", "") or "",
+                source=self.name,
+                backend="efts",
+                meta={"form": src.get("file_type", ""), "filed": src.get("file_date", ""),
+                      "cik": cik, "company": names[0] if names else "", "ticker": ticker},
             ))
         return sorted(out, key=lambda d: d.meta.get("filed", ""), reverse=True)
