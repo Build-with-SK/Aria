@@ -148,5 +148,45 @@
     "value": 47.77,
     "threshold": null,
     "date": "2026-08-03T17:26:09.228923"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "WEAT",
+    "title": "\u25b2 BOUGHT 19 WEAT @ $23.73 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 88/100 \u00b7 The verdict of BUY follows from the strong bullish probability and positive momentum score, which indicate a favorable m",
+    "value": 23.73,
+    "threshold": null,
+    "date": "2026-08-11T17:25:46.877876"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "ERX",
+    "title": "\u25b2 BOUGHT 5 ERX @ $98.66 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 77/100 \u00b7 The verdict of BUY follows from the evidence because the bullish stance is strongly supported by a composite signal scor",
+    "value": 98.66,
+    "threshold": null,
+    "date": "2026-08-11T17:26:18.797980"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "BNO",
+    "title": "\u25b2 BOUGHT 9 BNO @ $50.47 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 70/100 \u00b7 The verdict of BUY follows from the evidence primarily because the composite signal score is +47.3 (Buy), which indicate",
+    "value": 50.47,
+    "threshold": null,
+    "date": "2026-08-11T17:31:41.981849"
+  },
+  {
+    "alert_type": "DESK_AUTO_FILL",
+    "severity": "INFO",
+    "ticker": "JD",
+    "title": "\u25b2 BOUGHT 16 JD @ $31.94 (paper)",
+    "message": "Auto-executed by the desk \u00b7 conviction 65/100 \u00b7 The strong bullish case hinges on the composite signal score of +47.4 (Buy), indicating a robust buy recommendation base",
+    "value": 31.94,
+    "threshold": null,
+    "date": "2026-08-11T17:32:13.904260"
   }
 ]
