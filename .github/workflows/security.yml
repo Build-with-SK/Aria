@@ -15,6 +15,24 @@ on:
   workflow_dispatch:
 
 jobs:
+  # The fence (docs/ARIA_NEXT_SESSION.md step 1). No ARIA-authored commit may
+  # touch the auth layer, the live-money gate, these workflows, or the fence
+  # itself. Needs the full history — fetch-depth: 0 — because a shallow clone
+  # would let an older violating commit sit outside the scan and report clean.
+  # --require-git makes a check that CANNOT run a failure rather than a skip.
+  protected-paths:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: The fence — ARIA may not modify her own guardrails
+        run: python scripts/check_protected_paths.py --require-git
+
   security-regression:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -55,6 +73,18 @@ jobs:
 
       - name: Earlier audit regressions
         run: python -m pytest tests/test_audit_fixes.py tests/test_auth_policy.py tests/test_auth_session.py tests/test_vault_security.py -v
+
+      - name: Self-modification — the fence and the sandbox
+        run: python -m pytest tests/test_protected_paths.py tests/test_selfmod_sandbox.py -v
+
+      - name: Self-hosted brain — no vendor in the reasoning path, no silent fallback
+        run: python -m pytest tests/test_inference_policy.py -v
+
+      - name: Finding C1 — the CSRF origin guard accepts its own app and nothing else
+        run: python -m pytest tests/test_origin_guard.py -v
+
+      - name: Training — chronological splits, and no adapter promoted on noise
+        run: python -m pytest tests/test_training_dataset.py tests/test_training_promotion.py -v
 
   # The rest of the suite. Allowed to need more of the stack; still blocking,
   # because "the security tests pass but nothing else does" is not a green build.
