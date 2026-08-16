@@ -181,13 +181,48 @@ def test_reddit_reports_which_backend_is_serving(monkeypatch):
     assert ok and detail.startswith("oauth")
 
 
-def test_sec_requests_carry_a_contact_user_agent():
-    """SEC 403s any agent without a contact address — a bare 403 that reads
-    like a block rather than a missing header."""
-    from src.research.http import SEC_UA, _agent_for
-    assert "@" in SEC_UA
-    assert _agent_for("https://efts.sec.gov/LATEST/search-index?q=x") == SEC_UA
-    assert _agent_for("https://example.com/") != SEC_UA
+def test_sec_contact_comes_from_config_not_source(monkeypatch, tmp_path):
+    """SEC 403s an agent without a contact address — but a personal email in a
+    public repo is harvested within days, so the address is configuration."""
+    from src.research import http
+
+    monkeypatch.delenv("ARIA_SEC_CONTACT", raising=False)
+    monkeypatch.setattr("src.research.sources.walled.KEYS_FILE", tmp_path / "none.json")
+    assert http.sec_contact() == ""
+    # Unconfigured: fall back to the generic agent and warn, never invent one.
+    assert http._agent_for("https://efts.sec.gov/x") == http.UA
+
+    monkeypatch.setenv("ARIA_SEC_CONTACT", "someone@example.com")
+    agent = http._agent_for("https://efts.sec.gov/LATEST/search-index?q=x")
+    assert "someone@example.com" in agent
+    assert http._agent_for("https://example.com/") == http.UA
+
+
+def test_no_personal_address_is_hardcoded_in_source():
+    """No real contact address may live in src/ — this repo is public, and a
+    personal email committed to a public repo is harvested within days.
+
+    Placeholders, documentation examples and system-local addresses are fine;
+    the guard exists to catch a REAL one, which is what src/research/http.py
+    carried until the SEC contact became configuration.
+    """
+    import re
+
+    SAFE = ("example.com", "example.org", "example.net", "noreply.com",
+            ".local", ".test", ".invalid", "your_email", "user@", "name@")
+
+    root = Path(__file__).parent.parent / "src"
+    pattern = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
+    offenders = []
+    for path in root.rglob("*.py"):
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for hit in pattern.findall(line):
+                if not any(marker in hit.lower() for marker in SAFE):
+                    offenders.append(f"{path.relative_to(root)}:{n} {hit}")
+    assert not offenders, (
+        f"real-looking email addresses in source: {offenders} — move them to "
+        "data/research_keys.json or an environment variable"
+    )
 
 
 def test_google_news_drops_unparseable_links(monkeypatch):

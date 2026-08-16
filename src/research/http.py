@@ -9,6 +9,8 @@ not re-decided (or forgotten) once per source.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import threading
 import time
 import urllib.error
@@ -18,6 +20,8 @@ import urllib.request
 from .base import SourceError
 from .url import normalize_public_url
 
+logger = logging.getLogger(__name__)
+
 # Several APIs here (Reddit especially) reject or throttle a generic agent and
 # ask for a descriptive one. Identifying honestly is also the price of using
 # a public endpoint politely.
@@ -26,15 +30,40 @@ TIMEOUT = 25
 MAX_BYTES = 8 * 1024 * 1024
 
 
-# The SEC rejects any request whose User-Agent lacks a contact address — it is
-# stated policy on their fair-access page, and the failure is a bare 403 that
-# looks like a block rather than a missing header.
-SEC_UA = "ARIA Research batspiderchef@gmail.com"
+# The SEC rejects any request whose User-Agent lacks a contact address — stated
+# policy on their fair-access page, and the failure is a bare 403 that reads
+# like a block rather than a missing header.
+#
+# The address is configuration, never source. This repository is public, and a
+# personal email committed to a public repo is harvested within days; it is
+# also simply the wrong owner once anyone else runs this. Set ARIA_SEC_CONTACT,
+# or put SEC_CONTACT in data/research_keys.json (gitignored).
+SEC_UA_TEMPLATE = "ARIA Research {contact}"
+
+
+def sec_contact() -> str:
+    """The contact address SEC requires, from the environment or keys file."""
+    from .sources.walled import credential
+    return (os.environ.get("ARIA_SEC_CONTACT", "")
+            or credential("SEC_CONTACT")).strip()
 
 
 def _agent_for(url: str) -> str:
     from .url import host_matches
-    return SEC_UA if host_matches(url, "sec.gov") else UA
+
+    if not host_matches(url, "sec.gov"):
+        return UA
+
+    contact = sec_contact()
+    if not contact:
+        # Fail loudly rather than send an agent SEC will refuse: a bare 403
+        # here looks like a network problem and costs an hour to diagnose.
+        logger.warning(
+            "no SEC contact configured — set ARIA_SEC_CONTACT or SEC_CONTACT in "
+            "data/research_keys.json; SEC returns 403 without one"
+        )
+        return UA
+    return SEC_UA_TEMPLATE.format(contact=contact)
 
 
 # Minimum spacing between requests to the same host, in seconds. A blink over
