@@ -53,8 +53,13 @@ DEFAULTS = {
     "reflex_veto_max_tokens": 30,    # Haiku veto answer budget
     "reflex_on_llm_fail": "skip",    # veto unreachable → "skip" (safe) | "proceed"
     # ── Fable teacher/reviewer (Fable grades closed trades, writes lessons) ──
-    "teacher_enabled": False,        # opt-in — costs API calls
-    "teacher_model": "claude-fable-5",   # the teacher brain (frontier)
+    # ON by default now. It was opt-in because it cost API calls; on the
+    # self-hosted brain it costs a local inference, and the thing it buys is
+    # the only mechanism by which a finished trade changes a future one.
+    # A desk that trades and never grades itself is not learning, it is
+    # repeating.
+    "teacher_enabled": True,
+    "teacher_model": "claude-fable-5",   # only used where policy allows a vendor
     "teacher_daily_cap": 40,         # max Fable reviews/day (bill guard)
     "teacher_recall_lessons": 3,     # lessons injected into a future debate
     "llm_model": "qwen2.5-coder:7b",   # local model for debate prose (optional)

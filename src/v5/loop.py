@@ -170,6 +170,60 @@ def resolve_once() -> dict:
     return out
 
 
+def predict_last_run_date() -> str:
+    """The date the predict leg last ran, from the heartbeat file."""
+    if not HEARTBEAT.exists():
+        return ""
+    try:
+        state = json.loads(HEARTBEAT.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    return str((state.get("predict") or {}).get("at", ""))[:10]
+
+
+def predict_catchup(now: datetime | None = None) -> dict:
+    """Make today's prediction if the scheduled slot was missed.
+
+    THE BUG THIS FIXES
+    ------------------
+    `resolve` is registered with `next_run_time=now`, so it runs the moment the
+    backend wakes. `predict` is a plain daily cron at PREDICT_HOUR:10. A
+    machine that is not awake at 22:10 therefore skips that day's predictions
+    entirely and nothing anywhere says so — the resolve leg keeps running
+    happily over an input that stopped arriving. That asymmetry is why 16
+    predictions exist in total and none have resolved: the loop has been
+    turning with nothing going into it.
+
+    THIS IS NOT A BACKFILL (invariant 5)
+    ------------------------------------
+    A backfill invents calls that were never made. This makes TODAY's call,
+    late, with today's data and today's timestamp — the same thing the cron
+    would have done a few hours earlier.
+
+    And it will not run before PREDICT_HOUR. The slot is after the US close on
+    purpose: a call made at 11am against an unsettled session is a different
+    measurement from one made at 22:10, and quietly mixing the two would put a
+    methodological seam through the middle of the sample that nobody would
+    find later. Before the hour, this does nothing and lets the cron fire.
+    """
+    now = now or datetime.now()
+    today = now.date().isoformat()
+
+    if predict_last_run_date() == today:
+        return {"ran": False, "why": "predict has already run today"}
+    if now.hour < PREDICT_HOUR:
+        return {"ran": False,
+                "why": f"before the {PREDICT_HOUR}:10 slot — the cron will fire "
+                       f"today; a pre-close call is not the same measurement"}
+
+    logger.warning("research loop: the %d:10 predict slot was missed (last run "
+                   "%s) — making today's call now", PREDICT_HOUR,
+                   predict_last_run_date() or "never")
+    summary = predict_once()
+    summary["catchup"] = True
+    return {"ran": True, **summary}
+
+
 def run_once() -> dict:
     """Both legs, for a manual trigger or a smoke test."""
     return {"predict": predict_once(), "resolve": resolve_once()}
