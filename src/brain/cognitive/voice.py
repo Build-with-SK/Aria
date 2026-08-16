@@ -200,6 +200,29 @@ def pick_voice(preferred: str = DEFAULT_VOICE) -> str:
     return (female or available)[0]
 
 
+def write_wav(path: Path, samples, sample_rate: int) -> Path:
+    """16-bit mono PCM, via the standard library.
+
+    This used `soundfile`, which is a libsndfile binding — a compiled
+    dependency dragged in for one function call, and one that is not in
+    requirements-ci.txt, so the voice tests passed here and failed on a clean
+    runner. `wave` ships with Python and writes the same file. Kokoro returns
+    float32 in [-1, 1]; the browser plays the result identically.
+    """
+    import wave
+
+    import numpy as np
+
+    data = np.clip(np.asarray(samples, dtype=np.float32), -1.0, 1.0)
+    pcm = (data * 32767.0).astype(np.int16)
+    with wave.open(str(path), "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(int(sample_rate or SAMPLE_RATE))
+        out.writeframes(pcm.tobytes())
+    return Path(path)
+
+
 def say(text: str, *, voice: str = DEFAULT_VOICE, speed: float = DEFAULT_SPEED,
         out_path: Path | None = None, synth=None) -> Speech:
     """Speak. Writes a wav and returns where it is.
@@ -244,8 +267,7 @@ def say(text: str, *, voice: str = DEFAULT_VOICE, speed: float = DEFAULT_SPEED,
     path = Path(out_path) if out_path else (
         AUDIO_DIR / f"aria-{int(time.time() * 1000)}.wav")
     try:
-        import soundfile as sf
-        sf.write(str(path), samples, sample_rate)
+        write_wav(path, samples, sample_rate)
     except Exception as e:
         s.elapsed_ms = int((time.time() - t0) * 1000)
         s.error = f"the audio could not be written: {e}"
