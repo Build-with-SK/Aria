@@ -43,7 +43,33 @@ PANELS = {
         "market": "United States — S&P 500",
         "note": "current S&P 500 membership run back to 2000",
     },
+    "europe": {
+        "file": "europe_closes.pkl",
+        "market": "Europe — LSE, Euronext, XETRA, SIX, Borsa Italiana, BME, OMX",
+        "note": "FTSE 100, CAC 40, DAX, AEX, IBEX 35, FTSE MIB, SMI, OMXS30",
+    },
+    "japan": {
+        "file": "japan_closes.pkl",
+        "market": "Japan — Tokyo Stock Exchange",
+        "note": "Nikkei 225 current membership",
+    },
+    "asiapac": {
+        "file": "asiapac_closes.pkl",
+        "market": "Asia-Pacific — HKEX, ASX, SGX",
+        "note": "Hang Seng, ASX 200, Straits Times",
+    },
+    "americas": {
+        "file": "americas_closes.pkl",
+        "market": "Canada — TSX",
+        "note": "S&P/TSX 60 current membership",
+    },
 }
+
+# Currency is deliberately NOT converted. Every strategy here is long/short
+# within one panel and its returns are percentage changes in local currency, so
+# an FX translation would add exchange-rate noise to a signal that never sees
+# it. It does mean a "global" result is a set of local-currency results, not
+# one book an investor could actually hold.
 
 
 def load(name: str = "sp500", min_history: float = 0.98):
