@@ -37,7 +37,7 @@ from src.research.sources.youtube import YouTubeSource, _vtt_to_text  # noqa: E4
     "http://192.168.1.1/",
     "http://10.0.0.5/",
     "http://nas.local/",
-    "file:///C:/Users/sound/.env",
+    "file:///C:/Users/example/.env",         # a real home path names its owner
     "ftp://example.com/x",
     "https://user:pass@example.com/",        # embedded credentials
     "https://exam ple.com/",                 # whitespace
