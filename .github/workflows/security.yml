@@ -8,11 +8,25 @@ name: security
 # minutes and breaks when an unrelated SDK releases is a security check people
 # start skipping.
 
+# EVERY branch, not just main. `branches: [main]` meant a feature branch got no
+# checks at all until somebody opened a PR — 23 commits once went up unverified
+# on exactly that gap, and the two dependency bugs waiting in them were only
+# found because a run was dispatched by hand. The comment above already claimed
+# "every push"; now it is true.
+#
+# push and pull_request both fire on a PR branch, and that is deliberate rather
+# than wasteful: push tests the branch as it is, pull_request tests the MERGE
+# with main. They catch different things, and Actions is free on a public repo.
 on:
   push:
-    branches: [main]
   pull_request:
   workflow_dispatch:
+
+# A new push supersedes the run it interrupted — except on main, where every
+# commit gets its own verdict rather than being cancelled by the next one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # The fence (docs/ARIA_NEXT_SESSION.md step 1). No ARIA-authored commit may
