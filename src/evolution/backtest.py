@@ -187,8 +187,29 @@ def _vol_target(weights, daily, target: float, lookback: int = 60,
     return weights.mul(leverage, axis=0)
 
 
-def sharpe_of(rets, periods: int = 252) -> float | None:
-    """Annualised Sharpe, or None when there is not enough to say.
+# Annualised risk-free rate charged against every strategy. A single constant
+# across 2000-2026 and six currencies is a simplification — real short rates
+# ranged from zero to five percent and Japan's sat near zero for the whole
+# period — but the alternative that was in place, charging NOTHING, is not
+# neutral. It is an assumption that cash is free, and it is the assumption a
+# search will exploit.
+RISK_FREE_ANNUAL = 0.02
+
+
+def sharpe_of(rets, periods: int = 252, risk_free: float | None = None) -> float | None:
+    """Annualised EXCESS-return Sharpe, or None when there is not enough to say.
+
+    Excess, not raw. The distinction sounds academic and is not: with raw
+    returns a book can scale itself down until it is almost entirely cash and
+    keep its ratio, because Sharpe is scale-invariant. Drawdown is not
+    scale-invariant, so scaling down also slips under any drawdown ceiling.
+    Measured on the European panel, the search found exactly that corner — a
+    genome holding 13.7% average exposure, earning 1.39% a year, posting a
+    2.8% drawdown and a Sharpe that beat the fully-invested version.
+
+    Subtracting a risk-free rate closes it. A book earning 1.39% while sitting
+    in cash now scores below zero, which is what it deserves: you could have
+    had the cash without the trading.
 
     None rather than 0.0 on a dead or too-short series: a strategy that never
     traded has no Sharpe, and scoring it zero would let it outrank genuine
@@ -201,8 +222,11 @@ def sharpe_of(rets, periods: int = 252) -> float | None:
     sd = float(rets.std())
     if not np.isfinite(sd) or sd <= 1e-12:
         return None
-    value = float(rets.mean() / sd * np.sqrt(periods))
-    return value if np.isfinite(value) else None
+
+    rate = RISK_FREE_ANNUAL if risk_free is None else risk_free
+    excess = float(rets.mean()) - rate / periods
+    value = excess / sd * np.sqrt(periods)
+    return float(value) if np.isfinite(value) else None
 
 
 def max_drawdown(rets) -> float:

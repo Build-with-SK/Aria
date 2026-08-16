@@ -615,3 +615,47 @@ def test_missing_panel_says_how_to_fetch_it(tmp_path, monkeypatch):
     with pytest.raises(FileNotFoundError) as exc:
         universe.load("sp500")
     assert "fetch" in str(exc.value)
+
+
+# ══════════════════════════════════════ the cash-parking loophole
+
+def test_sharpe_is_measured_on_excess_returns():
+    """Raw-return Sharpe lets a book scale into cash and keep its ratio."""
+    from src.evolution.backtest import RISK_FREE_ANNUAL, sharpe_of
+
+    idx = pd.bdate_range("2020-01-01", periods=500)
+    rets = pd.Series(np.random.default_rng(0).normal(0.0004, 0.01, 500), index=idx)
+
+    charged = sharpe_of(rets)
+    uncharged = sharpe_of(rets, risk_free=0.0)
+    assert charged < uncharged, "the risk-free rate must actually be subtracted"
+    assert RISK_FREE_ANNUAL > 0
+
+
+def test_a_book_earning_less_than_cash_scores_negative():
+    """1.39% a year while 86% in cash is not a strategy — it is cash with
+    extra steps, and it must not outrank a real one."""
+    from src.evolution.backtest import sharpe_of
+
+    idx = pd.bdate_range("2020-01-01", periods=800)
+    # ~1.4% annual return, very low volatility: the shape the search found.
+    near_cash = pd.Series(0.014 / 252 + np.random.default_rng(1)
+                          .normal(0, 0.0009, 800), index=idx)
+    assert sharpe_of(near_cash) < 0, "below the risk-free rate must be negative"
+
+
+def test_scaling_a_strategy_down_no_longer_preserves_its_score():
+    """Sharpe on raw returns is scale-invariant, which is what made parking in
+    cash free. On excess returns, shrinking the book shrinks the excess."""
+    from src.evolution.backtest import sharpe_of
+
+    idx = pd.bdate_range("2020-01-01", periods=600)
+    full = pd.Series(np.random.default_rng(2).normal(0.0005, 0.012, 600), index=idx)
+    tenth = full * 0.1
+
+    assert sharpe_of(full) > sharpe_of(tenth), (
+        "a tenth-sized book must not score like a full one"
+    )
+    # And with no rate charged the old, exploitable invariance is visible.
+    assert abs(sharpe_of(full, risk_free=0.0)
+               - sharpe_of(tenth, risk_free=0.0)) < 1e-9
