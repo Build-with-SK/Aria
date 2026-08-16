@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
+from src.inference import policy
 from src.inference.errors import (AllProvidersFailed, FatalError,
                                   InferenceError, RetryableError)
 from src.inference.providers import Provider
@@ -152,6 +153,13 @@ class Completion:
     model: str
     tier: str
     attempts: int
+    #: True when something OTHER than the tier's first choice answered. Only
+    #: reachable under degrade="disclose"; the surface that shows this text is
+    #: expected to show the flag too. A weaker model answering in her voice
+    #: with nothing said about it is the thing decision 4 forbids.
+    degraded: bool = False
+    #: The candidate that was supposed to answer, when it did not.
+    primary: str = ""
 
 
 class InferenceRouter:
@@ -174,20 +182,47 @@ class InferenceRouter:
     def complete(self, tier: Tier | str, messages: list[dict], *,
                  system: str = "", max_tokens: int = 400,
                  temperature: float = 0.4, timeout: float = 120.0,
-                 local_only: bool = False) -> Completion:
+                 local_only: bool = False,
+                 degrade: str | None = None) -> Completion:
         tier_name = tier.value if isinstance(tier, Tier) else str(tier).upper()
         candidates = list(self.tiers.get(tier_name) or [])
         return self._run(tier_name, candidates, messages, system=system,
                          max_tokens=max_tokens, temperature=temperature,
-                         timeout=timeout, local_only=local_only)
+                         timeout=timeout, local_only=local_only,
+                         degrade=degrade)
 
     def _run(self, tier_name: str, candidates: list, messages: list[dict], *,
              system: str = "", max_tokens: int = 400,
              temperature: float = 0.4, timeout: float = 120.0,
-             local_only: bool = False) -> Completion:
+             local_only: bool = False,
+             degrade: str | None = None) -> Completion:
+        # ── the two standing decisions, applied before anything is called ──
+        # 1. Her brain is weights she runs herself: vendor providers are
+        #    filtered out of every tier, by locality rather than by name, so a
+        #    provider added next year is excluded on the day it is added.
+        # 2. A weaker model is never a silent stand-in: under the default
+        #    ABSTAIN policy only the tier's first permitted candidate may
+        #    answer. If it cannot, she says so.
+        degrade = (degrade or policy.default_degrade()).lower()
+        permitted, refused = policy.filter_candidates(candidates, self.providers)
+        if refused:
+            logger.info("router[%s] policy refused %s — her reasoning path is "
+                        "self-hosted (ARIA_ALLOW_VENDOR_BRAIN to override)",
+                        tier_name, [f"{p}/{m}" for p, m in refused])
+        if not permitted:
+            raise policy.BrainUnreachable(
+                tier_name,
+                [f"no self-hosted candidate is configured for this tier "
+                 f"(refused by policy: {[f'{p}/{m}' for p, m in refused]})"
+                 if refused else "no candidate is configured for this tier"],
+                tried=refused)
+
+        primary = f"{permitted[0][0]}/{permitted[0][1]}"
+        to_try = permitted[:1] if degrade == policy.ABSTAIN else permitted
+
         errors: list[InferenceError] = []
         attempts = 0
-        for provider_name, model in candidates:
+        for index, (provider_name, model) in enumerate(to_try):
             provider = self.providers.get(provider_name)
             if provider is None:
                 continue
@@ -205,9 +240,15 @@ class InferenceRouter:
                         model, messages, system=system, max_tokens=max_tokens,
                         temperature=temperature, timeout=timeout)
                     breaker.record_success()
+                    if index > 0:
+                        logger.warning(
+                            "router[%s] answered by %s/%s, not %s — the caller "
+                            "must disclose this", tier_name, provider_name,
+                            model, primary)
                     return Completion(text=text, provider=provider_name,
                                       model=model, tier=tier_name,
-                                      attempts=attempts)
+                                      attempts=attempts, degraded=index > 0,
+                                      primary=primary if index > 0 else "")
                 except FatalError as e:
                     logger.warning(f"router[{tier_name}] fatal from "
                                    f"{provider_name}/{model}: {e}")
@@ -224,7 +265,10 @@ class InferenceRouter:
                         self._sleep(delay)
                     else:
                         break
-        raise AllProvidersFailed(tier_name, errors)
+        # Abstention, not failure-with-a-substitute. The caller is expected to
+        # say she cannot answer rather than to reach for something else.
+        raise policy.BrainUnreachable(tier_name, errors,
+                                      tried=[list(c) for c in to_try])
 
     def complete_with(self, provider_name: str, model: str,
                       messages: list[dict], *, system: str = "",
@@ -242,8 +286,16 @@ class InferenceRouter:
         time.sleep(seconds)     # patchable in tests
 
     def status(self) -> dict:
+        permitted = {}
+        for tier, candidates in self.tiers.items():
+            allowed, refused = policy.filter_candidates(candidates, self.providers)
+            permitted[tier] = {"permitted": allowed, "refused_by_policy": refused,
+                               "primary": (f"{allowed[0][0]}/{allowed[0][1]}"
+                                           if allowed else None)}
         return {
             "tiers": self.tiers,
+            "policy": policy.describe(),
+            "routing": permitted,
             "breakers": {n: {"state": b.state.value, "failures": b.failures}
                          for n, b in self.breakers.items()},
         }

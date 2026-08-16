@@ -123,14 +123,39 @@ def _budget_left(cfg: dict, state: dict) -> int:
 # ── the teacher ──────────────────────────────────────────────────────────────
 
 def _call_fable(prompt: str, model: str) -> str | None:
+    """Grade one closed trade.
+
+    This is her learning-from-experience organ: it turns a trade that is over
+    into a lesson a future debate recalls. It used to run on Fable only, which
+    meant that the day her reasoning path went self-hosted
+    (`src/inference/policy.py`), the teacher went silent — she kept trading and
+    stopped learning, with nothing in the logs but a warning. A brain that
+    cannot reach a vendor must still be able to learn from what it did.
+
+    So: the frontier is tried ONLY where the policy still permits a vendor,
+    and the local brain is the ordinary path rather than the consolation
+    prize. A lesson written by the 7B model is worth incomparably more than no
+    lesson, because the alternative is not a better lesson — it is amnesia.
+    """
+    from src.inference import policy
+    from src.inference.router import Tier, get_router
+
+    if not policy.self_hosted_only() and model:
+        try:
+            return get_router().complete_with(
+                "anthropic", model, [{"role": "user", "content": prompt}],
+                max_tokens=400, temperature=0.3, timeout=45).text
+        except Exception as e:
+            logger.warning(f"teacher frontier call failed, falling back to the "
+                           f"local brain: {e}")
+
     try:
-        from src.inference.router import get_router
-        return get_router().complete_with(
-            "anthropic", model,
-            [{"role": "user", "content": prompt}],
-            max_tokens=400, temperature=0.3, timeout=45).text
+        return get_router().complete(
+            Tier.STANDARD, [{"role": "user", "content": prompt}],
+            max_tokens=400, temperature=0.3, timeout=90).text
     except Exception as e:
-        logger.warning(f"teacher Fable call failed: {e}")
+        logger.warning(f"teacher could not reach a brain at all — this trade "
+                       f"is left ungraded rather than guessed at: {e}")
         return None
 
 

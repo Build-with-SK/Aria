@@ -23,10 +23,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.v5 import marketdata as md, vendors     # noqa: E402
 
 
-def _frame(days: int = 400, end: datetime | None = None) -> pd.DataFrame:
-    """A plausible daily OHLCV series ending `end` (default: today)."""
+def _frame(days: int = 400, end: datetime | None = None,
+           exact_end: bool = False) -> pd.DataFrame:
+    """A plausible daily OHLCV series ending `end` (default: today).
+
+    `exact_end` forces the final bar onto `end` itself. Business-day ranges
+    snap backwards off a weekend, so `end=now - 3 days` run on a Wednesday
+    produces a last bar 5.5 days old — which turns a test about the staleness
+    rule into a test about which weekday the suite happens to run on. Only the
+    staleness-arithmetic tests need this; everything else wants real trading
+    days.
+    """
     end = end or datetime.now()
     idx = pd.bdate_range(end=end.date(), periods=days)
+    if exact_end and (len(idx) == 0 or idx[-1].date() != end.date()):
+        idx = idx[1:].append(pd.DatetimeIndex([pd.Timestamp(end.date())]))
     close = pd.Series(range(days), dtype=float) + 100.0
     return pd.DataFrame({"Open": close.values, "High": close.values + 1,
                          "Low": close.values - 1, "Close": close.values,
@@ -162,13 +173,38 @@ def test_old_data_from_a_working_primary_is_still_stale(monkeypatch):
     assert "days old" in prov["stale_reason"]
 
 
-def test_a_weekend_does_not_make_friday_stale(monkeypatch):
-    """Friday's close read on Monday is normal, not a fault. A staleness rule
-    that cries wolf every Monday gets switched off."""
-    kill(working={"yfinance": _frame(end=datetime.now() - timedelta(days=3))},
+@pytest.mark.parametrize("age_days", [3, 4])
+def test_a_weekend_does_not_make_friday_stale(age_days, monkeypatch):
+    """Friday's close read on Monday (3 days), or on the Tuesday after a
+    Monday holiday (4 days), is normal — not a fault. `STALE_AFTER_DAYS = 5`
+    exists to absorb exactly that, and a rule that cried wolf every Monday
+    would get switched off.
+
+    Written in calendar age rather than as `now - 3 days` snapped to a
+    business day: the earlier version only passed when the suite happened to
+    run on a Monday. On a Wednesday it built a Sunday end whose newest
+    business bar was 5.5 days old and failed — a failure about the day of the
+    week, not about the rule.
+    """
+    kill(working={"yfinance": _frame(end=datetime.now() - timedelta(days=age_days),
+                                     exact_end=True)},
          monkeypatch=monkeypatch)
     assert md.history("AAPL", period="1y") is not None
-    assert md.provenance("AAPL")["stale"] is False
+    prov = md.provenance("AAPL")
+    assert prov["stale"] is False, prov["stale_reason"]
+    assert prov["last_bar_age_days"] <= md.STALE_AFTER_DAYS
+
+
+def test_a_missed_week_is_still_stale(monkeypatch):
+    """The weekend tolerance is a weekend's worth, not a licence. Without this
+    the fix above could be 'widen the threshold until the test passes'."""
+    kill(working={"yfinance": _frame(end=datetime.now() - timedelta(days=8),
+                                     exact_end=True)},
+         monkeypatch=monkeypatch)
+    assert md.history("AAPL", period="1y") is not None
+    prov = md.provenance("AAPL")
+    assert prov["stale"] is True
+    assert "days old" in prov["stale_reason"]
 
 
 def test_stale_cache_is_used_but_never_passed_off_as_fresh(monkeypatch, tmp_path):

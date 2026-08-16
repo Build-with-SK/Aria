@@ -50,25 +50,32 @@ def test_happy_path_first_candidate():
     assert cloud.calls == []                      # candidate order respected
 
 
+# Failover is now opt-in: `degrade="disclose"`. Under the default ABSTAIN
+# policy a second candidate never answers at all (see test_inference_policy.py),
+# so these machinery tests ask for disclosure explicitly and use two LOCAL
+# providers — a vendor candidate would be filtered out before the machinery
+# was reached, and would be testing the policy instead of the retry loop.
+
 def test_retryable_retries_then_fails_over():
     ollama = MockProvider("ollama", [RetryableError("timeout")], local=True)
-    cloud = MockProvider("anthropic", ["cloud answer"])
-    r = make_router({"ollama": ollama, "anthropic": cloud},
-                    {"STANDARD": [["ollama", "m1"], ["anthropic", "c1"]]},
+    backup = MockProvider("ollama_b", ["backup answer"], local=True)
+    r = make_router({"ollama": ollama, "ollama_b": backup},
+                    {"STANDARD": [["ollama", "m1"], ["ollama_b", "m2"]]},
                     max_retries=2)
-    c = r.complete(Tier.STANDARD, MSG)
-    assert c.provider == "anthropic"
+    c = r.complete(Tier.STANDARD, MSG, degrade="disclose")
+    assert c.provider == "ollama_b"
     assert len(ollama.calls) == 3                 # 1 try + 2 retries, then failover
+    assert c.degraded and c.primary == "ollama/m1"
 
 
 def test_fatal_not_retried():
     ollama = MockProvider("ollama", [FatalError("bad auth")], local=True)
-    cloud = MockProvider("anthropic", ["cloud answer"])
-    r = make_router({"ollama": ollama, "anthropic": cloud},
-                    {"DEEP": [["ollama", "m1"], ["anthropic", "c1"]]},
+    backup = MockProvider("ollama_b", ["backup answer"], local=True)
+    r = make_router({"ollama": ollama, "ollama_b": backup},
+                    {"DEEP": [["ollama", "m1"], ["ollama_b", "m2"]]},
                     max_retries=3)
-    c = r.complete(Tier.DEEP, MSG)
-    assert c.provider == "anthropic"
+    c = r.complete(Tier.DEEP, MSG, degrade="disclose")
+    assert c.provider == "ollama_b"
     assert len(ollama.calls) == 1                 # straight to next candidate
 
 
@@ -114,14 +121,14 @@ def test_half_open_failure_reopens():
 
 def test_open_breaker_skips_provider_entirely():
     ollama = MockProvider("ollama", [RetryableError("down")], local=True)
-    cloud = MockProvider("anthropic", ["cloud answer"])
-    r = make_router({"ollama": ollama, "anthropic": cloud},
-                    {"STANDARD": [["ollama", "m1"], ["anthropic", "c1"]]},
+    backup = MockProvider("ollama_b", ["backup answer"], local=True)
+    r = make_router({"ollama": ollama, "ollama_b": backup},
+                    {"STANDARD": [["ollama", "m1"], ["ollama_b", "m2"]]},
                     max_retries=0, breaker_threshold=1)
-    r.complete(Tier.STANDARD, MSG)                # opens the ollama breaker
+    r.complete(Tier.STANDARD, MSG, degrade="disclose")   # opens the ollama breaker
     ollama.calls.clear()
-    c = r.complete(Tier.STANDARD, MSG)
-    assert c.provider == "anthropic" and ollama.calls == []
+    c = r.complete(Tier.STANDARD, MSG, degrade="disclose")
+    assert c.provider == "ollama_b" and ollama.calls == []
 
 
 def test_complete_with_explicit_candidate():

@@ -54,9 +54,10 @@ try:
 except ImportError:
     pass
 
-from fastapi import Depends, FastAPI, HTTPException, BackgroundTasks, Request
+from fastapi import (BackgroundTasks, Depends, FastAPI, File, HTTPException,
+                     Request, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 # Not lazy on purpose: this is the guard on every order-placing route, and a
@@ -284,6 +285,34 @@ app.add_middleware(
 )
 
 
+def _origin_allowed(request, origin: str) -> bool:
+    """Is this mutating request coming from somewhere we accept?
+
+    Two ways to qualify, and the second one was missing:
+
+      1. An explicitly allowed origin — the Vite dev servers on 3000/5173.
+      2. THE APP'S OWN ORIGIN. The built frontend is served by this process at
+         `/app`, so its Origin is whatever host this API is reached on —
+         `http://localhost:8000` normally, a tunnel hostname behind cloudflared.
+         None of those are in the static list, so every POST from the built UI
+         was refused: chat, run-now, approvals, all of it. The dev server
+         worked and the shipped app did not.
+
+    Allowing (2) is not a loosening. CSRF is by definition a request from
+    ANOTHER origin, and the browser sets `Origin` itself — a page on evil.com
+    cannot make it say `localhost:8000`. Comparing it to the Host this request
+    actually arrived on is the standard same-origin check, and a foreign origin
+    still fails it.
+    """
+    if origin in _ALLOWED_ORIGINS:
+        return True
+    try:
+        from urllib.parse import urlparse
+        return bool(origin) and urlparse(origin).netloc == request.headers.get("host", "")
+    except ValueError:
+        return False
+
+
 @app.middleware("http")
 async def _mutation_guard(request, call_next):
     """Audit C1: the human-approval story needs technical backing.
@@ -295,7 +324,7 @@ async def _mutation_guard(request, call_next):
     GETs stay open (read-only), so dashboards keep working."""
     if request.method in ("POST", "PATCH", "PUT", "DELETE"):
         origin = request.headers.get("origin")
-        if origin and origin not in _ALLOWED_ORIGINS:
+        if origin and not _origin_allowed(request, origin):
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=403,
                                 content={"detail": "origin not allowed"})
@@ -1103,10 +1132,38 @@ def auth_callback(provider: str, request: Request,
 
     resp = RedirectResponse(f"{front}{oauth.safe_next(st.get('n'))}", status_code=302)
     resp.set_cookie(sess.COOKIE, sess.issue(identity), **sess.cookie_kwargs())
+    is_owner = sess.is_owner_identity(identity)
+    # With OAuth there is no separate registration step: the first sign-in IS
+    # the sign-up, and this is where it happens. Recorded here rather than in a
+    # middleware so it captures the verified identity the provider returned,
+    # not a role derived from a cookie later.
+    from src.auth import users
+    users.record_sign_in(identity, owner=is_owner)
     logger.info("auth: %s signed in via %s (owner=%s)",
-                identity.get("email") or identity.get("sub"), provider,
-                sess.is_owner_identity(identity))
+                identity.get("email") or identity.get("sub"), provider, is_owner)
     return resp
+
+
+@app.get("/api/auth/users", tags=["Auth"],
+         dependencies=[Depends(require_owner)])
+def auth_users():
+    """Everyone who has ever signed in. Owner-only.
+
+    The moment real people use this, the file behind it holds personal data and
+    the owner is a controller under UK GDPR — which needs a lawful basis, a
+    privacy notice saying what is kept, and a way to erase someone. The record
+    is deliberately minimal so those obligations are cheap to honour; see
+    src/auth/users.py and the DELETE below."""
+    from src.auth import users
+    return _sanitize({"stats": users.stats(), "users": users.list_users()})
+
+
+@app.delete("/api/auth/users/{key:path}", tags=["Auth"],
+            dependencies=[Depends(require_owner)])
+def auth_delete_user(key: str):
+    """Erase one person's record — the deletion request path. Owner-only."""
+    from src.auth import users
+    return {"ok": users.delete(key), "key": key}
 
 
 @app.post("/api/auth/logout", tags=["Auth"])
@@ -1315,11 +1372,11 @@ def _ondemand_ticker_context(messages: List["ChatMsg"]) -> str:
 def aria_chat(body: ChatRequest, request: Request):
     """Send a message to ARIA. Returns the assistant reply with market context baked in.
 
-    Owner-only: this is the cloud model, billed to the owner's key. Free users
-    are routed to /api/chat/local by the policy allowlist."""
-    client = _get_anthropic()
-    if not client:
-        raise HTTPException(status_code=503, detail="Anthropic API key not configured")
+    Owner-only. Her reasoning runs on weights this machine holds — the router
+    refuses vendor providers in this path (`src/inference/policy.py`,
+    decision 1). The Anthropic key gate that used to stand here is gone with
+    it: a missing vendor key is no longer a reason she cannot think, and its
+    presence is no longer a reason she reaches for one."""
 
     # Build live market context from latest data files
     signals  = _load_optional("signals.json")
@@ -1371,14 +1428,24 @@ Daily report summary: {report.get('summary', 'Not available')}
         logger.warning(f"V5 identity unavailable, using the legacy preamble: {_e}")
         _identity = ""
 
-    system = f"""{_identity}## THIS SURFACE — ARIA CHAT
+    # Her own state, in the SYSTEM prompt rather than in a droppable context
+    # block. Asked "are you learning?" she answered "Yes, I am continuously
+    # learning and updating my models" — fluent and false: no fine-tune has
+    # ever run and no prediction has resolved. A model with no facts about
+    # itself answers that question from what an assistant is supposed to say.
+    # Giving it the measured numbers is the only thing that changes the answer,
+    # and it must be un-droppable: this is the claim that must survive a full
+    # context window (invariant 6, cite or abstain).
+    try:
+        from src.brain.self_state import for_prompt as _self_state_prompt
+        _truth = _self_state_prompt() + "\n\n---\n\n"
+    except Exception as _e:
+        logger.warning(f"self-state unavailable for the chat prompt: {_e}")
+        _truth = ""
+
+    system = f"""{_identity}{_truth}## THIS SURFACE — ARIA CHAT
 
 You are ARIA — the AI brain of this trading intelligence system. You analyse markets using macro regime detection, ML signals, and a multi-broker execution engine (Alpaca + IBKR). You can fetch ANY globally-listed stock on demand — US, India (NSE/BSE), and London — with live price, fundamentals, and its competitors/suppliers; if the ON-DEMAND DATA block below is present, that data was just fetched for the ticker the user asked about, so never say you lack data for it.
-
-{ctx}
-{ondemand_ctx}
-
-{vault_ctx}
 
 Your personality: precise, confident, data-driven. You reason from signals, not opinion. You always cite the actual numbers from the data above when discussing a ticker. You flag risk clearly.
 
@@ -1394,9 +1461,31 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
     except Exception as e:
         logger.warning(f"chat compression skipped: {e}")
 
+    # ── bound the context deliberately, and say what did not fit ────────────
+    # These three blocks are the ones that overflow: the live market state is
+    # long, an on-demand ticker block is longer, and a vault excerpt can be
+    # arbitrarily long. Before this, all three were interpolated into the
+    # system prompt unchecked and Ollama silently truncated whatever ran past
+    # its window — usually the question. src/inference/context.py sheds them
+    # by a stated rule and reports what it shed, so she can say she is missing
+    # something instead of answering around the gap.
+    from src.inference import context as _ctx
+    from src.inference.policy import BrainUnreachable
+    from src.inference.providers.ollama import DEFAULT_NUM_CTX
+
+    blocks = [b for b in (
+        _ctx.Block("LIVE MARKET STATE", ctx, priority=80, order=1),
+        _ctx.Block("ON-DEMAND TICKER DATA", ondemand_ctx, priority=90, order=2),
+        _ctx.Block("OWNER'S VAULT NOTES", vault_ctx, priority=60, order=3),
+    ) if (b.text or "").strip()]
+
+    budget = _ctx.Budget(context_tokens=DEFAULT_NUM_CTX, reply_tokens=1024)
+    system, msgs, fitted = _ctx.bound(system, msgs, blocks, budget)
+
     try:
-        # DEEP tier: Anthropic first, biggest local model as the fallback —
-        # a rate-limited API no longer 500s the chat when Ollama is up.
+        # DEEP tier, self-hosted. On failure she abstains rather than answering
+        # from a smaller model in the same voice (decision 4) — the 503 below
+        # carries what she would say, not a stack trace.
         from src.inference.router import Tier, get_router
         result = get_router().complete(
             Tier.DEEP, msgs, system=system, max_tokens=1024, timeout=90)
@@ -1404,8 +1493,14 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
             "content": result.text,
             "model": result.model,
             "provider": result.provider,
+            "degraded": result.degraded,
+            "degraded_from": result.primary,
+            "context": fitted.to_dict(),
             "tokens": {},
         }
+    except BrainUnreachable as e:
+        logger.warning(f"chat abstained — {e}")
+        raise HTTPException(status_code=503, detail=e.spoken())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1675,6 +1770,36 @@ def brain_set_interval(minutes: int = 15):
     brain = get_brain()
     brain.set_interval(minutes)
     return {"status": "ok", "interval_minutes": brain.interval_minutes}
+
+
+@app.patch("/api/brain/eye-interval", tags=["Local Brain"],
+           dependencies=[Depends(require_owner)])
+def brain_set_eye_interval(minutes: int = 20):
+    """Change how often the eye is offered a look.
+
+    This is not how often she looks: blink() only visits watches whose own
+    cadence is due, so a 20-minute offer against a 60-minute watch costs
+    three cheap no-ops an hour and one real sweep. Lower it to make her more
+    responsive to breaking news; raise it to spend fewer requests."""
+    if minutes < 1 or minutes > 1440:
+        raise HTTPException(status_code=400, detail="Interval must be between 1 and 1440 minutes")
+    from src.brain.brain_daemon import get_brain
+    brain = get_brain()
+    brain.set_eye_interval(minutes)
+    return {"status": "ok", "eye_interval_minutes": brain.eye_interval_minutes}
+
+
+@app.post("/api/brain/blink-now", tags=["Local Brain"],
+          dependencies=[Depends(require_owner)])
+def brain_blink_now():
+    """Look at the internet now, ignoring every cadence.
+
+    Unlike run-now this does not need Ollama: looking is not thinking."""
+    from src.brain.brain_daemon import get_brain
+    brain = get_brain()
+    brain.blink_now()
+    return {"status": "looking",
+            "message": "Blink started. Poll /api/brain/status or /api/research/eye."}
 
 
 @app.get("/api/brain/memories", tags=["Local Brain"])
@@ -2644,6 +2769,407 @@ def v5_identity():
     """The system prompt ARIA runs on, verbatim — including the Two Laws."""
     from src.v5.identity import CREATOR, system_prompt
     return {"creator": CREATOR, "full": system_prompt(), "short": system_prompt(full=False)}
+
+
+@app.get("/api/aria/voice", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_voice_status():
+    """Her voice: Kokoro-82M, local, and which voices are available."""
+    from src.brain.cognitive import voice
+    return _sanitize(voice.status())
+
+
+@app.post("/api/aria/speak", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_speak(body: dict):
+    """Say something. Body: `{"text": "...", "voice": "af_heart", "speed": 1.0}`
+
+    Returns the path to a wav and the text she ACTUALLY spoke, which is not
+    the text you sent: markup, tables and URLs are stripped and numbers are
+    normalised, because a voice that reads "asterisk asterisk NVDA asterisk
+    asterisk" is a screen reader, not a voice."""
+    from src.brain.cognitive import voice
+
+    text = str(body.get("text") or "")
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="nothing to say")
+    result = voice.say(text, voice=str(body.get("voice") or voice.DEFAULT_VOICE),
+                       speed=float(body.get("speed") or voice.DEFAULT_SPEED))
+    if not result.ok:
+        raise HTTPException(status_code=503, detail=result.error)
+    return _sanitize(result.to_dict())
+
+
+@app.get("/api/aria/audio/{name}", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_audio(name: str):
+    """Serve one clip she generated, so the browser can play it.
+
+    `/api/aria/speak` returns a filename, not audio: an `<audio>` element then
+    streams it from here, which lets the browser buffer and seek instead of
+    holding a megabyte of base64 in a JSON payload.
+
+    The name is resolved INSIDE data/audio and verified to still be there
+    afterwards. A path parameter that reaches the filesystem is the classic
+    traversal hole, and `../../../.env` is a short walk from here to the
+    owner's API keys."""
+    from src.brain.cognitive.voice import AUDIO_DIR
+
+    candidate = (AUDIO_DIR / name).resolve()
+    root = AUDIO_DIR.resolve()
+    if not (candidate == root or root in candidate.parents):
+        raise HTTPException(status_code=400, detail="that is not an audio clip")
+    if candidate.suffix.lower() != ".wav" or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="no such clip")
+    return FileResponse(str(candidate), media_type="audio/wav",
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/aria/hearing", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_hearing_status():
+    """Her ears, and how much of his own speech she has accumulated."""
+    from src.brain.cognitive import hearing
+    return _sanitize(hearing.status())
+
+
+@app.post("/api/aria/listen", tags=["ARIA"], dependencies=[Depends(require_owner)])
+async def aria_listen(file: UploadFile = File(...), remember: bool = True,
+                      context: str = ""):
+    """Transcribe one clip of speech — press-to-talk, not ambient.
+
+    `remember=true` keeps the text in the spoken corpus so she learns how he
+    talks: slang, shorthand, phrasing the vault does not contain. Pass
+    `remember=false` to transcribe and forget.
+
+    The transcript is research text. Ticker symbols heard at this model size
+    are unreliable — "NVDA" comes back as "in video" often enough that
+    resolving symbols from a transcript would be a hazard. Nothing here
+    reaches an order."""
+    import tempfile
+    from src.brain.cognitive import hearing
+
+    suffix = Path(file.filename or "clip.wav").suffix or ".wav"
+    tmp = Path(tempfile.gettempdir()) / f"aria-listen-{os.getpid()}{suffix}"
+    try:
+        tmp.write_bytes(await file.read())
+        result = hearing.listen(tmp)
+        if not result.ok:
+            raise HTTPException(status_code=422, detail=result.error)
+        kept = hearing.remember_speech(result, context=context, consent=remember)
+        return _sanitize({**result.to_dict(), "remembered": kept})
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+@app.get("/api/aria/novelty", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_novelty(record: bool = False):
+    """Is today like the days she has seen before?
+
+    Not a forecast and not a signal — a strange day can resolve into nothing.
+    It exists to make her look, and to say out loud that she is looking. Below
+    thirty remembered days it reports `not_enough_history` rather than calling
+    everything unprecedented, which is the same as saying nothing.
+
+    `record=false` by default: reading this endpoint should not add an
+    observation to her memory of what is usual. The brain cycle is what
+    remembers."""
+    from src.brain.cognitive import novelty
+    result = novelty.observe(record=record)
+    return _sanitize({**result.to_dict(), "history": novelty.status()})
+
+
+@app.get("/api/aria/sight", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_sight_status():
+    """Can she look at images, and with which model."""
+    from src.brain.cognitive import sight
+    return _sanitize(sight.status())
+
+
+@app.post("/api/aria/look", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_look(body: dict):
+    """Look at an image — a chart, a screenshot, a scanned filing page.
+
+    Body: `{"path": "..."} ` or `{"image_base64": "..."}`, plus an optional
+    `question`.
+
+    What comes back is a SIGHTING, and it is labelled as one. Measured on this
+    machine, the vision model read a chart's moving average as its price line
+    and its y-axis floor as 50 when it was 82 — in the same confident register
+    as everything it got right. Use this for what a picture shows that the
+    feed does not; never to read a number she can fetch."""
+    from src.brain.cognitive import sight
+
+    question = str(body.get("question") or "")
+    if body.get("image_base64"):
+        import base64 as _b64
+        try:
+            raw = _b64.b64decode(str(body["image_base64"]), validate=True)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"bad base64: {e}")
+        result = sight.look(raw, question)
+    elif body.get("path"):
+        result = sight.look(str(body["path"]), question)
+    else:
+        raise HTTPException(status_code=400,
+                            detail="give her something to look at: 'path' or "
+                                   "'image_base64'")
+    if not result.ok:
+        raise HTTPException(status_code=422, detail=result.error)
+    return _sanitize(result.to_dict())
+
+
+@app.get("/api/aria/state", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_self_state():
+    """Whether her own parts are working: reasoning model reachable, market
+    state fresh, research loop turning, how many calls have resolved.
+
+    The failure this exists to catch is the quiet one — everything answers
+    normally while nothing accumulates. Every check degrades to "unknown"
+    rather than to "fine", because a health report that says OK when it could
+    not run turns an outage into a false assurance.
+
+    `speak` is empty when nothing is wrong; when something is, it is one
+    sentence she can volunteer before answering."""
+    from src.brain import self_state
+    return _sanitize(self_state.report())
+
+
+# ===========================================================================
+# RESEARCH REACH — read the open internet, and keep the receipts.
+#
+# Everything except /status carries require_owner. Not because the data is
+# secret, but because these routes make the server fetch a URL the caller
+# chose: unguarded, that is an SSRF gadget and a way to spend ARIA's rate
+# limits on someone else's crawl. src/research/url.py rejects private and
+# loopback targets; the guard is the second lock, not the first.
+# ===========================================================================
+
+@app.get("/api/research/status", tags=["Research"])
+def research_status():
+    """Which sources can actually serve a request right now, and why not.
+
+    A source that needs a binary (yt-dlp) or a credential (X, Meta) reports
+    `available: false` with the specific fix, rather than failing at fetch
+    time. Nine of the eleven need neither."""
+    from src.research import status
+    return _sanitize({"as_of": datetime.now().isoformat(timespec="seconds"),
+                      "sources": status()})
+
+
+@app.get("/api/research/read", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_read(url: str, store: bool = True):
+    """Read one URL through whichever source claims it, and archive it.
+
+    The response carries `content_id` — the SHA-256 of exactly the bytes
+    returned. A later report citing this retrieval can be checked against
+    the archived copy even after the page changes underneath it."""
+    from src.research import read
+    from src.research.base import SourceError
+    try:
+        doc = read(url, store=store)
+    except ValueError as e:          # rejected by the URL guard
+        raise HTTPException(status_code=400, detail=str(e))
+    except SourceError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return _sanitize({
+        "url": doc.url, "title": doc.title, "source": doc.source,
+        "backend": doc.backend, "fetched_at": doc.fetched_at,
+        "chars": len(doc.text), "text": doc.text, "meta": doc.meta,
+    })
+
+
+@app.get("/api/research/feed", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_feed(url: str, limit: int = 50, store: bool = True):
+    """Expand an RSS/Atom feed into its entries without fetching each page.
+
+    Entries pointing somewhere non-public are dropped rather than fetched —
+    a feed is a list of links written by someone else."""
+    from src.research import read_feed
+    from src.research.base import SourceError
+    try:
+        docs = read_feed(url, limit=limit, store=store)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except SourceError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return _sanitize({"feed": url, "count": len(docs), "entries": [
+        {"url": d.url, "title": d.title, "excerpt": d.text[:400], "meta": d.meta}
+        for d in docs
+    ]})
+
+
+@app.post("/api/research/hunt", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_hunt(query: str, ticker: Optional[str] = None,
+                  limit_per_source: int = 15, store: bool = True):
+    """Sweep every available source for one query, in parallel.
+
+    POST because it is expensive and it writes: a sweep spends rate limit on
+    nine services and archives everything it finds.
+
+    The response separates `ran`, `failed` and `skipped` per source on
+    purpose. A sweep where Reddit was throttled and returned nothing looks
+    identical to a sweep where Reddit had nothing to say, unless the API
+    says which happened — and those two facts mean opposite things about a
+    quiet ticker."""
+    from src.research import hunt
+    sweep = hunt(query, ticker=ticker, limit_per_source=limit_per_source, store=store)
+    return _sanitize(sweep.as_dict())
+
+
+@app.get("/api/research/records", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_records(day: Optional[str] = None, limit: int = 200):
+    """The provenance log for one UTC day (YYYY-MM-DD, default today).
+
+    One record per retrieval, with a ready-made citation line. Repeated
+    retrievals of unchanged content appear repeatedly and share a
+    content_id — that is how a source going stale becomes visible."""
+    from src.research.store import citation, records
+    rows = records(day)[-limit:]
+    return _sanitize({"day": day or "today", "count": len(rows),
+                      "records": [{**r, "citation": citation(r)} for r in rows]})
+
+
+@app.get("/api/research/doc/{content_id}", tags=["Research"],
+         dependencies=[Depends(require_owner)])
+def research_doc(content_id: str):
+    """The archived bytes behind a citation, by content id."""
+    from src.research.store import load
+    if not content_id.isalnum() or len(content_id) != 64:
+        raise HTTPException(status_code=400, detail="content_id must be a sha256 hex digest")
+    text = load(content_id)
+    if text is None:
+        raise HTTPException(status_code=404, detail=f"no archived document {content_id}")
+    return {"content_id": content_id, "chars": len(text), "text": text}
+
+
+# ===========================================================================
+# THE BREEDING LAB — thousands of strategies, and a bar that knows it.
+#
+# Evolutionary search over quant_lab's templates, where survivors must beat
+# the Sharpe the luckiest of N worthless strategies would have posted. Most
+# campaigns return nothing, and that is reported as success: see
+# src/evolution/statistics.py for why a single out-of-sample test cannot
+# clear a strategy that a search chose.
+# ===========================================================================
+
+@app.get("/api/evolution/space", tags=["Evolution"])
+def evolution_space():
+    """What the search is allowed to explore, and the bar survivors must clear."""
+    from src.evolution import SPACE, SURVIVAL_THRESHOLD
+    return _sanitize({
+        "templates": {name: {p: {"low": lo, "high": hi, "kind": kind}
+                             for p, (lo, hi, kind) in params.items()}
+                      for name, params in SPACE.items()},
+        "survival_threshold": SURVIVAL_THRESHOLD,
+        "rule": "a survivor must beat the Sharpe the luckiest of N worthless "
+                "strategies would post, where N is every strategy this "
+                "campaign evaluated",
+    })
+
+
+@app.post("/api/evolution/run", tags=["Evolution"], dependencies=[Depends(require_owner)])
+def evolution_run(population: int = 120, generations: int = 12,
+                  seed: Optional[int] = None, universe: Optional[str] = None):
+    """Run one breeding campaign. Minutes, not seconds.
+
+    Returns every finalist with its in-sample fitness, its holdout Sharpe and
+    the deflated probability — including the ones that failed, because the
+    gap between a 2.70 in-sample and a 0.67 holdout is the most useful thing
+    the lab produces."""
+    if population < 10 or population > 2000:
+        raise HTTPException(status_code=400, detail="population must be 10..2000")
+    if generations < 1 or generations > 100:
+        raise HTTPException(status_code=400, detail="generations must be 1..100")
+    from src.evolution import run_campaign
+    return _sanitize(run_campaign(population=population, generations=generations,
+                                  seed=seed, universe=universe))
+
+
+@app.get("/api/evolution/campaigns", tags=["Evolution"],
+         dependencies=[Depends(require_owner)])
+def evolution_campaigns(limit: int = 20):
+    """Past campaigns, newest first."""
+    from src.evolution import history
+    return _sanitize({"campaigns": history(limit=limit)})
+
+
+# ===========================================================================
+# THE EYE — standing attention on the internet.
+#
+# /read and /hunt are a hand: they fetch what they are told to. These routes
+# drive the eye, which looks on its own cadence and reports only what changed.
+# It observes and hands what it saw to the brain; it does not propose, size or
+# execute anything.
+# ===========================================================================
+
+@app.get("/api/research/eye", tags=["Research"], dependencies=[Depends(require_owner)])
+def research_eye(hours: int = 24, limit: int = 50, min_salience: float = 0.0):
+    """What the eye has noticed lately, most salient first.
+
+    An empty list is a real answer: nothing new crossed the threshold. A
+    perception layer that always has something to say is filling airtime."""
+    from dataclasses import asdict
+
+    from src.research import eye
+    return _sanitize({
+        "hours": hours,
+        "watches": [asdict(w) for w in eye.watches()],
+        "observations": eye.recent(hours=hours, limit=limit,
+                                   min_salience=min_salience),
+        "briefing": eye.briefing(hours=min(hours, 12)),
+    })
+
+
+@app.post("/api/research/eye/blink", tags=["Research"],
+          dependencies=[Depends(require_owner)])
+def research_eye_blink(force: bool = False, max_observations: int = 12):
+    """Look now at every watch that is due. `force=true` ignores cadence.
+
+    A watch's first look reports nothing and records a baseline instead —
+    everything is new the first time you open your eyes, and reporting that
+    is how a perception system loses its reader on day one."""
+    from src.research import eye
+    return _sanitize(eye.blink(force=force, max_observations=max_observations))
+
+
+@app.post("/api/research/eye/watch", tags=["Research"],
+          dependencies=[Depends(require_owner)])
+def research_eye_watch(query: str, kind: str = "topic", cadence_minutes: int = 60):
+    """Add or update a standing watch (kind: ticker | topic | feed).
+
+    Re-adding an existing watch keeps its baseline, so it will not re-report
+    what it has already shown you."""
+    from dataclasses import asdict
+
+    from src.research import eye
+    if kind not in ("ticker", "topic", "feed"):
+        raise HTTPException(status_code=400, detail="kind must be ticker, topic or feed")
+    return _sanitize(asdict(eye.watch(query, kind=kind,
+                                           cadence_minutes=cadence_minutes)))
+
+
+@app.delete("/api/research/eye/watch/{watch_id:path}", tags=["Research"],
+            dependencies=[Depends(require_owner)])
+def research_eye_unwatch(watch_id: str):
+    """Stop watching, and forget the baseline with it."""
+    from src.research import eye
+    if not eye.unwatch(watch_id):
+        raise HTTPException(status_code=404, detail=f"no watch {watch_id}")
+    return {"removed": watch_id}
+
+
+@app.post("/api/research/eye/attend-portfolio", tags=["Research"],
+          dependencies=[Depends(require_owner)])
+def research_eye_attend_portfolio():
+    """Point the eye at every open position.
+
+    Attention should follow exposure without anyone remembering to update a
+    list — the position you forgot to watch is the one that gaps."""
+    from dataclasses import asdict
+
+    from src.research import eye
+    added = eye.attend_to_portfolio()
+    return _sanitize({"watching": [asdict(w) for w in added]})
 
 
 # ===========================================================================

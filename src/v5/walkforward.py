@@ -155,8 +155,41 @@ def effective_sample_size(calls: list[dict]) -> tuple[int, float]:
     # when there is only one date — it reported 40 correlated names as 40
     # independent observations, the exact overstatement this function exists to
     # prevent.
+    # SIGNAL BREADTH — how many distinct BETS the module actually made.
+    #
+    # The outcome discount below asks whether the results were independent. It
+    # does not ask whether the CALLS were. `credit` and `breadth` emit the
+    # identical score for every ticker on a given date (measured standard
+    # deviation across names: 0.000), so applying them to forty names produces
+    # one macro opinion replicated forty times — and this function was scoring
+    # `credit` as 1,093 independent observations when it had made about 48
+    # bets. Every module that came out "significantly negative" was a macro
+    # signal, which is exactly the population that error would manufacture.
+    #
+    # So: measure the dispersion of the SCORE within a date against its total
+    # dispersion. A module whose score is flat across names contributes one
+    # observation per date no matter how many tickers it was run on.
     n = len(calls)
     n_dates = len(by_date)
+
+    nets_by_date: dict[str, list[float]] = {}
+    for c in calls:
+        if isinstance(c.get("net"), (int, float)):
+            nets_by_date.setdefault(c["at"], []).append(float(c["net"]))
+    signal_ratio = 1.0
+    sig_groups = [g for g in nets_by_date.values() if len(g) > 1]
+    if sig_groups:
+        sig_all = [x for g in nets_by_date.values() for x in g]
+        sig_mean = sum(sig_all) / len(sig_all)
+        sig_total = sum((x - sig_mean) ** 2 for x in sig_all) / max(1, len(sig_all) - 1)
+        if sig_total <= 0:
+            signal_ratio = 0.0          # one identical score everywhere: one bet
+        else:
+            sig_within = sum(
+                sum((x - (sum(g) / len(g))) ** 2 for x in g) / max(1, len(g) - 1)
+                for g in sig_groups) / len(sig_groups)
+            signal_ratio = max(0.0, min(1.0, sig_within / sig_total))
+
     all_vals = [x for g in by_date.values() for x in g]
     grand = sum(all_vals) / len(all_vals)
     total_var = sum((x - grand) ** 2 for x in all_vals) / max(1, len(all_vals) - 1)
@@ -171,7 +204,13 @@ def effective_sample_size(calls: list[dict]) -> tuple[int, float]:
                  for g in groups) / len(groups)
     rho = max(0.0, min(1.0, 1.0 - (within / total_var)))
 
-    n_eff = n_dates + (n - n_dates) * (1.0 - rho)
+    # Two independent ceilings, and the sample is the smaller of them:
+    #   * how independent the OUTCOMES were (rho, above), and
+    #   * how many distinct BETS were placed (signal_ratio).
+    # A macro module fails the second even when it passes the first.
+    n_eff_outcome = n_dates + (n - n_dates) * (1.0 - rho)
+    n_eff_signal = n_dates + (n - n_dates) * signal_ratio
+    n_eff = min(n_eff_outcome, n_eff_signal)
     return max(1, int(round(n_eff))), round(rho, 3)
 
 

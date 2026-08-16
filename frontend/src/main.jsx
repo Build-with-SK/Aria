@@ -1,7 +1,9 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
+import axios from 'axios'
 import App from './App'
+import { installOwnerAuth } from './auth/ownerToken'
 import { CurrencyProvider } from './currency/CurrencyContext'
 import { AuthProvider } from './auth/AuthContext'
 import { applyA11y, loadA11y } from './components/Accessibility'
@@ -10,6 +12,13 @@ import './index.css'
 // Apply text size / contrast / motion before the first paint, so the UI
 // never flashes at the default size for someone who needs it larger.
 applyA11y(loadA11y())
+
+// Before the first request leaves: attach the owner token to same-origin API
+// calls, whoever sends them. Without this the browser has no way to prove who
+// it is — ARIA_OWNER_TOKEN being set switches off the loopback fallback, and
+// no OAuth provider is configured — so the owner sees the free-tier deck on
+// his own machine. See auth/ownerToken.js.
+installOwnerAuth(axios)
 
 // Install the service worker in production only. Registering it in dev would
 // put a cache in front of Vite's module graph and make HMR lie about what is

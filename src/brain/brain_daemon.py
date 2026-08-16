@@ -94,6 +94,15 @@ class BrainDaemon:
         self.last_cycle: dict = {}
         self.cycle_count = 0
         self._cycle_lock = threading.Lock()
+
+        # The eye's own clock. This is how often she is OFFERED a look, not how
+        # often she looks: blink() only visits watches whose own cadence is due,
+        # so a 20-minute offer against a 60-minute watch costs three cheap
+        # no-ops an hour and one real sweep.
+        self.eye_interval_minutes = 20
+        self.last_blink: dict = {}
+        self._blink_lock = threading.Lock()
+
         self._load_state()
 
     # ── lifecycle ────────────────────────────────────────────────────────
@@ -106,12 +115,24 @@ class BrainDaemon:
         self.scheduler.add_job(self._run_cycle, "interval",
                                minutes=self.interval_minutes,
                                id="brain_cycle", replace_existing=True)
+
+        # The eye is a SEPARATE job on its own clock, deliberately. Blinking
+        # inside _run_cycle would put a dozen network sweeps on the critical
+        # path of every thought: a throttled feed would stall reasoning, and a
+        # cycle that runs late for network reasons looks exactly like a slow
+        # brain. Two jobs also mean a hung sweep cannot hold the cycle lock.
+        if self._eye_enabled():
+            self.scheduler.add_job(self._run_blink, "interval",
+                                   minutes=self.eye_interval_minutes,
+                                   id="eye_blink", replace_existing=True)
+
         self.scheduler.start()
         self.running = True
         # Run one cycle immediately on start
         self.scheduler.add_job(self._run_cycle, "date")
         logger.info(f"Brain daemon started (model={self.model}, "
-                    f"interval={self.interval_minutes}min)")
+                    f"interval={self.interval_minutes}min, "
+                    f"eye={'on' if self._eye_enabled() else 'off'})")
 
     def stop(self):
         self.running = False
@@ -123,18 +144,27 @@ class BrainDaemon:
             self.scheduler = None
         logger.info("Brain daemon stopped")
 
-    def _propose_trades_enabled(self) -> bool:
-        """Research-only by default — the desk (src/desk/) owns trading."""
-        import json
-        from pathlib import Path
-        cfg_file = Path(__file__).parent.parent.parent / "data" / "brain_config.json"
+    def _config(self) -> dict:
+        cfg_file = ROOT / "data" / "brain_config.json"
         try:
             if cfg_file.exists():
-                return bool(json.loads(cfg_file.read_text(encoding="utf-8"))
-                            .get("propose_trades", False))
+                return json.loads(cfg_file.read_text(encoding="utf-8"))
         except Exception:
             pass
-        return False
+        return {}
+
+    def _propose_trades_enabled(self) -> bool:
+        """Research-only by default — the desk (src/desk/) owns trading."""
+        return bool(self._config().get("propose_trades", False))
+
+    def _eye_enabled(self) -> bool:
+        """The eye blinks unless told not to.
+
+        Set `eye_blink: false` in data/brain_config.json to keep her eyes shut
+        — worth having because blinking is the only thing in this daemon that
+        reaches the public internet on a timer.
+        """
+        return bool(self._config().get("eye_blink", True))
 
     def set_interval(self, minutes: int):
         self.interval_minutes = max(1, int(minutes))
@@ -142,9 +172,77 @@ class BrainDaemon:
             self.scheduler.reschedule_job("brain_cycle", trigger="interval",
                                           minutes=self.interval_minutes)
 
+    def set_eye_interval(self, minutes: int):
+        self.eye_interval_minutes = max(1, int(minutes))
+        if self.scheduler is not None and self.running:
+            try:
+                self.scheduler.reschedule_job("eye_blink", trigger="interval",
+                                              minutes=self.eye_interval_minutes)
+            except Exception as e:            # job absent when the eye is off
+                logger.info(f"eye_blink not scheduled: {e}")
+
     def run_now(self):
         """Trigger an immediate cycle without waiting for the scheduler."""
         threading.Thread(target=self._run_cycle, daemon=True).start()
+
+    def blink_now(self):
+        """Look now, without waiting for the eye's clock."""
+        threading.Thread(target=self._run_blink, kwargs={"force": True},
+                         daemon=True).start()
+
+    # ── the eye ──────────────────────────────────────────────────────────
+
+    def _run_blink(self, force: bool = False):
+        """One look at the internet, on the eye's own clock.
+
+        Everything here is non-fatal by construction. A daemon that dies
+        because a news feed timed out has traded a working brain for a
+        working eye, which is a bad trade — the cognitive cycle must keep
+        turning whether or not the internet is reachable.
+        """
+        if not self._blink_lock.acquire(blocking=False):
+            logger.info("Eye blink skipped — previous look still running")
+            return
+        try:
+            from src.research import eye
+
+            # Attention follows exposure. Refreshing before the look is what
+            # makes a position opened twenty minutes ago already watched;
+            # it reads the desk's position file, so it costs nothing.
+            try:
+                eye.attend_to_portfolio()
+            except Exception as e:
+                logger.warning(f"Could not refresh eye attention: {e}")
+
+            summary = eye.blink(force=force)
+            observations = summary.get("observations", [])
+            self.last_blink = {
+                "at":            summary.get("at"),
+                "watches":       summary.get("watches_total", 0),
+                "looked":        summary.get("watches_looked", 0),
+                "observations":  len(observations),
+                "suppressed":    summary.get("suppressed", 0),
+                "primed":        summary.get("primed", []),
+                "failed":        summary.get("failed", {}),
+                "top":           [
+                    {"title": o.get("title"), "source": o.get("source"),
+                     "why": o.get("why"), "url": o.get("url")}
+                    for o in observations[:5]
+                ],
+            }
+            if observations:
+                logger.info("Eye saw %d new thing(s); most salient: %s",
+                            len(observations), observations[0].get("title", "")[:80])
+            else:
+                # Not worth a warning: an ordinary hour genuinely has nothing
+                # in it, and that is the eye working, not failing.
+                logger.debug("Eye blink: nothing new across %d watch(es)",
+                             summary.get("watches_looked", 0))
+        except Exception as e:
+            logger.warning(f"Eye blink failed (non-fatal): {e}")
+            self.last_blink = {"at": datetime.now().isoformat(), "error": str(e)}
+        finally:
+            self._blink_lock.release()
 
     def status(self) -> dict:
         mem_count = None
@@ -175,6 +273,12 @@ class BrainDaemon:
             "last_cycle_at":    self.last_cycle.get("timestamp"),
             "memory_count":     mem_count,
             "step":             step,
+            "eye": {
+                "enabled":          self._eye_enabled(),
+                "interval_minutes": self.eye_interval_minutes,
+                "looking":          self._blink_lock.locked(),
+                "last":             self.last_blink or None,
+            },
         }
 
     # ── the cognitive cycle ──────────────────────────────────────────────
@@ -212,10 +316,40 @@ class BrainDaemon:
                 logger.warning(f"Learner step failed (non-fatal): {e}")
                 wm.warnings.append(f"Learner failed: {e}")
 
-            # 2. PERCEIVE
+            # 2. PERCEIVE — prices, and then the world those prices live in.
             perception = MarketPerception().perceive()
             if perception.regime_shift:
                 wm.warnings.append("Macro regime shifted since last cycle")
+
+            # The eye looks on its own cadence; this step only reads what it
+            # already saw. Blinking here would put a dozen network sweeps on
+            # the critical path of every reasoning cycle, and a slow feed
+            # would then look like a slow brain.
+            world = ""
+            try:
+                from src.research import eye
+                world = eye.briefing(hours=12)
+                if world:
+                    logger.info("eye: %d observations in context",
+                                len(world.splitlines()) - 1)
+            except Exception as e:
+                logger.warning(f"Eye unavailable for this cycle: {e}")
+
+            # 2b. SMELL — is this day like the days she has seen? Cheap, local,
+            # no network: it compares this snapshot against her own history.
+            # It stays silent on an ordinary day and below thirty observations
+            # it says nothing at all, so it cannot cry wolf into every cycle.
+            strangeness = ""
+            try:
+                from src.brain.cognitive import novelty
+                sense = novelty.observe(perception)
+                strangeness = sense.speak()
+                if strangeness:
+                    wm.warnings.append(strangeness)
+                    logger.info("novelty: %s (score %.2f, %d observations)",
+                                sense.state, sense.score, sense.observations)
+            except Exception as e:
+                logger.warning(f"Novelty sense unavailable this cycle: {e}")
 
             # 3. REASON — with access to the user's Obsidian vault knowledge
             vault = None
@@ -225,7 +359,8 @@ class BrainDaemon:
             except Exception as e:
                 logger.warning(f"Vault unavailable for this cycle: {e}")
             reasoner = ReasoningLoop(model=self.model, vault=vault,
-                                     peer_context=_synapse_read())
+                                     peer_context=_synapse_read(),
+                                     world_context=world)
             result = reasoner.run_cycle(perception, memory, wm)
 
             # 4. PLAN
