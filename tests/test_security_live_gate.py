@@ -13,6 +13,7 @@ when the attempt fails. The paths that are not the obvious one matter most:
 bracket healing, trailing-stop replacement and stale-order cleanup all reach
 the broker, and none of them look like "execution" from the outside.
 """
+import ast
 import os
 import sys
 from pathlib import Path
@@ -522,15 +523,72 @@ def test_position_manager_queues_live_exits_instead_of_firing_them():
     assert "paper_confirmed" in src
 
 
+APPROVE = "approve_and_execute"
+
+
+def _references(tree, target: str) -> list[int]:
+    """Line numbers where `target` is USED — called, aliased, or passed.
+
+    A `def target(...)` is not a reference: defining the human's entry point
+    is the point. Everything else that names it is.
+    """
+    lines = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id == target and \
+                isinstance(node.ctx, ast.Load):
+            lines.append(node.lineno)
+        elif isinstance(node, ast.Attribute) and node.attr == target and \
+                isinstance(node.ctx, ast.Load):
+            lines.append(node.lineno)
+    return sorted(set(lines))
+
+
 def test_nothing_autonomous_calls_approve_and_execute():
-    """The project's hard rule: the brain proposes, the human approves."""
-    import subprocess
-    out = subprocess.run(
-        ["git", "grep", "-n", "approve_and_execute", "--", "src/", "backend/"],
-        capture_output=True, text=True,
-        cwd=str(Path(__file__).parent.parent)).stdout
-    for line in out.splitlines():
-        path = line.split(":", 1)[0]
-        # The endpoint's own definition is the human's entry point.
-        assert path == "backend/main.py" or "#" in line or '"""' in line or \
-            "approve_and_execute;" in line, f"autonomous caller: {line}"
+    """The project's hard rule: the brain proposes, the human approves.
+
+    Read the CODE, not the text of the file. This check used to `git grep` for
+    the name and excuse any line containing `#` or `\"\"\"` — a line-shaped
+    heuristic that cannot tell a docstring's body from a statement. It had
+    already been patched once with a literal exemption for the exact phrasing
+    in `src/brain/cognitive/executor.py`, and it went red the moment another
+    module's docstring said the same thing in different words.
+
+    That is the dangerous kind of failing test: it fails for a reason that is
+    not the invariant, and the quickest way to make it green is to delete the
+    assertion. Parsing removes the pressure — and it is STRICTLY STRONGER than
+    the grep, which would have waved through a real call written as
+    `approve_and_execute(t)  # noqa` simply because the line held a `#`.
+    """
+    root = Path(__file__).parent.parent
+    offenders = []
+    for path in sorted([*(root / "src").rglob("*.py"),
+                        *(root / "backend").rglob("*.py")]):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+        except SyntaxError:                     # a file mid-edit is not a caller
+            continue
+        for lineno in _references(tree, APPROVE):
+            offenders.append(f"{path.relative_to(root).as_posix()}:{lineno}")
+
+    assert not offenders, (
+        "the approval step is reachable from code, not only from the human: "
+        + ", ".join(offenders))
+
+
+def test_the_approval_guard_catches_a_real_caller(tmp_path):
+    """The guard above passes today. This proves it passes because nothing
+    calls the approval step, and not because it stopped looking."""
+    for source in (f"{APPROVE}(trade_id)",
+                   f"x = {APPROVE}  # noqa",
+                   f"desk.{APPROVE}(t)",
+                   f"schedule(callback={APPROVE})"):
+        assert _references(ast.parse(source), APPROVE), \
+            f"a real caller slipped past the guard: {source!r}"
+
+    # ...and prose about it is not a caller.
+    prose = f'"""Nothing here calls {APPROVE}; every trade waits."""\nx = 1\n'
+    assert _references(ast.parse(prose), APPROVE) == []
+    # ...nor is defining the endpoint itself.
+    assert _references(ast.parse(f"def {APPROVE}(trade_id):\n    pass\n"), APPROVE) == []
