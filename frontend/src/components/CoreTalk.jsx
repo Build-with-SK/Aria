@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
-import { startThinking, speakReply, listVoices, onVoicesReady, getAriaVoice, setAriaVoice } from '../core/ariaVoice'
+import { startThinking, speakReply, onVoicesReady, getAriaVoice, setAriaVoice, preview } from '../core/ariaVoice'
 import { setCoreState } from '../core/coreBus'
+import PressToTalk from './PressToTalk'
 
 // ─── CoreTalk — a compact "talk to ARIA" bar that drives the Living Core ───────
 // Sits under the core on the Brain page. Sends to the existing chat endpoint,
@@ -33,13 +34,8 @@ export default function CoreTalk() {
 
   const pickVoice = name => {
     setAriaVoice(name); setVoiceName(name)
-    const v = listVoices().find(x => x.name === name)
-    if (v && window.speechSynthesis) {   // preview the pick
-      window.speechSynthesis.cancel()
-      const u = new SpeechSynthesisUtterance('Online and listening.')
-      u.voice = v; u.lang = v.lang; u.rate = 0.97; u.pitch = 1.05
-      window.speechSynthesis.speak(u)
-    }
+    // Preview through Kokoro itself — the point of choosing is hearing HER.
+    preview(name).catch(e => setErr(String(e.message || e)))
   }
 
   const send = async () => {
@@ -52,7 +48,8 @@ export default function CoreTalk() {
       const r = await axios.post('/api/chat', { messages: [{ role: 'user', content: text }] })
       const content = r.data?.content || '(no response)'
       // hand the full reply to the voice/beat driver; it reveals + beats the core
-      handleRef.current = speakReply(content, shown => setReply(shown), { voice, brief })
+      handleRef.current = speakReply(content, shown => setReply(shown),
+        { voice, brief, onError: msg => setErr(`voice: ${msg}`) })
     } catch (e) {
       setErr(e.response?.data?.detail || e.message)
       setCoreState('idle')
@@ -84,9 +81,14 @@ export default function CoreTalk() {
             color: '#ddd', fontSize: 12, padding: '9px 12px', borderRadius: 4, outline: 'none',
           }}
         />
+        <PressToTalk
+          disabled={busy}
+          context="core-talk"
+          onTranscript={text => setInput(prev => (prev ? `${prev} ${text}` : text))}
+        />
         <button
           onClick={() => setVoice(v => !v)}
-          title="Speak replies aloud (browser voice) — beats to the real voice cadence"
+          title="Speak replies aloud — Kokoro, running on this machine. The core beats to her actual amplitude."
           style={{
             ...mono, background: voice ? 'var(--orange)' : 'transparent',
             color: voice ? '#000' : 'var(--text-dim)',
@@ -136,11 +138,11 @@ export default function CoreTalk() {
             }}
           >
             {voices.map(v => (
-              <option key={v.name} value={v.name}>{v.name} · {v.lang}</option>
+              <option key={v.name} value={v.name}>{v.name}</option>
             ))}
           </select>
           <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
-            best natural female voice first · pick to preview
+            kokoro · local · female voices first · pick to hear her
           </span>
         </div>
       )}
