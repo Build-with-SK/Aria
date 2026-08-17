@@ -1,17 +1,17 @@
 {
   "_comment": "Tier -> ordered [provider, model] candidates for src/inference/router.py. SELF-HOSTED ONLY: her reasoning runs on weights this machine holds (decision 1, docs/ARIA_NEXT_SESSION.md). Vendor candidates listed here are refused by src/inference/policy.py before the router calls them, so adding one back here does nothing on its own — the override is the ARIA_ALLOW_VENDOR_BRAIN environment variable, and it is the owner's to set.",
   "_degrade": "The second candidate in a tier only ever answers under ARIA_DEGRADE=disclose, and then the reply is tagged degraded. By default she abstains rather than answering from the smaller model in the same voice (decision 4).",
-  "_models": "qwen2.5-coder:7b and gemma3:4b are what is installed today. The brief recommends a general instruct model (qwen2.5:7b-instruct) over the coder tune for analyst prose - scripts/brain_preflight.py checks what is present and prints the pull command. Nothing here downloads anything.",
+  "_models": "qwen2.5:7b-instruct-q4_K_M is her reasoning model. The coder tune served before it and flattened distinctions the prompt drew explicitly - asked whether she was learning, it collapsed 'no measured track record, but the machinery runs' into 'no ability to improve'. A coder tune is trained for code, and analyst prose is not code. gemma3:4b stays as the FAST tier and as the eye that can see images.",
   "FAST": [
     ["ollama", "gemma3:4b"],
-    ["ollama", "qwen2.5-coder:7b"]
+    ["ollama", "qwen2.5:7b-instruct-q4_K_M"]
   ],
   "STANDARD": [
-    ["ollama", "qwen2.5-coder:7b"],
+    ["ollama", "qwen2.5:7b-instruct-q4_K_M"],
     ["ollama", "gemma3:4b"]
   ],
   "DEEP": [
-    ["ollama", "qwen2.5-coder:7b"],
+    ["ollama", "qwen2.5:7b-instruct-q4_K_M"],
     ["ollama", "gemma3:4b"]
   ]
 }

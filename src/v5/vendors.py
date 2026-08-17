@@ -68,10 +68,59 @@ class VendorResult:
         return self.df is not None and not self.df.empty
 
 
+#: Wall clock for one yfinance fetch. Generous — a ten-year daily history over
+#: a slow link is legitimately slow — but finite, which is the whole point.
+YF_DEADLINE = 45
+
+
 def _get(url: str, timeout: int = HTTP_TIMEOUT) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read().decode("utf-8", errors="replace")
+
+
+def _with_deadline(fn, seconds: int, what: str):
+    """Run `fn` and give up on it after `seconds`.
+
+    WHY THIS EXISTS. Every other vendor here goes through `_get`, which passes
+    a timeout to urllib. yfinance does not: it owns its own HTTP stack, and
+    `history()` in 1.3 takes no timeout argument at all. Without one, a socket
+    that connects and then goes quiet blocks forever.
+
+    That is not hypothetical. A baseline capture on 2026-08-16 spent 45,704
+    SECONDS — twelve and a half hours, overnight — inside a single debate,
+    because the AAPL fetch stalled while the link was busy and nothing was
+    holding a clock. The desk's hunt cycle takes a lock and runs
+    max_instances=1, so the same stall there stops it hunting until somebody
+    restarts the process. The watchdog would not catch it either: it checks
+    that jobs EXIST, and a job wedged mid-execution still exists.
+
+    A daemon thread, deliberately: the stuck call cannot be killed, but it can
+    be abandoned, and a daemon will not hold the interpreter open at exit. The
+    caller gets a normal vendor failure and the failover chain does what it
+    already knows how to do.
+    """
+    import threading
+
+    box: dict = {}
+
+    def run():
+        try:
+            box["value"] = fn()
+        except BaseException as e:            # noqa: BLE001 — re-raised below
+            box["error"] = e
+
+    thread = threading.Thread(target=run, daemon=True,
+                              name=f"vendor-{what}")
+    thread.start()
+    thread.join(seconds)
+    if thread.is_alive():
+        raise TimeoutError(
+            f"{what} did not answer within {seconds}s — abandoned so the "
+            f"caller can fail over rather than wait")
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
 
 
 # ── vendor 1: yfinance ───────────────────────────────────────────────────────
@@ -86,8 +135,11 @@ def fetch_yfinance(symbol: str, interval: str = "1d",
     try:
         from src.v5.marketdata import _quiet_vendor
         with _quiet_vendor():
-            df = yf.Ticker(symbol).history(period=period, interval=interval,
-                                           auto_adjust=True)
+            df = _with_deadline(
+                lambda: yf.Ticker(symbol).history(period=period,
+                                                  interval=interval,
+                                                  auto_adjust=True),
+                YF_DEADLINE, f"yfinance {symbol}")
         if df is None or df.empty:
             return VendorResult("yfinance", error="empty response")
         return VendorResult("yfinance", df=df)

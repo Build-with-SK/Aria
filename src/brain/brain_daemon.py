@@ -79,7 +79,7 @@ class BrainDaemon:
 
     STATE_FILE = ROOT / "data" / "brain_state.json"
 
-    def __init__(self, model: str = "qwen2.5-coder:7b"):
+    def __init__(self, model: str = "qwen2.5:7b-instruct-q4_K_M"):
         self.model = model
         self.scheduler = None
         self.memory = None            # LongTermMemory, lazily initialised
@@ -474,7 +474,7 @@ class BrainDaemon:
 _brain: BrainDaemon | None = None
 
 
-def get_brain(model: str = "qwen2.5-coder:7b") -> BrainDaemon:
+def get_brain(model: str = "qwen2.5:7b-instruct-q4_K_M") -> BrainDaemon:
     global _brain
     if _brain is None:
         _brain = BrainDaemon(model=model)

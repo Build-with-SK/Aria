@@ -62,7 +62,7 @@ DEFAULTS = {
     "teacher_model": "claude-fable-5",   # only used where policy allows a vendor
     "teacher_daily_cap": 40,         # max Fable reviews/day (bill guard)
     "teacher_recall_lessons": 3,     # lessons injected into a future debate
-    "llm_model": "qwen2.5-coder:7b",   # local model for debate prose (optional)
+    "llm_model": "qwen2.5:7b-instruct-q4_K_M",   # local model for debate prose (optional)
     "ntfy_topic": "",               # e.g. "aria-desk-<random>" → push via ntfy.sh
     "pushover_user": "",
     "pushover_token": "",
