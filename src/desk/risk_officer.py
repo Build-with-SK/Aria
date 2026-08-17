@@ -72,17 +72,47 @@ class RiskOfficer:
         Returns (approved, rejected, checks) — rejected entries carry a reason;
         checks summarises the code-level state for the UI.
         """
-        equity = float(account.get("equity") or 0.0) or 100_000.0
-        positions = account.get("positions") or []
-        day = load_day_state(current_equity=equity)
+        # Size against what he would actually risk, not against what the paper
+        # account happens to hold. At $100k a 5% position is $5,000 and the
+        # drawdown halt trips at $2,000 — numbers describing a portfolio that
+        # does not exist, and a paper record sized like that teaches nothing
+        # about a person with £100. src/desk/capital.py resolves the base and
+        # falls back to the broker whenever it cannot (no base set, no FX
+        # rate, a base larger than the account).
+        # TWO EQUITY FIGURES, ANSWERING DIFFERENT QUESTIONS. Conflating them
+        # halts the desk: the day state had recorded the broker's $10,005 as
+        # this morning's start, and sizing against a £100 base made that read
+        # as a 98.65% intraday loss. The circuit breaker fired on every
+        # candidate, permanently, for a re-basing rather than a loss.
+        #
+        #   broker_equity — has the ACCOUNT lost money today? Only real money
+        #                   movement can trip the drawdown halt.
+        #   equity        — how big may a position be? That is his declared
+        #                   capital, and it is a constant, so it can never
+        #                   "fall".
+        broker_equity = float(account.get("equity") or 0.0) or 100_000.0
+        try:
+            from src.desk.capital import sizing_base
+            base = sizing_base(account, getattr(self, "cfg", None))
+            equity = float(base.get("equity") or 0.0)
+            capital_note = base.get("note", "")
+        except Exception as e:                  # sizing must never be blocked
+            logger.warning("capital base unavailable, using broker equity: %s", e)
+            equity, capital_note = 0.0, f"capital base unavailable: {e}"
+        equity = equity or broker_equity
 
-        checks = {"equity": equity, "day": dict(day),
-                  "circuit_breaker": False, "drawdown_pct": 0.0}
+        positions = account.get("positions") or []
+        day = load_day_state(current_equity=broker_equity)
+
+        checks = {"equity": equity, "broker_equity": broker_equity,
+                  "day": dict(day),
+                  "circuit_breaker": False, "drawdown_pct": 0.0,
+                  "capital_base": capital_note}
 
         # 7. Drawdown circuit-breaker — halts ALL new entries
         start_eq = day.get("start_equity") or 0.0
         if start_eq > 0:
-            dd = (start_eq - equity) / start_eq * 100.0
+            dd = (start_eq - broker_equity) / start_eq * 100.0
             checks["drawdown_pct"] = round(dd, 3)
             if dd > self.cfg["drawdown_halt_pct"]:
                 checks["circuit_breaker"] = True

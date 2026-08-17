@@ -153,6 +153,15 @@ class DeskDaemon:
         self.scheduler.add_job(v5_loop.predict_catchup, "date",
                                run_date=datetime.now(),
                                id="v5_predict_catchup", replace_existing=True)
+        # His held intents — "buy 20 AAPL when it dips under 210". Checked on
+        # the management tick's cadence rather than the hunt cycle's: a
+        # condition he set can come true at any point in a session, and making
+        # him wait half an hour for a limit he named is not holding it, it is
+        # ignoring it.
+        self.scheduler.add_job(self._intent_tick, "interval",
+                               minutes=mgmt_interval, id="desk_intents",
+                               replace_existing=True,
+                               next_run_time=datetime.now())
         # Watchdog: the scheduler is in-process, so if it dies the app keeps
         # serving requests and quietly stops trading and learning. Checking
         # every 15 minutes turns that from invisible into logged and repaired.
@@ -250,6 +259,25 @@ class DeskDaemon:
         }
 
     # ── the management tick (exit engine, 24/7) ──────────────────────────
+
+    def _intent_tick(self):
+        """Check what he asked her to trade, and act if the moment has come.
+
+        Wrapped whole: an intent book that raises must not take the management
+        schedule down with it, and a held instruction failing silently is
+        exactly the failure this system keeps finding in itself — so it logs
+        loudly.
+        """
+        try:
+            from src.desk import intents
+            result = intents.check_once()
+            if result["acted"] or result["expired"]:
+                logger.info("intents: %d filled, %d expired, %d still open",
+                            len(result["acted"]), len(result["expired"]),
+                            result["open"])
+        except Exception:
+            logger.exception("the intent tick failed — his held instructions "
+                             "were NOT checked this cycle")
 
     def _management_tick(self):
         """Every N minutes, 24/7: exit rules, trailing stops, bracket healing,
