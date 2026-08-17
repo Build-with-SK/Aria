@@ -761,6 +761,97 @@ def get_portfolio():
     }
 
 
+@app.get("/api/desk/intents", tags=["Desk"], dependencies=[Depends(require_owner)])
+def desk_intents():
+    """What he has asked her to trade, and what she is still waiting for.
+
+    An intent is a held instruction, not an order. It fills when his
+    conditions are met, her own read does not contradict it, and the risk gate
+    passes — in paper, through the same executor as every desk trade."""
+    from src.desk import intents
+    return _sanitize(intents.status())
+
+
+@app.post("/api/desk/intents", tags=["Desk"], dependencies=[Depends(require_owner)])
+def desk_intent_create(body: dict):
+    """Record an intent from a sentence, or from explicit fields.
+
+    Body: `{"text": "buy 20 AAPL under 210"}` or
+    `{"side": "buy", "ticker": "AAPL", "qty": 20, "limit_price": 210}`."""
+    from src.desk import intents
+
+    text = str(body.get("text") or "")
+    parsed = intents.parse(text) if text else None
+    if parsed is None:
+        if not (body.get("ticker") and body.get("qty")):
+            raise HTTPException(
+                status_code=400,
+                detail=("no trade found in that. Say it like 'buy 20 AAPL' or "
+                        "'sell 5 NVDA above 130', or pass ticker and qty "
+                        "explicitly. Refusing to guess is deliberate — a "
+                        "mis-parsed sentence that became an order would be "
+                        "the worst bug in this system."))
+        parsed = {"side": str(body.get("side") or "buy").lower(),
+                  "ticker": str(body["ticker"]).upper(),
+                  "qty": float(body["qty"]),
+                  "notional": bool(body.get("notional")),
+                  "limit_price": body.get("limit_price"),
+                  "min_price": body.get("min_price")}
+    return _sanitize(intents.record(parsed,
+                                    source=str(body.get("source") or "api"),
+                                    said=text))
+
+
+@app.post("/api/desk/intents/{intent_id}/cancel", tags=["Desk"],
+          dependencies=[Depends(require_owner)])
+def desk_intent_cancel(intent_id: str, body: dict | None = None):
+    """Withdraw a held intent."""
+    from src.desk import intents
+    row = intents.cancel(intent_id, (body or {}).get("reason", ""))
+    if not row:
+        raise HTTPException(status_code=404,
+                            detail="no open intent with that id")
+    return _sanitize(row)
+
+
+@app.post("/api/desk/intents/check", tags=["Desk"],
+          dependencies=[Depends(require_owner)])
+def desk_intents_check():
+    """Walk the open intents now rather than waiting for the next tick."""
+    from src.desk import intents
+    return _sanitize(intents.check_once())
+
+
+@app.get("/api/portfolio/holdings", tags=["Portfolio"],
+         dependencies=[Depends(require_owner)])
+def portfolio_holdings():
+    """What he ACTUALLY owns, from the broker outward.
+
+    `/api/portfolio` above serves `data/portfolio_analysis.json`, computed
+    over a fixed analysis universe — AAPL, ^GSPC, EURUSD=X, GC=F and twenty
+    others — and last written on 31 May. None of it was ever bought. This is
+    the account: positions the broker reports, priced, weighted, and carrying
+    the debate that opened each one."""
+    from src.portfolio.holdings import report
+    return _sanitize(report())
+
+
+@app.get("/api/portfolio/related", tags=["Portfolio"],
+         dependencies=[Depends(require_owner)])
+def portfolio_related(per_holding: int = 4, score: bool = False):
+    """Instruments related to what he holds, scored by the same v5 engine.
+
+    `score=true` runs the full pipeline per name and takes real seconds — the
+    default returns the neighbourhood and lets the caller ask for scores.
+
+    Anything that adds to an already-heavy exposure is flagged: recommending
+    three more oil funds to a man long oil is a correlation trap, and the fact
+    that each looks good individually is exactly how it happens."""
+    from src.portfolio.related import report
+    return _sanitize(report(limit_per_holding=max(1, min(per_holding, 10)),
+                            score=bool(score)))
+
+
 @app.get("/api/portfolio/optimised/{strategy}", tags=["Portfolio"])
 def get_optimised_portfolio(strategy: str):
     """
@@ -1428,6 +1519,36 @@ Daily report summary: {report.get('summary', 'Not available')}
         logger.warning(f"V5 identity unavailable, using the legacy preamble: {_e}")
         _identity = ""
 
+    # "Buy 20 AAPL." Recorded as a held intent, not filled here: the chat
+    # endpoint's job is to notice he asked, write it down, and tell him it is
+    # written down. src/desk/intents.py decides when the moment is right, and
+    # every fill goes through the paper broker.
+    _intent_ctx = ""
+    try:
+        from src.desk import intents as _intents
+        _said = next((m.content for m in reversed(body.messages)
+                      if m.role == "user"), "")
+        _parsed = _intents.parse(_said)
+        if _parsed:
+            _row = _intents.record(_parsed, source="chat", said=_said)
+            _cond = []
+            if _row.get("limit_price"):
+                _cond.append(f"only at or below {_row['limit_price']}")
+            if _row.get("min_price"):
+                _cond.append(f"only at or above {_row['min_price']}")
+            _intent_ctx = (
+                f"\n## HE JUST ASKED YOU TO TRADE\n"
+                f"You have recorded this as a held intent ({_row['id']}): "
+                f"{_row['side']} {_row['qty']} {_row['ticker']}"
+                + (f", {' and '.join(_cond)}" if _cond else "")
+                + f". It expires {_row['expires_at'][:10]}.\n"
+                f"Confirm it back to him in one sentence — what you wrote "
+                f"down, and that you will act when the conditions are met "
+                f"rather than immediately. Say it is paper. Do NOT claim to "
+                f"have bought anything: nothing has been filled.\n")
+    except Exception as _e:
+        logger.warning(f"intent parsing skipped: {_e}")
+
     # Her own state, in the SYSTEM prompt rather than in a droppable context
     # block. Asked "are you learning?" she answered "Yes, I am continuously
     # learning and updating my models" — fluent and false: no fine-tune has
@@ -1443,7 +1564,7 @@ Daily report summary: {report.get('summary', 'Not available')}
         logger.warning(f"self-state unavailable for the chat prompt: {_e}")
         _truth = ""
 
-    system = f"""{_identity}{_truth}## THIS SURFACE — ARIA CHAT
+    system = f"""{_identity}{_truth}{_intent_ctx}## THIS SURFACE — ARIA CHAT
 
 You are ARIA — the AI brain of this trading intelligence system. You analyse markets using macro regime detection, ML signals, and a multi-broker execution engine (Alpaca + IBKR). You can fetch ANY globally-listed stock on demand — US, India (NSE/BSE), and London — with live price, fundamentals, and its competitors/suppliers; if the ON-DEMAND DATA block below is present, that data was just fetched for the ticker the user asked about, so never say you lack data for it.
 

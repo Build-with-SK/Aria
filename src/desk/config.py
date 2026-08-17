@@ -31,6 +31,12 @@ DEFAULTS = {
     "focus_tickers": 4,             # how many names get a full debate per cycle
     "debate_rounds": 2,             # bull/bear rebuttal rounds
     "min_conviction": 65,           # judge bar in normal regimes (macro can raise it)
+    # What he would actually put at risk, in HIS currency. The paper account
+    # reports ~$10k and the risk officer falls back to $100k; both are fiction,
+    # and sizing against fiction makes every number on the screen describe a
+    # portfolio that does not exist. 0 means "use whatever the broker says".
+    "capital_base": 100.0,
+    "capital_currency": "GBP",
     "max_trades_per_day": 10,
     "daily_notional_budget": 20000.0,  # USD of new exposure per day
     "max_name_pct": 5.0,            # % of equity per name
