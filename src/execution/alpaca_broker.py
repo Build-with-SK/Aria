@@ -46,6 +46,28 @@ except ImportError:
     logger.warning("alpaca-py not installed. Run: pip install alpaca-py")
 
 
+def crypto_symbol(ticker: str) -> str:
+    """`BTC-USD` (yfinance, and this codebase) → `BTC/USD` (Alpaca).
+
+    Alpaca's crypto endpoint validates against ^[A-Z]+x?/[A-Z]+$ and rejects
+    the hyphen form outright. Nothing translated, so every crypto quote failed
+    — 13,293 times in one backend log, once every three seconds from the
+    reflex poll, for as long as a crypto name sat on the watchlist. Crypto has
+    therefore never worked here, and the only symptom was a warning nobody
+    read.
+
+    A module function rather than a method on the adapter, deliberately.
+    `live_guard.py` requires every public member of a broker adapter to be
+    classified as a read or a write, and it is right to: an unclassified
+    member is refused. But this translates a string and touches nothing —
+    making it a method would have meant editing the live-money gate to
+    describe a function that cannot reach a broker, and that file does not get
+    edited for conveniences.
+    """
+    t = (ticker or "").upper().strip()
+    return t.replace("-", "/") if "-" in t else t
+
+
 def _to_alpaca_side(side: OrderSide) -> "AlpacaSide":
     return AlpacaSide.BUY if side == OrderSide.BUY else AlpacaSide.SELL
 
@@ -350,20 +372,35 @@ class AlpacaBroker(BrokerBase):
         if not self._stock_data:
             return {}
         try:
-            if "-USD" in ticker:
-                req    = CryptoLatestQuoteRequest(symbol_or_symbols=[ticker])
+            is_crypto = "-USD" in ticker.upper() or "/" in ticker
+            if is_crypto:
+                symbol = crypto_symbol(ticker)
+                req    = CryptoLatestQuoteRequest(symbol_or_symbols=[symbol])
                 quotes = self._crypto_data.get_crypto_latest_quote(req)
             else:
+                symbol = ticker
                 req    = StockLatestQuoteRequest(symbol_or_symbols=[ticker])
                 quotes = self._stock_data.get_stock_latest_quote(req)
-            q = quotes.get(ticker)
+            # Alpaca keys the reply by the symbol IT was given, not the one the
+            # caller used, so a hyphenated lookup here would miss even after a
+            # successful request.
+            q = quotes.get(symbol) or quotes.get(ticker)
             if not q:
                 return {}
-            return {
-                "ask":  float(q.ask_price),
-                "bid":  float(q.bid_price),
-                "mid":  round((float(q.ask_price) + float(q.bid_price)) / 2, 4),
-            }
+            ask, bid = float(q.ask_price or 0), float(q.bid_price or 0)
+            # A MISSING SIDE IS NOT A PRICE OF ZERO. Outside regular hours
+            # Alpaca returns ask=0, and averaging that with the bid produced
+            # mid = bid/2 — AAPL bid 290.54 came back as a mid of 145.27. A
+            # limit priced off that sits fifty percent below the market, which
+            # is either an order that never fills or one that fills terribly.
+            if ask > 0 and bid > 0:
+                mid = round((ask + bid) / 2, 4)
+            elif ask > 0 or bid > 0:
+                mid = round(ask or bid, 4)
+            else:
+                return {}
+            return {"ask": ask, "bid": bid, "mid": mid,
+                    "one_sided": not (ask > 0 and bid > 0)}
         except Exception as e:
             logger.warning(f"Alpaca get_quote({ticker}): {e}")
             return {}
