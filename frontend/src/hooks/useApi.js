@@ -54,6 +54,11 @@ export const useOptions    = () => useApiData('/api/options',   300_000)
 export const useML         = () => useApiData('/api/ml',        120_000)
 export const useBacktest   = () => useApiData('/api/backtest',  600_000)
 export const usePortfolio  = () => useApiData('/api/portfolio', 300_000)
+// What he ACTUALLY owns, from the broker. `usePortfolio` above returns
+// data/portfolio_analysis.json — a fixed model universe last computed in May,
+// which is why the page showed twenty-odd names he had never bought.
+export const useHoldings   = () => useApiData('/api/portfolio/holdings', 60_000)
+export const useRelated    = () => useApiData('/api/portfolio/related?per_holding=4', 300_000)
 export const useAlerts     = () => useApiData('/api/alerts',    60_000)
 export const useSentiment  = () => useApiData('/api/sentiment', 300_000)
 export const useReport     = () => useApiData('/api/report',    300_000)
