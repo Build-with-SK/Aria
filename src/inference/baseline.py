@@ -86,8 +86,17 @@ class ModuleSample:
     # be recorded alongside the abstention count. Without this, a baseline
     # captured during a yfinance rate-limit and compared against a clean one
     # reports "MISWIRED" about the feed.
+    #
+    # `stale` and `vendor` alone are too coarse, and the first real comparison
+    # proved it: SPY moved 14 abstentions to 11 with both captures reading
+    # `yfinance` and `stale=False`, so the guard called MISWIRED on what was
+    # almost certainly a thinner overnight fetch. Two captures can name the
+    # same vendor, both look fresh, and still be computed on different bars.
+    # last_bar and rows are what actually pin "the same data".
     stale: bool | None = None
     vendor: str = ""
+    last_bar: str = ""
+    rows: int | None = None
 
     def to_dict(self) -> dict:
         return self.__dict__.copy()
@@ -159,6 +168,9 @@ def capture_modules(tickers=FIXED_TICKERS) -> list[ModuleSample]:
             data = result.get("data") or {}
             s.stale = data.get("stale")
             s.vendor = str(data.get("vendor") or data.get("source") or "")
+            s.last_bar = str(data.get("last_bar") or "")
+            rows = data.get("rows")
+            s.rows = int(rows) if isinstance(rows, (int, float)) else None
             s.ok = s.total > 0
         except Exception as e:
             s.error = f"{type(e).__name__}: {e}"
@@ -365,22 +377,39 @@ def compare(before: dict, after: dict) -> dict:
         # between the two runs, an abstention change says something about the
         # feed, not about the brain — and calling that MISWIRED would send a
         # future session hunting a wiring bug that is not there.
-        data_differs = (b.get("stale") != a.get("stale")
-                        or (b.get("vendor") or "") != (a.get("vendor") or ""))
+        # last_bar and rows are what actually pin "the same data". Vendor and
+        # staleness alone let a thinner fetch pass as identical, and then an
+        # abstention change it caused gets reported as a wiring bug.
+        data_fields = ("stale", "vendor", "last_bar", "rows")
+        data_moved = [f for f in data_fields
+                      if (b.get(f) or None) != (a.get(f) or None)]
+        data_differs = bool(data_moved)
+        # An older baseline predates these fields entirely. Absent on both
+        # sides is not agreement — say what could not be checked rather than
+        # treating a gap as a match.
+        unrecorded = [f for f in ("last_bar", "rows")
+                      if a.get(f) in (None, "") and b.get(f) in (None, "")]
         if counts_moved and data_differs:
+            moved = ", ".join(f"{f} {b.get(f)}→{a.get(f)}" for f in data_moved)
             notes.append(
                 f"{ticker}: abstention moved {b.get('abstained')}→"
                 f"{a.get('abstained')}, but the data layer also differed "
-                f"(stale {b.get('stale')}→{a.get('stale')}, vendor "
-                f"{b.get('vendor') or '?'}→{a.get('vendor') or '?'}). Not a "
-                f"clean comparison — re-capture with the same feed before "
-                f"reading anything into it.")
+                f"({moved}). Not a clean comparison — re-capture with the same "
+                f"feed before reading anything into it.")
+        elif counts_moved and unrecorded:
+            notes.append(
+                f"{ticker}: abstention moved {b.get('abstained')}→"
+                f"{a.get('abstained')} and the data looks identical — but "
+                f"{' and '.join(unrecorded)} went unrecorded in these "
+                f"captures, so 'identical' covers only the vendor and the "
+                f"stale flag. Two fetches from the same vendor can return "
+                f"different bars. Re-capture before calling this miswiring.")
         elif counts_moved:
             miswired.append(
                 f"{ticker}: module abstention moved {b.get('abstained')}→"
                 f"{a.get('abstained')} (reporting {b.get('reporting')}→"
-                f"{a.get('reporting')}). The 41 modules do not call an LLM; a "
-                f"brain swap cannot change this number.")
+                f"{a.get('reporting')}) on identical data. The 41 modules do "
+                f"not call an LLM; a brain swap cannot change this number.")
         elif data_differs:
             notes.append(f"{ticker}: same abstention, different data layer "
                          f"(stale {b.get('stale')}→{a.get('stale')})")

@@ -29,9 +29,13 @@ def make(modules=None, debates=None, structured=None, latency=None,
         "tickers": ["AAPL", "NVDA"],
         "modules": modules if modules is not None else [
             {"ticker": "AAPL", "ok": True, "total": 41, "reporting": 33,
-             "abstained": 8, "abstained_modules": ["credit", "breadth"]},
+             "abstained": 8, "abstained_modules": ["credit", "breadth"],
+             "stale": False, "vendor": "yfinance",
+             "last_bar": "2026-08-14", "rows": 2517},
             {"ticker": "NVDA", "ok": True, "total": 41, "reporting": 35,
-             "abstained": 6, "abstained_modules": ["credit"]},
+             "abstained": 6, "abstained_modules": ["credit"],
+             "stale": False, "vendor": "yfinance",
+             "last_bar": "2026-08-14", "rows": 2517},
         ],
         "debates": debates if debates is not None else [
             {"ticker": "AAPL", "ok": True, "verdict": "PASS", "conviction": 58},
@@ -59,9 +63,13 @@ def test_a_changed_abstention_count_is_miswiring_not_regression():
     swap, the swap did something else as well."""
     after = make(modules=[
         {"ticker": "AAPL", "ok": True, "total": 41, "reporting": 34,
-         "abstained": 7, "abstained_modules": ["credit"]},
+         "abstained": 7, "abstained_modules": ["credit"],
+         "stale": False, "vendor": "yfinance",
+         "last_bar": "2026-08-14", "rows": 2517},
         {"ticker": "NVDA", "ok": True, "total": 41, "reporting": 35,
-         "abstained": 6, "abstained_modules": ["credit"]},
+         "abstained": 6, "abstained_modules": ["credit"],
+         "stale": False, "vendor": "yfinance",
+         "last_bar": "2026-08-14", "rows": 2517},
     ])
     result = B.compare(make(), after)
     assert result["verdict"] == "MISWIRED"
@@ -73,9 +81,13 @@ def test_the_same_count_of_different_modules_is_still_miswiring():
     same 8 — a count-only check would wave this through."""
     after = make(modules=[
         {"ticker": "AAPL", "ok": True, "total": 41, "reporting": 33,
-         "abstained": 8, "abstained_modules": ["credit", "value"]},
+         "abstained": 8, "abstained_modules": ["credit", "value"],
+         "stale": False, "vendor": "yfinance",
+         "last_bar": "2026-08-14", "rows": 2517},
         {"ticker": "NVDA", "ok": True, "total": 41, "reporting": 35,
-         "abstained": 6, "abstained_modules": ["credit"]},
+         "abstained": 6, "abstained_modules": ["credit"],
+         "stale": False, "vendor": "yfinance",
+         "last_bar": "2026-08-14", "rows": 2517},
     ])
     result = B.compare(make(), after)
     assert result["verdict"] == "MISWIRED"
@@ -94,7 +106,8 @@ def test_a_stale_feed_is_not_reported_as_miswiring():
     after = make(modules=[
         {"ticker": "AAPL", "ok": True, "total": 41, "reporting": 20,
          "abstained": 21, "abstained_modules": ["credit", "value"],
-         "stale": True, "vendor": "cache"},
+         "stale": True, "vendor": "cache", "last_bar": "2026-08-10",
+         "rows": 2517},
     ])
     result = B.compare(before, after)
     assert result["verdict"] != "MISWIRED"
@@ -102,17 +115,58 @@ def test_a_stale_feed_is_not_reported_as_miswiring():
 
 
 def test_the_same_feed_still_makes_abstention_drift_miswiring():
+    """Identical data means identical BARS, not merely the same vendor name.
+    The first real comparison called MISWIRED on SPY because both captures
+    said yfinance and stale=False — while one of them had run overnight on a
+    degraded link and fetched less history."""
     before = make(modules=[
         {"ticker": "AAPL", "ok": True, "total": 41, "reporting": 33,
          "abstained": 8, "abstained_modules": ["credit"], "stale": False,
-         "vendor": "yfinance"},
+         "vendor": "yfinance", "last_bar": "2026-08-14", "rows": 2517},
     ])
     after = make(modules=[
         {"ticker": "AAPL", "ok": True, "total": 41, "reporting": 32,
          "abstained": 9, "abstained_modules": ["credit", "value"],
-         "stale": False, "vendor": "yfinance"},
+         "stale": False, "vendor": "yfinance", "last_bar": "2026-08-14",
+         "rows": 2517},
     ])
     assert B.compare(before, after)["verdict"] == "MISWIRED"
+
+
+def test_a_thinner_fetch_is_not_miswiring():
+    """Same vendor, same stale flag, fewer bars — the SPY case. This must read
+    as a dirty comparison, not as a wiring bug."""
+    before = make(modules=[
+        {"ticker": "SPY", "ok": True, "total": 39, "reporting": 25,
+         "abstained": 14, "abstained_modules": ["credit"], "stale": False,
+         "vendor": "yfinance", "last_bar": "2026-08-14", "rows": 900},
+    ])
+    after = make(modules=[
+        {"ticker": "SPY", "ok": True, "total": 39, "reporting": 28,
+         "abstained": 11, "abstained_modules": [], "stale": False,
+         "vendor": "yfinance", "last_bar": "2026-08-14", "rows": 2517},
+    ])
+    result = B.compare(before, after)
+    assert result["verdict"] != "MISWIRED"
+    assert any("rows 900" in n for n in result["notes"])
+
+
+def test_unrecorded_bars_are_not_treated_as_agreement():
+    """A baseline captured before these fields existed cannot prove the data
+    matched. Absent on both sides is a gap, not a match."""
+    before = make(modules=[
+        {"ticker": "SPY", "ok": True, "total": 39, "reporting": 25,
+         "abstained": 14, "abstained_modules": [], "stale": False,
+         "vendor": "yfinance"},
+    ])
+    after = make(modules=[
+        {"ticker": "SPY", "ok": True, "total": 39, "reporting": 28,
+         "abstained": 11, "abstained_modules": [], "stale": False,
+         "vendor": "yfinance"},
+    ])
+    result = B.compare(before, after)
+    assert result["verdict"] != "MISWIRED"
+    assert any("went unrecorded" in n for n in result["notes"])
 
 
 def test_a_changed_conviction_means_the_llm_reached_the_verdict():

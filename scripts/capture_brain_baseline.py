@@ -24,6 +24,17 @@ import argparse
 import sys
 from pathlib import Path
 
+# Windows consoles default to cp1252, which has no U+2192. The comparison
+# renders "before → after", so the first real comparison this script ever ran
+# did every debate, every module pass, and then died on the print — a
+# UnicodeEncodeError instead of a verdict, on the one platform this project
+# runs on. Reconfigure before anything can write.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):    # not a real stream (pytest capture)
+        pass
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.inference import baseline as B
