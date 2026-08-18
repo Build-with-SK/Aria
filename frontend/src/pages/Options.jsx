@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useOptions } from '../hooks/useApi'
 import { Spinner, ErrorBox, ScoreBadge, SectionHeader, MetricCard } from '../components/UI'
+import OptionsChain from '../components/OptionsChain'
 
 export default function Options() {
   const { data, loading, error } = useOptions()
@@ -11,7 +12,12 @@ export default function Options() {
   const sel   = selected ? (data||{})[selected] : null
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 20 }}>Options Analysis</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 20 }}>Options</h1>
+      {/* The chain first — strikes he can actually look at. The sentiment
+          table below is an aggregate over a precomputed file and answers a
+          different question. */}
+      <OptionsChain />
+      <SectionHeader>Chain sentiment — precomputed aggregates</SectionHeader>
       <div style={{ display: 'grid', gridTemplateColumns: sel ? '1.2fr 1fr' : '1fr', gap: 20 }}>
         <div className="card" style={{ padding: 0 }}>
           <table>

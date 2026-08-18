@@ -553,6 +553,33 @@ def get_options():
     return _load("options_data.json")
 
 
+@app.get("/api/options/chain", tags=["Derivatives"],
+         dependencies=[Depends(require_owner)])
+def options_chain(symbol: str, expiry: str = "", around: int = 8):
+    """One expiry's option chain, centred on the money, with the untradeable
+    contracts marked as untradeable.
+
+    A naive chain prints `lastPrice` in a column called price and lets the
+    reader assume it is one. It is often the memory of a trade from days ago
+    with nobody on either side now. Every contract here carries a liquidity
+    verdict built from the spread, the open interest and the age of the last
+    trade — and the response distinguishes three different reasons a quote can
+    be missing: the market is shut, the contract is genuinely dead, or the
+    VENDOR returned nothing for the whole chain, which is a data gap and not a
+    fact about the market.
+
+    Greeks are Black-Scholes and therefore approximate for American options.
+    The assumptions come back with the data. Where the vendor's implied vol is
+    a placeholder rather than a number, no greeks are computed at all.
+
+    ARIA DOES NOT TRADE OPTIONS. There is no margin model, no assignment
+    handling and no risk gate that understands short gamma. `tradeable` is
+    false on every response."""
+    from src.options.chain import chain
+    return _sanitize(chain(symbol, expiry=expiry,
+                           around=max(1, min(around, 25))))
+
+
 @app.get("/api/derivatives/context", tags=["Derivatives"])
 def get_derivatives_context():
     """Get combined futures + options context per spot ticker."""
