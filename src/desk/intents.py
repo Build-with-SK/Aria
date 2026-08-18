@@ -57,6 +57,7 @@ FILLED = "filled"
 CANCELLED = "cancelled"
 EXPIRED = "expired"
 BLOCKED = "blocked"          # conditions met, but a gate refused
+SUPERSEDED = "superseded"    # a timed exit whose position had already gone
 
 #: An intent nobody revisits is a landmine. Default life is one trading week.
 DEFAULT_EXPIRY_DAYS = 7
@@ -95,6 +96,18 @@ _SELL_WORDS = {"sell", "short", "dump", "offload"}
 _NOT_TICKERS = {"SHARES", "SHARE", "UNITS", "UNIT", "STOCK", "STOCKS", "SOME",
                 "MORE", "THE", "A", "AN", "OF", "AT", "IN", "ME", "US", "IT",
                 "WORTH", "ABOUT", "AROUND"}
+
+#: "sell it off in 5 mins" — the exit he names in the same breath as the entry.
+_AFTER = re.compile(r"(?:in|after)\s+(\d+)\s*(second|sec|minute|min|hour|hr|day)s?",
+                    re.IGNORECASE)
+_UNIT_MINUTES = {"second": 1 / 60, "sec": 1 / 60, "minute": 1, "min": 1,
+                 "hour": 60, "hr": 60, "day": 60 * 24}
+#: "buy 1 AAPL now" — fill on the next check rather than waiting for a level.
+_NOW = re.compile(r"(now|immediately|right away|straight away|at market)",
+                  re.IGNORECASE)
+#: "and sell it" / "then sell it off" — a round trip in one sentence.
+_THEN_EXIT = re.compile(r"(?:and|then)\s+(?:sell|close|exit|dump|offload)",
+                        re.IGNORECASE)
 
 _LIMIT = re.compile(r"\b(?:under|below|at or below|less than|cheaper than)\s*"
                     r"[£$]?(\d+(?:\.\d+)?)", re.IGNORECASE)
@@ -142,6 +155,23 @@ def parse(text: str) -> dict | None:
         above = _ABOVE.search(text)
         if above:
             intent["min_price"] = float(above.group(1))
+
+        after = _AFTER.search(text)
+        minutes = (float(after.group(1)) * _UNIT_MINUTES[after.group(2).lower()]
+                   if after else None)
+        if _THEN_EXIT.search(text) and minutes is not None:
+            # "buy 1 AAPL and sell it in 5 minutes" — one instruction, two
+            # legs. The exit is scheduled when the ENTRY fills, not when he
+            # said it: five minutes from a fill that never happened is not a
+            # deadline, it is a countdown against nothing.
+            intent["exit_after_minutes"] = minutes
+        elif minutes is not None:
+            # "buy 1 AAPL in 5 minutes" — delay the entry itself.
+            intent["not_before_minutes"] = minutes
+
+        intent["immediate"] = bool(_NOW.search(text)) or not (
+            intent["limit_price"] or intent["min_price"]
+            or intent.get("not_before_minutes"))
         return intent
     return None
 
@@ -315,7 +345,30 @@ def check_once(fill=None) -> dict:
                          "why": decision["reasons"]})
             continue
 
+        # A TIMED EXIT MUST NOT SHORT A FLAT BOOK. If a stop took the shares
+        # first, sending the original sell opens a short instead of closing a
+        # long - the worst bug available in a round trip.
+        if intent.get("closes"):
+            from src.desk.roundtrip import check_exit_leg
+            leg = check_exit_leg(intent)
+            if not leg["act"]:
+                _update(intent["id"], status=SUPERSEDED,
+                        closed_at=stamp["at"], reason=leg["why"])
+                held.append({"id": intent["id"], "ticker": ticker,
+                             "why": [leg["why"]]})
+                continue
+            if leg["qty"] != intent.get("qty"):
+                intent = {**intent, "qty": leg["qty"]}
+                _update(intent["id"], qty=leg["qty"], trimmed_reason=leg["why"])
+
         result = execute(intent, price, fill=fill)
+        if result.get("ok") and intent.get("exit_after_minutes"):
+            try:
+                from src.desk.roundtrip import on_fill
+                on_fill(intent, result)
+            except Exception as e:
+                logger.exception("the entry filled but its timed exit could "
+                                 "not be scheduled: %s", e)
         _update(intent["id"], checks=checks,
                 status=FILLED if result.get("ok") else BLOCKED,
                 fill=result, closed_at=stamp["at"])
@@ -365,7 +418,8 @@ def status() -> dict:
         "open": [r for r in rows if r.get("status") == OPEN],
         "recent": rows[-10:],
         "counts": {s: sum(1 for r in rows if r.get("status") == s)
-                   for s in (OPEN, FILLED, CANCELLED, EXPIRED, BLOCKED)},
+                   for s in (OPEN, FILLED, CANCELLED, EXPIRED, BLOCKED,
+                             SUPERSEDED)},
         "note": ("Intents are held instructions, not orders. Every fill goes "
                  "through the paper broker; nothing here can reach live "
                  "money."),

@@ -475,17 +475,23 @@ class DeskDaemon:
 
     def _focus_tickers(self, n: int, account: dict,
                        equities_open: bool = True) -> list:
+        """Names for this cycle, ranked by the RESEARCH ENGINE.
+
+        This used to rank signals.json on abs(composite_score) while the
+        41-module v5 engine scored the same watchlist every day and was never
+        asked. Two programs sharing a database: the system computed
+        recommendations and then traded a different universe.
+
+        src/desk/focus.py ranks by the engine's conviction and falls back to
+        the composite only for names it has no fresh view on — and says which
+        is which, so a slate built mostly from the fallback cannot pass itself
+        off as the engine's picks.
+        """
         from src.desk.opinion import load_data_json
         signals = load_data_json("signals.json")
-        held = {p["ticker"] for p in (account.get("positions") or [])}
-        try:
-            from src.execution.approval_queue import ApprovalQueue
-            pending = {t.ticker for t in ApprovalQueue().get_all(limit=500)
-                       if t.status == "pending"}
-        except Exception:
-            pending = set()
 
-        def executable(t, d):
+        def executable(t, d=None):
+            d = d if isinstance(d, dict) else (signals.get(t) or {})
             ac = (d.get("asset_class") or "").lower()
             if "crypto" in ac or t.endswith("-USD"):
                 # Liquid majors only — noisy micro-caps (BONK/PENDLE/…) dominate
@@ -495,13 +501,11 @@ class DeskDaemon:
                 return False                  # market closed → no equity debates
             return not any(c in t for c in ("=", "^"))    # no futures/indices
 
-        ranked = sorted(
-            ((t, d) for t, d in signals.items()
-             if isinstance(d, dict) and executable(t, d)
-             and t not in held and t not in pending
-             and (d.get("current_price") or 0) > 0),
-            key=lambda kv: -abs(kv[1].get("composite_score") or 0))
-        return [t for t, _ in ranked[:max(1, n)]]
+        from src.desk.focus import focus_tickers
+        picked = focus_tickers(max(1, n), account, executable)
+        self.last_focus = picked
+        logger.info("focus: %s (%s)", picked["tickers"], picked["note"])
+        return picked["tickers"]
 
     def _reflect(self, transcripts, exec_results, conditioner, memory):
         """Module 5 — semantic, per-thesis memory keyed by debate_id."""
