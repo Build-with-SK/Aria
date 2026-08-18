@@ -437,3 +437,82 @@ def test_guard_does_not_read_request_state(app):
             f"{fn.__name__} reads request.state — the guard would inherit "
             f"whatever the middleware decided, or nothing at all if it is "
             f"bypassed")
+
+
+# ── lifespan startup registry ────────────────────────────────────────────
+#
+# FastAPI deprecated @app.on_event, so startup work now registers through
+# `on_startup` and runs inside a lifespan. These pin the properties the old
+# decorator gave for free, because losing any of them is silent.
+
+def test_startup_hooks_run_in_registration_order():
+    """The old decorator ran handlers in definition order and at least one
+    handler depends on it — the order manager pre-warms before the guard
+    recheck."""
+    from backend import main
+
+    assert [h.__name__ for h in main._STARTUP_HOOKS] == [
+        "_startup",
+        "_warn_about_auth_configuration",
+        "_recheck_route_guards",
+    ]
+
+
+def test_the_route_guard_recheck_is_fatal_at_startup():
+    """Coming up with an unguarded execution route is worse than not coming
+    up, so that one hook must abort boot rather than be logged and skipped."""
+    from backend import main
+
+    fatal = {h.__name__ for h in main._STARTUP_HOOKS if getattr(h, "_fatal", False)}
+    assert fatal == {"_recheck_route_guards"}
+
+
+def test_a_failing_daemon_hook_does_not_take_the_api_down(monkeypatch):
+    """A background daemon that cannot start must not stop the server serving
+    — the failure is logged, not fatal."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend import main
+
+    def broken():
+        raise RuntimeError("ollama is not running")
+
+    monkeypatch.setattr(main, "_STARTUP_HOOKS", [broken])
+    probe = FastAPI(lifespan=main._lifespan)
+
+    @probe.get("/ping")
+    def ping():
+        return {"ok": True}
+
+    with TestClient(probe) as client:            # lifespan runs here
+        assert client.get("/ping").status_code == 200
+
+
+def test_a_failing_fatal_hook_aborts_boot(monkeypatch):
+    """The security check keeps its teeth."""
+    import pytest as _pytest
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from backend import main
+
+    def guard():
+        raise RuntimeError("unguarded execution route")
+    guard._fatal = True
+
+    monkeypatch.setattr(main, "_STARTUP_HOOKS", [guard])
+    probe = FastAPI(lifespan=main._lifespan)
+
+    with _pytest.raises(RuntimeError, match="unguarded execution route"):
+        with TestClient(probe):
+            pass
+
+
+def test_no_deprecated_event_decorator_remains():
+    """The whole point of the change."""
+    from pathlib import Path
+
+    src = (Path(__file__).parent.parent / "backend" / "main.py").read_text(
+        encoding="utf-8")
+    assert '@app.on_event(' not in src

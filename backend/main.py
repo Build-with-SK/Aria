@@ -32,11 +32,13 @@ Then open:
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 import os
 import subprocess
 import sys
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -130,6 +132,51 @@ def _get_anthropic():
 # ===========================================================================
 # App initialisation
 # ===========================================================================
+#
+# Startup handlers register through `on_startup` rather than the deprecated
+# per-event decorator FastAPI replaced with a lifespan context manager. A
+# lifespan has to be handed to FastAPI() at construction, but this file
+# registers startup work thousands of lines further down — the route-guard
+# recheck deliberately sits at the very bottom, after every route is defined.
+# A registry keeps both: one lifespan declared here, handlers still added
+# wherever they belong.
+#
+# Registration order is execution order, which the old decorator also
+# guaranteed and at least one handler relies on.
+
+_STARTUP_HOOKS: list = []
+
+
+def on_startup(fn):
+    """Register a coroutine (or plain function) to run once, at startup."""
+    _STARTUP_HOOKS.append(fn)
+    return fn
+
+
+def fatal_startup(fn):
+    """A startup hook whose failure must abort boot — e.g. a security check."""
+    fn._fatal = True
+    return on_startup(fn)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    for hook in _STARTUP_HOOKS:
+        try:
+            result = hook()
+            if inspect.isawaitable(result):
+                await result
+        except Exception:
+            # A daemon that cannot start should not take the API down with it,
+            # so ordinary hooks are logged and skipped. Hooks marked fatal —
+            # the route-guard recheck — still abort, because coming up with an
+            # unguarded execution route is worse than not coming up.
+            logger.exception("startup hook %s failed",
+                             getattr(hook, "__name__", hook))
+            if getattr(hook, "_fatal", False):
+                raise
+    yield
+
 
 app = FastAPI(
     title="Trading Intelligence System API",
@@ -137,9 +184,10 @@ app = FastAPI(
     version="5.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=_lifespan,
 )
 
-@app.on_event("startup")
+@on_startup
 async def _startup():
     """Pre-warm the order manager on startup (runs in the asyncio thread — safe for ib_insync)."""
     import asyncio
@@ -3399,13 +3447,13 @@ _GUARDED_EXECUTION_ROUTES = _assert_execution_routes_guarded()
 logger.info("guarded state-changing routes: %d", len(_GUARDED_EXECUTION_ROUTES))
 
 
-@app.on_event("startup")
+@on_startup
 async def _warn_about_auth_configuration():
     from src.auth import policy
     policy.warn_if_unprotected()
 
 
-@app.on_event("startup")
+@fatal_startup
 async def _recheck_route_guards():
     """Run the same check again once every route is registered.
 
