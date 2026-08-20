@@ -29,8 +29,44 @@ def market_day() -> str:
         return date.today().isoformat()
 
 
+def _real_equity(value) -> float | None:
+    """A start-of-day equity is only worth recording if it came from a broker
+    that actually answered. Anything else is None — NOT 0.0, and NOT a
+    fallback constant.
+
+    Both wrong answers have already cost this desk a day. `current_equity or
+    0.0` wrote a 0 whenever the broker was disconnected at the day roll, and a
+    0 start makes the drawdown check skip itself silently for the rest of the
+    day. The mirror-image bug is worse: seeding from the risk officer's
+    100_000 fallback means the first real reading of a $10k account computes a
+    90% intraday loss and the circuit breaker halts every entry, permanently,
+    for an account that never lost anything. That is the same shape as the
+    £100 re-basing halt — a figure that answers a different question, used as
+    though it answered this one.
+    """
+    # Type first, like the desk config sanitiser: float("10000") succeeds and
+    # would quietly accept a string that arrived where a number belongs, which
+    # is the class of bug that made the reflex risk check raise in the first
+    # place. bool is excluded because it subclasses int.
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0 or v != v or v in (float("inf"), float("-inf")):
+        return None
+    return v
+
+
 def load_day_state(current_equity: float | None = None) -> dict:
-    """Load today's state, rolling over (and capturing start equity) on a new day."""
+    """Load today's state, rolling over (and capturing start equity) on a new day.
+
+    start_equity may legitimately be absent — the broker can be down at the
+    roll. Absent means UNKNOWN, and callers must treat it as unknown rather
+    than as zero or as flat; it is filled in by the first tick that gets a
+    real reading.
+    """
     today = market_day()
     state = {}
     if STATE_FILE.exists():
@@ -38,14 +74,15 @@ def load_day_state(current_equity: float | None = None) -> dict:
             state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
         except Exception:
             state = {}
+    equity = _real_equity(current_equity)
     if state.get("date") != today:
         state = {"date": today,
-                 "start_equity": current_equity or 0.0,
+                 "start_equity": equity,       # None when the broker was down
                  "notional_used": 0.0,
                  "trades_count": 0}
         _save(state)
-    elif not state.get("start_equity") and current_equity:
-        state["start_equity"] = current_equity
+    elif not state.get("start_equity") and equity is not None:
+        state["start_equity"] = equity
         _save(state)
     return state
 

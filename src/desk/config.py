@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from pathlib import Path
 
@@ -75,23 +76,85 @@ DEFAULTS = {
 }
 
 
+def _reject_non_finite(value):
+    """json.loads accepts the bare literals NaN, Infinity and -Infinity. Every
+    risk gate downstream is a `>` comparison, and NaN > x is False for every x —
+    so a single NaN in this file turns the drawdown circuit-breaker, the heat
+    check and every name cap off at once, while each check still runs, still
+    reports False, and the UI still shows green. A cap that silently holds
+    nothing is worse than no cap, because it is trusted."""
+    raise ValueError(f"non-finite number in desk config: {value}")
+
+
+def _clean(key, value):
+    """Keep a config value only if it has the same type as its default and is a
+    real number. Wrong types are as dangerous as NaN here: a string where a
+    float belongs raises TypeError inside the comparison, and the callers that
+    catch that exception are the ones this session had to fix for failing open.
+
+    Returns (ok, value). bool is checked before int/float on purpose — bool is a
+    subclass of int in Python, so `isinstance(True, int)` is True and a stray
+    `true` would otherwise sail into a numeric cap as the number 1.
+    """
+    default = DEFAULTS[key]
+    if isinstance(default, bool):
+        return (isinstance(value, bool), value)
+    if isinstance(default, (int, float)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return (False, value)
+        if not math.isfinite(value):
+            return (False, value)
+        return (True, value)
+    if isinstance(default, str):
+        return (isinstance(value, str), value)
+    return (type(value) is type(default), value)
+
+
+def _sanitise(raw: dict, source: str) -> dict:
+    """Drop anything unknown, mistyped or non-finite, and say which and why.
+    Dropped keys fall back to their default rather than to nothing — a missing
+    cap would be read as "no cap" by the same `>` comparisons."""
+    clean = {}
+    for k, v in (raw or {}).items():
+        if k not in DEFAULTS:
+            logger.warning(f"desk config: ignoring unknown key {k!r} ({source})")
+            continue
+        ok, v = _clean(k, v)
+        if not ok:
+            logger.error(f"desk config: REJECTED {k}={v!r} ({source}) — "
+                         f"expected {type(DEFAULTS[k]).__name__}, finite; "
+                         f"using default {DEFAULTS[k]!r}")
+            continue
+        clean[k] = v
+    return clean
+
+
 def load_config() -> dict:
     cfg = dict(DEFAULTS)
     if CONFIG_FILE.exists():
         try:
-            cfg.update(json.loads(CONFIG_FILE.read_text(encoding="utf-8")))
+            raw = json.loads(CONFIG_FILE.read_text(encoding="utf-8"),
+                             parse_constant=_reject_non_finite)
+            if not isinstance(raw, dict):
+                raise ValueError(f"expected an object, got {type(raw).__name__}")
+            cfg.update(_sanitise(raw, "on disk"))
         except Exception as e:
             logger.warning(f"desk config unreadable, using defaults: {e}")
     return cfg
 
 
 def save_config(updates: dict) -> dict:
+    """Validates on the way in as well as on the way out. PATCH /api/desk/config
+    reaches this directly, so a request body is untrusted input — the key-
+    membership check that used to be the only filter let any value through for
+    a known key."""
     cfg = load_config()
-    for k, v in updates.items():
-        if k in DEFAULTS:
-            cfg[k] = v
+    cfg.update(_sanitise(updates, "incoming update"))
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    # allow_nan=False so a non-finite value can never be written even if one
+    # reaches this line by a path the sanitiser does not cover.
+    CONFIG_FILE.write_text(json.dumps(cfg, indent=2, allow_nan=False),
+                           encoding="utf-8")
     return cfg
 
 

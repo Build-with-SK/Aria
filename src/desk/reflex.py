@@ -401,8 +401,26 @@ class ReflexEngine:
         try:
             from src.desk.analysts import macro_agent
             conditioner = macro_agent.condition()
-        except Exception:
-            return True     # can't condition → don't block (gates still run at exec)
+        except Exception as e:
+            # FAIL CLOSED. This used to `return True`, which reads as "approved"
+            # and skipped every cap the RiskOfficer owns — name %, sector %,
+            # portfolio heat, correlation, position cap, conviction bar and the
+            # drawdown circuit-breaker — because the officer is not constructed
+            # until the line below. The old comment claimed the gates re-run at
+            # execution; they do not. auto_executor.gates() checks
+            # paper/armed/connected/budget and never a risk cap, so this was the
+            # only place they were enforced on the reflex lane.
+            #
+            # No attacker needed: a string where a number belongs in
+            # data/macro_data.json raises TypeError inside condition(), and this
+            # lane runs every three seconds from server startup. The deliberate
+            # lane calls the same condition() outside any try (desk_daemon.py),
+            # so the identical fault already fails that lane closed — two lanes,
+            # one fault, opposite outcomes was the tell that this was a bug.
+            logger.warning(f"reflex risk check could not condition ({e}) — "
+                           f"rejecting {entry.get('ticker', '?')}")
+            entry["_reject"] = f"risk officer unavailable: {e}"
+            return False
         from src.desk.risk_officer import RiskOfficer
         officer = RiskOfficer(self.cfg, conditioner)
         officer.allocation = entry.get("_alloc")

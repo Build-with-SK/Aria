@@ -1,5 +1,75 @@
 # Changelog
 
+## Fail-closed pass — 2026-08-20
+
+The three findings the 3 August red-team marked "fix in this order" were still
+live sixteen days and thirty-eight commits later. All three had one shape: a
+failure that read as an approval. Each fix has a regression test, and each test
+was verified by reintroducing the defect and watching it fail — a test that has
+never seen the bug it guards is a guess.
+
+**C1 — the reflex lane's risk officer failed open.** `_risk_check` returned
+`True` ("approved") on any exception raised before `RiskOfficer` was
+constructed, skipping name %, sector %, portfolio heat, correlation, the
+position cap, the conviction bar and the drawdown breaker. The old comment
+claimed the gates re-run at execution; `auto_executor.gates()` checks
+paper/armed/connected/budget and never a risk cap, so this was the only place
+they were enforced on a lane that ticks every three seconds from startup. Now
+returns `False` with a reason. (`src/desk/reflex.py`)
+
+**C2 — three broker-mutating paths had no paper gate.** `_close()` was welded
+shut and was the only path in `tick()` that was. `_heal_brackets` and
+`_replace_stop_order` both cancel live protection before re-placing it — a
+failed re-place leaves the position naked — and `cancel_stale_orders` would
+silently kill a human's own working limit orders on a live account. None is
+reachable by a human decision: it runs every five minutes, 24/7, ungated by
+`auto_execute` or `ALPACA_PAPER`. New `_may_mutate_broker()` asks the same
+question `_close()` asks, of the same wrapper, and fails closed when the
+question cannot be answered. Gated per method rather than only at the top of
+`tick()`, so a new call site cannot reopen the hole.
+(`src/desk/position_manager.py`)
+
+**H2 — one NaN disabled every risk cap at once.** `load_config`/`save_config`
+validated neither type nor value, and `json.loads` accepts the bare `NaN`
+literal. Every gate downstream is a `>` comparison and `NaN > x` is False, so a
+single value turned the breaker, the heat check and every cap off while each
+still ran, still reported `False`, and the UI still showed green. Both
+functions now sanitise: type checked against the default (`bool` before
+`int`/`float`, since `bool` subclasses `int`), non-finite rejected, unknown keys
+dropped, `parse_constant` refusing `NaN`/`Infinity` on read and
+`allow_nan=False` on write. (`src/desk/config.py`)
+
+Three related defects found while fixing those:
+
+- **The trailing ratchet cancelled against a stale snapshot.** `open_orders`
+  was captured during the prune pass and reused in the exit loop after
+  `_record_external_close` had cancelled siblings, so it could name orders the
+  broker had already removed. `_replace_stop_order` now re-reads.
+- **Start-of-day equity could be recorded as 0.** `current_equity or 0.0` wrote
+  a 0 whenever the broker was down at the day roll, and a 0 start made the
+  drawdown check skip itself silently while reporting `drawdown_pct: 0.0` —
+  which reads as "flat today". Absent now means absent.
+- **Worse: it could be seeded from a fiction.** The risk officer passed its
+  `100_000` sizing fallback into the day state, so the first real reading of a
+  $10k account would have computed a 90% intraday loss and halted every entry
+  permanently — the £100 re-basing halt in a different costume. Only a genuine
+  broker reading may seed it, and an unmeasurable drawdown now halts entries
+  and reports `drawdown_state: "unknown"` rather than a reassuring 0%.
+
+1,077 tests pass, from 1,050.
+
+### Still open
+
+`HANDOFF_TOMORROW.md` is stale (dated 3 August, cites 327 tests and branch
+`main`) and should be rewritten before the next session reads it as current.
+The bare `yf.Ticker().history()` in `src/brain/cognitive/learner.py` still has
+no deadline, unlike its guarded twin in `src/v5/vendors.py` — the same missing
+timeout that once stalled a debate for twelve and a half hours. The watchdog
+still checks that jobs exist rather than that they progress, which is why that
+stall was invisible.
+
+---
+
 ## Remediation sprint — 2026-08-06
 
 A security and correctness pass against three named audit findings, plus the

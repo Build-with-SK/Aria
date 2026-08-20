@@ -90,7 +90,12 @@ class RiskOfficer:
         #   equity        — how big may a position be? That is his declared
         #                   capital, and it is a constant, so it can never
         #                   "fall".
-        broker_equity = float(account.get("equity") or 0.0) or 100_000.0
+        # reported_equity is what the broker actually said — 0.0/None when it
+        # said nothing. broker_equity adds a fallback so sizing still works.
+        # Only the former may seed the day's start equity: seeding the fallback
+        # would make the next real reading look like a 90% collapse.
+        reported_equity = float(account.get("equity") or 0.0)
+        broker_equity = reported_equity or 100_000.0
         try:
             from src.desk.capital import sizing_base
             base = sizing_base(account, getattr(self, "cfg", None))
@@ -102,7 +107,7 @@ class RiskOfficer:
         equity = equity or broker_equity
 
         positions = account.get("positions") or []
-        day = load_day_state(current_equity=broker_equity)
+        day = load_day_state(current_equity=reported_equity or None)
 
         checks = {"equity": equity, "broker_equity": broker_equity,
                   "day": dict(day),
@@ -110,16 +115,37 @@ class RiskOfficer:
                   "capital_base": capital_note}
 
         # 7. Drawdown circuit-breaker — halts ALL new entries
-        start_eq = day.get("start_equity") or 0.0
-        if start_eq > 0:
-            dd = (start_eq - broker_equity) / start_eq * 100.0
-            checks["drawdown_pct"] = round(dd, 3)
-            if dd > self.cfg["drawdown_halt_pct"]:
-                checks["circuit_breaker"] = True
-                return [], [{"trade": c, "reason":
-                             f"CIRCUIT BREAKER — account down {dd:.2f}% today "
-                             f"(halt at {self.cfg['drawdown_halt_pct']}%)"}
-                            for c in candidates], checks
+        #
+        # Three states, not two. This used to have two: a positive start
+        # equity ran the check, and everything else — including a 0 written by
+        # a broker that was down at the day roll — skipped it silently while
+        # reporting drawdown_pct 0.0, which reads on the UI as "flat today".
+        # A breaker that reports 0% because it could not run is worse than one
+        # that reports nothing, because 0% is reassuring.
+        start_eq = day.get("start_equity")
+        start_eq = float(start_eq) if start_eq else 0.0
+        if start_eq <= 0:
+            # UNKNOWN — refuse rather than assume flat. In practice this window
+            # is small: the day state is seeded by the first tick that gets a
+            # real reading, and a broker too disconnected to report equity
+            # cannot fill an order anyway.
+            checks["drawdown_pct"] = None
+            checks["drawdown_state"] = "unknown"
+            checks["circuit_breaker"] = True
+            return [], [{"trade": c, "reason":
+                         "CIRCUIT BREAKER — start-of-day equity unknown "
+                         "(broker down at the day roll); drawdown cannot be "
+                         "measured, so new entries are held"}
+                        for c in candidates], checks
+        dd = (start_eq - broker_equity) / start_eq * 100.0
+        checks["drawdown_pct"] = round(dd, 3)
+        checks["drawdown_state"] = "measured"
+        if dd > self.cfg["drawdown_halt_pct"]:
+            checks["circuit_breaker"] = True
+            return [], [{"trade": c, "reason":
+                         f"CIRCUIT BREAKER — account down {dd:.2f}% today "
+                         f"(halt at {self.cfg['drawdown_halt_pct']}%)"}
+                        for c in candidates], checks
 
         # Existing exposure maps
         name_exposure: dict = {}

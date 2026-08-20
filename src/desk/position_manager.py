@@ -54,6 +54,41 @@ def _is_long(pos: dict) -> bool:
     return pos.get("side", "long") in ("long", "buy")
 
 
+def _may_mutate_broker(mgr) -> bool:
+    """May this tick send a cancel or a placement to the broker?
+
+    _close() has been welded shut since the safety contract landed, and for a
+    long time it was the ONLY path in tick() that was. Three siblings reached
+    the broker with no paper gate at all:
+
+      _heal_brackets      cancels every live stop/limit, then re-places. A
+                          failed re-place leaves the position naked, with its
+                          original protection already gone.
+      _replace_stop_order same cancel-then-replace, on the trailing ratchet.
+      cancel_stale_orders cancels any unfilled order over a day old on a ticker
+                          with no position — on a live account that is the
+                          human's own working limit orders, killed silently.
+
+    None of the three is reachable by a human decision: server startup →
+    _start_desk → DeskDaemon.start → _management_tick every five minutes,
+    24/7, ungated by auto_execute or ALPACA_PAPER.
+
+    Asks the same question _close() asks, of the same wrapper, so this layer
+    cannot pass something PaperOnlyBroker would refuse. Fails closed on any
+    error — an unanswerable question about a live account is a no.
+    """
+    try:
+        broker = getattr(mgr, "_alpaca", None)
+        if broker is None:
+            return False
+        from src.execution.live_guard import paper_confirmed
+        return bool(paper_confirmed(broker))
+    except Exception as e:
+        logger.warning(f"paper gate unanswerable ({e}) — broker mutations "
+                       f"skipped this tick")
+        return False
+
+
 def _sane_levels(stop: float | None, target: float | None, entry: float,
                  long: bool) -> tuple[float | None, float | None]:
     """Stops sit on the losing side, targets on the winning side. A level on
@@ -299,7 +334,10 @@ class PositionManager:
                 pos["stop"] = verdict["new_stop"]
                 summary["stops_moved"].append(
                     {"ticker": ticker, "from": old, "to": pos["stop"]})
-                self._replace_stop_order(ticker, pos, mgr, open_orders.get(ticker, []))
+                # No snapshot passed — the ratchet re-reads. See the note on
+                # _replace_stop_order: `open_orders` here was captured during
+                # the prune pass, several cancellations ago.
+                self._replace_stop_order(ticker, pos, mgr)
 
             action = verdict["action"]
             if action == "debate":
@@ -336,9 +374,14 @@ class PositionManager:
                     summary["healed"].append({"ticker": ticker, **healed})
 
         try:
-            stale = mgr.cancel_stale_orders() if mgr else []
-            if stale:
-                summary["stale_cancelled"] = [o["id"] for o in stale]
+            # Live account: these are the human's own orders, not the desk's.
+            if mgr and not _may_mutate_broker(mgr):
+                summary["errors"].append(
+                    "stale-order cleanup skipped — live account")
+            else:
+                stale = mgr.cancel_stale_orders() if mgr else []
+                if stale:
+                    summary["stale_cancelled"] = [o["id"] for o in stale]
         except Exception as e:
             summary["errors"].append(f"stale-order cleanup: {e}")
 
@@ -622,7 +665,7 @@ class PositionManager:
 
     def _heal_brackets(self, ticker: str, pos: dict, mgr,
                        open_orders: list) -> dict | None:
-        if mgr is None:
+        if mgr is None or not _may_mutate_broker(mgr):
             return None
         has_stop = any(o.get("order_type") in ("stop", "stop_limit")
                        for o in open_orders)
@@ -654,11 +697,27 @@ class PositionManager:
             logger.info(f"healed brackets for {ticker}: {healed}")
         return healed or None
 
-    def _replace_stop_order(self, ticker: str, pos: dict, mgr, open_orders: list):
+    def _replace_stop_order(self, ticker: str, pos: dict, mgr,
+                            open_orders: list | None = None):
         """Trailing ratchet: cancel the old protections, re-place the OCO
-        (or stop) at the new level."""
-        if mgr is None or mgr._alpaca is None:
+        (or stop) at the new level.
+
+        open_orders defaults to a FRESH read rather than the snapshot the
+        caller happens to be holding. The exit loop's snapshot is taken during
+        the prune pass, before _record_external_close cancels sibling orders
+        and before any exit fires, so by the time the ratchet runs it can name
+        an order the broker has already cancelled — or miss one that appeared.
+        Neither raises; both read downstream as an intermittent broker error.
+        """
+        if mgr is None or mgr._alpaca is None or not _may_mutate_broker(mgr):
             return
+        if open_orders is None:
+            try:
+                open_orders = mgr.open_orders_by_ticker().get(ticker) or []
+            except Exception as e:
+                logger.warning(f"could not read open orders for {ticker} ({e}) "
+                               f"— stop not replaced")
+                return
         for o in open_orders:
             if o.get("order_type") in ("stop", "stop_limit", "limit"):
                 try:
