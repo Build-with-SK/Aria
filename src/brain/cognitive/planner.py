@@ -97,6 +97,50 @@ class TradePlanner:
                 if qty < 1:
                     continue
 
+            thesis = d.reason or sig.explanation
+
+            # ── second opinion, before this reaches a human ──────────────────
+            #
+            # A trade heading for the approval queue is the most expensive thing
+            # ARIA produces to reverse, which makes it the one decision worth
+            # asking an independent system to attack. SENTINEL is a separate
+            # intelligence in its own process; this is one HTTP call, advisory
+            # only, and OFF unless ARIA_SENTINEL_CONSULT is set.
+            #
+            # It cannot block the trade. If it could, there would be two
+            # decision makers and the approval queue would no longer be the
+            # place where a human decides. What it can do is put its objections
+            # in front of that human, attached to the thesis they are reading.
+            try:
+                from src.consult.bridge import consider_trade
+                second = consider_trade(
+                    ticker=d.ticker, side=side, thesis=thesis,
+                    conviction=d.conviction,
+                    evidence=[sig.explanation] if sig.explanation else None)
+                if second.get("consulted") and second.get("ok"):
+                    review = second.get("summary", "")
+                    thesis = (f"{thesis}\n\n--- INDEPENDENT REVIEW ---\n{review}")
+                elif second.get("sentinel_status") != "NOT_CONSULTED":
+                    # ARIA asked and got nothing usable back — unreachable,
+                    # timed out, refused, or malformed. Every one of those is
+                    # disclosed, not just the one that was easiest to name:
+                    # a human who sees a disclosure for an offline consultant
+                    # and none for a garbled one will reasonably read the
+                    # silence as approval, which is the failure this whole
+                    # bridge exists to prevent.
+                    #
+                    # NOT_CONSULTED is the exception, and is deliberately
+                    # silent. It means ARIA never asked — the feature is off,
+                    # or the gate judged the call routine enough to make on its
+                    # own. That is not SENTINEL declining to answer, and
+                    # stamping a banner on every confidently-held proposal
+                    # would teach the reader to skip the one that matters.
+                    state = second.get("sentinel_status") or "UNAVAILABLE"
+                    thesis = (f"{thesis}\n\n[No independent review — SENTINEL: "
+                              f"{state}. This is not agreement.]")
+            except Exception as e:            # never break the trading path
+                logger.debug(f"Planner: consultation skipped for {d.ticker}: {e}")
+
             planned.append(PlannedTrade(
                 ticker=d.ticker,
                 side=side,
@@ -106,7 +150,7 @@ class TradePlanner:
                 take_profit=sig.take_profit,
                 signal_score=sig.composite_score,
                 conviction=d.conviction,
-                thesis=d.reason or sig.explanation,
+                thesis=thesis,
                 broker="alpaca",
                 current_price=price,
             ))
