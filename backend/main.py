@@ -3369,6 +3369,70 @@ def research_eye_attend_portfolio():
 
 
 # ===========================================================================
+# THE SENTINEL BRIDGE
+#
+# SENTINEL is a SEPARATE general intelligence in its own process, with its own
+# memory and its own permissions. ARIA imports none of it and depends on none of
+# it: the entire coupling is an authenticated HTTP call with a timeout, and every
+# path here fails soft.
+#
+# These endpoints exist because the client alone was not an integration. It was
+# written, a token was issued, port 8300 was chosen — and nothing ever called it.
+#
+# Consultation is ADVISORY. It cannot approve or block a trade. The brain
+# proposes and the human approves; a consultant with a veto would be a second
+# decision maker, and the approval queue exists precisely so there is one.
+# ===========================================================================
+
+@app.get("/api/consult/status", tags=["Consult"], dependencies=[Depends(require_owner)])
+def consult_status_bridge():
+    """Is a second opinion currently possible, and if not, why not."""
+    from src.consult import bridge
+    return _sanitize(bridge.status())
+
+
+@app.post("/api/consult", tags=["Consult"], dependencies=[Depends(require_owner)])
+def consult_ask(question: str, context: str = "", hypothesis: str = ""):
+    """Ask SENTINEL for an independent view.
+
+    No `should_consult` gate here: a human deciding to ask IS the decision. The
+    gate exists to stop ARIA consulting reflexively, not to argue with its owner.
+    """
+    from src.consult import bridge
+    if not (question or "").strip():
+        raise HTTPException(status_code=400, detail="a question is required")
+    return _sanitize(bridge.ask(question, context=context, hypothesis=hypothesis))
+
+
+@app.post("/api/consult/red-team", tags=["Consult"],
+          dependencies=[Depends(require_owner)])
+def consult_red_team(thesis: str, context: str = "",
+                     own_confidence: Optional[float] = None):
+    """Ask SENTINEL to attack a thesis before acting on it.
+
+    The useful outcome is not approval — it is the list of things that would
+    make the thesis wrong.
+    """
+    from src.consult import bridge
+    if not (thesis or "").strip():
+        raise HTTPException(status_code=400, detail="a thesis is required")
+    return _sanitize(bridge.red_team_thesis(
+        thesis, context=context, own_confidence=own_confidence))
+
+
+@app.post("/api/consult/outcome", tags=["Consult"],
+          dependencies=[Depends(require_owner)])
+def consult_outcome(request_id: str, accepted: bool, what_happened: str = ""):
+    """Record whether ARIA took the advice.
+
+    Rejection is a legitimate outcome and is worth recording: it is the only
+    signal either system gets about whether the bridge earns its cost.
+    """
+    from src.consult import bridge
+    return _sanitize(bridge.record_outcome(request_id, accepted, what_happened))
+
+
+# ===========================================================================
 # The guard on the guard.
 #
 # Every route that can reach a broker carries Depends(require_owner). A
