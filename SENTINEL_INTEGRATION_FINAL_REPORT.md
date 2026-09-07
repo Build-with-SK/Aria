@@ -25,6 +25,11 @@ removed (SENTINEL could overwrite ARIA's own result fields).
 contacted.** This is a verified protocol implementation, not a live SENTINEL
 integration.
 
+> **Superseded 2026-09-07.** The real SENTINEL has since been located, started
+> and consulted end to end. See `SENTINEL_RUNTIME_COMPLETION_REPORT.md`. The
+> statements below were accurate when written and are left unedited as the
+> record of that closure.
+
 ## B. Final architecture boundary
 
 ```
@@ -267,7 +272,7 @@ are byte-identical between `246394d` and the working tree.
 ## J. Runtime status
 
 ```
-REAL SENTINEL RUNTIME: UNAVAILABLE
+REAL SENTINEL RUNTIME: UNAVAILABLE   <- superseded 2026-09-07: now VERIFIED
 CONTROLLED PROTOCOL:   VERIFIED
 ARIA INDEPENDENCE:     VERIFIED
 ```

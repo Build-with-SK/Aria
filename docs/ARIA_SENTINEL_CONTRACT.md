@@ -2,9 +2,11 @@
 
 **SENTINEL advises. ARIA decides.**
 
-**Runtime status:** the protocol is verified end to end against a controlled
-stub. **The real SENTINEL process is not running on this machine and has never
-been contacted.** See *Runtime status* below.
+**Runtime status:** verified against both a controlled stub **and the real
+SENTINEL runtime** (2026-09-07). SENTINEL lives in the separate `atlas`
+project — `sentinel/server.py` on port 8300, reasoning with
+`qwen2.5:7b-instruct-q4_K_M` via Ollama. See
+`SENTINEL_RUNTIME_COMPLETION_REPORT.md` for the live results and how to start it.
 
 ---
 
@@ -288,10 +290,16 @@ disagreement (4); D — silence (12); E — safety (7).
 ## Runtime status
 
 ```
-REAL SENTINEL RUNTIME: UNAVAILABLE
+REAL SENTINEL RUNTIME: VERIFIED   (2026-09-07)
 CONTROLLED PROTOCOL:   VERIFIED
 ARIA INDEPENDENCE:     VERIFIED
 ```
+
+**Superseded.** At the time this contract was first written the real SENTINEL
+was not running and had never been contacted. It has since been located, started
+and consulted end to end — see `SENTINEL_RUNTIME_COMPLETION_REPORT.md`. SENTINEL
+lives in the separate `atlas` project (`sentinel/server.py`, port 8300) and
+reasons with `qwen2.5:7b-instruct-q4_K_M` via Ollama.
 
 Checked, not assumed: nothing listening on `:8300`, `/health` gave no response,
 no process named `sentinel`, no SENTINEL entry in `.env`.
@@ -304,11 +312,16 @@ exercised against the controlled stub through the same live API.
 
 ## Remaining limitations
 
-1. **The real SENTINEL has never been contacted.** Everything is proved against
-   a stub implementing its *interface*, not its intelligence.
-2. **The response schema is ARIA's assumption.** If the real peer names fields
-   differently, consultations parse as `AVAILABLE` with position `NONE` and a
-   thin summary — degraded, not broken, and visible in the record.
+1. ~~The real SENTINEL has never been contacted.~~ **RESOLVED 2026-09-07.**
+   The real runtime was located in the `atlas` project, started, and consulted
+   end to end. Both stub and real-runtime verification now exist and are
+   reported separately.
+2. ~~The response schema is ARIA's assumption.~~ **CONFIRMED CORRECT
+   2026-09-07.** The real SENTINEL returns exactly the expected fields —
+   `independent_analysis`, `counter_arguments` (with `kind`/`point`),
+   `alternative_hypotheses`, `uncertainties`, `recommendation`, `request_id`,
+   `confidence`. It sends no `position` field, so ARIA derives one from
+   content, which is the designed fallback.
 3. **`report_outcome` needs a `request_id`**, which only a successful
    consultation provides, so an outcome cannot be recorded against a failed one.
 4. **Redaction covers env-derived secrets**, not credentials reaching a caller

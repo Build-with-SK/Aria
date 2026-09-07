@@ -55,7 +55,16 @@ ENV_FLAG = "ARIA_SENTINEL_CONSULT"
 
 #: Shorter than the client's 120s default. A consultant that takes two minutes
 #: to answer has already missed the decision it was asked about.
-TRADE_TIMEOUT = 45
+#:
+#: 75, not 45. Measured against the real SENTINEL (qwen2.5:7b-instruct via
+#: Ollama, on this machine): a red-team consultation carrying a full thesis and
+#: its evidence took 43.3s and 44.7s on two consecutive runs. At 45 the timeout
+#: fired on roughly half of real consultations, which is the worst of both
+#: designs — the trading path paid the full wait AND recorded TIMEOUT, so the
+#: human saw "no independent review" for a consultant that was working
+#: normally. The bound still exists and still fails safe; it is now set above
+#: what the real peer actually costs rather than below it.
+TRADE_TIMEOUT = 75
 
 
 def enabled() -> bool:
