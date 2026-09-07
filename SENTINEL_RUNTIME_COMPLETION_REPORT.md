@@ -301,10 +301,8 @@ BLOCKED (routed to ARIA)    4.1s
    grants execution access. **This is a deliberate refusal, not an oversight.**
    A scoped read-only ARIA credential would be the correct fix and does not
    exist today; building one was out of scope.
-2. **SENTINEL's self-knowledge about ARIA is weak.** Asked what ARIA is, it
-   answered about the accessibility standard, despite holding 631 `peer_aria`
-   memory documents. Retrieval did not surface them. It flagged its own
-   uncertainty, which is the right failure, but the answer was wrong.
+2. ~~SENTINEL's self-knowledge about ARIA is weak.~~ **FIXED 2026-09-07.**
+   See *SENTINEL now knows what ARIA is* below.
 3. **`MALFORMED` is stub-only** by nature, as noted above.
 4. **Latency is 9–45s** per consultation on a 7B local model.
 5. **The runtime does not survive a reboot** — no service or autostart is
@@ -313,6 +311,82 @@ BLOCKED (routed to ARIA)    4.1s
    runs as the Ollama desktop app.
 7. **`atlas` is a local-only git repo** with no remote. SENTINEL's own source is
    therefore not pushed anywhere by this work, and was not modified.
+
+## SENTINEL now knows what ARIA is
+
+**Fixed 2026-09-07, in the `atlas` project.**
+
+### It was not a retrieval bug
+
+The obvious reading — 631 `peer_aria` documents that recall never surfaces — is
+wrong, and acting on it would have made things worse. `peer_aria` is walled off
+on purpose: it is *another system's unvalidated beliefs about ARIA, formed
+before that system was retired*, and must not surface as SENTINEL's own memory.
+The `vault` is excluded for the same class of reason. Both walls were left up.
+
+Two other candidates were checked and cleared:
+
+- `recall(types=[SEMANTIC])` returning 2 of 41 looks like a bug and is not: the
+  `semantic` **collection** holds mixed types (research 29, failure 5, decision
+  3, semantic 2, lesson 2), so 2 is the right answer.
+- The chat path calls `context_for(...)` with no type filter at all, so nothing
+  was being filtered out of it.
+
+**Retrieval worked. The knowledge did not exist.** Episodic memory holds records
+of *interactions with* ARIA — "ARIA asked…", "ARIA rejected…" — and not one of
+them says what ARIA **is**. The description did exist, in `sentinel/aria.py`'s
+module docstring and the face's intro text, but neither of those is a prompt, so
+the model never saw it. With nothing to go on it reached for the most common
+meaning of the word and answered about the **ARIA web accessibility standard**.
+
+### The fix
+
+ARIA is SENTINEL's permanent peer, not a topic it happens to have discussed, so
+the fact is standing rather than retrieved-if-lucky. Three files, no new module:
+
+| File | Change |
+|---|---|
+| `sentinel/aria.py` | `WHAT_ARIA_IS` — the authoritative description, beside the client that already documented it in prose. Plus `remember_who_aria_is()`, idempotent, never raises. |
+| `sentinel/kernel.py` | `_DIRECT_SYSTEM` carries it. This is the path that produced the wrong answer. |
+| `sentinel/server.py` | Seeds it into semantic memory at startup, beside the other wake-up work. |
+
+The fact names the collision explicitly — *"ARIA has nothing to do with the ARIA
+web accessibility standard"* — because the wrong answer was a reasonable guess
+for a model with no other information, and naming the collision is what stops it
+being guessed again. It also carries the authority direction, so a description
+that got the domain right and the authority wrong cannot pass.
+
+### Before and after, same question
+
+> **Before:** "ARIA is specifically programmed to assist users with
+> disabilities, particularly those who are blind or have low vision, by reading
+> screen content aloud."
+
+> **After:** "ARIA is a specialized AI system focused on financial and trading
+> intelligence. ARIA makes independent decisions on market analysis, trading
+> strategies, and portfolio management, and ultimately the human trader has the
+> final authority over trades. I can offer a second opinion, but ARIA's
+> decisions are final."
+
+Baited directly — *"Is ARIA a web accessibility standard or something else?"* —
+it still answers correctly.
+
+```
+SENTINEL suite   261 passed, 0 failed   (250 before + 11 new in tests/test_aria_identity.py)
+consultation     still AVAILABLE / DISAGREE, 4 objections, 23.9s
+```
+
+The new tests pin the fix *and* the two walls that were not lowered to achieve
+it: `peer_aria` and `vault` must stay out of default recall.
+
+### Not committed, deliberately
+
+`atlas` has **no git remote**, and its entire `sentinel/` tree, `tests/`,
+`face/sentinel.html` and `START_SENTINEL.bat` are **untracked — never
+committed**, alongside pre-existing modifications to ATLAS files that are not
+mine. Committing would have meant making SENTINEL's initial commit on your
+behalf and mixing an entire subsystem in with a three-file change. The fix is
+live on disk and under test; the commit is your call.
 
 ## Git
 
