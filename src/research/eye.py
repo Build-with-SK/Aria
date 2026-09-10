@@ -110,6 +110,14 @@ class Observation:
     seen_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     content_id: str = ""
     meta: dict = field(default_factory=dict)
+    # §2, §14, §46 — three separate axes, deliberately not merged.
+    #   salience    how much attention this deserves (scored above)
+    #   quality     where the SOURCE sits on the evidence ladder
+    #   claim_type  what KIND of statement it is
+    # A rumour on a high-salience feed is still a rumour, and a dull filing is
+    # low salience and the strongest evidence there is. Collapsing the axes
+    # would lose exactly that distinction.
+    quality: dict = field(default_factory=dict)
 
     def cite(self) -> str:
         return citation({
@@ -231,6 +239,21 @@ def _corroboration(doc, others) -> int:
     return len(sources)
 
 
+def _assess_quality(title, source, url, meta) -> dict:
+    """Stamp the evidence tier and claim type onto an observation.
+
+    Non-fatal: research must keep flowing if the classifier ever raises, and an
+    unstamped observation is honestly unstamped rather than silently rated.
+    """
+    try:
+        from src.research.quality import assess
+        return assess(title, source, url, meta)
+    except Exception as exc:                       # pragma: no cover - defensive
+        logger.debug("quality assessment failed for %s: %s", url, exc)
+        return {"claim_type": "UNCLASSIFIED", "claim_confidence": 0.0,
+                "claim_signal": f"classifier unavailable: {exc}"}
+
+
 def _score(doc, others) -> tuple[float, str]:
     weight = SOURCE_WEIGHT.get(doc.source, 1.0)
     corroboration = _corroboration(doc, others)
@@ -310,14 +333,16 @@ def blink(limit_per_source: int = 10, max_observations: int = 12,
         else:
             for doc in novel:
                 score, why = _score(doc, sweep.leads)
+                _meta = {k: v for k, v in (doc.meta or {}).items()
+                         if k in ("form", "filed", "company", "score", "points",
+                                  "published", "publisher", "subreddit",
+                                  "bull_ratio", "num_comments")}
                 fresh.append(Observation(
                     watch_id=entry.id, url=doc.url, title=doc.title,
                     source=doc.source, salience=score, why=why,
                     content_id=doc.meta.get("content_id", ""),
-                    meta={k: v for k, v in (doc.meta or {}).items()
-                          if k in ("form", "filed", "company", "score", "points",
-                                   "published", "publisher", "subreddit",
-                                   "bull_ratio", "num_comments")},
+                    meta=_meta,
+                    quality=_assess_quality(doc.title, doc.source, doc.url, _meta),
                 ))
 
         # Forget the oldest ids rather than growing without bound.
@@ -340,6 +365,35 @@ def blink(limit_per_source: int = 10, max_observations: int = 12,
     summary["suppressed"] = max(0, len(fresh) - len(kept))
     logger.info("eye blink: %d watches, %d new, %d surfaced",
                 summary["watches_looked"], len(fresh), len(kept))
+
+    # Observations reach the rest of ARIA here. Provenance travels with them —
+    # source and URL — because §46 asks the reader to weigh a Reddit thread
+    # differently from a regulatory filing, which is only possible if the
+    # difference survives the trip.
+    try:
+        from src.core.bus import publish
+        # The heartbeat is NOT recorded here. The caller wraps this in
+        # workers.heartbeat("research_eye"), which records success AND failure;
+        # ticking here as well would double-count every blink and would mark a
+        # blink that raised on the next line as successful.
+        for obs in kept[:5]:
+            q = obs.quality or {}
+            publish("OBSERVATION_RECORDED", (obs.title or "")[:180],
+                    source="research_eye", subject=str(obs.watch_id or "")[:60],
+                    severity="notable" if (obs.salience or 0) >= 2 else "info",
+                    payload={"salience": obs.salience, "why": obs.why,
+                             "claim_type": q.get("claim_type"),
+                             "claim_confidence": q.get("claim_confidence")},
+                    # §45/§46 — a Reddit rumour and a regulatory filing must not
+                    # look identical downstream, so the ladder travels with the
+                    # claim rather than being re-derived by every reader.
+                    provenance={"source": obs.source, "url": obs.url,
+                                "collected_at": obs.seen_at,
+                                "tier": q.get("source_tier"),
+                                "tier_rank": q.get("source_rank"),
+                                "claim_type": q.get("claim_type")})
+    except Exception:
+        pass
     return summary
 
 

@@ -1,14 +1,26 @@
 """
 tests/test_brain_eye_wiring.py
 ==============================
-The eye runs on its own clock inside the brain daemon.
+The eye runs on its own clock — and, by default, in its own process.
 
-What must hold:
-  1. Blinking is a SEPARATE scheduled job. If it ever moves onto the
-     cognitive cycle's path, a throttled news feed becomes a stalled brain.
-  2. A failing blink never touches the cognitive cycle.
-  3. Two looks never overlap.
-  4. The eye can be switched off entirely.
+The original invariant here was that blinking is a separate scheduled JOB
+inside the brain daemon, so a throttled news feed could not stall the
+cognitive cycle. That was one decoupling short. Both jobs still lived in a
+daemon that only starts when Ollama answers, and the worker registry caught
+the consequence in production: Ollama began timing out at 13:58, the brain
+went STALLED, and the eye went dark at 13:40 having failed at nothing. The eye
+uses no model at all.
+
+So ownership moved to the backend (`_research_eye_loop`), and `ARIA_EYE_OWNER`
+selects. What must hold now:
+
+  1. By DEFAULT the brain does not schedule the eye at all — losing the local
+     model must not cost all research.
+  2. With ARIA_EYE_OWNER=brain the old in-daemon behaviour still works, and
+     blinking is still a separate job from the cognitive cycle.
+  3. A failing blink never touches the cognitive cycle.
+  4. Two looks never overlap.
+  5. The eye can be switched off entirely.
 
 No network, no real scheduler.
 """
@@ -58,7 +70,23 @@ def daemon(tmp_path, monkeypatch):
     return d
 
 
+def test_brain_does_not_own_the_eye_by_default(daemon, monkeypatch):
+    """The regression that mattered: with the eye inside this daemon, an Ollama
+    outage took all research down with the reasoning loop."""
+    monkeypatch.delenv("ARIA_EYE_OWNER", raising=False)
+    monkeypatch.setattr(daemon, "_config", lambda: {})
+    daemon.start()
+    jobs = daemon._fake.jobs
+    assert "brain_cycle" in jobs, "the brain still thinks"
+    assert "eye_blink" not in jobs, (
+        "the backend owns the eye's clock; scheduling it here re-couples "
+        "research to the local model's availability"
+    )
+
+
 def test_eye_is_a_separate_job_from_the_cognitive_cycle(daemon, monkeypatch):
+    """The in-daemon mode is still supported and still decoupled from the cycle."""
+    monkeypatch.setenv("ARIA_EYE_OWNER", "brain")
     monkeypatch.setattr(daemon, "_config", lambda: {})
     daemon.start()
 
@@ -71,6 +99,7 @@ def test_eye_is_a_separate_job_from_the_cognitive_cycle(daemon, monkeypatch):
 
 
 def test_eye_can_be_switched_off(daemon, monkeypatch):
+    monkeypatch.setenv("ARIA_EYE_OWNER", "brain")
     monkeypatch.setattr(daemon, "_config", lambda: {"eye_blink": False})
     daemon.start()
     assert "eye_blink" not in daemon._fake.jobs
@@ -170,6 +199,7 @@ def test_status_reports_the_eye(daemon, monkeypatch):
 
 
 def test_set_eye_interval_reschedules(daemon, monkeypatch):
+    monkeypatch.setenv("ARIA_EYE_OWNER", "brain")
     monkeypatch.setattr(daemon, "_config", lambda: {})
     daemon.start()
     daemon.set_eye_interval(45)
@@ -178,6 +208,7 @@ def test_set_eye_interval_reschedules(daemon, monkeypatch):
 
 
 def test_set_eye_interval_is_safe_when_the_eye_is_off(daemon, monkeypatch):
+    monkeypatch.setenv("ARIA_EYE_OWNER", "brain")
     monkeypatch.setattr(daemon, "_config", lambda: {"eye_blink": False})
     daemon.start()
     daemon.set_eye_interval(45)          # no eye_blink job exists

@@ -432,6 +432,17 @@ class QuantLab:
             self.state["last_summary"] = summary
             self._save_json(STATE_FILE, self.state)
             logger.info(f"Quant lab cycle done: {summary}")
+            try:
+                from src.core import workers
+                from src.core.bus import publish
+                workers.tick_ok("quant_lab", summary)
+                if summary.get("new_strategies"):
+                    publish("STRATEGY_TEST_COMPLETED",
+                            f"Quant lab backtested {summary['new_strategies']} new "
+                            f"strategy candidate(s) from {summary.get('new_papers', 0)} paper(s)",
+                            source="quant_lab", severity="notable", payload=summary)
+            except Exception:
+                pass
         finally:
             self.working = False
             self._cycle_lock.release()

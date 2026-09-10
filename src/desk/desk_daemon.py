@@ -327,8 +327,37 @@ class DeskDaemon:
                 logger.info(f"management tick: {len(summary.get('exits', []))} exits, "
                             f"{len(summary.get('adopted', []))} adopted, "
                             f"{len(summary.get('healed', []))} brackets healed")
-        except Exception:
+
+            # Tell the rest of ARIA. A closed position is the single most
+            # consequential thing this daemon does and, until the bus existed,
+            # the learning engine only found out if somebody re-read a JSONL.
+            try:
+                from src.core import workers
+                from src.core.bus import publish
+                workers.tick_ok("desk", {"tick": self.tick_count,
+                                         "exits": len(summary.get("exits", [])),
+                                         "errors": summary.get("errors", [])})
+                for ex in summary.get("exits", []) or []:
+                    if isinstance(ex, dict):
+                        publish("POSITION_CLOSED",
+                                f"{ex.get('ticker', '?')} closed: {ex.get('reason', 'exit rule')}",
+                                source="desk", subject=ex.get("ticker"),
+                                severity="notable", payload=ex)
+            except Exception:
+                pass
+        except Exception as e:
             logger.exception("management tick failed")
+            try:
+                from src.core import workers
+                workers.tick_failed("desk", e)
+            except Exception:
+                pass
+        else:
+            try:
+                from src.core import workers
+                workers.tick_ok("desk", {"tick": self.tick_count})
+            except Exception:
+                pass
         finally:
             self._mgmt_lock.release()
 

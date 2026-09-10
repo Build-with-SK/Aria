@@ -116,12 +116,22 @@ class BrainDaemon:
                                minutes=self.interval_minutes,
                                id="brain_cycle", replace_existing=True)
 
-        # The eye is a SEPARATE job on its own clock, deliberately. Blinking
-        # inside _run_cycle would put a dozen network sweeps on the critical
-        # path of every thought: a throttled feed would stall reasoning, and a
-        # cycle that runs late for network reasons looks exactly like a slow
-        # brain. Two jobs also mean a hung sweep cannot hold the cycle lock.
-        if self._eye_enabled():
+        # The eye USED to be scheduled here, on this daemon's scheduler. That
+        # was one decoupling short of correct: separate jobs meant a hung sweep
+        # could not hold the cycle lock, but both still lived inside a daemon
+        # that only starts when Ollama answers and stops when it does not.
+        #
+        # The worker registry caught the consequence within hours of going
+        # live: Ollama began timing out at 13:58, the brain went STALLED, and
+        # the research eye went dark at 13:40 with zero failures of its own —
+        # it simply stopped being called. The eye needs no LLM at all; it
+        # fetches feeds and scores salience deterministically. Losing all
+        # research because a local model is busy is not a trade worth making.
+        #
+        # The backend now owns the eye's clock (_research_eye_loop in
+        # backend/main.py). `_run_blink` stays for /api/research/eye/blink and
+        # for anyone running this daemon standalone.
+        if self._eye_enabled() and os.environ.get("ARIA_EYE_OWNER", "backend") == "brain":
             self.scheduler.add_job(self._run_blink, "interval",
                                    minutes=self.eye_interval_minutes,
                                    id="eye_blink", replace_existing=True)
@@ -425,8 +435,31 @@ class BrainDaemon:
             logger.info(f"Brain cycle {cycle_id} complete — "
                         f"{len(queued_ids)} trade(s) queued")
 
+            # The brain's conclusion is worth announcing exactly when it
+            # differs from the last one. A regime restated every fifteen
+            # minutes is not news; a regime that moved is.
+            try:
+                from src.core import workers
+                from src.core.bus import publish
+                workers.tick_ok("brain", {"cycle": self.cycle_count,
+                                          "regime": getattr(perception.macro, "regime", None)})
+                if getattr(perception, "regime_shift", False):
+                    publish("REGIME_CHANGED",
+                            f"Regime shift detected: {perception.macro.regime}",
+                            source="brain", severity="notable",
+                            payload={"regime": perception.macro.regime,
+                                     "vix": perception.macro.vix,
+                                     "cycle_id": cycle_id})
+            except Exception:
+                pass
+
         except Exception as e:
             logger.exception(f"Brain cycle {cycle_id} failed")
+            try:
+                from src.core import workers
+                workers.tick_failed("brain", e)
+            except Exception:
+                pass
             self.last_cycle = {
                 "error":          str(e),
                 "cycle_id":       cycle_id,
