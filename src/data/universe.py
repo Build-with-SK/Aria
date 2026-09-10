@@ -35,6 +35,18 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+
+def _classify(provider_symbol: str) -> dict:
+    """What a provider symbol's own shape says about it. Imported lazily so
+    this module keeps loading if src.core is unavailable, and degrades to the
+    old assumption rather than raising."""
+    try:
+        from src.core.identity import classify_provider_symbol
+        return classify_provider_symbol(provider_symbol)
+    except Exception:          # pragma: no cover — import-time safety only
+        return {"exchange": None, "asset_class": None, "currency": None,
+                "basis": "classifier unavailable"}
+
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -143,9 +155,42 @@ class UniverseManager:
         fx_added = self._load_fx_pairs()
         yaml_added = self._load_yaml_universe()
         fno_marked = self._load_nse_fno()
+
+        # ── the invariant check, AFTER the loaders ─────────────────────────
+        #
+        # One provider symbol identifies at most one security. The bulk loaders
+        # deliberately do NOT enforce that per row: they read authoritative
+        # exchange files, and a loader that refused a row because it disagreed
+        # with an older row would let a stale record veto the exchange's own
+        # master — which is how the universe would slowly freeze.
+        #
+        # So the invariant is checked here instead, once, over the finished
+        # index. It REPORTS rather than raises, for the same reason: a refresh
+        # that half-completed and then aborted is worse than a refresh that
+        # completed and told you what it found. `assert_provider_symbol_safe()`
+        # still gates the live `resolve()` path, which is the one that writes a
+        # mapping nobody authoritative asked for.
+        collisions = {}
+        try:
+            from src.core.identity import provider_symbol_duplicates
+            report = provider_symbol_duplicates()
+            collisions = report.get("errors") or {}
+            if collisions:
+                logger.error(
+                    "universe refresh: %d provider symbol(s) now identify more "
+                    "than one security: %s", len(collisions), sorted(collisions))
+                self._meta_set("provider_symbol_collisions",
+                               json.dumps(sorted(collisions)))
+            else:
+                self._meta_set("provider_symbol_collisions", "[]")
+        except Exception as e:               # pragma: no cover — never block a refresh
+            logger.warning("universe refresh: invariant check failed: %s", e)
+
         self._meta_set("index_refreshed_at", datetime.now().isoformat())
         result = {
             "status": "refreshed",
+            "provider_symbol_collisions": sorted(collisions),
+            "one_symbol_one_security": not collisions,
             "nse_symbols": nse_added,
             "bse_symbols": bse_added,
             "us_symbols": us_added,
@@ -264,7 +309,21 @@ class UniverseManager:
                 conn.execute("ALTER TABLE symbols ADD COLUMN currency TEXT")
 
     def _load_lse_equities(self) -> int:
-        """FTSE 100/250 London stocks — priced in GBP (yfinance SYMBOL.L)."""
+        """FTSE 100/250 London stocks — priced in GBP (yfinance SYMBOL.L).
+
+        The conflict clause refreshes `asset_class` along with everything else
+        it owns. It used to list every other column and leave that one, so a
+        display ticker already claimed by a US fund kept the fund's class
+        forever: `EDV` was stored as ('EDV.L', 'Endeavour Mining', LSE, GBP)
+        with `asset_class = fixed_income` — a gold miner filed as a bond —
+        because the Vanguard Extended Duration Treasury ETF shares the bare
+        ticker and loads first.
+
+        This is the same half-written-identity defect as the `BA` case, one
+        column over. A conflict clause must refresh every column the loader
+        claims, or it produces a row that is partly one instrument and partly
+        another, which is worse than either refusing or overwriting cleanly.
+        """
         self._ensure_currency_column()
         now = datetime.now().isoformat()
         count = 0
@@ -275,6 +334,7 @@ class UniverseManager:
                        VALUES(?,?,?,?,?,?,?)
                        ON CONFLICT(symbol) DO UPDATE SET
                          yahoo=excluded.yahoo, name=excluded.name, exchange=excluded.exchange,
+                         asset_class=excluded.asset_class,
                          currency=excluded.currency, updated_at=excluded.updated_at""",
                     (symbol, f"{symbol}.L", name, "LSE", "equity", "GBP", now),
                 )
@@ -556,6 +616,7 @@ class UniverseManager:
         }
         universe = (cfg or {}).get("universe", {})
         count = 0
+        collisions: List[Dict[str, str]] = []
         now = datetime.now().isoformat()
         with self._lock, self._conn() as conn:
             for section, (exchange, asset_class) in sections.items():
@@ -563,14 +624,59 @@ class UniverseManager:
                     ticker = str(item.get("ticker", "")).strip()
                     if not ticker:
                         continue
+                    name = str(item.get("name", ""))
+
+                    # ── THE ROOT-CAUSE FIX ────────────────────────────────
+                    # This upsert used to be `DO UPDATE SET name=excluded.name`.
+                    # When an LSE row had already claimed the bare ticker (the
+                    # LSE seeder runs earlier in refresh_index), the INSERT was
+                    # blocked and this clause silently overwrote the LONDON
+                    # instrument's name with the US company's — leaving
+                    # yahoo='BA.L', exchange='LSE', currency='GBP', name='Boeing'.
+                    # A row that is half one security and half another.
+                    #
+                    # The name is now only updated when the PROVIDER SYMBOL
+                    # agrees, i.e. when both sides genuinely describe the same
+                    # instrument. A bare ticker is a namespace label; the
+                    # provider symbol is the identity, and two instruments are
+                    # never merged because their display tickers collide.
+                    #
+                    # The collision is recorded rather than resolved here:
+                    # re-keying the London rows to suffixed display symbols is
+                    # a migration, not a refresh, and a nightly job must not
+                    # silently restructure the universe.
+                    existing = conn.execute(
+                        "SELECT yahoo, name, exchange FROM symbols WHERE symbol=?",
+                        (ticker,)).fetchone()
+                    if existing and existing["yahoo"] != ticker:
+                        collisions.append({
+                            "display_symbol": ticker,
+                            "yaml_intended": f"{ticker} ({exchange}, {name})",
+                            "occupied_by": f"{existing['yahoo']} ({existing['exchange']}, "
+                                           f"{existing['name']})",
+                        })
+                        continue
+
                     conn.execute(
                         """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, updated_at)
                            VALUES(?,?,?,?,?,?)
                            ON CONFLICT(symbol) DO UPDATE SET
-                             name=excluded.name, updated_at=excluded.updated_at""",
-                        (ticker, ticker, str(item.get("name", "")), exchange, asset_class, now),
+                             name=excluded.name, updated_at=excluded.updated_at
+                           WHERE symbols.yahoo = excluded.yahoo""",
+                        (ticker, ticker, name, exchange, asset_class, now),
                     )
                     count += 1
+
+        if collisions:
+            logger.warning(
+                "universe.yaml: %d display-symbol collisions left untouched — the "
+                "bare ticker is held by a different instrument. Identity fields "
+                "were NOT overwritten. Examples: %s",
+                len(collisions),
+                "; ".join(f"{c['display_symbol']}: yaml wants {c['yaml_intended']}, "
+                          f"held by {c['occupied_by']}" for c in collisions[:3]))
+            self._meta_set("yaml_symbol_collisions",
+                           json.dumps(collisions, ensure_ascii=False))
         return count
 
     def _counts(self) -> Dict[str, Any]:
@@ -596,22 +702,117 @@ class UniverseManager:
         }
 
     def search(self, q: str, n: int = 20) -> List[Dict[str, Any]]:
-        """Instant tier-0 search — never touches the network."""
-        like = f"%{q.upper()}%"
+        """Instant tier-0 search — never touches the network.
+
+        IDENTITY SAFETY
+        ---------------
+        `search("Boeing")` used to return `BA -> BA.L`, which is BAE Systems.
+        It matched because that row is LABELLED Boeing while carrying London's
+        provider symbol — the half-written identity the YAML upsert produced.
+        A user searching a company name was handed a different company.
+
+        Three rules now prevent that, none of which mutate the symbol master:
+
+        1. Names ARIA has verified as wrong are corrected at read time
+           (`identity.corrected_name`), and the query is re-tested against the
+           CORRECTED name. A label known to be false can no longer select an
+           instrument.
+        2. Every result carries its own identity — provider symbol, venue,
+           currency and price unit — so two rows sharing a display ticker are
+           visibly different things rather than one ambiguous line.
+        3. Ranking is deterministic and provenance-aware: an exact provider
+           symbol beats an exact name, which beats an exact bare symbol. A name
+           match is never satisfied by a symbol collision.
+
+        When a name query matches nothing, that is reported as a gap. There is
+        no correct US Boeing listing in this universe, and inventing one — or
+        offering BAE Systems in its place — would be worse than saying so.
+        """
+        from src.core import identity as _idt
+
+        query = (q or "").strip()
+        if not query:
+            return []
+        qu = query.upper()
+        like = f"%{qu}%"
+
+        # A corrected name must be SEARCHABLE, not merely displayable. The SQL
+        # below filters on the STORED name, so a query for the real company
+        # ("BAE Systems") would never reach the correction step and would
+        # return nothing — the mirror image of the original bug. Symbols whose
+        # verified name matches are pulled in explicitly.
+        rescued = [sym for sym, (_, real) in _idt.KNOWN_BAD_NAMES.items()
+                   if qu in real.upper()]
+
         with self._conn() as conn:
-            rows = conn.execute(
-                """SELECT symbol, yahoo, name, exchange, asset_class, sector, has_fno, lot_size
+            rows = [dict(r) for r in conn.execute(
+                """SELECT symbol, yahoo, name, exchange, asset_class, sector,
+                          has_fno, lot_size, currency
                    FROM symbols
-                   WHERE UPPER(symbol) LIKE ? OR UPPER(name) LIKE ?
-                   ORDER BY
-                     CASE WHEN UPPER(symbol) = ? THEN 0
-                          WHEN UPPER(symbol) LIKE ? THEN 1
-                          ELSE 2 END,
-                     LENGTH(symbol)
-                   LIMIT ?""",
-                (like, like, q.upper(), f"{q.upper()}%", n),
-            ).fetchall()
-        return [dict(r) for r in rows]
+                   WHERE UPPER(symbol) LIKE ? OR UPPER(name) LIKE ? OR UPPER(yahoo) LIKE ?
+                   LIMIT 400""",
+                (like, like, like),
+            ).fetchall()]
+            if rescued:
+                have = {r["symbol"] for r in rows}
+                marks = ",".join("?" * len(rescued))
+                rows += [dict(r) for r in conn.execute(
+                    f"""SELECT symbol, yahoo, name, exchange, asset_class, sector,
+                               has_fno, lot_size, currency
+                        FROM symbols WHERE symbol IN ({marks})""", rescued)
+                    if r["symbol"] not in have]
+
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            name, was_corrected = _idt.corrected_name(r["symbol"], r.get("name"))
+            sym_u = (r["symbol"] or "").upper()
+            yah_u = (r["yahoo"] or "").upper()
+            name_u = (name or "").upper()
+
+            # Re-test the match against the CORRECTED name. A row that only
+            # matched through a name now known to be false is not a match.
+            hit_symbol = qu in sym_u
+            hit_provider = qu in yah_u
+            # A short query is a ticker, not a company name. Letting "BA" match
+            # inside "Bank of New York Mellon" buries the instrument the user
+            # actually typed under coincidental substrings.
+            if len(qu) <= 3:
+                hit_name = name_u == qu or qu in name_u.split()
+            else:
+                hit_name = bool(name_u) and qu in name_u
+            if not (hit_symbol or hit_provider or hit_name):
+                continue
+
+            # §7 ranking. Lower is better.
+            if yah_u == qu:
+                rank = 0                       # exact provider symbol
+            elif name_u == qu:
+                rank = 1                       # exact company name
+            elif sym_u == qu:
+                rank = 2                       # exact bare symbol
+            elif hit_name and qu in name_u.split():
+                rank = 3                       # whole-token name match
+            elif hit_name:
+                rank = 4                       # partial name
+            else:
+                rank = 5                       # symbol substring only
+
+            ccy = _idt._effective_currency(r.get("exchange"), r.get("currency"))
+            out.append({
+                **r,
+                "name": name,
+                "provider_symbol": r["yahoo"],
+                "venue": r.get("exchange"),
+                "currency": ccy,
+                "price_unit": ccy,
+                "name_corrected": was_corrected,
+                "_rank": rank,
+            })
+
+        out.sort(key=lambda x: (x["_rank"], len(x["symbol"] or ""), x["symbol"] or ""))
+        for x in out:
+            x.pop("_rank", None)
+        return out[:n]
 
     def index(self, exchange: Optional[str] = None, asset_class: Optional[str] = None,
               limit: int = 40000) -> Dict[str, Any]:
@@ -650,15 +851,28 @@ class UniverseManager:
     _EXCHANGE_SUFFIX = {"NSE": ".NS", "BSE": ".BO", "LSE": ".L"}
 
     def _resolution_candidates(self, q: str, prefer: Optional[str] = None):
-        """Ordered (display, yahoo, exchange, asset_class) guesses for a query."""
+        """Ordered (display, yahoo, exchange, asset_class) guesses for a query.
+
+        A symbol that already carries a provider suffix is not a guess at all —
+        the provider namespaced it, so its shape settles venue and asset class
+        and `src/core/identity.classify_provider_symbol()` reads that shape.
+        This branch used to end in a catch-all `else` that said US/equity, so
+        every FX cross, future and index that arrived here was filed as a US
+        equity: `GBPINR=X` — a currency pair — was stored as
+        ('US', 'equity'), which is how a live resolve() contaminated the symbol
+        master mid-audit. There was never any ambiguity to resolve; nothing
+        asked the symbol what it was.
+        """
         q = q.strip().upper()
         cands: list = []
         if any(s in q for s in (".NS", ".BO", ".L", "-USD", "=X", "=F", "^")):
+            shape = _classify(q)
             if q.endswith(".NS"):   cands.append((q[:-3], q, "NSE", "equity"))
             elif q.endswith(".BO"): cands.append((q[:-3], q, "BSE", "equity"))
             elif q.endswith(".L"):  cands.append((q[:-2], q, "LSE", "equity"))
-            elif q.endswith("-USD"): cands.append((q, q, "CRYPTO", "crypto"))
-            else:                    cands.append((q, q, "US", "equity"))
+            else:
+                cands.append((q, q, shape["exchange"] or "US",
+                              shape["asset_class"] or "equity"))
         else:
             cands.append((q, q, "US", "equity"))
             cands.append((q, f"{q}.NS", "NSE", "equity"))
@@ -704,16 +918,39 @@ class UniverseManager:
         return None
 
     def _insert_resolved(self, symbol, yahoo, name, exchange, asset_class):
+        """Write a live-resolved row — after checking it may be written.
+
+        Two things this used to skip, both of which produced live defects:
+
+        * the identity guard. A live resolve() could point a provider symbol at
+          a second company without anything objecting.
+        * the currency. Rows landed with currency NULL, so every later reader
+          had to re-derive it from the symbol — and one of them derived it from
+          a colliding DISPLAY symbol, which is the 100x pence bug.
+        """
         now = datetime.now().isoformat()
+        self._ensure_currency_column()
+        try:
+            from src.core.identity import assert_provider_symbol_safe
+            ok, why = assert_provider_symbol_safe(yahoo, symbol, name)
+            if not ok:
+                logger.warning("universe: refusing to write %s -> %s: %s",
+                               symbol, yahoo, why)
+                return
+        except ImportError:                     # pragma: no cover
+            pass
+        currency = _classify(yahoo).get("currency")
         with self._lock, self._conn() as conn:
             conn.execute(
-                """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, updated_at)
-                   VALUES(?,?,?,?,?,?)
+                """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class,
+                                       currency, updated_at)
+                   VALUES(?,?,?,?,?,?,?)
                    ON CONFLICT(symbol) DO UPDATE SET
                      yahoo=excluded.yahoo, name=excluded.name,
                      exchange=excluded.exchange, asset_class=excluded.asset_class,
+                     currency=COALESCE(excluded.currency, symbols.currency),
                      updated_at=excluded.updated_at""",
-                (symbol, yahoo, name, exchange, asset_class, now))
+                (symbol, yahoo, name, exchange, asset_class, currency, now))
 
     def explore(self, query: str, prefer: Optional[str] = None,
                 n_peers: int = 5) -> Dict[str, Any]:

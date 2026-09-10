@@ -64,15 +64,36 @@ EXCHANGE_CCY = {
 }
 
 
-def native_currency(symbol: str, exchange: Optional[str] = None) -> Optional[str]:
+def native_currency(symbol: str, exchange: Optional[str] = None, *,
+                    provider_symbol: bool = False) -> Optional[str]:
     """The currency a symbol's price is quoted in, or None when unknown.
 
     Returns "GBp" (pence) for London equities — that is a real, distinct
     quoting unit, not a typo for GBP.
+
+    `provider_symbol=True` says the caller is passing a PROVIDER symbol —
+    `BA.L`, `AAPL`, `GBPINR=X` — rather than a display ticker. That flag is the
+    fix for defect:bare-ticker-identity-collision-2026-08, and the reason it
+    has to exist:
+
+        symbols.symbol = 'BA'  ->  yahoo 'BA.L', LSE, GBP   (BAE Systems)
+
+    The display row for the ticker `BA` is owned by London, because the LSE
+    seeder reached the primary key first. That is a CORRECT row. But
+    `signals.json['BA']` is Boeing at $214, fetched by handing the string 'BA'
+    to the provider — and resolving ITS currency through the display row
+    returned GBp, so $214 became £2.14 became $2.92. A hundredfold error
+    produced by two correct facts being joined on a ticker that means different
+    things on each side.
+
+    With the flag set, the display column is never consulted. A provider symbol
+    carries its own venue in its suffix, so suffix rules settle every non-US
+    instrument and a bare ticker is the provider's US listing — which is what
+    the provider itself would have returned. Nothing has to guess.
     """
     if not symbol:
         return None
-    key = f"{symbol}|{exchange or ''}"
+    key = f"{symbol}|{exchange or ''}|{'p' if provider_symbol else 'd'}"
     if key in _symbol_ccy_cache:
         return _symbol_ccy_cache[key]
 
@@ -97,7 +118,9 @@ def native_currency(symbol: str, exchange: Optional[str] = None) -> Optional[str
                 break
 
     # The universe index knows the exchange and sometimes the currency.
-    if ccy is None:
+    # Skipped entirely for a provider symbol: this lookup matches on the
+    # DISPLAY column too, and that join is the 100x defect.
+    if ccy is None and not provider_symbol:
         row = _universe_row(sym)
         if row:
             db_ccy, db_exch = row
@@ -205,6 +228,31 @@ def convert(amount: float, from_ccy: str, to_ccy: str) -> Optional[float]:
     return out * 100.0 if to_ccy == "GBp" else out
 
 
-def currencies_for(symbols: list[str]) -> dict:
-    """Batch native-currency lookup — what the UI needs to convert a table."""
-    return {s: native_currency(s) for s in symbols if s}
+def provider_currency(provider_symbol: str) -> Optional[str]:
+    """The quote currency of a PROVIDER symbol. The safe call.
+
+    Every price in this system arrived from a provider request made with a
+    provider symbol, so this is the function that matches how the number was
+    actually obtained.
+    """
+    return native_currency(provider_symbol, provider_symbol=True)
+
+
+#: Namespaces a symbol list can be interpreted in. There is no correct
+#: namespace-free answer for a bare ticker, and a batch endpoint that quietly
+#: picked one is how a US price got a London currency.
+SIGNAL_NAMESPACE = "signals"     # data/signals.json keys — provider symbols
+MASTER_NAMESPACE = "master"      # universe.db display symbols
+
+
+def currencies_for(symbols: list[str], namespace: str = SIGNAL_NAMESPACE) -> dict:
+    """Batch native-currency lookup — what the UI needs to convert a table.
+
+    Defaults to the SIGNALS namespace, because every batch caller in this
+    system is rendering a table of signal/quote keys, and those keys are
+    provider symbols: `configs/universe.yaml` holds exactly the strings
+    `data_downloader` hands to the provider. Asking for the display-symbol
+    reading is still possible and must be explicit.
+    """
+    provider = (namespace or "").lower() != MASTER_NAMESPACE
+    return {s: native_currency(s, provider_symbol=provider) for s in symbols if s}
