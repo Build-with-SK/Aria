@@ -1,0 +1,51 @@
+name: site
+
+# The portfolio site in site/ is independent of ARIA, so it gets its own job
+# rather than being bolted onto security.yml — a broken link on the marketing
+# site should not read as a security regression, and vice versa.
+#
+# Nothing to install: the generator uses only Node's standard library, so this
+# job is a checkout, a setup-node and one command.
+
+on:
+  push:
+    paths:
+      - 'site/**'
+      - '.github/workflows/site.yml'
+  pull_request:
+    paths:
+      - 'site/**'
+      - '.github/workflows/site.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # --check builds the whole site and exits non-zero on a dead internal
+      # link, a missing anchor, a page without exactly one <h1>, a meta
+      # description outside 70-185 characters, or dev instrumentation left in a
+      # production build. All five are invisible in a browser.
+      - name: Build and check
+        run: node build.mjs --check
+        working-directory: site
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-dist
+          path: site/dist
+          retention-days: 7

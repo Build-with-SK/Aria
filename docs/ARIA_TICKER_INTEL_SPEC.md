@@ -1,6 +1,23 @@
 # ARIA — Ticker Intelligence + Timeframe Tabs + Brain Visualization
 ## Build spec for a Claude Code session (run from `<repo-root>`)
 
+
+> **SUPERSEDED — 2026-08-29.** This build spec is kept as a record of what was
+> asked for at the time. Do not follow it as written: the pages it tells you to
+> upgrade no longer exist.
+>
+> `Thinking.jsx` ("LIVE MIND"), `Brain.jsx` ("AI BRAIN"), `Signals.jsx`,
+> `Recommendations.jsx` and `BrainHub.jsx` were removed when the interface was
+> consolidated. There is now ONE intelligence destination — `pages/AriaBrain.jsx`
+> at `/brain` — with chat, memory, live cognition and the brain controls as
+> sections inside it, reading a single `/api/brain` aggregate. "Live Mind" is not
+> a concept in this codebase any more, and `tests/test_ui_architecture.py` fails
+> if it returns.
+>
+> See the README for the current information architecture.
+
+---
+
 Copy everything below into a fresh Claude Code session. Build in the order given,
 small reviewable commits, verify each feature live in the browser before moving on.
 

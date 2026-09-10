@@ -1,0 +1,15 @@
+{
+  "name": "sk-portfolio-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal portfolio and freelance site. Static, zero runtime dependencies.",
+  "scripts": {
+    "dev": "node build.mjs --serve",
+    "build": "node build.mjs",
+    "check": "node build.mjs --check"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
