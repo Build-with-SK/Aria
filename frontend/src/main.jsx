@@ -31,9 +31,20 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
   })
 }
 
+// The app is served under /app (vite `base`, and the backend mounts the build
+// there). Without a basename the router compares its route table against the
+// FULL pathname — "/app/market" matches nothing, falls to the catch-all, and
+// redirects to "/". Combined with the server 404 that used to precede it, deep
+// links were broken twice over: the server would not serve them, and the
+// router would not have matched them if it had.
+//
+// import.meta.env.BASE_URL is vite's own base, so this stays correct if the
+// mount point ever moves, and collapses to "/" if it is ever served at root.
+const BASENAME = import.meta.env.BASE_URL?.replace(/\/$/, '') || '/'
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={BASENAME}>
       {/* Prices render in the viewer's own currency — detected from their
           region, overridable from the sidebar. */}
       {/* Auth wraps everything: no deck, no data fetches, no currency probe

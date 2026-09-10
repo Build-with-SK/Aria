@@ -459,10 +459,20 @@ function Catalogue() {
 }
 
 /* ── page ── */
-export default function V5() {
+/**
+ * §4 names this component's shape as the thing to stop building: Analysis,
+ * Compare, Modules and Learning were four tabs over one research engine. They
+ * are not four destinations — they are one analysis at four depths.
+ *
+ * `embedded` (with a `symbol`) renders ONLY the analysis, with no tab bar and
+ * no second search box, so the Research workspace can own the symbol and show
+ * this as the deep layer of one dossier. The standalone form is kept for the
+ * /v5 route's own users but is no longer in the rail.
+ */
+export default function V5({ symbol: symbolProp, embedded = false }) {
   const [tab, setTab] = useState('analysis')
-  const [symbol, setSymbol] = useState('AAPL')
-  const [input, setInput] = useState('AAPL')
+  const [symbol, setSymbol] = useState(symbolProp || 'AAPL')
+  const [input, setInput] = useState(symbolProp || 'AAPL')
   const [a, setA] = useState(null)
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
@@ -477,27 +487,34 @@ export default function V5() {
       .finally(() => setLoading(false))
   }
   useEffect(() => { if (tab === 'analysis') run(symbol) }, [symbol, tab])
+  // When the parent owns the symbol, follow it rather than keeping our own.
+  useEffect(() => { if (symbolProp) { setSymbol(symbolProp); setInput(symbolProp) } }, [symbolProp])
 
   const submit = (e) => { e.preventDefault(); const s = input.trim().toUpperCase(); if (s) setSymbol(s) }
 
   return (
     <div>
-      <div style={{ marginBottom: 14 }}>
-        <div className="white" style={{ fontSize: 17, fontWeight: 700, letterSpacing: '.04em' }}>ARIA V5</div>
-        <Mono size={10}>
-          Multi-strategy research engine · no single model ever speaks alone · confidence falls with disagreement
-        </Mono>
-      </div>
+      {!embedded && (
+        <div style={{ marginBottom: 14 }}>
+          <div className="white" style={{ fontSize: 17, fontWeight: 700, letterSpacing: '.04em' }}>ARIA V5</div>
+          <Mono size={10}>
+            Multi-strategy research engine · no single model ever speaks alone · confidence falls with disagreement
+          </Mono>
+        </div>
+      )}
 
-      <TabBar
-        tabs={[{ id: 'analysis', label: 'Analysis', icon: '◈' },
-               { id: 'compare', label: 'Compare', icon: '⚡' },
-               { id: 'modules', label: 'Modules', icon: '⚗' },
-               { id: 'learning', label: 'Learning', icon: '↻' }]}
-        active={tab} onChange={setTab} />
+      {!embedded && (
+        <TabBar
+          tabs={[{ id: 'analysis', label: 'Analysis', icon: '◈' },
+                 { id: 'compare', label: 'Compare', icon: '⚡' },
+                 { id: 'modules', label: 'Modules', icon: '⚗' },
+                 { id: 'learning', label: 'Learning', icon: '↻' }]}
+          active={tab} onChange={setTab} />
+      )}
 
       {tab === 'analysis' && (
         <>
+          {!embedded && (
           <form onSubmit={submit} style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
             <input value={input} onChange={e => setInput(e.target.value)} placeholder="ticker — any global listing"
               style={{
@@ -512,6 +529,15 @@ export default function V5() {
               fontFamily: MONO, fontSize: 10, padding: '8px 10px', color: 'var(--muted)', textDecoration: 'none',
             }}>IC MEMO ↗</a>}
           </form>
+          )}
+          {embedded && a && (
+            <div style={{ marginBottom: 10 }}>
+              <a href={`/api/v5/report/${symbol}?format=md`} target="_blank" rel="noreferrer"
+                 style={{ fontFamily: MONO, fontSize: 10, color: 'var(--orange)', textDecoration: 'none' }}>
+                IC MEMO ↗
+              </a>
+            </div>
+          )}
 
           {loading && <Mono>running {symbol} through the full chain — 40 modules, ensemble, meta-review, risk gate…</Mono>}
           {err && <div style={{ color: 'var(--red)', fontFamily: MONO, fontSize: 11 }}>{err}</div>}

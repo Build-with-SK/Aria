@@ -10,7 +10,8 @@
  * This page is the answer to "is ARIA actually working?" — and it is allowed
  * to say no. A green board that cannot go red is decoration.
  */
-import React from 'react'
+import React, { useState } from 'react'
+import axios from 'axios'
 import { useWorkers, useWorld, useConsultStatus } from '../hooks/useApi'
 import { Empty, SectionHeader, Spinner } from '../components/UI'
 
@@ -87,12 +88,182 @@ export function SentinelPanelView({ data }) {
         </div>
       )}
 
+      {live && <ConsultBox />}
+
       {live && (
         <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 8,
                       borderTop: '1px solid #141414', paddingTop: 8 }}>
           SENTINEL advises. ARIA decides. A consultation cannot approve, block,
           or execute a trade — objections are attached to the proposal for the
           human approving it to read.
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* The position SENTINEL took, coloured by how much it should slow the reader
+ * down. AGREE is green and NONE is grey, and the two are not the same: NONE
+ * means it took no position, which is the one case a reader is most likely to
+ * misread as endorsement. */
+const POSITION_STYLE = {
+  AGREE:                  ['var(--green)',  'AGREES'],
+  DISAGREE:               ['var(--red)',    'DISAGREES'],
+  WARNING:                ['var(--red)',    'WARNS'],
+  ALTERNATIVE_HYPOTHESIS: ['var(--yellow)', 'OFFERS AN ALTERNATIVE'],
+  UNCERTAIN:              ['var(--yellow)', 'UNCERTAIN'],
+  INSUFFICIENT_EVIDENCE:  ['var(--yellow)', 'NOT ENOUGH EVIDENCE'],
+  NONE:                   ['var(--muted)',  'NO POSITION TAKEN'],
+}
+
+const btn = (on) => ({
+  ...mono, fontSize: 10, fontWeight: 700, letterSpacing: '.08em',
+  background: 'transparent', color: on ? 'var(--orange)' : 'var(--muted)',
+  border: `1px solid ${on ? 'var(--orange)' : '#262626'}`,
+  padding: '5px 11px', cursor: on ? 'pointer' : 'not-allowed',
+})
+
+/**
+ * Asking SENTINEL something, from ARIA.
+ *
+ * The four consultation routes existed and nothing in the interface called
+ * them, so a second opinion was available only to whoever was holding a
+ * terminal. The panel above could say AVAILABLE for weeks without a single
+ * consultation happening — availability is not use.
+ *
+ * Two verbs, because they are genuinely different requests. ASK wants an
+ * independent read; RED-TEAM hands over a thesis and asks for it to be broken,
+ * and is the one worth reaching for before acting.
+ */
+function ConsultBox() {
+  const [text, setText]  = useState('')
+  const [busy, setBusy]  = useState(null)   // 'ask' | 'red-team' | null
+  const [out,  setOut]   = useState(null)
+  const [err,  setErr]   = useState(null)
+  const [took, setTook]  = useState(null)
+
+  // The question rides in the query string, which is where the endpoints have
+  // always taken it. Long theses are trimmed rather than silently truncated by
+  // a header limit two layers down.
+  const LIMIT = 1800
+
+  async function consult(kind) {
+    const body = text.trim()
+    if (!body || busy) return
+    setBusy(kind); setErr(null); setOut(null); setTook(null)
+    try {
+      const red = kind === 'red-team'
+      const path = red ? '/api/consult/red-team' : '/api/consult'
+      const params = red
+        ? { thesis: body.slice(0, LIMIT), context: 'asked from the ARIA system deck' }
+        : { question: body.slice(0, LIMIT), context: 'asked from the ARIA system deck' }
+      const r = await axios.post(path, null, { params, timeout: 180_000 })
+      setOut(r.data)
+    } catch (e) {
+      // A failed consultation is a fact about the consultant, not about the
+      // question. It is reported as such and never as a shrug.
+      setErr(e?.response?.data?.detail || e.message || 'the consultation failed')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function record(accepted) {
+    if (!out?.request_id) return
+    setTook(accepted)
+    try {
+      await axios.post('/api/consult/outcome', null, {
+        params: { request_id: out.request_id, accepted,
+                  what_happened: accepted ? 'the owner accepted this reading'
+                                          : 'the owner rejected this reading' },
+      })
+    } catch { /* the local event is published either way; see bridge.record_outcome */ }
+  }
+
+  const [pcolor, plabel] = POSITION_STYLE[out?.sentinel_position] || POSITION_STYLE.NONE
+  const answered = out?.consulted && out?.sentinel_status === 'AVAILABLE'
+
+  return (
+    <div style={{ marginTop: 10, borderTop: '1px solid #141414', paddingTop: 10 }}>
+      <textarea
+        value={text}
+        onChange={e => setText(e.target.value.slice(0, LIMIT))}
+        placeholder="Ask for an independent read, or paste a thesis to have it attacked…"
+        rows={3}
+        style={{ ...mono, fontSize: 10, width: '100%', boxSizing: 'border-box',
+                 background: '#0a0a0a', color: 'var(--text)', border: '1px solid #262626',
+                 padding: 8, resize: 'vertical', lineHeight: 1.6 }} />
+
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 7,
+                    flexWrap: 'wrap' }}>
+        <button style={btn(!!text.trim() && !busy)} disabled={!text.trim() || !!busy}
+                onClick={() => consult('ask')}>◇ ASK</button>
+        <button style={btn(!!text.trim() && !busy)} disabled={!text.trim() || !!busy}
+                onClick={() => consult('red-team')}>◆ RED-TEAM</button>
+        <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+          {busy
+            ? `SENTINEL is working — this usually takes 20–45s`
+            : `${text.length}/${LIMIT} · a consultation runs on the local model and is not instant`}
+        </span>
+      </div>
+
+      {err && (
+        <div style={{ ...mono, fontSize: 10, color: 'var(--red)', marginTop: 9 }}>
+          {err} — no second opinion was obtained. This is not agreement.
+        </div>
+      )}
+
+      {out && (
+        <div style={{ marginTop: 11, borderTop: '1px solid #141414', paddingTop: 9 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <span style={{ ...mono, fontSize: 11, fontWeight: 800, letterSpacing: '.08em',
+                           color: answered ? pcolor : 'var(--yellow)' }}>
+              {answered ? plabel : (out.sentinel_status || 'NO ANSWER')}
+            </span>
+            {out.confidence != null && (
+              <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+                its own confidence {Number(out.confidence).toFixed(2)}
+              </span>
+            )}
+            {out.latency_ms != null && (
+              <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+                {(out.latency_ms / 1000).toFixed(1)}s
+              </span>
+            )}
+            {out.request_id && (
+              <span style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginLeft: 'auto' }}>
+                {out.request_id}
+              </span>
+            )}
+          </div>
+
+          <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)', lineHeight: 1.7,
+                        whiteSpace: 'pre-wrap', marginTop: 8, maxHeight: 460,
+                        overflowY: 'auto' }}>
+            {out.summary || out.guidance || out.why || 'SENTINEL returned nothing readable.'}
+          </div>
+
+          {/* Whether the owner took it is the only signal either system gets
+            * about whether this bridge earns its cost. Rejection is a first
+            * class answer and is recorded as one. */}
+          {answered && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+              {took == null ? (
+                <>
+                  <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+                    did you take this?
+                  </span>
+                  <button style={btn(true)} onClick={() => record(true)}>TOOK IT</button>
+                  <button style={btn(true)} onClick={() => record(false)}>REJECTED IT</button>
+                </>
+              ) : (
+                <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+                  recorded — {took ? 'accepted' : 'rejected'}. A disagreement is
+                  as useful a record as an agreement.
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

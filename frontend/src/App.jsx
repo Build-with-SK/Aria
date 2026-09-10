@@ -5,28 +5,33 @@ import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionBanner from './components/ConnectionBanner'
 import CommandPalette from './components/CommandPalette'
 import Login from './pages/Login'
-import BrainPublic from './pages/BrainPublic'
 import { useAuth } from './auth/AuthContext'
 import OwnerOnly from './auth/OwnerOnly'
-/* ── the twelve destinations ── */
-import Chat        from './pages/Chat'
-import CommandHub  from './pages/CommandHub'
+/* ── the eight workspaces ── */
+import AriaBrain from './pages/AriaBrain'
 import { useSummary } from './hooks/useApi'
 
 /* Route-level code splitting. The whole app used to ship as one 864 KB bundle,
    so a phone on mobile data downloaded the desk, the quant lab and every chart
    library before it could render the landing page. Chat and the command deck
    stay eager (they are where people land); the rest arrive when opened. */
-const V5 = lazy(() => import('./pages/V5'))
 const Research = lazy(() => import('./pages/Research'))
-const LabHub = lazy(() => import('./pages/LabHub'))
-const BrainHub = lazy(() => import('./pages/BrainHub'))
-const Markets = lazy(() => import('./pages/Markets'))
-const Recommendations = lazy(() => import('./pages/Recommendations'))
-const Portfolio = lazy(() => import('./pages/Portfolio'))
-const Quant = lazy(() => import('./pages/Quant'))
-const TrackRecord = lazy(() => import('./pages/TrackRecord'))
-const DeskHub = lazy(() => import('./pages/DeskHub'))
+const Market = lazy(() => import('./pages/Market'))
+const PortfolioWorkspace = lazy(() => import('./pages/PortfolioWorkspace'))
+const Strategies = lazy(() => import('./pages/Strategies'))
+const TrackRecordLedger = lazy(() => import('./pages/TrackRecordLedger'))
+const System = lazy(() => import('./pages/System'))
+/* The daily intelligence product. Its own destination, because it is its own
+   product: one report per day, kept forever, addressed by date. It used to be
+   a card at the bottom of another page rendering a single file that every run
+   overwrote — so it showed one report, three months stale, under a heading
+   that implied today. */
+const DailyReport = lazy(() => import('./pages/DailyReport'))
+/* Kept as a destination only for people without owner access: the full Brain
+   workspace reads the portfolio and the record, so signed-in non-owners get
+   the brain's public pulse instead. It is the SAME brain — a narrower view of
+   it, never a second one. */
+const BrainPulse = lazy(() => import('./pages/BrainPublic'))
 
 /* ── cinematic boot splash — plays once per browser session ── */
 function Boot() {
@@ -162,48 +167,70 @@ export default function App() {
           <ErrorBoundary resetKey={loc.pathname}>
           <Suspense fallback={<PageLoading />}>
           <Routes>
-            {/* ── the twelve destinations ── */}
-            <Route path="/"             element={<CommandHub  />} />
-            <Route path="/chat"         element={<Chat        />} />
-            <Route path="/v5"           element={<V5          />} />
-            <Route path="/research"     element={<Research    />} />
-            <Route path="/lab"          element={<LabHub      />} />
-            {/* Everyone may watch the brain; only the owner sees what it is
-                thinking about. BrainPublic renders the galaxy and the vital
-                signs from /api/brain/pulse — no transcripts, no memories, no
-                controls, because the reasoning loop runs with the owner's
-                vault in context. */}
-            <Route path="/brain"        element={owner ? <BrainHub /> : <BrainPublic />} />
-            <Route path="/markets"      element={<Markets     />} />
-            <Route path="/recommendations" element={<Recommendations />} />
-            <Route path="/portfolio"    element={<OwnerOnly what="Portfolio"><Portfolio   /></OwnerOnly>} />
-            <Route path="/stress"       element={<Quant       />} />
-            <Route path="/track-record" element={<OwnerOnly what="The owner’s track record"><TrackRecord /></OwnerOnly>} />
-            <Route path="/desk"         element={<OwnerOnly what="The trading desk"><DeskHub     /></OwnerOnly>} />
+            {/* ── THE EIGHT WORKSPACES ──
+                Was twelve, and before that twenty-two. The rule applied here
+                is §25: the rail exposes workspaces, not implementation
+                details. Signals, macro, futures and options are capabilities
+                of the market engine, not four places to visit; the desk and
+                the approval queue are steps in the portfolio's workflow, not
+                separate products.
 
-            {/* ── every pre-restructure path still resolves ──
-                Bookmarks, START_ARIA.bat and anything a user has open keep
-                working; a merged page is not a dead link. */}
-            <Route path="/signals"   element={<Navigate to="/markets" replace />} />
-            <Route path="/macro"     element={<Navigate to="/markets" replace />} />
-            <Route path="/futures"   element={<Navigate to="/markets" replace />} />
-            <Route path="/options"   element={<Navigate to="/markets" replace />} />
-            <Route path="/alerts"    element={<Navigate to="/" replace />} />
-            <Route path="/report"    element={<Navigate to="/" replace />} />
+                And chat, the brain, the memory browser and the "live mind"
+                are ONE intelligence. That is now literal rather than
+                aspirational: there is a single /brain route, a single
+                /api/brain state behind it, and LIVE MIND does not exist as a
+                destination, a tab or a label anywhere in this app. */}
+
+            {/* 1 — BRAIN. The hero. Owner only in full: it reads the
+                portfolio and the track record. Everyone else gets the same
+                brain's public pulse — a narrower view, never a second mind. */}
+            <Route path="/"             element={owner ? <AriaBrain /> : <BrainPulse />} />
+            <Route path="/brain"        element={owner ? <AriaBrain /> : <BrainPulse />} />
+            {/* 2 */} <Route path="/research"  element={<Research />} />
+            {/* 3 */} <Route path="/market"    element={<Market />} />
+            {/* 4 */} <Route path="/portfolio" element={<OwnerOnly what="Portfolio"><PortfolioWorkspace /></OwnerOnly>} />
+            {/* 5 */} <Route path="/strategies" element={<Strategies />} />
+            {/* 6 */} <Route path="/daily-report" element={<OwnerOnly what="The daily report"><DailyReport /></OwnerOnly>} />
+            {/* 7 */} <Route path="/track-record" element={<OwnerOnly what="The owner’s track record"><TrackRecordLedger /></OwnerOnly>} />
+            {/* 8 */} <Route path="/system"    element={<System />} />
+
+            {/* ── every earlier path still resolves ──
+                Bookmarks, START_ARIA.bat, deep links in the vault and anything
+                a user has open keep working. A merged page is not a dead link,
+                and this list is the migration: nothing was removed, everything
+                was moved somewhere it belongs. */}
+            <Route path="/chat"      element={<Navigate to="/brain" replace />} />
+            {/* The two paths that used to be "the live mind". They are the
+                brain, and now they say so. */}
             <Route path="/thinking"  element={<Navigate to="/brain" replace />} />
-            <Route path="/quantlab"  element={<Navigate to="/lab" replace />} />
-            <Route path="/backtest"  element={<Navigate to="/lab" replace />} />
-            <Route path="/execute"   element={<Navigate to="/desk" replace />} />
-            <Route path="/compare"   element={<Navigate to="/v5" replace />} />
-            <Route path="/quant"     element={<Navigate to="/stress" replace />} />
+            <Route path="/live-mind" element={<Navigate to="/brain" replace />} />
+            <Route path="/memory"    element={<Navigate to="/brain" replace />} />
+            <Route path="/markets"   element={<Navigate to="/market" replace />} />
+            <Route path="/signals"   element={<Navigate to="/market" replace />} />
+            <Route path="/macro"     element={<Navigate to="/market" replace />} />
+            <Route path="/futures"   element={<Navigate to="/market" replace />} />
+            <Route path="/options"   element={<Navigate to="/market" replace />} />
+            <Route path="/recommendations" element={<Navigate to="/market" replace />} />
+            <Route path="/alerts"    element={<Navigate to="/brain" replace />} />
+            <Route path="/report"    element={<Navigate to="/daily-report" replace />} />
+            <Route path="/lab"       element={<Navigate to="/strategies" replace />} />
+            <Route path="/quantlab"  element={<Navigate to="/strategies" replace />} />
+            <Route path="/backtest"  element={<Navigate to="/strategies" replace />} />
+            <Route path="/desk"      element={<Navigate to="/portfolio" replace />} />
+            <Route path="/execute"   element={<Navigate to="/portfolio" replace />} />
+            <Route path="/stress"    element={<Navigate to="/portfolio" replace />} />
+            <Route path="/quant"     element={<Navigate to="/portfolio" replace />} />
             {/* Explorer and Nexus were one question asked at two depths. */}
             <Route path="/explorer"  element={<Navigate to="/research" replace />} />
             <Route path="/nexus"     element={<Navigate to="/research?view=deep" replace />} />
+            {/* V5 is the deep analysis engine behind research, not a place. */}
+            <Route path="/v5"        element={<Navigate to="/research" replace />} />
+            <Route path="/compare"   element={<Navigate to="/research" replace />} />
             {/* ML predictions are half a story without outcomes — they live
                 with the track record now. */}
             <Route path="/ml"        element={<Navigate to="/track-record" replace />} />
 
-            <Route path="*"          element={<Navigate to="/" replace />} />
+            <Route path="*"          element={<Navigate to="/brain" replace />} />
           </Routes>
           </Suspense>
           </ErrorBoundary>

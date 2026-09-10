@@ -1,15 +1,26 @@
 import React, { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { useHealth } from '../hooks/useApi'
+import { useHealth, useSystemHealth } from '../hooks/useApi'
 import { CURRENCY_META, useCurrency } from '../currency/CurrencyContext'
 import Settings from './Settings'
 import { useAuth } from '../auth/AuthContext'
 import axios from 'axios'
 
-/* ── command rail — twelve destinations, grouped by the question they answer ──
-   Was twenty-two. Four of those pages answered "should I buy this?" and five
-   were "the AI thinking"; the merged ones are now tabs inside the page they
-   belong to, and every old path still redirects.                            */
+/* ── the command rail — EIGHT workspaces ──
+   Was twelve, and twenty-two before that. The grouping is gone with them: at
+   this size a group header costs more attention than it saves.
+
+   The rule (§25) is that the rail names workspaces, not implementation. There
+   is no SIGNALS entry because signals are something MARKET knows; no APPROVAL
+   QUEUE because approving is a step PORTFOLIO contains; and no LIVE MIND,
+   because watching ARIA think is ARIA — that is now literally true rather
+   than a stated intention: BRAIN is the one destination, and chat, memory, the
+   reasoning stream and vault knowledge are sections inside it.
+
+   DAILY REPORT is a destination and MARKET is a destination, and they are
+   deliberately not the same one: the report is the slow daily product, the
+   live world feed is continuous, and burying the first inside the second was
+   what made both hard to read.                                              */
 /* `owner: true` means the destination is not merely refused for other people —
    it is not shown to them at all. A rail full of doors that answer 403 is a
    worse experience than a shorter rail, and it also stops advertising what
@@ -17,42 +28,16 @@ import axios from 'axios'
    is courtesy, never the control. */
 export const GROUPS = [
   {
-    label: 'INTELLIGENCE',
+    label: '',
     items: [
-      { path: '/chat',      label: 'ARIA CHAT',  icon: '◉' },
-      { path: '/v5',        label: 'ARIA V5',    icon: '◆' },
-      { path: '/research',  label: 'RESEARCH',   icon: '◬' },
-      { path: '/lab',       label: 'QUANT LAB',  icon: '⚗' },
-      // Visible to everyone: signed-in users get the public pulse view, the
-      // owner gets the full console. See the /brain route in App.jsx.
-      { path: '/brain',     label: 'BRAIN',      icon: '◈' },
-    ],
-  },
-  {
-    label: 'MARKETS',
-    items: [
-      { path: '/',          label: 'COMMAND',    icon: '⌂' },
-      { path: '/markets',   label: 'MARKETS',    icon: '∿' },
-      { path: '/recommendations', label: 'RECOMMEND', icon: '★' },
-    ],
-  },
-  {
-    label: 'PORTFOLIO',
-    items: [
-      { path: '/portfolio', label: 'PORTFOLIO',  icon: '▣', owner: true },
-      { path: '/stress',    label: 'STRESS',     icon: 'ƒ' },
-    ],
-  },
-  {
-    label: 'LEARNING',
-    items: [
+      { path: '/brain',        label: 'BRAIN',        icon: '◉' },
+      { path: '/research',     label: 'RESEARCH',     icon: '◬' },
+      { path: '/market',       label: 'MARKET',       icon: '∿' },
+      { path: '/portfolio',    label: 'PORTFOLIO',    icon: '▣', badge: true, owner: true },
+      { path: '/strategies',   label: 'STRATEGIES',   icon: '⚗' },
+      { path: '/daily-report', label: 'DAILY REPORT', icon: '▤', owner: true },
       { path: '/track-record', label: 'TRACK RECORD', icon: '◎', owner: true },
-    ],
-  },
-  {
-    label: 'OPERATIONS',
-    items: [
-      { path: '/desk',      label: 'THE DESK',   icon: '▦', badge: true, owner: true },
+      { path: '/system',       label: 'SYSTEM',       icon: '⚙' },
     ],
   },
 ]
@@ -67,6 +52,7 @@ export function groupsFor(isOwner) {
 
 export default function Sidebar() {
   const { data: health } = useHealth()
+  const { data: sysHealth } = useSystemHealth()
   const { display } = useCurrency()
   const { owner, user } = useAuth()
   const loc = useLocation()
@@ -93,7 +79,17 @@ export default function Sidebar() {
     return () => clearInterval(id)
   }, [owner])
 
-  const live = health?.status === 'ok'
+  // `/health` answers ok whenever the web server can answer, which says nothing
+  // about whether the daemons behind it are running — this system already went
+  // a week with a dead prediction loop and a green dot. The rail now reads the
+  // worker registry, so it can say DEGRADED.
+  const apiUp = health?.status === 'ok'
+  const workersOk = sysHealth?.workers?.healthy
+  const live = apiUp && workersOk !== false
+  const degraded = apiUp && workersOk === false
+  const railState = !apiUp ? { c: 'var(--red)', t: 'OFFLINE' }
+    : degraded ? { c: 'var(--yellow)', t: 'DEGRADED' }
+    : { c: 'var(--green)', t: 'SYSTEMS LIVE' }
 
   return (
     <>
@@ -151,13 +147,16 @@ export default function Sidebar() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
           <div style={{
             width: 6, height: 6, borderRadius: '50%',
-            background: live ? 'var(--green)' : 'var(--red)',
-            boxShadow: live ? '0 0 8px var(--green)' : '0 0 8px var(--red)',
-            animation: 'corePulse 2s ease-in-out infinite',
+            background: railState.c,
+            boxShadow: `0 0 8px ${railState.c}`,
+            animation: live ? 'corePulse 2s ease-in-out infinite' : 'none',
           }} />
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.15em', color: live ? 'var(--green)' : 'var(--red)' }}>
-            {live ? 'SYSTEMS LIVE' : 'OFFLINE'}
-          </span>
+          <NavLink to="/system" style={{ textDecoration: 'none' }}
+            title={degraded ? (sysHealth?.workers?.degraded || []).join(', ') : undefined}>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 9, letterSpacing: '0.15em', color: railState.c }}>
+              {railState.t}
+            </span>
+          </NavLink>
         </div>
       </div>
 
@@ -185,13 +184,18 @@ export default function Sidebar() {
       <nav style={{ flex: 1, overflowY: 'auto', padding: '6px 0 10px' }}>
         {groups.map(g => (
           <div key={g.label}>
-            <div style={{
-              fontFamily: 'var(--mono)', fontSize: 8, fontWeight: 800,
-              letterSpacing: '0.28em', color: 'var(--muted)',
-              padding: '12px 16px 5px',
-            }}>{g.label}</div>
+            {g.label && (
+              <div style={{
+                fontFamily: 'var(--mono)', fontSize: 8, fontWeight: 800,
+                letterSpacing: '0.28em', color: 'var(--muted)',
+                padding: '12px 16px 5px',
+              }}>{g.label}</div>
+            )}
             {g.items.map(({ path, label, icon, badge }) => {
+              // `/` and `/brain` are one destination, so the rail must not
+              // go dark on the landing page.
               const active = loc.pathname === path
+                || (path === '/brain' && loc.pathname === '/')
               const hasBadge = badge && pendingCount > 0
               return (
                 <NavLink key={path} to={path} style={{ textDecoration: 'none' }}>

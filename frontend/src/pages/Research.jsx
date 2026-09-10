@@ -16,9 +16,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import axios from 'axios'
-import { TabBar } from '../components/UI'
+import { SectionHeader } from '../components/UI'
 import Explorer from './Explorer'
 import Nexus from './Nexus'
+import V5 from './V5'
 
 const MONO = 'var(--mono)'
 const CCY_SYMBOL = { INR: '₹', GBP: '£', USD: '$', EUR: '€', JPY: '¥' }
@@ -32,6 +33,7 @@ export default function Research() {
   const [results, setResults] = useState([])
   const [symbol, setSymbol] = useState(urlSymbol)
   const [tab, setTab] = useState(urlTab)
+  const deep = tab === 'deep'
   const debounce = useRef(null)
 
   // The URL is the source of truth, so a deep link and a back button both work.
@@ -124,19 +126,46 @@ export default function Research() {
         </div>
       )}
 
+      {/* ── ONE DOSSIER, NOT TABS ──
+          §4: Discover, Analyse, Compare, Extract and Test are operations of one
+          research intelligence, not destinations. This page used to put
+          Overview and Deep behind a TabBar, and the V5 engine — the deepest
+          layer of all — behind an entirely separate nav entry with its own
+          search box. A reader who did not already know V5 existed never found
+          the analysis that mattered most.
+
+          Now one search owns the symbol and the depths stack downward: the
+          quick dossier, the evidence-linked scoring, then the full ensemble.
+          Each layer mounts only once the one above it has a symbol, so opening
+          a ticker does not fire forty modules before you have decided to
+          look. */}
       {symbol && (
         <>
-          <TabBar
-            tabs={[{ id: 'overview', label: 'Overview', icon: '⌕' },
-                   { id: 'deep', label: 'Deep research', icon: '◬' }]}
-            active={tab} onChange={switchTab} />
-          {/* Both views stay mounted so switching tabs does not refetch the
-              dossier; only the active one is shown. */}
-          <div style={{ display: tab === 'overview' ? 'block' : 'none' }}>
-            <Explorer symbol={symbol} embedded />
-          </div>
-          <div style={{ display: tab === 'deep' ? 'block' : 'none' }}>
+          <SectionHeader>OVERVIEW · {symbol}</SectionHeader>
+          <Explorer symbol={symbol} embedded />
+
+          <div style={{ marginTop: 22 }}>
+            <SectionHeader>EVIDENCE &amp; SCORING</SectionHeader>
             <Nexus symbol={symbol} embedded />
+          </div>
+
+          <div style={{ marginTop: 22 }}>
+            <SectionHeader>FULL ENSEMBLE · 40 MODULES</SectionHeader>
+            <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)', marginBottom: 10 }}>
+              No single model speaks alone here, and confidence falls when the
+              modules disagree. Abstentions are reported rather than hidden.
+            </div>
+            {deep ? (
+              <V5 symbol={symbol} embedded />
+            ) : (
+              <button onClick={() => switchTab('deep')} style={{
+                fontFamily: MONO, fontSize: 11, fontWeight: 700, padding: '9px 20px',
+                cursor: 'pointer', background: 'none', border: '1px solid var(--orange)',
+                color: 'var(--orange)', borderRadius: 4,
+              }}>
+                RUN THE FULL ENSEMBLE ON {symbol}
+              </button>
+            )}
           </div>
         </>
       )}

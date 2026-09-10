@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
 import { startThinking, speakReply } from '../core/ariaVoice'
 import { setCoreState } from '../core/coreBus'
+import { useSystemHealth } from '../hooks/useApi'
 
 // ─── Markdown-lite renderer (bold, code, bullets) ────────────────────────────
 function RenderText({ text }) {
@@ -164,8 +165,12 @@ const QUICK = [
 ]
 
 // ─── Main page ────────────────────────────────────────────────────────────────
-export default function Chat() {
+/** `embedded` drops the standalone header and full-height sizing so the same
+ *  component can live inside the Intelligence workspace without two ARIA
+ *  titles stacked on one screen. */
+export default function Chat({ embedded = false }) {
   const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const { data: sysHealth } = useSystemHealth()
 
   const [messages, setMessages] = useState([
     {
@@ -254,13 +259,27 @@ export default function Chat() {
     }
   }
 
+  // The status dot used to be a hardcoded green pulse with the word ONLINE
+  // next to it — it said ONLINE while the backend was stopped, which is the
+  // §23 failure exactly: a live indicator that cannot report anything but
+  // life. It now reads the worker registry, so it goes amber when a daemon
+  // behind the conversation has stalled.
+  const health = sysHealth
+  const wState = health?.workers
+  const dot = !health ? { c: 'var(--muted)', t: 'CONNECTING' }
+    : wState?.healthy === false ? { c: 'var(--yellow)', t: 'DEGRADED' }
+    : { c: 'var(--green)', t: 'ONLINE' }
+
   return (
     <div style={{
-      maxWidth: 900, margin: '0 auto',
+      maxWidth: embedded ? '100%' : 900, margin: '0 auto',
       display: 'flex', flexDirection: 'column',
-      height: 'calc(100vh - 68px)',
+      height: embedded ? 'calc(100vh - 210px)' : 'calc(100vh - 68px)',
+      minHeight: embedded ? 460 : undefined,
     }}>
-      {/* Header */}
+      {/* Header — suppressed when embedded in the Intelligence workspace,
+          which already carries ARIA's name and state above this component. */}
+      {!embedded && (
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexShrink: 0 }}>
         <div style={{
           width: 36, height: 36, borderRadius: 6,
@@ -279,12 +298,13 @@ export default function Chat() {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{
             width: 7, height: 7, borderRadius: '50%',
-            background: 'var(--green)', boxShadow: '0 0 8px var(--green)',
-            animation: 'pulse-glow 2s ease-in-out infinite',
+            background: dot.c, boxShadow: `0 0 8px ${dot.c}`,
+            animation: dot.t === 'ONLINE' ? 'pulse-glow 2s ease-in-out infinite' : 'none',
           }} />
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--green)' }}>ONLINE</span>
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: dot.c }}>{dot.t}</span>
         </div>
       </div>
+      )}
 
       {/* Message list */}
       <div style={{
