@@ -1,5 +1,5 @@
 {
-  "last_senate_fetch": "2026-07-21T15:58:00Z",
+  "last_senate_fetch": "2026-09-10T21:49:11Z",
   "last_propublica_fetch": null,
   "total_records_fetched": 0,
   "watchlist_ticker_history": [
@@ -57,6 +57,34 @@
     },
     {
       "date": "2026-07-21",
+      "count": 0
+    },
+    {
+      "date": "2026-09-06",
+      "count": 0
+    },
+    {
+      "date": "2026-09-10",
+      "count": 0
+    },
+    {
+      "date": "2026-09-10",
+      "count": 0
+    },
+    {
+      "date": "2026-09-10",
+      "count": 0
+    },
+    {
+      "date": "2026-09-10",
+      "count": 0
+    },
+    {
+      "date": "2026-09-10",
+      "count": 0
+    },
+    {
+      "date": "2026-09-10",
       "count": 0
     }
   ],

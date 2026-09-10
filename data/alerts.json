@@ -1,5 +1,131 @@
 [
   {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.0% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-06T15:02:14.596779"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.0% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-06T14:32:14.261185"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.0% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-06T14:02:13.899593"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.1% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-06T13:36:59.938466"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.1% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-06T13:32:13.585307"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.1% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-06T13:30:56.423682"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.1% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-06T13:02:13.251718"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.1% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-06T12:32:12.598447"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.2% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-06T12:06:29.714999"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9127.76 \u2014 the rupee is 1.2% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-05T18:33:04.225510"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9128.06 \u2014 the rupee is 1.0% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-02T21:25:36.251702"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9128.06 \u2014 the rupee is 1.0% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-02T20:44:30.717913"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Rupee strong vs pound \u2014 good to send India\u2192UK",
+    "message": "\u00a31 = \u20b9128.03 \u2014 the rupee is 1.1% stronger than its recent average. Good window to send money India \u2192 UK (your rupees buy more pounds).",
+    "timestamp": "2026-09-02T20:14:30.242159"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Pound strong vs rupee \u2014 good to send UK\u2192India",
+    "message": "\u00a31 = \u20b9130.76 \u2014 the pound is +1.0% above its recent average. Good window to send money UK \u2192 India (you'll get more rupees).",
+    "timestamp": "2026-08-21T10:43:54.413289"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Pound strong vs rupee \u2014 good to send UK\u2192India",
+    "message": "\u00a31 = \u20b9130.88 \u2014 the pound is +1.1% above its recent average. Good window to send money UK \u2192 India (you'll get more rupees).",
+    "timestamp": "2026-08-21T10:13:54.269712"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Pound strong vs rupee \u2014 good to send UK\u2192India",
+    "message": "\u00a31 = \u20b9130.73 \u2014 the pound is +1.0% above its recent average. Good window to send money UK \u2192 India (you'll get more rupees).",
+    "timestamp": "2026-08-21T09:43:54.152623"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Pound strong vs rupee \u2014 good to send UK\u2192India",
+    "message": "\u00a31 = \u20b9130.67 \u2014 the pound is +1.0% above its recent average. Good window to send money UK \u2192 India (you'll get more rupees).",
+    "timestamp": "2026-08-20T12:34:32.010417"
+  },
+  {
+    "severity": "INFO",
+    "category": "FX_REMITTANCE",
+    "title": "Pound strong vs rupee \u2014 good to send UK\u2192India",
+    "message": "\u00a31 = \u20b9130.67 \u2014 the pound is +1.0% above its recent average. Good window to send money UK \u2192 India (you'll get more rupees).",
+    "timestamp": "2026-08-20T12:27:35.990126"
+  },
+  {
     "alert_type": "HIGH_VOLATILITY",
     "severity": "INFO",
     "ticker": "CL=F",
