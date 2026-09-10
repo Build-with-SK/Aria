@@ -38,6 +38,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -189,8 +190,24 @@ app = FastAPI(
 
 @on_startup
 async def _startup():
-    """Pre-warm the order manager on startup (runs in the asyncio thread — safe for ib_insync)."""
+    """Pre-warm the order manager on startup (runs in the asyncio thread — safe for ib_insync).
+
+    Refuses to start any background worker under ARIA_TESTING. A test that
+    builds a TestClient triggers this lifespan, and every daemon below then ran
+    inside the pytest process for the remainder of the session — writing
+    fx_state.json, desk/heartbeat.json, desk/positions.json, macro_data.json
+    and the event log into PRODUCTION while the suite ran. An mtime diff across
+    a full run is how that was found; tests/conftest.py redirects the data root,
+    but a thread that starts between two sweeps races the redirect, and racing
+    a redirect is not a safety property.
+
+    The guard is also the stronger statement: a test suite must not be running
+    a trading desk at all, redirected or otherwise.
+    """
     import asyncio
+    if os.environ.get("ARIA_TESTING") == "1":
+        logger.info("ARIA_TESTING=1 — background workers not started.")
+        return
     loop = asyncio.get_event_loop()
     loop.run_in_executor(None, _get_order_manager)
     import threading
@@ -203,6 +220,202 @@ async def _startup():
     # never actually started. It belongs here with the other daemons.
     threading.Thread(target=_start_quant_lab, daemon=True).start()
     threading.Thread(target=_outcome_resolver_loop, daemon=True).start()
+    # ── the spine (src/core) ──────────────────────────────────────────────
+    # Registering the daemons above makes their health observable: until now a
+    # worker whose vendor died in July looked exactly like one that ran a
+    # second ago, because every loop swallows its own exceptions to stay up.
+    threading.Thread(target=_register_workers, daemon=True).start()
+    threading.Thread(target=_world_loop, daemon=True).start()
+    threading.Thread(target=_ledger_loop, daemon=True).start()
+    threading.Thread(target=_macro_loop, daemon=True).start()
+    threading.Thread(target=_research_eye_loop, daemon=True).start()
+    threading.Thread(target=_daily_report_loop, daemon=True).start()
+
+
+def _register_workers():
+    """Declare every continuous process to the registry, once, at boot."""
+    try:
+        from src.core import workers, bus
+        workers.register("desk", "Trading desk", loop="fast", interval_s=300)
+        workers.register("brain", "Cognitive brain", loop="medium", interval_s=900)
+        workers.register("quant_lab", "Quant lab researcher", loop="slow", interval_s=3600)
+        workers.register("fx_monitor", "FX monitor", loop="medium", interval_s=1800)
+        workers.register("outcome_resolver", "V5 outcome resolver", loop="slow", interval_s=3600)
+        workers.register("world_model", "World model", loop="medium", interval_s=600)
+        workers.register("ledger", "Prediction ledger", loop="slow", interval_s=1800)
+        workers.register("research_eye", "Research eye", loop="medium", interval_s=1200)
+        workers.register("macro", "Macro data feeds", loop="slow", interval_s=21600)
+        workers.register("daily_report", "Daily report", loop="slow", interval_s=1800)
+        if os.environ.get("ARIA_RUN_BRAIN", "true").lower() == "false":
+            workers.disable("brain", "ARIA_RUN_BRAIN=false — desk-only deployment")
+        bus.publish("SYSTEM_NOTE", "ARIA backend started; workers registered",
+                    source="backend")
+    except Exception as e:
+        logger.warning(f"worker registration failed: {e}")
+
+
+def _research_eye_loop():
+    """Blink the research eye on its own clock, independent of the brain.
+
+    The eye used to be a job on the brain daemon's scheduler. The brain only
+    starts when Ollama answers, so when Ollama began timing out the eye went
+    dark too — three hours with zero failures of its own, because nothing was
+    calling it. It needs no model: it fetches feeds and scores salience with
+    deterministic code.
+
+    `blink()` visits only watches whose own per-watch cadence is due, so a
+    tight outer interval does not mean a tight fetch rate. Twenty minutes
+    matches what the brain used.
+    """
+    import time
+    time.sleep(70)
+    if os.environ.get("ARIA_EYE_OWNER", "backend") != "backend":
+        logger.info("research eye owned elsewhere (ARIA_EYE_OWNER) — loop not started")
+        return
+    while True:
+        try:
+            from src.core import workers
+            from src.research import eye
+            with workers.heartbeat("research_eye"):
+                try:
+                    eye.attend_to_portfolio()
+                except Exception as e:
+                    logger.debug(f"eye attention refresh failed: {e}")
+                eye.blink()
+        except Exception as e:
+            # Non-fatal by construction: a throttled feed must not end the loop.
+            logger.warning(f"research eye tick failed: {e}")
+        time.sleep(1200)
+
+
+def _macro_loop():
+    """Refresh the macro snapshot on its own cadence.
+
+    data/macro_data.json had not been rewritten since 2026-05-31 because the
+    ONLY writer was the full pipeline run, and nothing scheduled that. Three
+    fields — fed funds, CPI, unemployment — were additionally None the whole
+    time because `import pandas_datareader` raises against the pinned pandas.
+
+    Six hours matches the underlying publication cadence: Treasury par yields
+    and EFFR are daily, CPI and unemployment monthly. Fetching more often
+    would just re-download the same numbers.
+    """
+    import time
+    time.sleep(55)
+    while True:
+        try:
+            from src.core import workers, bus
+            from src.macro.macro_data import fetch_macro_snapshot
+            with workers.heartbeat("macro"):
+                snap = fetch_macro_snapshot(use_cache=False)
+            missing = [f for f in ("fed_funds_rate", "cpi_yoy", "unemployment_rate",
+                                   "treasury_10y", "treasury_2y")
+                       if getattr(snap, f, None) is None]
+            if missing:
+                bus.publish("DATA_STALE",
+                            f"Macro refresh left {len(missing)} field(s) unresolved: "
+                            f"{', '.join(missing)}",
+                            source="macro", severity="warning",
+                            payload={"missing": missing})
+            else:
+                logger.info(f"macro refreshed: regime={snap.regime} "
+                            f"score={snap.macro_score}")
+        except Exception as e:
+            logger.warning(f"macro loop tick failed: {e}")
+        time.sleep(21600)
+
+
+def _daily_report_loop():
+    """Produce ONE report per day, and never overwrite an earlier one.
+
+    `data/daily_report.json` was written only by the full pipeline run, and
+    nothing scheduled that — so there was exactly one report, dated
+    2026-05-31, being rendered under a heading that implied today. A daily
+    product with no scheduler is not a daily product.
+
+    The loop is deliberately dumb: every half hour it asks "does today have a
+    report yet?" and generates one if not. `daily.ensure_today()` is
+    idempotent and `daily.generate()` refuses to overwrite, so a restart, a
+    clock change or two workers racing cannot destroy a day's record — the
+    worst case is a FileExistsError that is caught and ignored.
+
+    The legacy single-file report is imported once, under ITS OWN date, so the
+    one surviving pre-dated-store report is preserved rather than discarded.
+    """
+    import time
+    time.sleep(75)
+    try:
+        from src.report import daily
+        imported = daily.backfill_from_legacy()
+        if imported:
+            logger.info("legacy daily report imported as %s", imported["date"])
+    except Exception as e:
+        logger.debug(f"legacy report import skipped: {e}")
+
+    while True:
+        try:
+            from src.core import workers
+            from src.report import daily
+            with workers.heartbeat("daily_report"):
+                day = daily.today_key()
+                existing = daily.get(day)
+                if existing.get("status") == daily.NOT_GENERATED:
+                    report = daily.generate(day)
+                    logger.info("daily report generated for %s", report["date"])
+        except FileExistsError:
+            pass                      # another tick won the race; both are right
+        except Exception as e:
+            logger.warning(f"daily report loop tick failed: {e}")
+        time.sleep(1800)
+
+
+def _world_loop():
+    """Recompute the world model and store it when the worldview actually moves.
+
+    Ten minutes is a compromise between "what changed?" being answerable at a
+    useful resolution and not filling the snapshot table with noise — the store
+    is digest-gated, so an unchanged worldview costs one comparison and no row.
+    """
+    import time
+    time.sleep(25)
+    while True:
+        try:
+            from src.core import workers, world
+            with workers.heartbeat("world_model"):
+                world.save_snapshot()
+        except Exception as e:
+            logger.debug(f"world loop tick failed: {e}")
+        time.sleep(600)
+
+
+def _ledger_loop():
+    """Keep the record honest: import what other subsystems measured, then grade.
+
+    The import step is the one that mattered most. data/desk/backfilled_outcomes.jsonl
+    held 306 already-graded directional calls that nothing in the codebase read,
+    so ARIA had measured its own sub-random short-horizon accuracy and thrown
+    the result away. Ingest is deduplicated by external_ref, so re-running it
+    every half hour is free.
+    """
+    import time
+    time.sleep(40)
+    while True:
+        try:
+            from src.core import workers, ingest, ledger, bus
+            with workers.heartbeat("ledger"):
+                ingest.ingest_all()
+                out = ledger.resolve_due()
+                if out.get("resolved"):
+                    logger.info(f"ledger graded {out['resolved']} predictions")
+                    bus.publish("CALIBRATION_UPDATED",
+                                f"{out['resolved']} predictions graded",
+                                source="ledger", payload=out)
+            from src.core import bus as _bus
+            _bus.prune()
+            workers.sweep()
+        except Exception as e:
+            logger.debug(f"ledger loop tick failed: {e}")
+        time.sleep(1800)
 
 
 def _outcome_resolver_loop():
@@ -229,8 +442,10 @@ def _outcome_resolver_loop():
     time.sleep(20)          # let the vendor caches and universe DB settle
     while True:
         try:
+            from src.core import workers
             from src.v5 import learning
-            out = learning.resolve_pending()
+            with workers.heartbeat("outcome_resolver"):
+                out = learning.resolve_pending()
             if out.get("resolved"):
                 logger.info(f"V5 outcomes resolved: {out['resolved']} "
                             f"of {out.get('checked', 0)} pending")
@@ -247,8 +462,10 @@ def _fx_monitor_loop():
     time.sleep(8)
     while True:
         try:
+            from src.core import workers
             from src.data.fx_monitor import check
-            check()
+            with workers.heartbeat("fx_monitor"):
+                check()
         except Exception as e:
             logger.debug(f"FX monitor tick failed: {e}")
         time.sleep(1800)
@@ -1149,6 +1366,26 @@ def propose_trade(body: ProposeTrade):
             current_price=body.current_price,
             broker=body.broker,
         )
+        # §11: a proposal the owner never sees is not a queue entry, and a
+        # queue that forgets what was chosen teaches ARIA nothing. Both halves
+        # land in the ledger — this half here, the verdict below.
+        try:
+            from src.core import ledger
+            from src.core.bus import publish
+            ledger.record_decision(
+                kind="approval", subject=body.ticker,
+                action=f"{body.side} {body.qty} {body.ticker} ({body.order_type})",
+                rationale=body.thesis_summary or body.situation,
+                evidence=[{"bull_case": body.bull_case}, {"bear_case": body.bear_case}],
+                expected=f"signal score {body.signal_score}",
+                risk=body.invalidation, decided_by="desk", status="pending",
+                external_ref=f"approval:{trade.id}", announce=False)
+            publish("APPROVAL_REQUIRED",
+                    f"{body.ticker}: {body.side} {body.qty} awaiting approval",
+                    source="desk", subject=body.ticker, severity="action",
+                    payload={"trade_id": trade.id, "signal_score": body.signal_score})
+        except Exception as _e:
+            logger.debug(f"ledger record of proposal failed: {_e}")
         return {"ok": True, "trade_id": trade.id, "trade": trade.__dict__}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1181,7 +1418,29 @@ def approve_and_execute(trade_id: str):
     result = mgr.execute(trade_id)
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result.get("error", "Execution failed"))
+    _record_verdict(trade_id, "approved", "approved and sent to the broker by the owner")
     return result
+
+
+def _record_verdict(trade_id: str, status: str, note: str) -> None:
+    """Persist what the owner decided about a queued trade.
+
+    Approval behaviour is training data about the owner's risk appetite — which
+    proposals get taken, which get refused, and what the refused ones had in
+    common. None of it survived the queue before this.
+
+    Never raises: a ledger hiccup must not turn a completed broker action into
+    an HTTP 500 the caller reads as "the trade did not happen".
+    """
+    try:
+        from src.core import ledger
+        from src.core.bus import publish
+        ledger.close_decision(f"approval:{trade_id}", status=status, outcome=note)
+        publish("APPROVAL_COMPLETED", f"Trade {trade_id} {status}: {note}"[:200],
+                source="owner", severity="notable",
+                payload={"trade_id": trade_id, "status": status})
+    except Exception as _e:
+        logger.debug(f"ledger record of verdict failed: {_e}")
 
 
 @app.post("/api/execute/reject/{trade_id}", tags=["Execution"], dependencies=[Depends(require_owner)])
@@ -1193,6 +1452,7 @@ def reject_trade(trade_id: str, reason: str = ""):
         trade = queue.reject(trade_id, reason)
         if not trade:
             raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found or not pending")
+        _record_verdict(trade_id, "rejected", reason or "rejected by the owner")
         return {"ok": True, "trade": trade.__dict__}
     except HTTPException:
         raise
@@ -1206,6 +1466,8 @@ def cancel_trade(trade_id: str):
     try:
         from src.execution.approval_queue import ApprovalQueue
         ok = ApprovalQueue().cancel(trade_id)
+        if ok:
+            _record_verdict(trade_id, "cancelled", "cancelled before reaching the broker")
         return {"ok": ok}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -1244,15 +1506,30 @@ def auth_providers():
 
 @app.get("/api/auth/me", tags=["Auth"])
 def auth_me(request: Request):
-    """The current session. Always 200 so the frontend can ask before login."""
+    """The current session. Always 200 so the frontend can ask before login.
+
+    `owner` is derived from the RESOLVED ROLE, not from the presence of a
+    session. It used to be returned only inside the session branch, so an owner
+    who authenticated with ARIA_OWNER_TOKEN — the documented break-glass path,
+    and the only one that works before OAuth is configured — got back
+    `{authenticated: false, role: "owner"}` with no `owner` key at all. The
+    frontend reads `data.owner`, so it concluded false and rendered the
+    free-tier rail: no portfolio, no track record, no desk, on the owner's own
+    machine. The role was right the whole way down; only this line disagreed.
+
+    This grants nothing. `_role_of` is the same resolution every guard uses,
+    and every owner-only route re-checks it server-side regardless of what
+    this endpoint says.
+    """
     who = getattr(request.state, "user", None)
     role = _role_of(request)
+    is_owner = role == "owner"
     if not who:
-        return {"authenticated": False, "role": role}
+        return {"authenticated": False, "role": role, "owner": is_owner}
     return {"authenticated": True, "role": role,
             "email": who.get("email"), "name": who.get("name"),
             "avatar": who.get("avatar"), "provider": who.get("provider"),
-            "owner": bool(who.get("owner"))}
+            "owner": is_owner or bool(who.get("owner"))}
 
 
 @app.get("/api/auth/login/{provider}", tags=["Auth"])
@@ -1669,7 +1946,31 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
     from src.inference.policy import BrainUnreachable
     from src.inference.providers.ollama import DEFAULT_NUM_CTX
 
+    # §3: ARIA should not have to be told to go and look. The world model is
+    # her assembled belief state — regime, breadth, portfolio, what she is
+    # watching, how right she has been, and what she currently cannot see. It
+    # carries a HIGH priority because the blind-spot list is the part that must
+    # survive a full context window: an ARIA that quotes a three-month-old VIX
+    # confidently is worse than one that says the macro feed is stale.
+    world_ctx = ""
+    try:
+        from src.core import world as _world
+        _snap = _world.snapshot()
+        world_ctx = _world.brief()
+        _ch = _world.changes(hours=24).get("changed") or []
+        if _ch:
+            world_ctx += ("\n\nWHAT CHANGED IN THE LAST 24H: "
+                          + "; ".join(f"{c['field']} {c['from']} → {c['to']}" for c in _ch[:8]))
+        _act = _snap.get("research", {}).get("recent_observations") or []
+        if _act:
+            world_ctx += ("\n\nWHAT I AM WATCHING RIGHT NOW: "
+                          + " | ".join(f"{o.get('title')} ({o.get('source')})"
+                                       for o in _act[:4] if o.get("title")))
+    except Exception as _e:
+        logger.warning(f"world model unavailable for the chat prompt: {_e}")
+
     blocks = [b for b in (
+        _ctx.Block("ARIA'S WORLD MODEL", world_ctx, priority=85, order=0),
         _ctx.Block("LIVE MARKET STATE", ctx, priority=80, order=1),
         _ctx.Block("ON-DEMAND TICKER DATA", ondemand_ctx, priority=90, order=2),
         _ctx.Block("OWNER'S VAULT NOTES", vault_ctx, priority=60, order=3),
@@ -1724,31 +2025,98 @@ def _ollama_models() -> list:
     except Exception:
         return []
 
+def _source_age(filename: str, kind: str) -> tuple:
+    """(label, stale) for one data file, against the SAME freshness budgets the
+    world model uses. Two staleness policies would eventually disagree, and the
+    one nobody is looking at would be the one feeding the chat."""
+    path = ROOT / "data" / filename
+    if not path.exists():
+        return ("MISSING", True)
+    try:
+        from src.core.world import STALE_AFTER_HOURS
+        limit = STALE_AFTER_HOURS.get(kind, 24)
+    except Exception:
+        limit = 24
+    age_h = (time.time() - path.stat().st_mtime) / 3600
+    stale = age_h > limit
+    if age_h < 36:
+        age = f"{age_h:.0f}h old"
+    else:
+        age = f"{age_h / 24:.0f} days old"
+    return (f"{age}, STALE" if stale else age, stale)
+
+
 def _build_market_context() -> str:
+    """The market block handed to the local model.
+
+    EVERY LINE IS DATED, and that is the whole point of this function.
+
+    It used to open with "LIVE MARKET STATE" and then list, undated and
+    unattributed, an ML section read from a file that had not moved in 102
+    days. Asked about NVDA, the model reported it as "currently in the ML
+    Bullish list", took the score and confidence from the ADJACENT signals
+    table — which belonged to a corn futures contract — and recommended Buy.
+    NVDA's actual current signal was Neutral, confidence Low, risk Very High.
+
+    Two defects produced that, and both are fixed here rather than in the
+    model: nothing said how old each source was, and nothing said which table
+    a number came from. A heading that asserts LIVE over stale rows is not a
+    formatting problem; it is the interface lying on the data's behalf.
+    """
     signals  = _load_optional("signals.json")
     macro    = _load_optional("macro_data.json")
     ml       = _load_optional("ml_predictions.json")
     report   = _load_optional("daily_report.json")
+
+    sig_age, sig_stale = _source_age("signals.json", "signals")
+    mac_age, _         = _source_age("macro_data.json", "macro")
+    ml_age, ml_stale   = _source_age("ml_predictions.json", "ml")
+
     scores   = list(signals.values())
     top_bull = sorted(scores, key=lambda x: x.get("composite_score", 0), reverse=True)[:6]
     top_bear = sorted(scores, key=lambda x: x.get("composite_score", 0))[:6]
     ml_bull  = [t for t, p in ml.items() if p.get("overall_signal") == "Bullish"][:5]
     ml_bear  = [t for t, p in ml.items() if p.get("overall_signal") == "Bearish"][:5]
+
     def _fmt(s):
-        return f"  {s.get('ticker','?')}: score {s.get('composite_score',0):+.1f}  action={s.get('action','?')}  conf={s.get('confidence','?')}"
-    return f"""── LIVE MARKET STATE ──────────────────────────────────
-Regime     : {macro.get('regime', 'Unknown')}
-Macro Score: {macro.get('macro_score', 0):.1f}
-VIX        : {macro.get('vix', 'N/A')}
-DXY        : {macro.get('dxy', 'N/A')}
-10Y Yield  : {macro.get('treasury_10y', 'N/A')}
-Assets     : {len(signals)} analyzed  |  Bullish {sum(1 for s in scores if s.get('composite_score',0)>10)}  Bearish {sum(1 for s in scores if s.get('composite_score',0)<-10)}
+        return (f"  {s.get('ticker','?')}: composite {s.get('composite_score',0):+.1f}"
+                f"  action={s.get('action','?')}  conf={s.get('confidence','?')}")
+
+    # A stale model view is not a current view, and must not be offered as a
+    # list of tickers with no qualifier attached — that is the shape the model
+    # copied last time.
+    if ml_stale:
+        ml_block = (
+            f"ML MODEL VIEW — {ml_age}. DO NOT PRESENT AS CURRENT.\n"
+            f"  These are the last full pipeline run's predictions and may be\n"
+            f"  months out of date. If asked about them, say how old they are.\n"
+            f"  Then bullish: {', '.join(ml_bull) or 'none'}\n"
+            f"  Then bearish: {', '.join(ml_bear) or 'none'}")
+    else:
+        ml_block = (f"ML MODEL VIEW ({ml_age})\n"
+                    f"  Bullish: {', '.join(ml_bull) or 'none'}\n"
+                    f"  Bearish: {', '.join(ml_bear) or 'none'}")
+
+    return f"""── MARKET STATE ───────────────────────────────────────
+Each section is dated. Sources differ in age and in what they measure — never
+take a number from one section and attach it to a ticker from another.
+
+MACRO ({mac_age})
+  Regime     : {macro.get('regime', 'Unknown')}
+  Macro Score: {macro.get('macro_score', 0):.1f}
+  VIX        : {macro.get('vix', 'N/A')}
+  DXY        : {macro.get('dxy', 'N/A')}
+  10Y Yield  : {macro.get('treasury_10y', 'N/A')}
+
+SIGNALS ({sig_age}) — composite score, {len(signals)} assets analysed
+  Bullish {sum(1 for s in scores if s.get('composite_score',0)>10)}  Bearish {sum(1 for s in scores if s.get('composite_score',0)<-10)}
 Top BULLISH:
 {chr(10).join(_fmt(s) for s in top_bull)}
 Top BEARISH:
 {chr(10).join(_fmt(s) for s in top_bear)}
-ML Bullish : {', '.join(ml_bull) or 'none'}
-ML Bearish : {', '.join(ml_bear) or 'none'}
+
+{ml_block}
+
 Summary    : {report.get('summary', 'N/A')}
 ──────────────────────────────────────────────────────"""
 
@@ -2050,10 +2418,25 @@ def generate_training_data(background_tasks: BackgroundTasks):
 
 @app.post("/api/brain/pull-model", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def pull_model(model: str = "llama3.1:8b"):
-    """Pull a model from Ollama registry (runs in background)."""
+    """Pull a model from Ollama registry (runs in background).
+
+    The name is validated before it becomes an argv element. There is no shell
+    here, so this was never a command-injection hole — but an unvalidated string
+    in argv is still ARGUMENT injection: a `model` of `--verbose` or
+    `--help` is read by ollama as a flag rather than a name. Owner-only, so the
+    blast radius is small; the check is one line, so the argument for leaving it
+    open is smaller still.
+    """
+    import re as _re
     import subprocess as sp
-    sp.Popen(["ollama", "pull", model], stdout=sp.DEVNULL, stderr=sp.DEVNULL)
-    return {"status": "pulling", "model": model, "message": f"Pulling {model} in background. Check /api/brain/status for available models."}
+    name = (model or "").strip()
+    if not _re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}", name):
+        raise HTTPException(
+            status_code=400,
+            detail=("model must look like a model name — letters, digits and "
+                    "'. _ : / -', not starting with a dash"))
+    sp.Popen(["ollama", "pull", name], stdout=sp.DEVNULL, stderr=sp.DEVNULL)
+    return {"status": "pulling", "model": name, "message": f"Pulling {name} in background. Check /api/brain/status for available models."}
 
 
 # ===========================================================================
@@ -2321,19 +2704,32 @@ def fx_rates(base: str = "USD"):
 
 
 @app.get("/api/universe/currencies", tags=["Universe"])
-def universe_currencies(symbols: str):
+def universe_currencies(symbols: str, namespace: str = "signals"):
     """Native quote currency for each symbol — what a price is actually
     denominated in before any conversion.
 
     Returns "GBp" for London equities, which quote in PENCE, not pounds.
     Callers must divide by 100 before treating it as GBP; the frontend's
     currency helper does this for you. A null means the currency could not be
-    established, and such a value must be displayed unconverted."""
+    established, and such a value must be displayed unconverted.
+
+    NAMESPACE — this parameter is the fix for
+    defect:bare-ticker-identity-collision-2026-08, and it is not optional
+    detail. A bare ticker has no namespace-free meaning:
+
+        namespace=signals (default)   BA is the PROVIDER symbol -> Boeing, USD
+        namespace=master              BA is a DISPLAY symbol   -> BA.L, GBp
+
+    Both readings are correct in their own namespace. This endpoint used to
+    give only the second one, to callers who were rendering the first, so a
+    $214 Boeing price was converted as 214 pence and displayed at $2.92.
+    Signals and quotes are keyed by provider symbol, so that is the default."""
     from src.data.currency import currencies_for
     syms = [s.strip() for s in (symbols or "").split(",") if s.strip()]
     if not syms:
         raise HTTPException(status_code=400, detail="no symbols supplied")
-    return _sanitize({"count": len(syms), "currencies": currencies_for(syms[:400])})
+    return _sanitize({"count": len(syms), "namespace": namespace,
+                      "currencies": currencies_for(syms[:400], namespace)})
 
 
 @app.get("/api/universe/news/{symbol}", tags=["Universe"])
@@ -3369,6 +3765,371 @@ def research_eye_attend_portfolio():
 
 
 # ===========================================================================
+# THE SPINE — src/core surfaced over HTTP.
+#
+# These are additive: no existing route changed, and every one of them reads
+# from a module that computes its answer from real subsystem state. There is
+# deliberately no endpoint here that fabricates activity, and none that can
+# place or approve an order.
+#
+# Access: the world model aggregates portfolio equity, open positions and the
+# owner's track record, so it is owner-only for the same reason /api/portfolio
+# is. /api/system/health is the one public route — a coarse "is ARIA actually
+# working" that gives away no holdings.
+# ===========================================================================
+
+@app.get("/api/aria/world", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def aria_world():
+    """What ARIA currently believes about the world — §20.
+
+    Every block carries `as_of` and `stale`, and `unknowns` lists what ARIA
+    cannot presently see. That list is the point: this system already shipped a
+    command deck rendering a three-month-old VIX under the heading LIVE MARKET
+    STATE, because no value carried its own age.
+    """
+    from src.core import world
+    return _sanitize(world.snapshot())
+
+
+@app.get("/api/aria/world/changes", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def aria_world_changes(hours: int = 24):
+    """What moved in ARIA's worldview over the window. Field-level, not prose."""
+    from src.core import world
+    return _sanitize(world.changes(hours=max(1, min(hours, 720))))
+
+
+@app.get("/api/aria/brief", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def aria_brief():
+    """The worldview as one paragraph — the text injected into chat context."""
+    from src.core import world
+    return {"brief": world.brief()}
+
+
+@app.get("/api/aria/activity", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def aria_activity(limit: int = 60, kinds: str = "", subject: str = "",
+                  min_severity: str = ""):
+    """The activity stream — §27.
+
+    Real events only. A line appears here because a subsystem published one,
+    which means the feed cannot drift into theatre: there is no code path that
+    writes to it other than something having happened.
+    """
+    from src.core import bus
+    kind_list = [k.strip() for k in kinds.split(",") if k.strip()] or None
+    return _sanitize({
+        "events": bus.recent(limit=limit, kinds=kind_list,
+                             subject=subject or None,
+                             min_severity=min_severity or None),
+        "counts_24h": bus.counts_since(24),
+        "vocabulary": sorted(bus.KINDS),
+    })
+
+
+@app.get("/api/aria/workers", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def aria_workers():
+    """Every continuous process: state, last run, next expected, last error."""
+    from src.core import workers
+    return _sanitize(workers.status())
+
+
+@app.get("/api/system/health", tags=["ARIA Core"])
+def aria_system_health():
+    """Coarse health for any signed-in user — no holdings, no tickers, no record.
+
+    Answers "is ARIA actually working right now" for the status dot in the
+    rail, which previously reported `status == "ok"` from an endpoint that
+    could not fail: it told you the web server was up, never whether anything
+    behind it was still running.
+    """
+    out = {"api": "ok", "at": datetime.now().isoformat(timespec="seconds")}
+    try:
+        from src.core import workers
+        st = workers.status()
+        out["workers"] = {"counts": st.get("counts", {}),
+                          "healthy": st.get("healthy"),
+                          "degraded": [d["label"] for d in st.get("degraded", [])]}
+    except Exception as e:
+        out["workers"] = {"error": str(e)}
+    try:
+        from src.core import bus
+        out["activity_24h"] = bus.counts_since(24).get("total", 0)
+    except Exception:
+        out["activity_24h"] = None
+    return _sanitize(out)
+
+
+@app.get("/api/ledger/predictions", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def ledger_predictions(limit: int = 200, source: str = "", subject: str = "",
+                       resolved: Optional[bool] = None):
+    """The prediction record — every falsifiable claim ARIA has made."""
+    from src.core import ledger
+    return _sanitize({
+        "predictions": ledger.predictions(limit=limit, source=source or None,
+                                          subject=subject or None, resolved=resolved),
+        "stats": ledger.stats(),
+    })
+
+
+@app.get("/api/ledger/decisions", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def ledger_decisions(limit: int = 200, kind: str = "", status: str = ""):
+    """Every decision taken — proposed, approved, rejected, executed."""
+    from src.core import ledger
+    return _sanitize({"decisions": ledger.decisions(limit=limit, kind=kind or None,
+                                                    status=status or None)})
+
+
+@app.get("/api/ledger/calibration", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def ledger_calibration():
+    """Stated probability versus realised frequency — §32.
+
+    Refuses to draw a curve through too few points and says why, rather than
+    returning a shape that reads as evidence.
+    """
+    from src.core import ledger
+    return _sanitize({"calibration": ledger.calibration(), "stats": ledger.stats()})
+
+
+@app.get("/api/ledger/investigate", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def ledger_investigate(source: str = "", pool: bool = False):
+    """The rigorous calibration diagnostic — Phase 18.
+
+    Differs from /api/ledger/calibration in three ways that matter: it counts
+    DISTINCT EVENTS rather than ledger rows, it keeps traded and non-traded
+    populations apart, and it attaches a Wilson interval to every rate. The
+    first pass over this data reported "confidence is inverted, skill -0.222";
+    on independent events with populations separated, the honest answer is that
+    the sample cannot yet tell.
+
+    `pool=true` merges the populations. It exists because sometimes you do want
+    the pooled number, and it has to be asked for — merging them by accident is
+    what produced the wrong conclusion.
+    """
+    from src.core import calibration
+    return _sanitize(calibration.investigate(source=source or None,
+                                             pool_populations=bool(pool)))
+
+
+@app.get("/api/ledger/attribution", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def ledger_attribution(source: str = ""):
+    """WHY predictions were right or wrong — Phase 16.
+
+    Splits every resolved event four ways: decisive hit, noise hit, noise miss,
+    decisive miss. A wrong 1-day call where price moved 0.04% and one where it
+    moved 8% against the thesis are not the same failure, and grading them
+    identically is most of why short-horizon hit rates carry so little
+    information.
+    """
+    from src.core import attribution
+    return _sanitize(attribution.decompose(source=source or None))
+
+
+@app.get("/api/ledger/explain/{prediction_id}", tags=["ARIA Core"],
+         dependencies=[Depends(require_owner)])
+def ledger_explain(prediction_id: str):
+    """Attribution for one prediction — the 'why did this fail?' question."""
+    from src.core import attribution
+    out = attribution.explain(prediction_id)
+    if out.get("error"):
+        raise HTTPException(status_code=404, detail=out["error"])
+    return _sanitize(out)
+
+
+@app.post("/api/ledger/ingest", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def ledger_ingest():
+    """Re-import measured outcomes from every subsystem. Deduplicated, so safe
+    to call repeatedly."""
+    from src.core import ingest
+    return _sanitize(ingest.ingest_all())
+
+
+@app.post("/api/ledger/resolve", tags=["ARIA Core"], dependencies=[Depends(require_owner)])
+def ledger_resolve(limit: int = 80):
+    """Grade everything whose horizon has elapsed. The scheduled loop does this
+    every half hour; this is the manual nudge."""
+    from src.core import ledger
+    return _sanitize(ledger.resolve_due(limit=max(1, min(limit, 400))))
+
+
+# ===========================================================================
+# THE CANONICAL SURFACE
+#
+# One route, one purpose. These are what the interface reads, and they exist so
+# the frontend stops assembling ARIA out of a dozen independently-fetched
+# panels — the habit that let "ARIA", "Live Mind" and "Cognitive Brain" drift
+# into looking like three different intelligences on one screen.
+#
+# Everything here AGGREGATES existing subsystems. Nothing below computes a new
+# claim about the market: a second place that decides the regime is a second
+# regime, and the whole point is that there is one.
+#
+# Nothing was removed to add these. The older endpoints they compose still
+# answer exactly as before.
+# ===========================================================================
+
+@app.get("/api/brain", tags=["Brain"], dependencies=[Depends(require_owner)])
+def brain_state(world: bool = True):
+    """THE brain. One status, one regime, one memory, one reasoning loop.
+
+    Owner-only for the same reason /api/brain/pulse is not: this composes the
+    world model and the vault-backed cognition summary, and both are personal.
+    Anyone signed in without owner rights still gets /api/brain/pulse.
+    """
+    from src.brain.aggregate import state
+    return _sanitize(state(include_world=world))
+
+
+@app.get("/api/brain/activity", tags=["Brain"], dependencies=[Depends(require_owner)])
+def brain_activity(limit: int = 60):
+    """The live cognition stream — ACTIVITY, not chain-of-thought.
+
+    Each row says what ARIA was doing and what it concluded. The model's own
+    intermediate narration is deliberately not returned: a user is entitled to
+    know the system is weighing risk without being handed the tokens it used to
+    do so. `src/brain/aggregate.phase_activity()` is the single place that
+    boundary is drawn.
+    """
+    from src.brain.aggregate import state
+    from src.core import bus
+    brain = state(include_world=False)
+    events = []
+    try:
+        events = bus.recent(limit=max(1, min(limit, 200)))
+    except Exception as e:
+        logger.debug(f"brain activity: bus unavailable: {e}")
+    return _sanitize({
+        "status": brain["status"],
+        "status_reason": brain["status_reason"],
+        "cognition": brain["cognition"],
+        "events": events,
+    })
+
+
+@app.get("/api/brain/memory", tags=["Brain"], dependencies=[Depends(require_owner)])
+def brain_memory(q: str = "", limit: int = 20):
+    """Memory, searchable from the Brain. Semantic when a query is given.
+
+    This is the Memory Browser, absorbed. It was a separate destination; it is
+    a capability of one mind.
+    """
+    from src.brain.brain_daemon import peek_brain
+    out = {"query": q, "memories": [], "count": None, "available": False}
+    try:
+        b = peek_brain()
+        if b is None:
+            out["note"] = ("the reasoning loop is not running, so its memory "
+                           "store is not attached")
+            return _sanitize(out)
+        out["available"] = True
+        out["count"] = (b.status() or {}).get("memory_count")
+        if q.strip() and hasattr(b, "recall"):
+            out["memories"] = b.recall(q, n=max(1, min(limit, 50))) or []
+        elif hasattr(b, "recent_memories"):
+            out["memories"] = b.recent_memories(n=max(1, min(limit, 50))) or []
+    except Exception as e:
+        out["error"] = str(e)
+    return _sanitize(out)
+
+
+@app.get("/api/world", tags=["Brain"], dependencies=[Depends(require_owner)])
+def world_state():
+    """ARIA's world model. The canonical path; /api/aria/world still answers."""
+    from src.core import world
+    return _sanitize(world.snapshot())
+
+
+@app.get("/api/regime", tags=["Macro"], dependencies=[Depends(require_owner)])
+def market_regime():
+    """The market regime WITH its evidence, its coverage and its caveats.
+
+    Owner-only, and the guard is written out rather than left implicit. The
+    role middleware is an allowlist, so omitting it here would ALSO have been
+    owner-only — but silently, and a reader seeing no guard would reasonably
+    conclude the route was public. Two mechanisms that agree by accident are
+    one mechanism plus a trap.
+
+    The classifier is real — a growth/inflation quadrant over CPI, the 10Y-2Y
+    spread, VIX and unemployment — and it moves when those move. What it could
+    not previously do is say how much of its answer it actually knew: every
+    missing input fell back to a default on the benign side of its own
+    threshold, so an empty snapshot classified as Expansion with no hint that
+    nothing had been measured. `confidence` here is INPUT COVERAGE, never
+    conviction.
+    """
+    from src.macro import regime
+    return _sanitize(regime.current())
+
+
+@app.get("/api/news/live", tags=["Research"], dependencies=[Depends(require_owner)])
+def news_live(since: Optional[str] = None, hours: float = 6.0, limit: int = 40):
+    """New observations since `since` — the continuous feed.
+
+    This is NOT the daily report and must not become it: it is event-driven and
+    returns nothing when nothing happened. `next_since` advances the caller's
+    cursor. An empty `items` is the ordinary answer, not a gap to fill.
+
+    Reads the SAME observation store the daily report reads. There is one event
+    store; these are two windows onto it.
+    """
+    from src.research import live_news
+    return _sanitize(live_news.stream(
+        since=since, hours=max(0.1, min(hours, 168.0)),
+        limit=max(1, min(limit, 200))))
+
+
+@app.get("/api/news/sources", tags=["Research"], dependencies=[Depends(require_owner)])
+def news_sources(hours: int = 24):
+    """Which sources are actually feeding the feed, by evidence tier.
+
+    A stream dominated by aggregators is a different thing from one carrying
+    regulatory filings, and the reader is entitled to know which they have.
+    """
+    from src.research import live_news
+    return _sanitize(live_news.sources_seen(hours=max(1, min(hours, 720))))
+
+
+@app.get("/api/daily-report", tags=["Reports"], dependencies=[Depends(require_owner)])
+def daily_report(date: Optional[str] = None):
+    """One day's report, identified BY DATE.
+
+    Returns `status: NOT_GENERATED` when that day has no report. It never falls
+    back to the most recent one: showing yesterday's conclusions under today's
+    date is the failure the dated store exists to make impossible. The most
+    recent available date is offered as a link, not as a substitute.
+    """
+    from src.report import daily
+    try:
+        return _sanitize(daily.get(date))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/daily-report/history", tags=["Reports"],
+         dependencies=[Depends(require_owner)])
+def daily_report_history(limit: int = 60):
+    """Every stored report, newest first. Reports are never overwritten."""
+    from src.report import daily
+    return _sanitize({"reports": daily.history(limit=max(1, min(limit, 400)))})
+
+
+@app.post("/api/daily-report/generate", tags=["Reports"],
+          dependencies=[Depends(require_owner)])
+def daily_report_generate(date: Optional[str] = None, supersede: bool = False):
+    """Build and store a report. Refuses to overwrite an existing date.
+
+    `supersede=true` replaces one, and archives the previous version beside it
+    rather than destroying it — a daily record whose history can be silently
+    rewritten is not a record.
+    """
+    from src.report import daily
+    try:
+        return _sanitize(daily.generate(date, supersede=supersede))
+    except FileExistsError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# ===========================================================================
 # THE SENTINEL BRIDGE
 #
 # SENTINEL is a SEPARATE general intelligence in its own process, with its own
@@ -3534,9 +4295,42 @@ async def _recheck_route_guards():
 # ===========================================================================
 try:
     from fastapi.staticfiles import StaticFiles
+    from starlette.exceptions import HTTPException as _StarletteHTTPException
+
+    class _SPAStatics(StaticFiles):
+        """Serve the built app, falling back to index.html for unknown paths.
+
+        WHY: the frontend is a single-page app. React Router owns /market,
+        /system, /track-record and roughly twenty redirect routes that keep old
+        bookmarks alive. Plain StaticFiles only knows about files on disk, so
+        every one of those paths answered 404 in the built deployment — only
+        `/app/` itself loaded, and it worked afterwards purely because
+        navigation inside the loaded page never touches the server again.
+
+        The effect was that deep links were broken everywhere the app is
+        actually deployed (the Mac mini serves the build; the Vite dev server
+        has its own fallback and hid this). Bookmarking a page, refreshing on
+        one, or following any redirect route: all 404.
+
+        Only 404s fall through, so a genuinely missing asset still 404s rather
+        than silently returning HTML — a JS file that resolves to index.html is
+        a much harder bug to read than a missing one.
+        """
+
+        async def get_response(self, path, scope):
+            try:
+                return await super().get_response(path, scope)
+            except _StarletteHTTPException as exc:
+                if exc.status_code != 404:
+                    raise
+                # Never mask a missing asset as the app shell.
+                if "." in path.rsplit("/", 1)[-1]:
+                    raise
+                return await super().get_response("index.html", scope)
+
     _dist = ROOT / "frontend" / "dist"
     if _dist.exists():
-        app.mount("/app", StaticFiles(directory=str(_dist), html=True), name="app")
+        app.mount("/app", _SPAStatics(directory=str(_dist), html=True), name="app")
         logger.info(f"Serving built frontend at /app from {_dist}")
 except Exception as _e:
     logger.warning(f"static frontend mount skipped: {_e}")

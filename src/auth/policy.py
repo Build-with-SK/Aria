@@ -88,6 +88,11 @@ FREE_PREFIXES: tuple[str, ...] = (
     # /api/brain/memories, /recall and /last-cycle stay owner-only and every
     # POST under /api/brain stays owner-only with them.
     "/api/brain/pulse",
+    # Coarse system health: worker states and a 24h event count. No holdings,
+    # no tickers, no track record — it answers "is ARIA actually working", which
+    # is the honest version of the status dot in the rail. Deliberately NOT in
+    # PUBLIC_PREFIXES: the anonymous surface stays exactly as small as it was.
+    "/api/system/health",
 )
 
 # Named so the reason survives someone reading the list in a hurry.

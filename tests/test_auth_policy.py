@@ -5,6 +5,7 @@ These tests are deliberately blunt about the three things that are never a
 tier. If one of them ever starts passing for a free user, that is a disclosure
 of the owner's notes, positions or broker — not a failing assertion.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -125,3 +126,122 @@ def test_only_owner_reads_the_vault():
     assert policy.can_read_vault(policy.FREE) is False
     for junk in ("", None, "admin", "OWNER", "owner "):
         assert policy.can_read_vault(junk) is False, junk
+
+
+# ── every route the app actually exposes, checked against the allowlist ─────
+#
+# The tests above check a hand-written list of paths, which protects the paths
+# somebody remembered to add. This one enumerates the ROUTER, so a new endpoint
+# is covered the moment it is registered — including one added by a future
+# session that never reads this file.
+
+def _app_routes():
+    import backend.main as m
+    out = []
+    for r in m.app.routes:
+        path = getattr(r, "path", "")
+        if not path.startswith("/api/"):
+            continue
+        # Path params never match a literal prefix; substitute something inert.
+        concrete = re.sub(r"\{[^}]+\}", "X", path)
+        out.append((path, concrete, r))
+    return out
+
+
+def _is_owner_guarded(route) -> bool:
+    names = {getattr(getattr(d, "call", None), "__name__", "")
+             for d in getattr(getattr(route, "dependant", None), "dependencies", [])}
+    return "require_owner" in names
+
+
+def test_the_only_anon_reachable_api_is_the_sign_in_flow():
+    """Anon must reach the login endpoints and nothing else.
+
+    `/api/auth/` has to be open or nobody could ever sign in — you cannot put
+    the door behind the lock. So the allowlist opens the whole prefix, and the
+    sensitive routes INSIDE it are protected at the route level instead. Both
+    halves of that arrangement are asserted here, because the prefix on its own
+    would happily expose the user list.
+    """
+    anon_reachable = [(p, r) for p, concrete, r in _app_routes()
+                      if policy.is_allowed(concrete, policy.ANON)]
+    stray = [p for p, _ in anon_reachable if not p.startswith("/api/auth/")]
+    assert not stray, f"anonymous callers can reach {stray}"
+
+    # Of the auth routes, only the sign-in flow itself may be unguarded.
+    sign_in_flow = {"/api/auth/providers", "/api/auth/me", "/api/auth/logout",
+                    "/api/auth/login/{provider}", "/api/auth/callback/{provider}"}
+    for path, route in anon_reachable:
+        if path in sign_in_flow:
+            continue
+        assert _is_owner_guarded(route), (
+            f"{path} sits under the open /api/auth/ prefix and carries no "
+            f"require_owner — the prefix is the door, not the lock")
+
+
+def test_the_user_record_is_owner_only_despite_the_open_auth_prefix():
+    """Named explicitly because it is the one that would hurt: the user list is
+    personal data, and it lives under the prefix that has to stay open."""
+    import backend.main as m
+    for path in ("/api/auth/users", "/api/auth/users/{key:path}"):
+        routes = [r for r in m.app.routes if getattr(r, "path", "") == path]
+        assert routes, f"{path} is no longer registered"
+        for r in routes:
+            assert _is_owner_guarded(r), f"{path} lost its owner guard"
+
+
+def test_every_free_reachable_endpoint_is_deliberately_public():
+    """A route becoming free-readable must be a decision, not a side effect.
+
+    This list is the record of that decision. Adding an endpoint under an
+    existing FREE prefix silently widens public access — which is exactly how
+    an API ends up exposing something it did not mean to — so the new path has
+    to be named here before the suite goes green again.
+    """
+    deliberately_public = {
+        "/api/v5/", "/api/universe/", "/api/quote/", "/api/technical/",
+        "/api/signals", "/api/macro", "/api/futures", "/api/options",
+        "/api/derivatives", "/api/sentiment", "/api/history", "/api/lse",
+        "/api/nexus", "/api/quant/", "/api/backtest", "/api/ml",
+        "/api/summary", "/api/chat/local", "/api/brain/pulse",
+        "/api/system/health", "/api/auth/",
+    }
+    surprises = []
+    for path, concrete, _ in _app_routes():
+        if not policy.is_allowed(concrete, policy.FREE):
+            continue
+        if not any(path.startswith(p) for p in deliberately_public):
+            surprises.append(path)
+    assert not surprises, (
+        f"these endpoints are readable by any signed-in user and are not on "
+        f"the deliberate list: {surprises}")
+
+
+def test_the_owners_private_surfaces_are_owner_only():
+    """Vault, portfolio, execution, ledger and brain internals are not a tier.
+
+    A misconfigured quota is an annoyance. A misconfigured vault flag publishes
+    somebody's personal notes.
+    """
+    private = ("/api/vault/", "/api/portfolio", "/api/execute/", "/api/desk/",
+               "/api/ledger/", "/api/aria/", "/api/brain/memory",
+               "/api/brain/memories", "/api/brain/recall",
+               "/api/brain/last-cycle", "/api/daily-report", "/api/world",
+               "/api/news/", "/api/research/")
+    for path, concrete, _ in _app_routes():
+        if not any(path.startswith(p) for p in private):
+            continue
+        for role in (policy.ANON, policy.FREE):
+            assert policy.is_allowed(concrete, role) is False, (
+                f"{path} is reachable by {role}")
+
+
+def test_the_brain_aggregate_never_leaks_below_owner():
+    """/api/brain/pulse is deliberately public; /api/brain is not.
+
+    They differ by everything that matters — the aggregate carries the world
+    model, memory counts and the vault-backed cognition summary.
+    """
+    assert policy.is_allowed("/api/brain/pulse", policy.FREE) is True
+    for path in ("/api/brain", "/api/brain/activity", "/api/brain/memory"):
+        assert policy.is_allowed(path, policy.FREE) is False, path

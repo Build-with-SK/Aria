@@ -31,6 +31,24 @@ except ImportError:
     _POLITICAL_AVAILABLE = False
 
 # ── Logging ───────────────────────────────────────────────────────────────────
+# stdout is forced to UTF-8 before any handler is attached.
+#
+# The FileHandler below already asks for utf-8; the StreamHandler inherits
+# whatever encoding stdout happens to have, which on Windows is the ANSI
+# codepage (cp1252) whenever output is redirected to a file. Every log line
+# containing a non-Latin-1 character — the pipeline uses "✗" for a failed
+# download — then raised UnicodeEncodeError inside the logging handler and
+# printed a five-line traceback instead of the message.
+#
+# It never broke the run, which is why it survived: the pipeline completed
+# while its own log became unreadable. `errors="replace"` is belt and braces so
+# a stray character degrades to "?" rather than to a traceback.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except (AttributeError, OSError):        # pragma: no cover — pythonw has no streams
+    pass
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -358,12 +376,100 @@ def run_sentiment(tickers: list, config: dict) -> dict:
 
 
 # ── ML models ─────────────────────────────────────────────────────────────────
+def _ml_to_json(results: dict) -> dict:
+    """Serialise {ticker: {horizon: EnsembleResult}} to the ml_predictions.json
+    contract that five backend readers and the brain's perception layer expect.
+
+    The contract is `{ticker: {ticker, horizons: {h: {...}}, overall_bullish,
+    overall_signal, models_trained, warning}}`, and it predates the current
+    trainer: it was written by `prediction_engine.predictions_to_json()` for an
+    older `AssetPrediction` shape. `ModelTrainer.train_and_predict_all()`
+    returns `EnsembleResult` objects instead, so this maps one to the other
+    rather than changing the file's shape — every consumer already reads it,
+    and a new shape would break them all at once.
+
+    `bullish_prob` is the regime-adjusted probability where the trainer supplies
+    one, because that is the number the ensemble actually stands behind.
+    """
+    out = {}
+    for ticker, horizons in (results or {}).items():
+        h_out, probs = {}, []
+        for h, r in (horizons or {}).items():
+            if r is None:
+                continue
+            try:
+                p_up = float(getattr(r, "regime_adjusted_prob", None)
+                             or getattr(r, "probability_up", 0.5))
+                conf = float(getattr(r, "confidence", 0.0) or 0.0)
+                h_out[str(h)] = {
+                    "horizon_days": int(getattr(r, "horizon", h) or h),
+                    "bullish_prob": round(p_up, 4),
+                    "bearish_prob": round(1.0 - p_up, 4),
+                    "direction": ("Bullish" if p_up > 0.5 else
+                                  "Bearish" if p_up < 0.5 else "Neutral"),
+                    # The trainer reports confidence 0-100; the file's readers
+                    # expect the same words the old engine used.
+                    "confidence": ("High" if conf >= 60 else
+                                   "Moderate" if conf >= 30 else "Low"),
+                    "confidence_score": round(conf, 1),
+                    "model_agreement": round(float(
+                        getattr(r, "cv_mean_score", 0.0) or 0.0), 4),
+                    "per_model_probs": {
+                        k: round(float(v), 4) for k, v in
+                        (getattr(r, "base_learner_probs", {}) or {}).items()},
+                    "regime": getattr(r, "regime", None),
+                    "model_version": getattr(r, "model_version", None),
+                }
+                probs.append(p_up)
+            except Exception as e:              # one bad horizon is not fatal
+                logger.debug(f"ml serialise: {ticker} h={h}: {e}")
+        if not h_out:
+            continue
+        mean_p = sum(probs) / len(probs)
+        out[ticker] = {
+            "ticker": ticker,
+            "horizons": h_out,
+            "overall_bullish": round(mean_p, 4),
+            "overall_signal": ("Bullish" if mean_p > 0.55 else
+                               "Bearish" if mean_p < 0.45 else "Neutral"),
+            "models_trained": len(h_out),
+            "warning": None,
+        }
+    return out
+
+
 def run_ml(featured_data: Dict[str, pd.DataFrame], config: dict) -> dict:
     try:
         from src.models.model_trainer import ModelTrainer
         trainer = ModelTrainer(config)
         results = trainer.train_and_predict_all(featured_data)
         logger.info(f"ML models trained for {len(results)} tickers.")
+
+        # PERSIST. This was missing, and the omission was expensive: a full run
+        # trains ~1,500 models over several hours, logged every prediction to
+        # the console, and then dropped all of it on the floor. The only writer
+        # of data/ml_predictions.json was main_phase4_backup.py, so the live
+        # file had not moved since 2026-05-31 while /api/ml, the chat context,
+        # the summary endpoint and the brain's perception layer all read it as
+        # current.
+        try:
+            payload = _ml_to_json(results)
+            if payload:
+                path = Path("data/ml_predictions.json")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(payload, indent=1, default=str),
+                                encoding="utf-8")
+                logger.info(f"TIS: ML predictions written — {len(payload)} "
+                            f"tickers -> data/ml_predictions.json")
+            else:
+                # Do NOT overwrite a good file with an empty one. A run that
+                # produced nothing must leave the last real predictions alone
+                # and say so.
+                logger.warning("TIS: ML produced no serialisable predictions — "
+                               "data/ml_predictions.json left untouched")
+        except Exception as e:
+            logger.error(f"TIS: ML predictions could not be written: {e}")
+
         return results
     except Exception as e:
         logger.warning(f"ML training failed: {e}")
@@ -817,10 +923,23 @@ def export_rich_signals(raw_data, config):
         benchmark = (config.get("system") or {}).get("benchmark", "^GSPC")
         featured = build_all_features(raw_data, config, benchmark_ticker=benchmark)
         signals = build_all_signals(featured, metadata)
+        from src.core.identity import signal_identity
         out = {}
         for ticker, sig in signals.items():
+            # Identity travels WITH the price. A signal key is a provider
+            # symbol — configs/universe.yaml holds exactly the strings handed to
+            # the provider — and stamping that here means no later reader has to
+            # re-derive it from a bare ticker. Re-deriving is what produced
+            # `BA 214.20 USD` priced through London pence at $2.92: the display
+            # row for the ticker `BA` belongs to BAE Systems, and the price did
+            # not. A number that carries its own unit cannot be misread.
+            ident = signal_identity(ticker)
             out[ticker] = {
                 "ticker": sig.ticker, "name": sig.name, "asset_class": sig.asset_class,
+                "provider_symbol": ident.provider_symbol,
+                "venue": ident.exchange,
+                "price_unit": ident.currency,
+                "identity_basis": ident.reason,
                 "current_price": sig.current_price, "composite_score": sig.composite_score,
                 "action": sig.action, "confidence": sig.confidence,
                 "bullish_prob": sig.bullish_prob, "bearish_prob": sig.bearish_prob,
