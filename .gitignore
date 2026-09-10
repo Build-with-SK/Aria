@@ -163,3 +163,7 @@ data/aria.log*
 # reasoning as data/v5/ above. Comparing two of them is a local act; shipping
 # one would be publishing a number that describes somebody else's hardware.
 data/baselines/
+
+# Signed-in accounts. Holds the owner's email, display name and session key —
+# personal data and a credential, in a repository intended to be public.
+data/auth/
