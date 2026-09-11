@@ -362,6 +362,103 @@ Layout encodes priority rather than giving every panel equal weight. On the Brai
 3. **Local first.** Models, memory and data live on your machine. The only outbound calls are the data sources you configure and the optional, budget-capped frontier consult you explicitly enable.
 4. **An unmeasurable quantity is reported as unmeasurable** — never as a number with a wide error bar that readers will treat as fact.
 5. **Deny by default.** Authorization is an allowlist. A new endpoint is unreachable until named.
+6. **One switch stops everything.** See below.
+
+## The kill switch
+
+`src/execution/kill_switch.py` is the emergency stop, and it is deliberately
+the dumbest thing in the execution stack — a file on disk and an environment
+variable, with no dependency on the desk, the brain or any broker. The moment
+you want a kill switch is the moment you have stopped trusting those.
+
+Engaged, it refuses **every new order submission** — entries, exits, brackets,
+the reflex lane, a manually approved trade. Reads and cancellations still
+work, on purpose: "stop trading" must not also mean "and leave the resting
+brackets you can no longer manage". Positions stay observable and
+reconcilable, because flattening a book in a panic is itself a trading
+decision and this file does not make those.
+
+```bash
+# from the environment — cannot be released through the API or the UI
+ARIA_KILL_SWITCH=1
+
+# or over HTTP, as the owner
+curl -X POST -H "Authorization: Bearer $ARIA_OWNER_TOKEN" \
+     -d '{"reason":"why"}' localhost:8000/api/execute/kill-switch/engage
+curl -H "Authorization: Bearer $ARIA_OWNER_TOKEN" \
+     localhost:8000/api/execute/kill-switch
+```
+
+The check lives inside each broker adapter's `submit_order`, below every other
+gate, so a new code path that reaches a broker is covered without having to
+remember this file exists. It fails closed: an unreadable or malformed state
+file engages the switch rather than ignoring it.
+
+## Risk tolerance
+
+`src/risk/profiles.py` defines three profiles — `CONSERVATIVE`, `MODERATE`
+(default), `AGGRESSIVE` — set via `risk_profile` in `data/desk_config.json`.
+
+A profile is not a sentence in a prompt. "Trade more aggressively" is not a
+control: a model can ignore it, misread it, or be talked out of it, and
+nothing downstream can test what it did. Each profile sets numbers the risk
+officer and position sizer already enforce in code:
+
+| | CONSERVATIVE | MODERATE | AGGRESSIVE |
+|---|---|---|---|
+| risk per trade | 0.25% | 0.5% | 1.0% |
+| max position | 2.5% | 5% | 8% |
+| max sector | 15% | 25% | 35% |
+| portfolio heat | 5% | 10% | 15% |
+| drawdown halt | 1% | 2% | 4% |
+| trades/day | 3 | 10 | 20 |
+| conviction bar | 75 | 65 | 58 |
+| gross exposure | 50% | 100% | 100% |
+
+Every profile is passed through `HARD_LIMITS` before it is returned. A profile
+may sit below the platform ceiling and never above it — edit `AGGRESSIVE` to
+allow a 40% position and `clamp()` still returns 10%. Choosing a risk
+tolerance chooses where you sit underneath the limits, never whether they
+apply. No profile permits margin.
+
+## Market support
+
+A market counts as supported only where the whole chain exists — identity,
+data, normalisation, signal, risk model, order model, execution adapter,
+reconciliation. Analysis alone is not support.
+
+| Market | Data | Research | Paper execution | Live |
+|---|---|---|---|---|
+| US equities | yes | yes | yes (Alpaca) | not enabled |
+| UK equities (LSE) | yes | yes | no | not enabled |
+| Crypto (spot) | yes | yes | yes (Alpaca) | not enabled |
+| Options | yes | yes | no | no |
+| Futures | yes | yes | no | no |
+| Commodities | yes | yes | no | no |
+
+UK equities are fully modelled on the data side — the GBp/GBP minor-unit trap
+is handled in `src/core/identity.py`, which is why a London stock cannot be
+paid a US price — but there is no execution route. Alpaca is US-only, and the
+IBKR adapter builds every stock contract as `Stock(ticker, "SMART", "USD")`,
+so an LSE name would be routed against the wrong currency. Fixing that means
+threading the canonical identity's exchange and currency into the contract
+builder, and until it is done LSE execution is honestly "no".
+
+Options, futures and commodities are **research and data only**. The analysis
+modules are real (`src/options`, `src/derivatives`), but nothing sizes or
+routes a contract: the desk only ever opens equity and crypto, and
+`EXECUTABLE_ASSET_CLASSES` in `src/risk/profiles.py` is the single place that
+says so. An unrecognised asset class on the exit path is refused and queued
+for a human rather than coerced to equity — selling `qty` contracts as if they
+were shares is a contract-multiplier error in the direction of a position
+nobody intended.
+
+**LIVE TRADING: NOT ENABLED — requires broker authorization.** The live path
+is deliberately welded shut by `src/execution/live_guard.py`, and paper mode
+is proven per request rather than assumed. The abstraction is in place for a
+future authorised integration; no customer money is held, custodied or
+represented anywhere in this system, and the balances you see are Alpaca paper
+balances.
 
 ## License
 

@@ -20,6 +20,7 @@ import os
 from datetime import datetime
 from typing import Optional
 
+from . import kill_switch
 from .broker_base import (
     AssetClass, BrokerBase, AccountInfo, OrderRequest, OrderResult,
     OrderSide, OrderStatus, OrderType, Position
@@ -82,9 +83,48 @@ def _to_alpaca_tif(tif: str) -> "TimeInForce":
     return mapping.get(tif.lower(), TimeInForce.DAY)
 
 
-def _parse_status(alpaca_status: str) -> OrderStatus:
+def _status_token(alpaca_status) -> str:
+    """The bare status word, whatever shape alpaca-py hands over.
+
+    `str(order.status)` on an alpaca-py enum returns "OrderStatus.FILLED",
+    not "filled" — so every lookup in the table below missed and fell through
+    to the SUBMITTED default. A live paper fill was found reporting
+    SUBMITTED with filled_qty=1 during runtime verification, which is the
+    visible half of the bug; the dangerous half is that `_await_fill()` waits
+    for FILLED before placing the protective stop and target, so a filled
+    position sat naked while the poll timed out, and a REJECTED order read as
+    still working.
+
+    Accepts the enum, its .value, or either spelling of the string.
+    """
+    if alpaca_status is None:
+        return ""
+    token = getattr(alpaca_status, "value", None) or str(alpaca_status)
+    if "." in token:                      # "OrderStatus.FILLED" → "FILLED"
+        token = token.rsplit(".", 1)[-1]
+    return token.strip().lower()
+
+
+def _parse_status(alpaca_status, filled_qty: float = 0.0) -> OrderStatus:
+    """Map Alpaca's status to ours, letting the fill counter break ties.
+
+    An unknown label is treated as "still working" — never as filled and
+    never as dead, because both of those conclusions make the caller act on
+    a position that may not be what it thinks.
+    """
+    token = _status_token(alpaca_status)
     mapping = {
         "new":              OrderStatus.SUBMITTED,
+        # Alpaca's full pre-fill vocabulary. These all mean "working" and the
+        # default would have said so anyway — they are listed so the warning
+        # above stays meaningful, and only fires on a word we genuinely do
+        # not know. `pending_new` showed up on a real paper sell.
+        "pending_new":      OrderStatus.SUBMITTED,
+        "accepted_for_bidding": OrderStatus.SUBMITTED,
+        "calculated":       OrderStatus.SUBMITTED,
+        "held":             OrderStatus.SUBMITTED,
+        "stopped":          OrderStatus.SUBMITTED,
+        "suspended":        OrderStatus.SUBMITTED,
         "partially_filled": OrderStatus.PARTIAL,
         "filled":           OrderStatus.FILLED,
         "done_for_day":     OrderStatus.EXPIRED,
@@ -96,7 +136,19 @@ def _parse_status(alpaca_status: str) -> OrderStatus:
         "accepted":         OrderStatus.SUBMITTED,
         "rejected":         OrderStatus.REJECTED,
     }
-    return mapping.get(alpaca_status, OrderStatus.SUBMITTED)
+    mapped = mapping.get(token)
+    if mapped is None:
+        if token:
+            logger.warning("Alpaca status %r is not in the known set — "
+                           "treating as still working", token)
+        mapped = OrderStatus.SUBMITTED
+
+    # Cancelled or expired after a part-fill still leaves an open position;
+    # reporting CANCELLED there tells the caller it owns nothing.
+    if filled_qty > 0 and mapped in (OrderStatus.CANCELLED, OrderStatus.EXPIRED,
+                                     OrderStatus.REJECTED):
+        return OrderStatus.PARTIAL
+    return mapped
 
 
 class AlpacaBroker(BrokerBase):
@@ -189,6 +241,15 @@ class AlpacaBroker(BrokerBase):
         return None
 
     def submit_order(self, req: OrderRequest) -> OrderResult:
+        # Below every other gate: nothing reaches Alpaca while the switch is on.
+        if kill_switch.is_engaged():
+            st = kill_switch.status()
+            logger.critical("Alpaca order refused — kill switch engaged (%s)", st.get("source"))
+            return OrderResult(
+                broker_order_id="",
+                status=OrderStatus.REJECTED,
+                error_message=f"KILL SWITCH ENGAGED ({st.get('source')}): {st.get('reason')}",
+            )
         if not self._client:
             return OrderResult(
                 broker_order_id="",
@@ -237,10 +298,11 @@ class AlpacaBroker(BrokerBase):
                 )
 
             order = self._client.submit_order(order_data=order_req)
+            filled = float(order.filled_qty or 0)
             return OrderResult(
                 broker_order_id=str(order.id),
-                status=_parse_status(str(order.status)),
-                filled_qty=float(order.filled_qty or 0),
+                status=_parse_status(order.status, filled),
+                filled_qty=filled,
                 avg_fill_price=float(order.filled_avg_price or 0),
                 submitted_at=datetime.utcnow(),
                 raw={"id": str(order.id), "status": str(order.status)},
@@ -268,10 +330,11 @@ class AlpacaBroker(BrokerBase):
             return OrderResult(broker_order_id=broker_order_id, status=OrderStatus.REJECTED)
         try:
             order = self._client.get_order_by_id(broker_order_id)
+            filled = float(order.filled_qty or 0)
             return OrderResult(
                 broker_order_id=broker_order_id,
-                status=_parse_status(str(order.status)),
-                filled_qty=float(order.filled_qty or 0),
+                status=_parse_status(order.status, filled),
+                filled_qty=filled,
                 avg_fill_price=float(order.filled_avg_price or 0),
                 filled_at=order.filled_at,
             )

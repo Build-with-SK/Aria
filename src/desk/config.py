@@ -27,6 +27,10 @@ DEFAULTS = {
     # ones — because someone ran the desk daemon before reading the safety
     # contract. Turn it on deliberately in data/desk_config.json or the UI.
     "auto_execute": False,
+    # Risk tolerance — see src/risk/profiles.py. The named profile sets the
+    # caps below; anything explicitly set in this file still wins, and the
+    # platform ceiling in HARD_LIMITS wins over both.
+    "risk_profile": "MODERATE",
     "interval_minutes": 30,         # hunt cycle cadence (market-hours aware)
     "management_tick_minutes": 5,   # exit engine / bracket healing tick, 24/7
     "focus_tickers": 4,             # how many names get a full debate per cycle

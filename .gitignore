@@ -57,6 +57,13 @@ data/cache/
 data/raw/
 data/reports/
 data/execution/approval_queue.json
+# The emergency stop is runtime state, not configuration. Committing it would
+# ship one machine's halt to every checkout — or, worse, ship a RELEASED
+# switch over a halt somebody meant to keep.
+data/kill_switch.json
+# sqlite side files — transient, and meaningless without their database
+data/*.db-shm
+data/*.db-wal
 data/desk/
 data/desk_config.json
 data/brain_state.json

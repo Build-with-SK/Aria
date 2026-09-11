@@ -32,6 +32,7 @@ from pathlib import Path
 
 from src.desk.config import load_config, paper_mode_confirmed
 from src.desk.opinion import load_data_json
+from src.risk.profiles import EXECUTABLE_ASSET_CLASSES
 
 logger = logging.getLogger(__name__)
 
@@ -494,6 +495,23 @@ class PositionManager:
             self._queue_manual_exit(ticker, pos, qty, long, reason)
             return {"ticker": ticker, "reason": reason, "mode": "queued (live account)"}
 
+        # An instrument class this desk cannot size is one it must not trade.
+        # The old code coerced anything unrecognised to AssetClass.EQUITY,
+        # which for an option or a future would have sold `qty` as if it were
+        # shares — a 100x error on a contract multiplier, in the direction of
+        # a position nobody intended. Refuse and hand it to a human instead;
+        # the desk only ever opens equity and crypto, so reaching this branch
+        # means the book holds something that did not come from here.
+        held_class = (pos.get("asset_class") or "").strip().lower()
+        if held_class not in EXECUTABLE_ASSET_CLASSES:
+            logger.error(
+                "exit for %s refused — asset_class %r is not executable by this "
+                "desk (supported: %s). Queued for manual review.",
+                ticker, pos.get("asset_class"), ", ".join(EXECUTABLE_ASSET_CLASSES))
+            self._queue_manual_exit(ticker, pos, qty, long, reason)
+            return {"ticker": ticker, "reason": reason,
+                    "mode": f"queued (unsupported asset class {held_class or 'unknown'!r})"}
+
         # Equities only close while the market can actually FILL the order —
         # a market order queued overnight would sit unfilled, the position
         # would be re-adopted next tick, and closes would stack up. Defer.
@@ -522,9 +540,7 @@ class PositionManager:
             qty=qty,
             order_type=OrderType.MARKET,
             time_in_force="gtc" if pos.get("asset_class") == "crypto" else "day",
-            asset_class=AssetClass(pos.get("asset_class", "equity")
-                                   if pos.get("asset_class") in ("equity", "crypto")
-                                   else "equity"),
+            asset_class=AssetClass(held_class),   # guarded above
         )
         result = broker.submit_order(req)
         if result.status == OrderStatus.REJECTED:

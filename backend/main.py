@@ -57,8 +57,8 @@ try:
 except ImportError:
     pass
 
-from fastapi import (BackgroundTasks, Depends, FastAPI, File, HTTPException,
-                     Request, UploadFile)
+from fastapi import (BackgroundTasks, Body, Depends, FastAPI, File,
+                     HTTPException, Request, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -1489,6 +1489,70 @@ def get_live_positions():
     if not mgr:
         return {"positions": []}
     return {"count": len(p := mgr.get_all_positions()), "positions": p}
+
+
+# ===========================================================================
+# Kill switch — the emergency stop, and the risk-tolerance profiles
+# ===========================================================================
+
+@app.get("/api/execute/kill-switch", tags=["Execution"],
+         dependencies=[Depends(require_owner)])
+def kill_switch_status():
+    """Is the emergency stop engaged, and which half of it is holding?
+
+    Unauthenticated callers get nothing here, but note the switch itself does
+    not depend on this endpoint being reachable: it is read from disk by the
+    broker adapters themselves, so a dead API cannot re-enable trading.
+    """
+    from src.execution import kill_switch
+    return kill_switch.status()
+
+
+@app.post("/api/execute/kill-switch/engage", tags=["Execution"],
+          dependencies=[Depends(require_owner)])
+def kill_switch_engage(payload: dict = Body(default={})):
+    """Stop all new orders immediately. Existing positions stay observable."""
+    from src.execution import kill_switch
+    reason = (payload or {}).get("reason") or "engaged from the UI"
+    return kill_switch.engage(str(reason)[:500], actor="owner")
+
+
+@app.post("/api/execute/kill-switch/release", tags=["Execution"],
+          dependencies=[Depends(require_owner)])
+def kill_switch_release():
+    """Permit orders again. Refused while ARIA_KILL_SWITCH is set in the
+    environment — that one has to be cleared and the server restarted."""
+    from src.execution import kill_switch
+    before = kill_switch.status()
+    after = kill_switch.release(actor="owner")
+    if after["engaged"] and not before["releasable"]:
+        return {**after, "released": False,
+                "error": f"{after['env_var']} is set — clear it and restart"}
+    return {**after, "released": not after["engaged"]}
+
+
+@app.get("/api/risk/profiles", tags=["Risk"], dependencies=[Depends(require_owner)])
+def risk_profiles():
+    """The three risk-tolerance profiles and the platform ceiling they sit
+    under. The ceiling is returned alongside them on purpose: whoever picks a
+    profile should be able to see the limit they cannot raise."""
+    from src.risk import profiles
+    return profiles.describe_all()
+
+
+@app.get("/api/risk/profile", tags=["Risk"], dependencies=[Depends(require_owner)])
+def risk_profile_current():
+    """The active profile, resolved the same way the desk resolves it."""
+    from src.desk.config import load_config
+    from src.risk import profiles
+    name = (load_config() or {}).get("risk_profile")
+    profile = profiles.get_profile(name)
+    return {
+        "active": profile.to_dict(),
+        "configured": name,
+        "is_default": not name,
+        "hard_limits": dict(profiles.HARD_LIMITS),
+    }
 
 
 # ===========================================================================

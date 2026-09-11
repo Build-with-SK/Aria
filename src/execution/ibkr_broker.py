@@ -20,6 +20,7 @@ import logging
 import os
 from typing import Optional
 
+from . import kill_switch
 from .broker_base import (
     AssetClass, BrokerBase, AccountInfo, OrderRequest, OrderResult,
     OrderSide, OrderStatus, OrderType, Position
@@ -394,6 +395,15 @@ class IBKRBroker(BrokerBase):
         return None
 
     def submit_order(self, req: OrderRequest) -> OrderResult:
+        # Below every other gate: nothing reaches IBKR while the switch is on.
+        if kill_switch.is_engaged():
+            st = kill_switch.status()
+            logger.critical("IBKR order refused — kill switch engaged (%s)", st.get("source"))
+            return OrderResult(
+                broker_order_id="",
+                status=OrderStatus.REJECTED,
+                error_message=f"KILL SWITCH ENGAGED ({st.get('source')}): {st.get('reason')}",
+            )
         if not self.is_connected():
             return OrderResult(
                 broker_order_id="",
