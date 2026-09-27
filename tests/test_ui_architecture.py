@@ -291,3 +291,27 @@ def test_every_imported_hook_is_called():
     assert not offenders, (
         f"imported but never called: {offenders}. If the page renders what the "
         f"hook would have returned, it will crash on the first visit.")
+
+
+# ── the interface talks to the owner, not to the operator ──────────────────
+#
+# The copy pass of 2026-09-27 found env-var names, start commands and a
+# vendor label the product no longer uses printed in the UI: "set
+# ALPACA_API_KEY ... in .env", "run: ollama serve", a Windows uvicorn line on
+# every error, and "CLOUD — Claude API" on a path the router keeps
+# self-hosted. How to operate the server belongs in docs/ and in the
+# connection banner's restart disclosure, not in the running interface.
+
+OPERATOR_STRINGS = re.compile(
+    r"\b(?:ARIA|ALPACA|NEWS_API|OLLAMA|SENTINEL|ANTHROPIC)_[A-Z_]+\b"
+    r"|\bin \.env\b|\buvicorn\b|ollama serve|Claude API|Create an account")
+
+
+def test_no_operator_instructions_in_user_facing_code():
+    offenders = []
+    for p in sorted(list(SRC.rglob("*.jsx")) + list(SRC.rglob("*.js"))):
+        code = _strip_comments(p.read_text(encoding="utf-8"))
+        offenders += [f"{p.name}: {m.group(0)}" for m in OPERATOR_STRINGS.finditer(code)]
+    assert not offenders, (
+        f"server configuration or commands in the interface: {offenders}. Say "
+        f"what is wrong for the user; keep how to fix the server in docs/.")

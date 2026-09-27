@@ -230,7 +230,7 @@ export default function Portfolio() {
           saying which is which is how the confusion started. */}
       {analysis.diversification_score !== undefined && (
         <div className="card">
-          <SectionHeader>Model universe — not his holdings</SectionHeader>
+          <SectionHeader>Model universe — not your holdings</SectionHeader>
           <div style={{ ...mono, fontSize: 11, ...dim, marginBottom: 12, lineHeight: 1.6 }}>
             Risk maths over a fixed analysis universe of {analysis.n_assets_active || '—'} assets,
             last computed {String(analysis.generated_at || '').slice(0, 10) || 'some time ago'}.

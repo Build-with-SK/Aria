@@ -66,9 +66,9 @@ function Choice({ options, value, onChange, ariaLabel }) {
 /**
  * The account block.
  *
- * Sign-up is not a separate flow and pretending otherwise would be a lie in the
- * UI: ARIA has no passwords, so the first time you sign in with a provider IS
- * your registration. The button says what actually happens.
+ * ARIA has one account — the owner's — and no sign-up. The "create an account"
+ * prompt that used to sit here described the OAuth providers, which are gone;
+ * offering registration on a single-owner system is a door to nowhere.
  */
 function Account() {
   const { ready, authenticated, owner, role, user, logout } = useAuth()
@@ -89,7 +89,7 @@ function Account() {
     : 'Not signed in'
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+    <div>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         gap: 12, padding: '10px 12px', borderRadius: 4,
@@ -119,21 +119,6 @@ function Account() {
             }}>SIGN IN</button>
         )}
       </div>
-
-      {!authenticated && ready && (
-        <button onClick={go}
-          style={{
-            fontFamily: MONO, fontSize: 11, padding: '8px 12px', cursor: 'pointer',
-            borderRadius: 4, background: 'none', textAlign: 'left',
-            border: '1px dashed var(--border-2)', color: 'var(--muted)',
-          }}>
-          New here? Create an account →
-          <span style={{ display: 'block', marginTop: 3, fontSize: 10 }}>
-            Signing in with a provider for the first time creates your account.
-            ARIA never sees a password.
-          </span>
-        </button>
-      )}
     </div>
   )
 }
@@ -201,7 +186,7 @@ export default function Settings({ open, onClose }) {
               SETTINGS
             </div>
             <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
-              Display preferences stay on this device. Your account lives on the server.
+              Display preferences are saved on this device only.
             </div>
           </div>
           <button ref={firstRef} onClick={onClose} aria-label="Close settings"
@@ -213,8 +198,8 @@ export default function Settings({ open, onClose }) {
 
         <Section
           title="ACCOUNT"
-          hint="Who you are signed in as. Signing out clears this browser's
-                session and any owner token stored on this device.">
+          hint="Signing out ends this session on the server immediately. This browser
+                never stores the owner token.">
           <Account />
         </Section>
 

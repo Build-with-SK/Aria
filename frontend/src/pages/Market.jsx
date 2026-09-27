@@ -103,7 +103,7 @@ export default function Market() {
           ∿ MARKET
         </div>
         <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
-          Equities, macro, futures, options and volatility as one state — not four tabs.
+          Equities, macro, futures, options and volatility in a single view.
         </div>
       </div>
 

@@ -201,7 +201,7 @@ export default function Quant() {
       <div style={{ marginBottom: 16 }}>
         <div style={{ ...mono, fontSize: 16, fontWeight: 800, color: 'var(--orange)' }}>STRESS &amp; SCENARIOS</div>
         <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)' }}>
-          What the book loses under shocks · options pricing and greeks · multi-leg payoffs — all computed locally
+          What the book loses under shocks · options pricing and greeks · multi-leg payoffs
         </div>
       </div>
       <Scenarios />

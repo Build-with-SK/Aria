@@ -18,7 +18,7 @@ export function ErrorBox({ message }) {
   return (
     <div className="bb-card" style={{ borderColor:'var(--red)', color:'var(--red)', fontFamily:'var(--mono)', fontSize:12 }}>
       <div style={{ marginBottom:6 }}>⚠ ERROR: {message || 'API unreachable'}</div>
-      <div style={{ color:'var(--muted)', fontSize:11 }}>Start backend: uvicorn backend.main:app --reload --port 8000</div>
+      <div style={{ color:'var(--muted)', fontSize:11 }}>If this persists, the System page shows which service is failing.</div>
     </div>
   )
 }

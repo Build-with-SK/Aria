@@ -109,7 +109,13 @@ def enrich(symbol: str, name: str = "", force: bool = False) -> dict:
         "political_exposure": "High" if sentiment["political_hits"] >= 2 else
                               "Some" if sentiment["political_hits"] == 1 else "Low",
         "cache": "miss",
-        "source": "NewsAPI" if headlines else "none (set NEWS_API_KEY for live news)",
+        # Two different empties, and the UI shows this string verbatim. It
+        # used to say "set NEWS_API_KEY" even when the key WAS set and the
+        # query simply matched nothing — telling the owner to fix a setting
+        # that was not broken.
+        "source": ("NewsAPI" if headlines
+                   else "No recent headlines" if os.environ.get("NEWS_API_KEY")
+                   else "News feed not configured"),
     }
     try:
         cp.write_text(json.dumps(result), encoding="utf-8")

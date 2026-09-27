@@ -118,9 +118,8 @@ export default function LiveNews({ limit = 25, hours = 24, compact = false,
 
       {!error && !items.length && (
         <div style={{ ...mono, fontSize: 10, color: 'var(--muted)', lineHeight: 1.7 }}>
-          Nothing new. This feed shows only observations the research eye
-          actually recorded — when the world is quiet it stays quiet rather
-          than manufacturing a row.
+          Nothing new in this window. Only developments ARIA has actually
+          observed appear here.
         </div>
       )}
 

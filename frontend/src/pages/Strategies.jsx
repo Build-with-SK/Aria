@@ -119,9 +119,9 @@ export default function Strategies() {
           </div>
         </div>
         <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
-          Nothing on this page can place a trade. The desk's safety contract is
-          enforced in code, not here: auto-execute is paper-only behind an env
-          gate, and every order still needs a human approval.
+          Nothing on this page places a trade. When armed, auto-execute trades
+          the paper account only — enforced in code, not by this page. Any order
+          on a live account needs your approval.
         </div>
       </div>
 

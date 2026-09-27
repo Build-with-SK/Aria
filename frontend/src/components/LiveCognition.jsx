@@ -65,9 +65,8 @@ export default function LiveCognition({ cognition, status, statusReason, compact
 
       {!steps.length && (
         <div style={{ ...mono, fontSize: 10, color: 'var(--muted)', lineHeight: 1.7 }}>
-          No reasoning cycle has been recorded yet. This shows what ARIA was
-          doing during its last pass — it stays empty rather than animating
-          something that did not happen.
+          No reasoning cycle recorded yet. Each step of ARIA’s most recent
+          pass appears here once it has actually run.
         </div>
       )}
 

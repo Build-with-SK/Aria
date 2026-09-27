@@ -115,7 +115,7 @@ function AutoExecToggle({ status, onChanged }) {
               live ? '○ LIVE — manual only (locked)' : '○ BROKER DISCONNECTED — manual only'}
           </div>
           <div style={{ color: 'var(--muted)', fontSize: 10 }}>
-            ALPACA_PAPER gate: <span style={{ color: gates.env_paper ? 'var(--green)' : 'var(--red)' }}>
+            Paper-account check: <span style={{ color: gates.env_paper ? 'var(--green)' : 'var(--red)' }}>
               {gates.env_paper ? 'PASS' : 'FAIL'}</span>
             {' · '}budget left <span className="white">${(gates.budget_left ?? 0).toLocaleString()}</span>
             {' · '}trades left <span className="white">{gates.trades_left ?? '—'}</span>
@@ -148,7 +148,7 @@ function DebateTheatre({ debates }) {
   if (!list.length) return (
     <div className="bb-card"><div className="bb-card-header">DEBATE THEATRE</div>
       <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 20 }}>
-        No debates yet — hit RUN CYCLE and the researchers will take the floor.
+        No debates yet. Press RUN CYCLE NOW to start one.
       </div></div>
   )
 
@@ -377,7 +377,7 @@ function PaperPnL({ pnl }) {
       )}
       {!pnl.connected && (
         <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 10, color: 'var(--yellow)' }}>
-          ⚠ Broker disconnected — set ALPACA_API_KEY / ALPACA_SECRET_KEY / ALPACA_PAPER=true in .env
+          ⚠ Broker disconnected — no paper-trading credentials are configured on the server.
         </div>
       )}
     </div>
@@ -409,7 +409,7 @@ function Performance({ perf }) {
       <div className="bb-card-header">REALIZED PERFORMANCE — CLOSED TRADES ONLY</div>
       {!s.trades ? (
         <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 8 }}>
-          No closed trades yet — the exit engine reports here once positions complete their lifecycle.
+          No closed trades yet. Realised results appear here once a position is closed.
         </div>
       ) : (
         <>
@@ -515,8 +515,9 @@ export default function Desk() {
       </div>
 
       <div style={{ marginTop: 14, fontFamily: MONO, fontSize: 9, color: 'var(--muted)', letterSpacing: '.08em', lineHeight: 1.8 }}>
-        SAFETY CONTRACT: auto-execution is PAPER-ONLY and hard-gated in code — ALPACA_PAPER must equal "true",
-        the toggle must be armed, budgets must have room, and a live account ALWAYS routes to manual approval.
+        SAFETY CONTRACT: auto-execution trades the paper account only, enforced in code — the paper-account
+        check must pass, the toggle must be armed and the budget must have room. A live account ALWAYS routes to
+        manual approval.
         Every fill links to its debate transcript and evidence. Research &amp; education only — not financial advice.
       </div>
     </div>

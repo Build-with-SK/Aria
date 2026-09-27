@@ -128,7 +128,7 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
       <div style={{ marginBottom: 10 }}>
         <div style={{ ...mono, fontSize: 16, fontWeight: 800, color: 'var(--orange)' }}>EXPLORER</div>
         <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)' }}>
-          Search any symbol · India (₹ NSE) · UK (£ LSE) · US ($) · crypto — fresh data, news & sentiment on demand
+          Search any symbol · India (₹ NSE) · UK (£ LSE) · US ($) · crypto — live quote, chart, news and sentiment
         </div>
       </div>
 
@@ -157,7 +157,7 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
 
       {!sel && !embedded && (
         <div style={{ ...mono, fontSize: 12, color: '#444', textAlign: 'center', padding: 50, border: '1px dashed #1a1a1a', borderRadius: 8 }}>
-          Search a symbol above. The universe holds 3,000+ symbols (India, UK, US, crypto) — nothing is loaded until you look one up, then everything is fetched fresh.
+          Search a symbol above — equities, ETFs, crypto and FX across 40+ exchanges.
         </div>
       )}
 

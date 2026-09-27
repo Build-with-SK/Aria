@@ -161,7 +161,7 @@ export default function DailyReport() {
               ? `Generated ${new Date(report.generated_at).toLocaleString()}`
               : 'Not generated'}
             {report?.market_regime ? ` · ${report.market_regime}` : ''}
-            {report?.imported_from ? ' · imported from the pre-dated-store file' : ''}
+            {report?.imported_from ? ' · imported from the earlier archive' : ''}
           </div>
         </div>
 

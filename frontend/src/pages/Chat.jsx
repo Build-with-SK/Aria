@@ -111,15 +111,17 @@ function Bubble({ msg }) {
           color: '#333', textAlign: isUser ? 'left' : 'right',
         }}>
           {msg.time}
-          {msg.tokens && (
+          {/* Both chat routes return `tokens: {}`, which is truthy — the old
+              check rendered a bare "↓ tokens" under every reply. */}
+          {msg.tokens?.out != null && (
             <span style={{ marginLeft: 8 }}>{msg.tokens.in ? `${msg.tokens.in}↑ ` : ''}{msg.tokens.out}↓ tokens</span>
           )}
           {msg.source && (
             <span style={{
               marginLeft: 8,
-              color: msg.source === 'cloud' ? 'var(--orange)' : '#00aa44',
+              color: msg.degraded ? 'var(--yellow)' : msg.source === 'cloud' ? 'var(--orange)' : '#00aa44',
             }}>
-              [{msg.source === 'cloud' ? 'CLOUD' : `LOCAL · ${msg.model || ''}`}]
+              [{msg.source === 'cloud' ? 'ARIA' : 'DIRECT'}{msg.model ? ` · ${msg.model}` : ''}{msg.degraded ? ' · DEGRADED' : ''}]
             </span>
           )}
         </div>
@@ -185,7 +187,7 @@ export default function Chat({ embedded = false }) {
     },
     {
       role: 'assistant',
-      content: "I'm **ARIA** — your trading intelligence agent. I have full access to the current signal engine output: 766 tickers, ML ensemble predictions, macro regime analysis, and live execution queue.\n\nAsk me anything about the market, a specific ticker, trade ideas, or the system methodology. What would you like to analyse?",
+      content: "I'm **ARIA**. I work from the current signal book, the ensemble's predictions, the macro regime and your research notes, and I tell you how old each of them is.\n\nAsk about the market, a specific ticker, a trade idea, or how the system reaches its calls.",
       time: now(),
     },
   ])
@@ -273,7 +275,10 @@ export default function Chat({ embedded = false }) {
         time: now(),
         tokens: data.tokens,
         source: mode,
-        model: mode === 'local' ? (data.model || localModel) : undefined,
+        // The brain path names the model that actually answered, and whether
+        // it was a fallback (`degraded`, only under ARIA_DEGRADE=disclose).
+        model: data.model || (mode === 'local' ? localModel : undefined),
+        degraded: !!data.degraded,
         timing: data.timing,
       }
       setMessages(prev => [...prev, ariaMsg])
@@ -334,7 +339,7 @@ export default function Chat({ embedded = false }) {
             ARIA INTELLIGENCE
           </div>
           <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)' }}>
-            Autonomous Research &amp; Investment Architect · 766-ticker universe · LightGBM ensemble
+            Autonomous Research &amp; Investment Architect · self-hosted
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -378,10 +383,15 @@ export default function Chat({ embedded = false }) {
         </div>
       )}
 
-      {/* Cloud / Local mode toggle */}
+      {/* Brain / direct-model toggle. The internal mode is still called
+          'cloud' because the state and the reply's `source` field use it, but
+          the label said "Claude API" long after /api/chat stopped calling one:
+          the router filters vendor providers out of this path unless the owner
+          sets ARIA_ALLOW_VENDOR_BRAIN (src/inference/policy.py). */}
       <div style={{ display: 'flex', gap: 8, marginTop: 8, flexShrink: 0, alignItems: 'center' }}>
         <button
           onClick={() => setMode('cloud')}
+          title="ARIA's own brain, self-hosted. Streams the reply, and can queue a trade idea for your approval."
           style={{
             background: mode === 'cloud' ? 'var(--orange)' : 'transparent',
             color: mode === 'cloud' ? '#000' : 'var(--text-dim)',
@@ -389,9 +399,10 @@ export default function Chat({ embedded = false }) {
             borderRadius: 4, padding: '4px 12px', cursor: 'pointer',
             fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 800, letterSpacing: 1,
           }}
-        >☁ CLOUD — Claude API</button>
+        >◆ ARIA BRAIN</button>
         <button
           onClick={() => setMode('local')}
+          title="Ask one local model directly. Same market context; never queues a trade."
           style={{
             background: mode === 'local' ? '#00aa44' : 'transparent',
             color: mode === 'local' ? '#000' : 'var(--text-dim)',
@@ -399,13 +410,13 @@ export default function Chat({ embedded = false }) {
             borderRadius: 4, padding: '4px 12px', cursor: 'pointer',
             fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 800, letterSpacing: 1,
           }}
-        >⚡ LOCAL — {localModel || 'no model'}</button>
+        >⚡ DIRECT — {localModel || 'no model'}</button>
         {mode === 'local' && !ollamaUp && (
           <span style={{
             fontFamily: 'var(--mono)', fontSize: 10, color: '#000',
             background: 'var(--orange)', borderRadius: 3, padding: '3px 10px', fontWeight: 800,
           }}>
-            ⚠ OLLAMA OFFLINE — run: ollama serve
+            ⚠ LOCAL MODEL OFFLINE — direct mode unavailable
           </span>
         )}
       </div>

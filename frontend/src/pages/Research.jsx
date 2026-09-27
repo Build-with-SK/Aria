@@ -33,8 +33,18 @@ export default function Research() {
   const [results, setResults] = useState([])
   const [symbol, setSymbol] = useState(urlSymbol)
   const [tab, setTab] = useState(urlTab)
+  const [indexed, setIndexed] = useState(null)
   const deep = tab === 'deep'
   const debounce = useRef(null)
+
+  // The subtitle quotes the index size the server reports, never a number
+  // typed into this file — three of those were already stale (766, 3,000+,
+  // 3,143) against an index of 22,022.
+  useEffect(() => {
+    axios.get('/api/universe/status')
+      .then(r => setIndexed(r.data?.total_symbols || null))
+      .catch(() => setIndexed(null))
+  }, [])
 
   // The URL is the source of truth, so a deep link and a back button both work.
   useEffect(() => { setSymbol(urlSymbol) }, [urlSymbol])
@@ -69,8 +79,8 @@ export default function Research() {
           ◬ RESEARCH
         </div>
         <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)' }}>
-          Any listing — India (₹ NSE/BSE) · UK (£ LSE) · US ($) · crypto · FX. Nothing is
-          preloaded; everything is fetched fresh when you look it up.
+          Global coverage — {indexed ? `${indexed.toLocaleString()} symbols` : 'equities, ETFs, crypto and FX'} across
+          40+ exchanges, from NSE and LSE to NYSE and Tokyo. Any other listing resolves on demand.
         </div>
       </div>
 

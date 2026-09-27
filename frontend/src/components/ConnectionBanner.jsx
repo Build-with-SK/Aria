@@ -7,18 +7,23 @@
  * table somewhere else — and the user has to guess whether ARIA is broken,
  * their internet is down, or the data is genuinely missing.
  *
- * One banner, the actual cause, and the exact command to fix it.
+ * One banner, the actual cause, and the command to fix it. The command used to
+ * be the Windows uvicorn line, printed in yellow at the top of every page —
+ * wrong on the Mac mini, unusable from a phone, and the first thing anyone saw.
+ * It now sits behind a disclosure, naming the restart for each host.
  */
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 
 const MONO = 'var(--mono)'
-const CMD = 'venv\\Scripts\\python.exe -m uvicorn backend.main:app --port 8000'
+const RESTART = [
+  ['Mac mini', 'scripts/serverctl restart'],
+  ['Windows', 'START_ARIA.bat'],
+]
 
 export default function ConnectionBanner() {
   const [down, setDown] = useState(false)
   const [checking, setChecking] = useState(false)
-  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -49,24 +54,23 @@ export default function ConnectionBanner() {
       padding: '9px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
     }}>
       <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 800, color: 'var(--red)', letterSpacing: '.1em' }}>
-        ⚠ BACKEND UNREACHABLE
+        ⚠ SERVER UNREACHABLE
       </span>
       <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text)', flex: 1, minWidth: 240 }}>
-        ARIA&apos;s API is not responding, so every page will show stale or missing data. Your
-        settings and data are safe — only the connection is down.
+        ARIA is not responding. Pages show the last data they loaded, and your settings
+        and records are unaffected. Checking again every 15 seconds.
       </span>
-      <code style={{
-        fontFamily: MONO, fontSize: 10, color: 'var(--yellow)',
-        background: 'rgba(0,0,0,.4)', padding: '4px 8px', borderRadius: 3,
-      }}>{CMD}</code>
-      <button onClick={() => {
-        navigator.clipboard?.writeText(CMD).then(() => {
-          setCopied(true); setTimeout(() => setCopied(false), 2000)
-        }).catch(() => {})
-      }} style={{
-        fontFamily: MONO, fontSize: 10, padding: '5px 10px', cursor: 'pointer', minHeight: 26,
-        background: 'none', border: '1px solid var(--border-2)', color: 'var(--muted)', borderRadius: 3,
-      }}>{copied ? 'COPIED ✓' : 'COPY'}</button>
+      <details style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)' }}>
+        <summary style={{ cursor: 'pointer' }}>How to restart</summary>
+        {RESTART.map(([host, cmd]) => (
+          <div key={host} style={{ marginTop: 4 }}>
+            {host}:{' '}
+            <code style={{ color: 'var(--yellow)', background: 'rgba(0,0,0,.4)', padding: '2px 6px', borderRadius: 3 }}>
+              {cmd}
+            </code>
+          </div>
+        ))}
+      </details>
       <button onClick={retry} disabled={checking} style={{
         fontFamily: MONO, fontSize: 10, fontWeight: 700, padding: '5px 12px', cursor: 'pointer', minHeight: 26,
         background: 'none', border: '1px solid var(--red)', color: 'var(--red)', borderRadius: 3,

@@ -136,8 +136,8 @@ export default function PortfolioWorkspace() {
             <>
               <span style={{ color: 'var(--yellow)' }}>⚠ These shocks are not applied to your account.</span>
               {' '}You hold nothing right now, so there is no book to stress. The
-              figures below shock a hypothetical portfolio built from the signal
-              scores in signals.json — read them as “which exposures are fragile
+              figures below shock a hypothetical portfolio built from the current
+              signal scores — read them as “which exposures are fragile
               to which shock”, never as your P&amp;L.
             </>
           ) : (
