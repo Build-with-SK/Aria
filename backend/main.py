@@ -2000,16 +2000,17 @@ def _ondemand_ticker_context(messages: List["ChatMsg"]) -> str:
         return ""
 
 
-@app.post("/api/chat", tags=["ARIA"], dependencies=[Depends(require_owner)])
-def aria_chat(body: ChatRequest, request: Request):
-    """Send a message to ARIA. Returns the assistant reply with market context baked in.
+def _prepare_aria_chat(body: "ChatRequest", request: Request, say=lambda _t: None):
+    """Everything /api/chat does before the model runs, shared with
+    /api/chat/stream so the two can never build different prompts.
 
-    Owner-only. Her reasoning runs on weights this machine holds — the router
-    refuses vendor providers in this path (`src/inference/policy.py`,
-    decision 1). The Anthropic key gate that used to stand here is gone with
-    it: a missing vendor key is no longer a reason she cannot think, and its
-    presence is no longer a reason she reaches for one."""
+    Returns (system, msgs, fitted). `say` receives a status line at the moment
+    each step actually begins — the streaming endpoint shows them; the blocking
+    one passes nothing and nothing changes. Side effects (recording a held
+    trade intent) happen here exactly once per request, whichever route called.
+    """
 
+    say("Reading the market state…")
     # Build live market context from latest data files
     signals  = _load_optional("signals.json")
     macro    = _load_optional("macro_data.json")
@@ -2048,7 +2049,9 @@ ML Bearish tickers: {', '.join(ml_bear) or 'none'}
 Daily report summary: {report.get('summary', 'Not available')}
 ──────────────────────────────────────────────────────"""
 
+    say("Checking your notes…")
     vault_ctx = _vault_context(body.messages, _role_of(request))
+    say("Looking up any tickers you mentioned…")
     ondemand_ctx = _ondemand_ticker_context(body.messages)
 
     # V5 identity: the Two Absolute Laws and the persona live in one place
@@ -2142,6 +2145,7 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
     # survive a full context window: an ARIA that quotes a three-month-old VIX
     # confidently is worse than one that says the macro feed is stale.
     world_ctx = ""
+    say("Loading ARIA's world model…")
     try:
         from src.core import world as _world
         _snap = _world.snapshot()
@@ -2167,6 +2171,19 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
 
     budget = _ctx.Budget(context_tokens=DEFAULT_NUM_CTX, reply_tokens=1024)
     system, msgs, fitted = _ctx.bound(system, msgs, blocks, budget)
+    return system, msgs, fitted
+
+
+@app.post("/api/chat", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_chat(body: ChatRequest, request: Request):
+    """Send a message to ARIA. Returns the assistant reply with market context baked in.
+
+    Owner-only. Her reasoning runs on weights this machine holds — the router
+    refuses vendor providers in this path (`src/inference/policy.py`,
+    decision 1). The Anthropic key gate that used to stand here is gone with
+    it: a missing vendor key is no longer a reason she cannot think, and its
+    presence is no longer a reason she reaches for one."""
+    system, msgs, fitted = _prepare_aria_chat(body, request)
 
     try:
         # DEEP tier, self-hosted. On failure she abstains rather than answering
@@ -2189,6 +2206,115 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
         raise HTTPException(status_code=503, detail=e.spoken())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+#: One line per streamed chat reply: time to first status, first token, total.
+#: The measurement the streaming work exists to improve, kept where the owner
+#: dashboard and the performance report can read it.
+CHAT_STREAM_METRICS = ROOT / "data" / "chat_stream_metrics.jsonl"
+
+
+@app.post("/api/chat/stream", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_chat_stream(body: ChatRequest, request: Request):
+    """/api/chat, delivered as it happens — server-sent events.
+
+        ack     at once
+        status  the step actually running (market state, notes, world model,
+                ticker lookup, writing the answer) — never a script
+        token   the answer, a piece at a time
+        reset   a retry: discard the draft
+        done    the same body /api/chat returns, plus measured timings.
+                Authoritative: replace any draft with it
+        error   she abstained or failed; `detail` is what she would say
+
+    Only the answer streams. Her context-building and any model working stay
+    invisible — she shows what she is doing, not her chain of thought.
+    Owner-only, and shares the /api/chat rate-limit bucket.
+    """
+    import json as _json
+    import queue as _queue
+    import threading as _threading
+    import time as _time
+    from fastapi.responses import StreamingResponse
+
+    q: "_queue.Queue" = _queue.Queue()
+    started = _time.monotonic()
+    marks: dict = {}
+    counts = {"tokens": 0, "status": 0}
+
+    def put(kind, data):
+        q.put((kind, data))
+
+    def say(text):
+        marks.setdefault("first_status", _time.monotonic())
+        put("status", text)
+
+    def on_token(t):
+        marks.setdefault("first_token", _time.monotonic())
+        counts["tokens"] += 1
+        put("token", t)
+
+    def work():
+        try:
+            from src.inference.policy import BrainUnreachable
+            from src.inference.router import Tier, get_router
+            system, msgs, fitted = _prepare_aria_chat(body, request, say=say)
+            say("Writing the answer…")
+            try:
+                result = get_router().complete(
+                    Tier.DEEP, msgs, system=system, max_tokens=1024, timeout=90,
+                    on_token=on_token, on_reset=lambda: put("reset", "retrying"))
+            except BrainUnreachable as e:
+                logger.warning(f"chat abstained — {e}")
+                put("error", {"status": 503, "detail": e.spoken()})
+                return
+            put("done", {"content": result.text, "model": result.model,
+                         "provider": result.provider, "degraded": result.degraded,
+                         "degraded_from": result.primary,
+                         "context": fitted.to_dict(), "tokens": {}})
+        except Exception as e:
+            logger.exception("streamed chat failed")
+            put("error", {"status": 500, "detail": str(e)})
+
+    def sse(event, payload):
+        return f"event: {event}\ndata: {_json.dumps(_sanitize(payload), default=str)}\n\n"
+
+    def events():
+        yield sse("ack", {"t": 0.0})
+        _threading.Thread(target=work, daemon=True, name="aria-chat-stream").start()
+        last = _time.monotonic()
+        while True:
+            try:
+                kind, data = q.get(timeout=0.25)
+            except _queue.Empty:
+                if _time.monotonic() - last > 15:
+                    yield ": keep-alive\n\n"    # keep a tunnel from closing it
+                    last = _time.monotonic()
+                continue
+            now = _time.monotonic()
+            last = now
+            if kind in ("status", "token", "reset"):
+                if kind == "status":
+                    counts["status"] += 1
+                yield sse(kind, {"text": data, "t": round(now - started, 3)})
+                continue
+            rel = lambda k: round(marks[k] - started, 3) if k in marks else None
+            timing = {"first_status": rel("first_status"), "ttft": rel("first_token"),
+                      "total": round(now - started, 3), "tokens_streamed": counts["tokens"],
+                      "status_events": counts["status"]}
+            try:
+                CHAT_STREAM_METRICS.parent.mkdir(parents=True, exist_ok=True)
+                with CHAT_STREAM_METRICS.open("a", encoding="utf-8") as f:
+                    f.write(_json.dumps({"at": datetime.now().isoformat(timespec="seconds"),
+                                         "outcome": kind, **timing}) + "\n")
+            except OSError:
+                pass
+            yield sse(kind, {**data, "timing": timing})
+            return
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store",
+                                      "X-Accel-Buffering": "no"})
 
 
 # ===========================================================================
@@ -4633,6 +4759,34 @@ def _assert_execution_routes_guarded() -> list[str]:
 
 _GUARDED_EXECUTION_ROUTES = _assert_execution_routes_guarded()
 logger.info("guarded state-changing routes: %d", len(_GUARDED_EXECUTION_ROUTES))
+
+
+@on_startup
+def _warm_the_vault_in_the_background():
+    """Load the vault's embedding model now, off the request path.
+
+    Measured on the dev box: the first chat after a restart spent 24–28 s in
+    `_vault_context` alone — the sentence-transformers model and ChromaDB
+    loading — and every later chat spent 0.01–0.06 s there. The cost is paid
+    once per process either way; paying it at startup, in a background thread,
+    means the owner's first question does not. Skipped under ARIA_TESTING, and
+    a failure only means the first chat is slow, never that the API is down.
+    """
+    if os.environ.get("ARIA_TESTING") == "1":
+        return
+
+    def warm():
+        import time as _t
+        started = _t.monotonic()
+        try:
+            from src.brain.vault import get_vault
+            get_vault().context_for("warm up", n=1, max_chars=100)
+            logger.info("vault warmed in %.1fs", _t.monotonic() - started)
+        except Exception as e:
+            logger.info("vault warm-up skipped: %s", e)
+
+    import threading as _threading
+    _threading.Thread(target=warm, daemon=True, name="vault-warm").start()
 
 
 @on_startup

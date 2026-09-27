@@ -30,9 +30,42 @@ OLLAMA_BASE = ollama_base()   # env OLLAMA_BASE overrides (mini -> laptop)
 DEFAULT_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
 
 
+def _read_stream(resp, on_token) -> dict:
+    """Ollama's streaming reply: one JSON object per line, the last carrying
+    `done: true`. Each content delta goes to `on_token`; the whole text is
+    returned in the same shape as the non-streaming call, so everything after
+    this — the empty-content check, the error handling — is unchanged.
+
+    `thinking` deltas are never passed on: they are the model's working, and
+    ARIA does not publish her chain of thought."""
+    content = []
+    for raw in resp:
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            chunk = json.loads(line)
+        except ValueError:
+            continue
+        delta = ((chunk.get("message") or {}).get("content")) or ""
+        if delta:
+            content.append(delta)
+            try:
+                on_token(delta)
+            except Exception:           # a dead listener never costs the answer
+                pass
+        if chunk.get("done"):
+            break
+    return {"message": {"content": "".join(content)}}
+
+
 class OllamaProvider(Provider):
     name = "ollama"
     local = True
+    #: Can hand each piece of a reply to a callback as it is generated. The
+    #: router checks this rather than assuming, so a provider that cannot
+    #: stream is still called correctly — it just delivers in one piece.
+    streams = True
 
     def __init__(self, base_url: str = OLLAMA_BASE, num_ctx: int = DEFAULT_NUM_CTX):
         self.base_url = base_url
@@ -40,7 +73,8 @@ class OllamaProvider(Provider):
 
     def complete(self, model: str, messages: list[dict], *,
                  system: str = "", max_tokens: int = 400,
-                 temperature: float = 0.4, timeout: float = 120.0) -> str:
+                 temperature: float = 0.4, timeout: float = 120.0,
+                 on_token=None) -> str:
         # A message may carry `images`: a list of base64 PNG/JPEG strings, which
         # Ollama's chat API accepts on any vision-capable model. This is what
         # lets her LOOK at something — a chart, a screenshot, a filing page —
@@ -51,7 +85,7 @@ class OllamaProvider(Provider):
             {k: v for k, v in m.items() if k in ("role", "content", "images")}
             for m in messages]
         payload = json.dumps({
-            "model": model, "stream": False, "messages": msgs,
+            "model": model, "stream": bool(on_token), "messages": msgs,
             "options": {"temperature": temperature, "top_p": 0.9,
                         "num_predict": max_tokens, "num_ctx": self.num_ctx},
         }).encode()
@@ -60,7 +94,8 @@ class OllamaProvider(Provider):
             headers={"Content-Type": "application/json"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                out = json.loads(r.read())
+                out = (_read_stream(r, on_token) if on_token
+                       else json.loads(r.read()))
         except urllib.error.HTTPError as e:
             body = ""
             try:

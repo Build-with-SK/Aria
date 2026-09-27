@@ -479,8 +479,13 @@ def test_startup_hooks_run_in_registration_order():
     recheck."""
     from backend import main
 
+    # `_warm_the_vault_in_the_background` joined in the streaming work: it only
+    # starts a thread (the first chat after a restart was paying 24-28 s for
+    # the embedder), so its position changes nothing about the ordering this
+    # test exists to protect.
     assert [h.__name__ for h in main._STARTUP_HOOKS] == [
         "_startup",
+        "_warm_the_vault_in_the_background",
         "_warn_about_auth_configuration",
         "_recheck_route_guards",
     ]

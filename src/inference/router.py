@@ -183,19 +183,26 @@ class InferenceRouter:
                  system: str = "", max_tokens: int = 400,
                  temperature: float = 0.4, timeout: float = 120.0,
                  local_only: bool = False,
-                 degrade: str | None = None) -> Completion:
+                 degrade: str | None = None,
+                 on_token=None, on_reset=None) -> Completion:
+        """`on_token` receives the reply in pieces as it is generated, when the
+        answering provider can stream; otherwise the whole text, once, at the
+        end. `on_reset` is called before a retry or a fallback candidate, so a
+        listener can discard a draft rather than glue two together. Both are
+        optional and change nothing when absent."""
         tier_name = tier.value if isinstance(tier, Tier) else str(tier).upper()
         candidates = list(self.tiers.get(tier_name) or [])
         return self._run(tier_name, candidates, messages, system=system,
                          max_tokens=max_tokens, temperature=temperature,
                          timeout=timeout, local_only=local_only,
-                         degrade=degrade)
+                         degrade=degrade, on_token=on_token, on_reset=on_reset)
 
     def _run(self, tier_name: str, candidates: list, messages: list[dict], *,
              system: str = "", max_tokens: int = 400,
              temperature: float = 0.4, timeout: float = 120.0,
              local_only: bool = False,
-             degrade: str | None = None) -> Completion:
+             degrade: str | None = None,
+             on_token=None, on_reset=None) -> Completion:
         # ── the two standing decisions, applied before anything is called ──
         # 1. Her brain is weights she runs herself: vendor providers are
         #    filtered out of every tier, by locality rather than by name, so a
@@ -235,10 +242,16 @@ class InferenceRouter:
                 continue
             for attempt in range(self.max_retries + 1):
                 attempts += 1
+                if attempts > 1 and on_reset is not None:
+                    on_reset()          # whatever streamed before is superseded
                 try:
+                    streaming = on_token is not None and getattr(provider, "streams", False)
+                    extra = {"on_token": on_token} if streaming else {}
                     text = provider.complete(
                         model, messages, system=system, max_tokens=max_tokens,
-                        temperature=temperature, timeout=timeout)
+                        temperature=temperature, timeout=timeout, **extra)
+                    if on_token is not None and not streaming and text:
+                        on_token(text)  # a provider that cannot stream: one piece
                     breaker.record_success()
                     if index > 0:
                         logger.warning(
