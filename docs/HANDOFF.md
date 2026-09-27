@@ -1,8 +1,11 @@
 # Handoff — read this before touching anything
 
 Written for a fresh Claude Code session so it does not have to re-derive the
-state of this repo. Owner: Soundariyan Karunakaran. Everything here was true at
-the last commit on `fix/signal-breadth-discount`.
+state of this repo. Owner: Soundariyan Karunakaran. §2, §3, §4, §6 and §7 were
+re-verified against the working tree on **2026-09-27**; the rest dates from
+August and is still accurate. For the September server, auth and trading work,
+read `docs/OWNER_LOGIN_AND_TRADING_REPORT.md` and `docs/TRADING_ARCHITECTURE.md`
+after this file.
 
 ---
 
@@ -72,10 +75,17 @@ the corpus and the adapter are both as sensitive as the notes themselves.
 
 ## 2. Immediate state
 
-- **Both PRs merged.** `main` is at the merge of PR #2. CI (`.github/workflows/security.yml`)
-  runs `security-regression` and `full-suite` on every push and PR; both green.
-- **The full suite passes** in the project venv
-  (`venv\Scripts\python.exe -m pytest tests/ -q`).
+- **The September work is committed but NOT PUSHED.** Eight commits on
+  `fix/signal-breadth-discount` ahead of `main` (0ec8c3f), in dependency
+  order: owner sign-in and the service role, server operations, chat
+  streaming, `src/trading/`, the Market crash fix, the copy pass, this
+  handoff, and a market-data refresh. Each commit's tree was exported and
+  its full suite run on its own before it was committed — none depends on a
+  later one to pass. Pushing and the PR are the owner's call.
+- **The full suite passes at HEAD**: 2,079
+  (`venv\Scripts\python.exe -m pytest tests/ -q`, ~3.5 min).
+- CI (`.github/workflows/security.yml`) runs `security-regression` and
+  `full-suite` on push and PR — it has not seen these commits yet.
   `test_a_weekend_does_not_make_friday_stale` used to fail on every weekday
   except Monday: it built a frame ending `now - 3 days` and asserted it was
   not stale, but on a Wednesday that lands on a Sunday whose newest *business*
@@ -93,47 +103,46 @@ Both numbers are right. 41 are registered; two — `reinforcement_learning` and
 and excluded from `run_all()` unless `include_research_only=True`. So 41
 exist, 39 vote, and `module_count.total` reports the ones that voted. Nothing
 is broken; the docs quote the registry and the API quotes the ballot.
-- **Current branch `fix/signal-breadth-discount`** has one unmerged commit
-  (8646e43). It is correct and tested but **its result file is stale** — see §4.
+- The breadth-fix commit (8646e43) **is on `main`**, and
+  `data/v5/walk_forward.json` was regenerated after it (2026-08-11 17:18) —
+  see §4 for what it now says.
 
-### Known open items, in priority order
+### Known open items, in priority order (checked 2026-09-27)
 
 | # | Item | Why it matters |
 |---|---|---|
-| 1 | `data/v5/walk_forward.json` predates the signal-breadth fix | Every "significant" number in it is overstated. Re-run before quoting any of it. |
-| 2 | No OAuth provider configured | This is why there is **no login page** — see §3. |
-| 3 | Backend is not running and nothing starts it at boot | The research loop never fires, so the track record cannot accumulate. `AUTORUN_ARIA.bat` at boot is the fix. |
+| 1 | The September commits are not pushed | See above. Until they are, CI has never run on them and the only copy is this disk. |
+| 2 | Backend is not running, and nothing starts it at boot | Nothing on :8000. The research loop never fires, so the track record cannot accumulate. The Mac mini (`scripts/serverctl install`, `docs/MAC_MINI_SERVER.md`) is the plan; `AUTORUN_ARIA.bat` is the Windows stopgap. |
+| 3 | Desk `auto_execute` is `true` | Paper-ceilinged in every mode, but `mini_preflight.py` flags it on an unattended box. The owner's call. |
 | 4 | `ALPHAVANTAGE_API_KEY` not set | Failover chain is 2 vendors deep, not 3. yfinance has been rate-limiting. |
-| 5 | Branch protection not enabled | CI reports failures without blocking merges. |
-| 6 | UI copy reads like dev notes | Owner's explicit complaint. See §6. |
+| 5 | Branch protection not enabled | `gh api .../branches/main/protection` → 404. CI reports failures without blocking merges. Repo settings are the owner's to change. |
+
+Closed since August: the stale walk-forward (regenerated), "no login page"
+(§3), and the UI copy (§6).
 
 ---
 
-## 3. The "no login page" bug — diagnosed, not fixed
+## 3. Login — resolved (single-user)
 
-`frontend/src/pages/Login.jsx` exists and the route works. The cause is that
-**no OAuth provider is configured**:
+The owner chose single-user. OAuth, `src/auth/oauth.py`, `src/auth/users.py`
+and the FREE role are gone; roles are `OWNER`, `SERVICE`, `ANON`. The login
+page is one password field for the owner token, exchanged once for an HttpOnly
+session cookie (`src/auth/ownerauth.py`, shared byte-for-byte with SENTINEL —
+see `docs/OWNER_LOGIN_AND_TRADING_REPORT.md` §1–7).
 
-```
-providers: google  available=False  reason='set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env'
-           github  available=False  reason='set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in .env'
-           apple   available=False  reason='set APPLE_CLIENT_ID and APPLE_CLIENT_SECRET in .env'
-any_configured: False
-```
+Consequence worth knowing: **every user who gets past the gate is the owner.**
+`OwnerOnly.jsx` and `BrainPublic.jsx` only render if the client and server
+disagree, so copy in them is defence in depth, not a product surface.
 
-So the login page renders with nothing to click, and the owner sees the
-free-tier view instead.
+Viewing the UI without the owner token: `.env` loads with `override=True`, so
+an env var cannot swap in a test credential. A copy of `backend/`, `src/`,
+`configs/` and `frontend/dist` run from a scratch directory **with no `.env`**
+gets the designed loopback break-glass (owner-only routes still 403 by
+design). That is how the 2026-09-27 copy pass was checked. Never type the real
+token into an automated browser.
 
-Two ways forward, and the choice is the owner's:
-
-- **Single-user (simplest).** Drop OAuth from the UI entirely. `ARIA_OWNER_TOKEN`
-  is already set in `.env` and already grants owner access from anywhere. The
-  login page becomes a token field, or disappears.
-- **Multi-user.** Register a GitHub OAuth app (5 minutes, free) and set the two
-  env vars. Google and Apple are more involved.
-
-Do not "fix" this by weakening auth. `src/auth/policy.py` and `src/auth/guard.py`
-survived four adversarial review passes; the rules there are load-bearing.
+Do not weaken auth. `src/auth/policy.py` and `src/auth/guard.py` survived four
+adversarial review passes; the rules there are load-bearing.
 
 ---
 
@@ -151,8 +160,8 @@ evaluation date (`marketdata.as_of`). Three corrections were made to the
    *identical* score for every ticker (sd 0.000 across names). They were scored
    as ~1,000 independent observations; they had made ~48 bets.
 
-**Consequence: the numbers in `data/v5/walk_forward.json` are stale and
-overstated.** Regenerate before quoting:
+`data/v5/walk_forward.json` (gitignored) was regenerated **after** the breadth
+fix — 2026-08-11 17:18, six splits × eight dates. To re-run:
 
 ```bash
 venv/Scripts/python.exe scripts/run_walkforward.py --splits 6 --dates 8
@@ -160,15 +169,22 @@ venv/Scripts/python.exe scripts/run_walkforward.py --splits 6 --dates 8
 
 Takes 30-60 minutes. Compare two runs with `scripts/compare_walkforward.py`.
 
-### What the last complete run said
+### What the current run says
 
-31/41 modules measured, 12 significant, **every one negative**, none with a
-significant positive edge. Two groups deserve opposite conclusions:
+33/41 modules validated, **9 significant, every one negative**, none with a
+significant positive edge. Hit rate minus base rate, in percentage points
+(adjusted p < 0.05): `carry` −33.2, `commodity_cycle` −31.2, `value` −29.0,
+`quality` −19.0, `cross_asset_correlation` −14.8, `crowding` −10.8, `growth`
+−8.3, `sector_rotation` −6.6, `kalman` −6.0. The breadth fix did what it was
+for: `credit` went from being scored as 1,093 independent observations to 73
+and is no longer significant (adj. p 0.32), and `breadth` dropped out with it. Two groups deserve opposite conclusions:
 
-- **Negative IC** (`carry` −0.215, `value` −0.226, `breadth` −0.176): the score
-  ranks forward returns the wrong way round.
-- **Positive IC, negative edge** (`quality` +0.188, `growth` +0.150,
-  `currency_strength` +0.096): ranking works, the bull/bear *threshold* does not.
+- **Negative IC** (`carry` −0.218, `value` −0.225): the score ranks forward
+  returns the wrong way round.
+- **Positive IC, negative edge** (`quality` +0.174, `growth` +0.159; `earnings`
+  +0.113 has significant IC but no significant edge): ranking works, the
+  bull/bear *threshold* does not. `currency_strength` no longer clears the IC
+  bar.
 
 The second group is the only place the data points at something recoverable —
 most likely as a **cross-sectional** signal (long top decile / short bottom)
@@ -200,10 +216,44 @@ exist.
 
 ---
 
-## 6. The copy problem (owner's explicit request)
+## 6. The copy problem (owner's explicit request) — done 2026-09-27
 
-The owner finds the UI microcopy unprofessional. Example he cited, from the
-Research page:
+**What changed.** The cited Research line now reads "Global coverage — 22,022
+symbols across 40+ exchanges…", with the count fetched from
+`/api/universe/status` rather than typed in. Three hardcoded counts were
+already stale (766, 3,000+, 3,143). Beyond tone, the pass found copy that had
+become **false**:
+
+- the chat's default mode was labelled "☁ CLOUD — Claude API", and every reply
+  was tagged `[CLOUD]`. It is the self-hosted DEEP tier; the label is now
+  `◆ ARIA BRAIN`, and the tag shows the model that answered and `DEGRADED`
+  when a fallback did;
+- Settings offered "New here? Create an account" via OAuth providers that no
+  longer exist, and claimed the owner token was stored on the device;
+- Strategies said "every order still needs a human approval", but armed
+  auto-execute fills paper orders without asking;
+- `OwnerOnly` promised non-owners "the 41-module research engine", which the
+  server refuses them;
+- News & Sentiment said "set NEWS_API_KEY" whenever a query found no headlines,
+  even with the key set (`src/data/enrichment.py`).
+
+Env-var names, `.env`, `ollama serve` and a Windows uvicorn line were removed
+from the interface. Restart commands live behind the connection banner's
+"How to restart" disclosure. Every caveat that §6 said must stay, stayed.
+
+**Found on the way: the Market workspace crashed on every visit** from
+2026-09-10 (9461c28) to 2026-09-27. `useRegime` was imported and never called.
+The source-reading tests could not see it.
+`tests/test_ui_architecture.py` now has two guards: an imported hook must be
+called, and no operator strings in the UI. Both were checked failing on the
+old code.
+
+Not touched: `CoreTalk`, `PressToTalk` and `OptionsChain` are imported by
+nothing. The `/api/chat/local` docstring still says "the surface free users
+get". Backend `description=` strings shown only at `/docs` were not audited.
+
+The original brief, for reference — the owner found the UI microcopy
+unprofessional. The example cited, from the Research page:
 
 > "Any listing - india .... Nothing is preloaded; everything is fetched fresh
 > when you look it up."
@@ -231,7 +281,7 @@ uncertainty is not.
 ## 7. Useful commands
 
 ```bash
-venv/Scripts/python.exe -m pytest tests/ -q                    # 517 tests
+venv/Scripts/python.exe -m pytest tests/ -q                    # ~2,080 tests, ~3.5 min
 venv/Scripts/python.exe scripts/run_walkforward.py --splits 6 --dates 8
 venv/Scripts/python.exe scripts/compare_walkforward.py A.json B.json
 venv/Scripts/python.exe scripts/build_public_record.py
