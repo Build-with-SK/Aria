@@ -58,9 +58,13 @@ def get_order_manager(rebuild: bool = False):
     if _order_manager is None:
         try:
             from src.execution.alpaca_broker import AlpacaBroker
-            from src.execution.live_guard import PaperOnlyBroker
             from src.execution.order_manager import OrderManager
-            _order_manager = OrderManager(alpaca=PaperOnlyBroker(AlpacaBroker()))
+            from src.trading.access import gate_for_desk
+            # gate_for_desk is a PaperOnlyBroker that ALSO asks the execution
+            # mode on every write: RESEARCH places nothing, PAPER is the paper
+            # gate as before, and the desk's ceiling is PAPER in every mode —
+            # it predates the hard limits and never reaches real money.
+            _order_manager = OrderManager(alpaca=gate_for_desk(AlpacaBroker()))
         except Exception as e:
             logger.warning(f"desk order manager init failed: {e}")
     return _order_manager

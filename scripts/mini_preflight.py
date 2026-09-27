@@ -285,6 +285,36 @@ def check_safety():
     elif mode:
         ok(f"broker mode: {mode}")
 
+    # The autonomous execution path (src/trading). Its mode decides whether an
+    # order may exist at all, so it is checked here rather than trusted.
+    try:
+        from src.trading import limits as _limits
+        from src.trading import modes as _modes
+        st = _modes.status()
+        if st["effective_mode"] == "LIVE_AUTONOMOUS":
+            bad("execution mode is LIVE_AUTONOMOUS — real money trades without "
+                "per-trade approval. Confirm this is deliberate.")
+        else:
+            ok(f"execution mode: {st['effective_mode']} "
+               f"(stored {st['stored_mode']}, live gate "
+               f"{'OPEN' if st['live_gate_open'] else 'closed'})")
+        if st["stored_mode"] == "LIVE_AUTONOMOUS" and not st["live_gate_open"]:
+            warn(f"stored mode is LIVE_AUTONOMOUS but {_modes.LIVE_ENV} is not "
+                 f"'true', so it behaves as PAPER. Deliberate, or a half-finished "
+                 f"change?")
+        lim = _limits.load()
+        print(f"          hard limits: max_order_value={lim.max_order_value}, "
+              f"max_position_pct={lim.max_position_pct}, "
+              f"max_daily_loss_pct={lim.max_daily_loss_pct}, "
+              f"leverage={lim.max_leverage}")
+        from src.trading.orders import OrderEngine
+        halted = OrderEngine().halted()
+        if halted:
+            bad(f"the order engine is HALTED: {halted.get('reason')}. Reconcile "
+                f"before trading (/api/trading/orders/reconcile).")
+    except Exception as e:
+        warn(f"could not read the trading execution state ({type(e).__name__}: {e})")
+
 
 # ── 7. time ──────────────────────────────────────────────────────────────────
 

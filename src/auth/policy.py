@@ -204,6 +204,7 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
 NEVER_SHARED: dict[str, str] = {
     "/api/vault": "the owner's Obsidian notes",
     "/api/execute": "places and approves real orders",
+    "/api/trading": "the execution mode, the hard limits and the halt",
     "/api/portfolio": "the owner's positions",
     "/api/desk": "the autonomous desk and its debate history",
     "/api/brain": "the owner's long-term memory and daemon controls",
@@ -224,6 +225,9 @@ NEVER_SHARED: dict[str, str] = {
 EXECUTION_PREFIXES: tuple[str, ...] = (
     "/api/execute",   # the approval queue and the broker itself
     "/api/desk",      # the autonomous desk, which can queue and fire trades
+    "/api/trading",   # the execution mode, the hard limits, the halt, the
+                      # strategy lifecycle — everything that decides whether an
+                      # order may exist at all
 )
 
 

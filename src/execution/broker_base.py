@@ -32,6 +32,11 @@ class OrderStatus(str, Enum):
     CANCELLED = "cancelled"
     REJECTED  = "rejected"
     EXPIRED   = "expired"
+    # The broker may or may not have the order — a timeout after sending, a
+    # connection drop before the reply. NOT the same as rejected: retrying an
+    # UNKNOWN order is how one trade becomes two. Only reported when the caller
+    # supplied a client_order_id, so the order can be looked up to settle it.
+    UNKNOWN   = "unknown"
 
 
 class AssetClass(str, Enum):
@@ -60,6 +65,10 @@ class OrderRequest:
     signal_score:   float = 0.0
     situation:      str   = ""
     thesis_summary: str   = ""
+    # Idempotency key. When set, the broker is asked to refuse a second order
+    # with the same id, and the order can be found again by it after a timeout.
+    # Set by src/trading/orders.py; the legacy desk leaves it None.
+    client_order_id: Optional[str] = None
 
 
 @dataclass

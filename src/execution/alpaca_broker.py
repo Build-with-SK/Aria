@@ -105,6 +105,21 @@ def _status_token(alpaca_status) -> str:
     return token.strip().lower()
 
 
+def _classify_submit_failure(exc: Exception, req: OrderRequest) -> "OrderStatus":
+    """REJECTED only when the broker definitely refused; otherwise UNKNOWN.
+
+    An API error with a 4xx status is Alpaca saying no: the order does not
+    exist. Anything else — a timeout, a dropped connection, a 5xx — leaves the
+    order's existence unknown. That distinction only helps a caller who can
+    look the order up afterwards, so UNKNOWN is reported only when a
+    client_order_id was supplied; legacy callers keep the old behaviour.
+    """
+    code = getattr(exc, "status_code", None)
+    if isinstance(code, int) and 400 <= code < 500:
+        return OrderStatus.REJECTED
+    return OrderStatus.UNKNOWN if req.client_order_id else OrderStatus.REJECTED
+
+
 def _parse_status(alpaca_status, filled_qty: float = 0.0) -> OrderStatus:
     """Map Alpaca's status to ours, letting the fill counter break ties.
 
@@ -297,6 +312,11 @@ class AlpacaBroker(BrokerBase):
                     symbol=req.ticker, qty=req.qty, side=side, time_in_force=tif
                 )
 
+            if req.client_order_id:
+                # alpaca-py request models are pydantic; the field exists on all
+                # four order types and Alpaca rejects a reused value, which is
+                # the broker-side half of idempotency.
+                order_req.client_order_id = req.client_order_id
             order = self._client.submit_order(order_data=order_req)
             filled = float(order.filled_qty or 0)
             return OrderResult(
@@ -311,9 +331,36 @@ class AlpacaBroker(BrokerBase):
             logger.error(f"Alpaca submit_order error: {e}")
             return OrderResult(
                 broker_order_id="",
-                status=OrderStatus.REJECTED,
+                status=_classify_submit_failure(e, req),
                 error_message=str(e),
             )
+
+    def get_order_by_client_id(self, client_order_id: str) -> Optional[OrderResult]:
+        """The order sent with this client id, or None if Alpaca has none.
+
+        What settles an UNKNOWN: after a timeout, ask by the id we chose. Raises
+        on a transport failure — "could not ask" must never read as "not found",
+        or an order that did arrive would be sent again.
+        """
+        if not self._client:
+            raise ConnectionError("Alpaca client not connected")
+        try:
+            order = self._client.get_order_by_client_id(client_order_id)
+        except Exception as e:
+            code = getattr(e, "status_code", None)
+            if code == 404:
+                return None
+            raise
+        filled = float(order.filled_qty or 0)
+        return OrderResult(
+            broker_order_id=str(order.id),
+            status=_parse_status(order.status, filled),
+            filled_qty=filled,
+            avg_fill_price=float(order.filled_avg_price or 0),
+            filled_at=order.filled_at,
+            raw={"id": str(order.id), "status": str(order.status),
+                 "client_order_id": client_order_id},
+        )
 
     def cancel_order(self, broker_order_id: str) -> bool:
         if not self._client:
@@ -462,8 +509,15 @@ class AlpacaBroker(BrokerBase):
                 mid = round(ask or bid, 4)
             else:
                 return {}
+            ts = getattr(q, "timestamp", None)
             return {"ask": ask, "bid": bid, "mid": mid,
-                    "one_sided": not (ask > 0 and bid > 0)}
+                    "one_sided": not (ask > 0 and bid > 0),
+                    # When the VENUE produced the quote. Without it a quote
+                    # cannot be checked for staleness, and src/trading treats
+                    # an undated quote as stale.
+                    "timestamp": ts.isoformat() if ts is not None else None,
+                    "bid_size": float(getattr(q, "bid_size", 0) or 0),
+                    "ask_size": float(getattr(q, "ask_size", 0) or 0)}
         except Exception as e:
             logger.warning(f"Alpaca get_quote({ticker}): {e}")
             return {}

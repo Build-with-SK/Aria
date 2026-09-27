@@ -37,6 +37,13 @@ HIGH_RISK = [
     ("POST", "/api/execute/kill-switch/release", None),
     ("PATCH", "/api/desk/config", {"interval_minutes": 30}),
     ("POST", "/api/desk/auto-execute?enabled=true", None),
+    # The autonomous trading path: the mode decides whether orders may exist,
+    # the limits decide how large, the kill policy decides what a halt does to
+    # open positions, and a promotion decides which strategy may trade.
+    ("POST", "/api/trading/mode", {"mode": "PAPER", "reason": "t"}),
+    ("POST", "/api/trading/limits", {"changes": {"max_order_value": 50}}),
+    ("POST", "/api/trading/kill-policy", {"positions": "PRESERVE"}),
+    ("POST", "/api/trading/strategies/none/stage", {"stage": "RESEARCH"}),
 ]
 
 #: Reduces risk. Must NEVER be held behind a step-up.
@@ -45,6 +52,7 @@ SAFETY = [
     ("POST", "/api/execute/reject/no-such-trade", None),
     ("POST", "/api/execute/cancel/no-such-trade", None),
     ("POST", "/api/desk/auto-execute?enabled=false", None),
+    ("POST", "/api/trading/halt", {"reason": "test"}),
 ]
 
 

@@ -61,6 +61,10 @@ data/execution/approval_queue.json
 # ship one machine's halt to every checkout — or, worse, ship a RELEASED
 # switch over a halt somebody meant to keep.
 data/kill_switch.json
+# The same argument for src/trading's stores: the execution mode and its
+# ledger, the hard limits, the order journal. One machine's PAPER mode, or its
+# loosened limits, must never arrive in another checkout by `git pull`.
+data/trading/
 # sqlite side files — transient, and meaningless without their database
 data/*.db-shm
 data/*.db-wal

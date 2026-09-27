@@ -1359,7 +1359,14 @@ def _get_order_manager():
             ibkr = IBKRBroker()
         except Exception as e:
             logger.info(f"IBKR init skipped (TWS not running): {e}")
-        _order_manager = OrderManager(alpaca=alpaca, ibkr=ibkr)
+        # The approval path used to hold the RAW brokers, so an approved trade
+        # on a live account executed in any configuration. Now the execution
+        # mode decides at call time: RESEARCH places nothing, PAPER only
+        # reaches a confirmed paper account, and a live account is reachable
+        # only in LIVE_AUTONOMOUS, under the hard limits (src/trading/access.py).
+        from src.trading.access import gate_for_approvals
+        _order_manager = OrderManager(alpaca=gate_for_approvals(alpaca),
+                                      ibkr=gate_for_approvals(ibkr))
         logger.info("Execution engine ready.")
     except Exception as e:
         logger.warning(f"Execution engine init failed: {e}")
@@ -4680,6 +4687,322 @@ def consult_outcome(request_id: str, accepted: bool, what_happened: str = ""):
     """
     from src.consult import bridge
     return _sanitize(bridge.record_outcome(request_id, accepted, what_happened))
+
+
+# ===========================================================================
+# Autonomous trading (src/trading) — the layered execution path.
+#
+# Every route here is owner-only. The ones that could widen what the system may
+# do — changing the execution mode, loosening a hard limit, changing what a halt
+# does to open positions — additionally require a recent step-up, and the mode
+# change also requires its typed confirmation phrase.
+#
+# Reducing capability never requires step-up: /halt is deliberately reachable
+# with nothing but the owner session, because the moment you need it is not the
+# moment to re-authenticate.
+# ===========================================================================
+
+@app.get("/api/trading/status", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_status():
+    """Everything about what this system may currently do, in one answer."""
+    from src.trading import killswitch, lifecycle, limits, modes
+    from src.trading.orders import OrderEngine
+    engine = OrderEngine()
+    return _sanitize({
+        "mode": modes.status(),
+        "limits": limits.describe(),
+        "strategies": lifecycle.summary(),
+        "order_engine": {"halted": engine.halted(),
+                         "orders": len(engine.latest())},
+        "kill_policy": killswitch.policy(),
+        "live_readiness": modes.live_readiness(),
+        "disabled_in_this_deployment": [
+            "live autonomous execution (ARIA_LIVE_TRADING_ENABLED is not set)",
+            "real-money orders",
+            "self-modifying production strategies",
+            "model-driven orders — the pipeline takes signals, not prose",
+        ],
+    })
+
+
+@app.post("/api/trading/mode", tags=["Trading"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def trading_set_mode(payload: dict = Body(default={})):
+    """Change the execution mode. Up needs the exact confirmation phrase; down
+    needs only a reason."""
+    from src.trading import modes
+    target = str((payload or {}).get("mode", "")).strip().upper()
+    reason = str((payload or {}).get("reason", "")).strip()
+    confirmation = str((payload or {}).get("confirmation", ""))
+    try:
+        result = modes.transition(target, actor="owner", reason=reason,
+                                  confirmation=confirmation)
+    except modes.ModeTransitionRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError:
+        raise HTTPException(status_code=400,
+                            detail=f"unknown mode {target!r}; one of "
+                                   f"{[m.value for m in modes.ExecutionMode]}")
+    return _sanitize({**result, "status": modes.status()})
+
+
+@app.get("/api/trading/mode/history", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_mode_history(limit: int = 50):
+    from src.trading import modes
+    return _sanitize({"history": modes.history(min(max(limit, 1), 500))})
+
+
+@app.get("/api/trading/limits", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_limits():
+    from src.trading import limits
+    return _sanitize(limits.describe())
+
+
+@app.post("/api/trading/limits", tags=["Trading"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def trading_set_limits(payload: dict = Body(default={})):
+    """Tighten a limit (immediate) or loosen one (after the cooling-off period).
+    Nothing here can exceed the ceilings compiled into src/trading/limits.py."""
+    from src.trading import limits
+    changes = (payload or {}).get("changes")
+    if not isinstance(changes, dict) or not changes:
+        raise HTTPException(status_code=400,
+                            detail="send {\"changes\": {\"limit_name\": value}}")
+    try:
+        return _sanitize(limits.set_limits(changes, actor="owner"))
+    except limits.LimitChangeRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/api/trading/halt", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_halt(payload: dict = Body(default={})):
+    """STOP. Engages the kill switch, drops the mode to RESEARCH, disables the
+    desk's auto-execute and cancels resting orders. Positions are preserved
+    unless the kill policy says otherwise. No step-up: an emergency stop that
+    asks you to prove yourself first is not an emergency stop."""
+    from src.trading import access, killswitch, modes
+    reason = str((payload or {}).get("reason") or "halted from the UI")[:500]
+    broker = None
+    try:
+        if modes.effective_mode() is not modes.ExecutionMode.RESEARCH:
+            broker = access.paper_adapter()
+    except Exception as exc:                     # a broker we cannot build is
+        logger.warning("halt: no broker adapter (%s)", exc)   # not a reason to
+    return _sanitize(killswitch.halt(reason, actor="owner", broker=broker))
+
+
+@app.get("/api/trading/kill-policy", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_kill_policy():
+    from src.trading import killswitch
+    return _sanitize({**killswitch.policy(),
+                      "options": [killswitch.PRESERVE, killswitch.FLATTEN]})
+
+
+@app.post("/api/trading/kill-policy", tags=["Trading"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def trading_set_kill_policy(payload: dict = Body(default={})):
+    """What a halt does to open positions. FLATTEN sells them (reduce-only);
+    PRESERVE, the default, leaves them alone."""
+    from src.trading import killswitch
+    try:
+        return _sanitize(killswitch.set_policy(
+            str((payload or {}).get("positions", "")).strip().upper(),
+            bool((payload or {}).get("cancel_protective", False)), actor="owner"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/trading/strategies", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_strategies():
+    from src.trading import lifecycle
+    return _sanitize(lifecycle.summary())
+
+
+@app.post("/api/trading/strategies", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_register_strategy(payload: dict = Body(default={})):
+    from src.trading import lifecycle
+    sid = str((payload or {}).get("strategy_id", "")).strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="strategy_id is required")
+    return _sanitize(lifecycle.register(
+        sid, name=str((payload or {}).get("name", "")),
+        hypothesis=str((payload or {}).get("hypothesis", "")),
+        asset_classes=(payload or {}).get("asset_classes") or [], actor="owner"))
+
+
+@app.post("/api/trading/strategies/{strategy_id}/evidence", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_record_evidence(strategy_id: str, payload: dict = Body(default={})):
+    """File a research result against a strategy. Evidence is data the gates
+    read; it is never an argument for promotion."""
+    from src.trading import lifecycle
+    key = str((payload or {}).get("key", "")).strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key is required")
+    try:
+        return _sanitize(lifecycle.record_evidence(
+            strategy_id, key, (payload or {}).get("value"), actor="owner"))
+    except lifecycle.LifecycleRefused as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.post("/api/trading/strategies/{strategy_id}/stage", tags=["Trading"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def trading_change_stage(strategy_id: str, payload: dict = Body(default={})):
+    """Promote (evidence gates apply), demote or suspend a strategy."""
+    from src.trading import lifecycle
+    action = str((payload or {}).get("action", "promote")).lower()
+    target = str((payload or {}).get("stage", "")).strip().upper()
+    reason = str((payload or {}).get("reason", ""))
+    try:
+        if action == "promote":
+            return _sanitize(lifecycle.promote(strategy_id, target, actor="owner",
+                                               note=reason))
+        if action == "demote":
+            return _sanitize(lifecycle.demote(strategy_id, target, reason=reason,
+                                              actor="owner"))
+        if action == "suspend":
+            return _sanitize(lifecycle.suspend(strategy_id, reason=reason or "owner",
+                                               actor="owner"))
+        if action == "reinstate":
+            return _sanitize(lifecycle.reinstate(strategy_id, actor="owner",
+                                                 note=reason))
+    except lifecycle.LifecycleRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    raise HTTPException(status_code=400,
+                        detail="action must be promote, demote, suspend or reinstate")
+
+
+@app.get("/api/trading/scorecard", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_scorecard(strategy_id: str = ""):
+    """Risk- and cost-adjusted performance. Never ranked on raw return."""
+    from src.trading import lifecycle, outcomes, scorecard
+    cards = []
+    for sid in ([strategy_id] if strategy_id else list(lifecycle.all_strategies())):
+        cards.append(scorecard.score(outcomes.outcomes(sid), strategy_id=sid))
+    return _sanitize({"scorecards": cards, "ranking": scorecard.rank(cards),
+                      "expected_vs_realised": outcomes.expected_vs_realised(strategy_id)})
+
+
+@app.get("/api/trading/latency", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_latency(broker: str = ""):
+    """Measured stage latencies. The classification is derived from the
+    numbers, and 'HFT' is not one of the values it can take."""
+    from src.trading import latency
+    return _sanitize(latency.summary(broker or None))
+
+
+@app.post("/api/trading/arbitrage/evaluate", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_evaluate_arbitrage(payload: dict = Body(default={})):
+    """Evaluate a two-leg opportunity: gross spread, every cost, net edge,
+    liquidity and execution probability. Research only — this endpoint cannot
+    place an order, and nothing downstream reads its result."""
+    from datetime import datetime, timezone
+
+    from src.trading import arbitrage, costs as _c
+    from src.trading.market import Quote
+    body = payload or {}
+    try:
+        legs = []
+        for raw in body.get("legs", []):
+            ts = raw.get("timestamp")
+            legs.append(arbitrage.Leg(
+                venue=str(raw["venue"]), symbol=str(raw["symbol"]),
+                side=str(raw["side"]).lower(),
+                quote=Quote(symbol=str(raw["symbol"]), bid=float(raw["bid"]),
+                            ask=float(raw["ask"]),
+                            timestamp=(datetime.fromisoformat(ts) if ts else None),
+                            bid_size=float(raw.get("bid_size") or 0),
+                            ask_size=float(raw.get("ask_size") or 0),
+                            venue=str(raw["venue"]),
+                            asset_class=str(raw.get("asset_class", "equity"))),
+                fees=_c.SCHEDULES.get(raw.get("fee_schedule", "simulated"),
+                                      _c.SCHEDULES["simulated"]),
+                ratio=float(raw.get("ratio", 1.0)),
+                held_qty=float(raw.get("held_qty", 0.0)),
+                borrow_bps_per_day=float(raw.get("borrow_bps_per_day", 0.0)),
+                funding_bps=float(raw.get("funding_bps", 0.0)),
+                transfer_cost=float(raw.get("transfer_cost", 0.0)),
+                transfer_s=float(raw.get("transfer_s", 0.0)),
+                settles_in_s=float(raw.get("settles_in_s", 0.0))))
+        result = arbitrage.evaluate(
+            str(body.get("kind", arbitrage.CROSS_VENUE)), legs,
+            float(body.get("qty", 0)),
+            now=datetime.now(timezone.utc),
+            max_quote_age_s=float(body.get("max_quote_age_s", 5.0)),
+            latency_ms=float(body.get("latency_ms", 250.0)),
+            min_net_edge_bps=float(body.get("min_net_edge_bps", 10.0)),
+            participation_pct=float(body.get("participation_pct", 10.0)),
+            holding_days=float(body.get("holding_days", 0.0)))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"malformed opportunity: {exc}")
+    return _sanitize(result.to_dict())
+
+
+@app.get("/api/trading/capital", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_capital():
+    from src.trading import account
+    return _sanitize({
+        "contributions": account.contributions(),
+        "net_contributions_account_ccy": account.net_contributions_account_ccy(),
+        "planned_monthly_contribution": account.PLANNED_MONTHLY_CONTRIBUTION,
+        "note": ("performance is measured on equity minus net contributions, so "
+                 "a deposit never looks like a profit")})
+
+
+@app.post("/api/trading/capital", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_record_contribution(payload: dict = Body(default={})):
+    """Record money paid in or taken out. Nothing infers this from a balance
+    change — an unexplained jump should look wrong."""
+    from src.trading import account
+    body = payload or {}
+    try:
+        return _sanitize(account.record_contribution(
+            float(body.get("amount")), str(body.get("currency", "GBP")),
+            amount_in_account_ccy=(float(body["amount_in_account_ccy"])
+                                   if body.get("amount_in_account_ccy") is not None
+                                   else None),
+            note=str(body.get("note", "")), actor="owner"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/trading/orders", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_orders():
+    """The order journal's current view, and whether the engine is halted."""
+    from src.trading.orders import OrderEngine
+    engine = OrderEngine()
+    return _sanitize({"halted": engine.halted(), "orders": engine.latest()})
+
+
+@app.post("/api/trading/orders/reconcile", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_reconcile(payload: dict = Body(default={})):
+    """Ask the broker about every unsettled order by client id. The only way
+    to lift a halt caused by an unknown order state."""
+    from src.trading import access
+    from src.trading.orders import OrderEngine
+    try:
+        broker = access.paper_adapter()
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=f"no broker to reconcile "
+                                                    f"against: {exc}")
+    return _sanitize(OrderEngine().reconcile(broker))
 
 
 # ===========================================================================

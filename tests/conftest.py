@@ -347,6 +347,32 @@ def tmp_data_dir() -> Path:
     return _TMP_DATA
 
 
+@pytest.fixture
+def clean_trading_state(isolate_production_state, monkeypatch):
+    """An empty src/trading world: no mode, no limits, no journal, no halt.
+
+    Every store under data/trading/ is shared process state, so a test that
+    left a strategy registered or the order engine halted would decide the
+    next test's result. The live switch and the kill switch are cleared from
+    the environment for the same reason — and because a test that passes only
+    because a variable happened to be set proves nothing.
+    """
+    monkeypatch.delenv("ARIA_KILL_SWITCH", raising=False)
+    monkeypatch.delenv("ARIA_LIVE_TRADING_ENABLED", raising=False)
+    from src.execution import kill_switch
+    from src.trading import modes
+
+    trading = modes.STATE_FILE.parent
+    shutil.rmtree(trading, ignore_errors=True)
+    trading.mkdir(parents=True, exist_ok=True)
+    kill_switch.STATE_FILE.unlink(missing_ok=True)
+    try:
+        yield trading
+    finally:
+        shutil.rmtree(trading, ignore_errors=True)
+        kill_switch.STATE_FILE.unlink(missing_ok=True)
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     """State the isolation result, so a regression is visible in the output."""
     terminalreporter.write_sep(
