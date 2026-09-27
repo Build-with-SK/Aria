@@ -268,3 +268,26 @@ def test_no_position_is_visually_distinct_from_agreement():
     none = re.search(r"NONE:\s*\[([^\]]+)\]", page)
     assert agree and none, "the position legend is gone"
     assert agree.group(1) != none.group(1)
+
+
+# ── a hook that is imported must be called ─────────────────────────────────
+#
+# Market.jsx imported useRegime, rendered `regime` in fifteen places, and never
+# called the hook. Every visit threw "regime is not defined" into the error
+# boundary, from 2026-09-10 until it was noticed on 2026-09-27 — seventeen days
+# of a workspace that could not open, while every test here stayed green,
+# because they read the source and nothing in them executes it. There is no
+# linter in this frontend to catch an undefined name, so this catches the form
+# the bug actually took.
+
+def test_every_imported_hook_is_called():
+    offenders = []
+    for p in sorted(SRC.rglob("*.jsx")):
+        src = p.read_text(encoding="utf-8")
+        for m in re.finditer(r"import\s*\{([^}]*)\}\s*from\s*'[^']*hooks/[^']*'", src):
+            for name in (n.strip().split(" as ")[-1] for n in m.group(1).split(",")):
+                if name.startswith("use") and not re.search(rf"\b{name}\s*\(", src):
+                    offenders.append(f"{p.name}: {name}")
+    assert not offenders, (
+        f"imported but never called: {offenders}. If the page renders what the "
+        f"hook would have returned, it will crash on the first visit.")

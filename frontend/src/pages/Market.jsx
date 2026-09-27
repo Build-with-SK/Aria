@@ -67,6 +67,9 @@ export default function Market() {
   const { data: sigData, loading, error } = useSignals()
   const { data: futures } = useFutures()
   const { data: options } = useOptions()
+  // Imported and rendered in fifteen places, but never called — every visit to
+  // this page threw "regime is not defined" into the error boundary.
+  const { data: regime } = useRegime()
   const [search, setSearch] = useState('')
   const [side, setSide] = useState('all')
 
