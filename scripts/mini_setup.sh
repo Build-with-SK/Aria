@@ -7,7 +7,8 @@
 #   2. Install Python 3.12 from python.org (macOS 64-bit universal2 installer)
 #   3. Node LTS from nodejs.org        (only needed to build the frontend once)
 #   4. Copy the repo to ~/aria and .env into it (with OLLAMA_BASE and
-#      ARIA_API_KEY added; ALPACA_PAPER must stay exactly "true")
+#      ARIA_OWNER_TOKEN from scripts/init_owner_auth.py; ALPACA_PAPER must
+#      stay exactly "true")
 # ============================================================================
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -32,30 +33,21 @@ else
   echo "! npm not found — skip frontend build (API still fully works)"
 fi
 
-# 3. Logs dir
-mkdir -p logs
+# 3. launchd jobs for ARIA, SENTINEL (if it sits beside this repo) and the
+#    watchdog. serverctl owns this so there is exactly one way to install them.
+chmod +x scripts/serverctl scripts/watchdog.sh
+scripts/serverctl install
+echo "✓ launchd jobs installed"
 
-# 4. launchd agents (auto-start on boot, auto-restart on crash)
-mkdir -p "$HOME/Library/LaunchAgents"
-sed "s|__ARIA_HOME__|$ARIA_HOME|g" scripts/com.aria.backend.plist \
-  > "$HOME/Library/LaunchAgents/com.aria.backend.plist"
-sed "s|__ARIA_HOME__|$ARIA_HOME|g" scripts/com.aria.watchdog.plist \
-  > "$HOME/Library/LaunchAgents/com.aria.watchdog.plist"
-launchctl unload "$HOME/Library/LaunchAgents/com.aria.backend.plist" 2>/dev/null || true
-launchctl unload "$HOME/Library/LaunchAgents/com.aria.watchdog.plist" 2>/dev/null || true
-launchctl load "$HOME/Library/LaunchAgents/com.aria.backend.plist"
-launchctl load "$HOME/Library/LaunchAgents/com.aria.watchdog.plist"
-echo "✓ launchd agents loaded (backend + watchdog)"
-
-# 5. Wait and verify
-echo "waiting for backend..."
+# 4. Wait and verify — READY, not merely alive.
+echo "waiting for the services..."
 for i in $(seq 1 30); do
-  if curl -s --max-time 3 http://localhost:8000/health >/dev/null 2>&1; then
-    echo "✓ backend is up: http://localhost:8000  (UI: /app)"
-    curl -s http://localhost:8000/api/desk/status | head -c 300; echo
+  if scripts/serverctl health >/dev/null 2>&1; then
+    scripts/serverctl status
     exit 0
   fi
   sleep 2
 done
-echo "✗ backend did not come up — check logs/backend.err"
+scripts/serverctl status
+echo "✗ not ready — scripts/serverctl logs aria   (and: scripts/mini_preflight.py)"
 exit 1

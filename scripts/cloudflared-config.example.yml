@@ -1,34 +1,45 @@
-# ~/.cloudflared/config.yml — copy this, fill in the two placeholders.
+# ~/.cloudflared/config.yml — copy this, fill in the placeholders.
+#
+# ONE TUNNEL, TWO HOSTNAMES. ARIA and SENTINEL are separate applications on
+# separate ports; they share a machine and a tunnel, nothing else.
 #
 # The tunnel dials OUT to Cloudflare and holds the connection open, so the mini
 # needs no inbound firewall rule, no static IP and no port forwarding. There is
-# no open port on your router for anyone to find.
+# no open port on your router for anyone to find, and HTTPS is terminated by
+# Cloudflare with a certificate you never have to renew.
+#
+# BOTH APPS BIND 127.0.0.1, NEVER 0.0.0.0. Only cloudflared can reach them, so
+# they are unreachable from the LAN even for someone on your Wi-Fi.
+#
+# AFTER THIS FILE, SET IN EACH APP'S .env (or the launchd environment):
+#   ARIA      ARIA_TRUST_PROXY=1
+#             ARIA_BASE_URL=https://aria.example.com
+#   SENTINEL  SENTINEL_TRUST_PROXY=1
+#             SENTINEL_ALLOWED_ORIGINS=https://sentinel.example.com
+#
+# Without *_TRUST_PROXY every caller looks like 127.0.0.1: the sign-in throttle
+# lumps the whole internet into one bucket (so any stranger can lock you out),
+# and the session cookie is not marked Secure. Without SENTINEL_ALLOWED_ORIGINS
+# every cookie-authenticated button in SENTINEL fails with 403 forbidden_origin.
+# scripts/mini_preflight.py checks all four.
 
 tunnel: PUT-YOUR-TUNNEL-UUID-HERE
 credentials-file: /Users/YOURNAME/.cloudflared/PUT-YOUR-TUNNEL-UUID-HERE.json
 
-# Keep the connection healthy on a home line.
 originRequest:
   connectTimeout: 30s
   noHappyEyeballs: true
+  # Streaming replies (server-sent events) must not be buffered or cut off by
+  # an idle timeout while a slow model thinks between tokens.
+  disableChunkedEncoding: false
+  keepAliveTimeout: 90s
 
 ingress:
-  - hostname: aria.yourdomain.com
-    # 127.0.0.1, never 0.0.0.0. uvicorn binds to loopback and ONLY cloudflared
-    # can reach it, so the API is unreachable from the LAN even if someone is
-    # on your Wi-Fi. That is the whole point of doing it this way.
+  - hostname: aria.example.com
     service: http://127.0.0.1:8000
+  - hostname: sentinel.example.com
+    service: http://127.0.0.1:8300
 
-  # If you serve the built frontend from the mini instead of Cloudflare Pages,
-  # run something static on 3000 and uncomment this ABOVE the rule below.
-  # Order matters: the first matching rule wins.
-  #
-  # - hostname: aria.yourdomain.com
-  #   path: ^/(api|health)/
-  #   service: http://127.0.0.1:8000
-  # - hostname: aria.yourdomain.com
-  #   service: http://127.0.0.1:3000
-
-  # Required last rule: everything unmatched gets a clean 404 rather than
-  # reaching anything.
+  # Required last rule: anything unmatched gets a clean 404 rather than
+  # reaching either application.
   - service: http_status:404

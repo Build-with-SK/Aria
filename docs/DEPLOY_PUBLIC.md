@@ -52,9 +52,8 @@ In `.env` on the mini:
 
 ```bash
 ARIA_BASE_URL=https://aria.yourdomain.com
-ARIA_FRONTEND_URL=https://aria.yourdomain.com
 ARIA_TRUST_PROXY=1
-ARIA_OWNER_TOKEN=<generate one>
+ARIA_OWNER_TOKEN=<python scripts/init_owner_auth.py>
 ```
 
 `ARIA_TRUST_PROXY=1` tells ARIA to read the real client IP from Cloudflare's
@@ -108,18 +107,17 @@ Point Cloudflare Pages at `frontend/dist`, or let the tunnel serve it — the
 example config has a commented ingress rule for that.
 
 Whichever you choose, the frontend and API must end up on the **same origin**.
-The session cookie is `SameSite=Lax`, and the CSP says `connect-src 'self'`;
+The session cookie is `SameSite=Strict`, and the CSP says `connect-src 'self'`;
 splitting them across hostnames breaks both.
 
 ---
 
 ## Before you tell anyone the URL
 
-- [ ] `ARIA_OWNER_TOKEN` set, and `ARIA_OWNER_EMAIL` matching your Google account
+- [ ] `ARIA_OWNER_TOKEN` set (`/api/auth/status` says `authentication_configured: true`)
 - [ ] `venv/bin/python scripts/mini_preflight.py` reports no blockers
 - [ ] `auto_execute` is **false** — the preflight fails the run if it is not
-- [ ] Signed in from your phone: research works, `/api/portfolio` returns 403
-      when signed in as anyone else
+- [ ] Signed in from your phone; signed out; `/api/portfolio` then returns 401
 - [ ] `curl -sI https://aria.yourdomain.com/health` shows
       `strict-transport-security` (it only appears over real HTTPS)
 

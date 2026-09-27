@@ -69,6 +69,19 @@ from pydantic import BaseModel
 from src.auth.guard import (require_owner, require_step_up,
                             require_step_up_to_arm)
 
+class _JsonLogFormatter(logging.Formatter):
+    """One JSON object per line: ts, level, logger, msg, and the traceback if
+    there is one. Credentials are already scrubbed at record creation."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        out = {"ts": datetime.fromtimestamp(record.created).isoformat(timespec="milliseconds"),
+               "level": record.levelname, "logger": record.name,
+               "msg": record.getMessage(), "pid": record.process}
+        if record.exc_info:
+            out["exc"] = self.formatException(record.exc_info)
+        return json.dumps(out, ensure_ascii=False, default=str)
+
+
 def _configure_logging():
     """Give the application's own loggers somewhere to go.
 
@@ -99,11 +112,22 @@ def _configure_logging():
 
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
+    # ARIA_LOG_FORMAT=json writes the FILE log as JSON lines — one object per
+    # record, so the server's logs can be filtered by level, logger or time
+    # without regex archaeology. The console stays human-readable. The launchd
+    # job on the Mac mini sets it; a developer's laptop does not need it.
+    file_fmt = _JsonLogFormatter() if os.environ.get(
+        "ARIA_LOG_FORMAT", "").strip().lower() == "json" else fmt
 
+    # ARIA_LOG_CONSOLE=0 under the service launcher (scripts/serve.py): there
+    # stdout is a file that rotates only on restart, so echoing every record to
+    # it as well as to the rotating aria.log grew it without bound on a machine
+    # meant to run for months. The console copy is for a human at a terminal.
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(fmt)
     console._aria = True
-    root.addHandler(console)
+    if os.environ.get("ARIA_LOG_CONSOLE", "1").strip() != "0":
+        root.addHandler(console)
 
     try:
         from logging.handlers import RotatingFileHandler
@@ -111,7 +135,7 @@ def _configure_logging():
         fh = RotatingFileHandler(ROOT / "data" / "aria.log",
                                  maxBytes=5_000_000, backupCount=3,
                                  encoding="utf-8")
-        fh.setFormatter(fmt)
+        fh.setFormatter(file_fmt)
         fh._aria = True
         root.addHandler(fh)
     except Exception as e:                       # read-only disk, permissions
@@ -743,6 +767,26 @@ def _sanitize(obj: Any) -> Any:
 # ===========================================================================
 # Health
 # ===========================================================================
+
+@app.get("/ready", tags=["System"])
+def readiness_check():
+    """READINESS, and public — but a boolean only.
+
+    `/health` says something is listening. This says the process is fit to
+    serve: an owner credential is configured, the data directory is writable,
+    the session store is readable and there is disk left. The watchdog and the
+    deploy script ask this, so a server nobody can sign in to is reported as
+    not ready rather than as healthy.
+
+    Reasons are logged and shown to signed-in callers at /api/system/health;
+    they are NOT in this body, because an anonymous caller learning which part
+    of the owner's machine is failing is learning its shape.
+    """
+    from fastapi.responses import JSONResponse
+    from src.core import readiness
+    ok = readiness.check()["ready"]
+    return JSONResponse({"ready": ok}, status_code=200 if ok else 503)
+
 
 @app.get("/health", tags=["System"])
 def health_check():
@@ -4168,6 +4212,12 @@ def aria_system_health():
         out["activity_24h"] = bus.counts_since(24).get("total", 0)
     except Exception:
         out["activity_24h"] = None
+    # The reasons behind /ready's boolean, for signed-in callers only.
+    try:
+        from src.core import readiness
+        out["readiness"] = readiness.check()
+    except Exception as e:
+        out["readiness"] = {"ready": False, "reasons": [f"check failed: {e}"]}
     return _sanitize(out)
 
 

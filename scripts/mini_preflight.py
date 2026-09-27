@@ -288,46 +288,166 @@ def check_safety():
 
 # ── 7. time ──────────────────────────────────────────────────────────────────
 
+def _read_env_at(path: Path) -> dict:
+    env = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, _, v = line.partition("=")
+                env[k.strip()] = v.strip()
+    return env
+
+
+def _sentinel_home():
+    env = (os.environ.get("SENTINEL_HOME") or "").strip()
+    for c in ([Path(env).expanduser()] if env else
+              [ROOT.parent / "atlas", ROOT.parent / "sentinel"]):
+        if (c / "sentinel").is_dir():
+            return c
+    return None
+
+
+def check_auth():
+    """Can the owner sign in, and can nobody else?
+
+    Blockers are the conditions under which the server would either admit
+    nobody (no credential) or be wrong about who it is admitting (a service
+    credential that is secretly the owner's). Warnings are the tunnel settings
+    whose absence breaks things in ways that look like something else.
+    """
+    head("8. Authentication")
+    env = {**_read_env(), **{k: v for k, v in os.environ.items()
+                              if k.startswith("ARIA_")}}
+    tunnel = (Path.home() / ".cloudflared" / "config.yml").exists()
+
+    owner = env.get("ARIA_OWNER_TOKEN") or env.get("ARIA_OWNER_TOKEN_HASH")
+    if not owner:
+        bad("ARIA: SERVER NOT INITIALIZED — no ARIA_OWNER_TOKEN or "
+            "ARIA_OWNER_TOKEN_HASH. Nobody can sign in. Run "
+            "scripts/init_owner_auth.py")
+    else:
+        ok("ARIA: owner credential configured"
+           + (" (hashed)" if env.get("ARIA_OWNER_TOKEN_HASH") else ""))
+        tok = env.get("ARIA_OWNER_TOKEN", "")
+        if tok and len(tok) < 24:
+            warn(f"ARIA_OWNER_TOKEN is only {len(tok)} characters. Generate a "
+                 "long one: scripts/init_owner_auth.py --force")
+
+    svc = env.get("ARIA_SERVICE_TOKEN", "")
+    if svc and svc == env.get("ARIA_OWNER_TOKEN"):
+        bad("ARIA_SERVICE_TOKEN equals ARIA_OWNER_TOKEN — SENTINEL would hold "
+            "the owner's key. Issue a different value.")
+
+    stale = [k for k in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
+                         "GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET",
+                         "APPLE_CLIENT_ID", "APPLE_CLIENT_SECRET",
+                         "ARIA_OWNER_EMAIL", "ARIA_FRONTEND_URL") if env.get(k)]
+    if stale:
+        warn("unused since OAuth was removed — delete from .env: " + ", ".join(stale))
+
+    if tunnel:
+        if env.get("ARIA_TRUST_PROXY", "").lower() not in ("1", "true", "yes"):
+            warn("a cloudflared config exists but ARIA_TRUST_PROXY is not set: "
+                 "every caller looks like 127.0.0.1, the sign-in throttle "
+                 "lumps the whole internet into one bucket, and the session "
+                 "cookie is not marked Secure")
+        if not env.get("ARIA_BASE_URL", "").startswith("https://"):
+            warn("ARIA_BASE_URL is not https:// — set it to the tunnel hostname")
+    else:
+        warn("no ~/.cloudflared/config.yml — the server will only be reachable "
+             "from this machine (see scripts/cloudflared-config.example.yml)")
+
+    home = _sentinel_home()
+    if home is None:
+        warn("SENTINEL not found beside ARIA — set SENTINEL_HOME if it is elsewhere")
+        return
+    senv = _read_env_at(home / ".env")
+    if not (senv.get("SENTINEL_TOKEN") or senv.get("SENTINEL_TOKEN_HASH")):
+        bad("SENTINEL: SERVER NOT INITIALIZED — no SENTINEL_TOKEN. Run "
+            "scripts/init_owner_auth.py --app sentinel")
+    else:
+        ok("SENTINEL: owner credential configured")
+    if (senv.get("SENTINEL_TOKEN") and env.get("ARIA_OWNER_TOKEN")
+            and senv["SENTINEL_TOKEN"] == env["ARIA_OWNER_TOKEN"]):
+        warn("SENTINEL and ARIA share one owner credential. Allowed, but a leak "
+             "of one is then a leak of both.")
+
+    # Four credentials, four jobs. Any two being equal collapses a boundary:
+    # a service token equal to an owner token turns a peer into the owner, and
+    # one app's peer token equal to the other's lets either speak as the other.
+    # Both apps read these from the environment OR from their key file, so a
+    # check that looks only at .env reports a gap that is not there.
+    def _keys(path: Path) -> dict:
+        try:
+            import json
+            return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        except (OSError, ValueError):
+            return {}
+
+    akeys = _keys(ROOT / "data" / "research_keys.json")
+    skeys = _keys(home / "data" / "sentinel" / "keys.json")
+
+    def _any(*values) -> str:
+        return next((str(v).strip() for v in values if str(v or "").strip()), "")
+
+    credentials = {
+        "ARIA_OWNER_TOKEN (human -> ARIA)": env.get("ARIA_OWNER_TOKEN", ""),
+        "SENTINEL_TOKEN (human -> SENTINEL)": senv.get("SENTINEL_TOKEN", ""),
+        "ARIA_SERVICE_TOKEN (SENTINEL -> ARIA)": _any(
+            env.get("ARIA_SERVICE_TOKEN"), senv.get("ARIA_SERVICE_TOKEN")),
+        "SENTINEL_SERVICE_TOKEN (ARIA -> SENTINEL)": _any(
+            env.get("SENTINEL_SERVICE_TOKEN"), env.get("SENTINEL_CONSULT_TOKEN"),
+            akeys.get("SENTINEL_SERVICE_TOKEN"), akeys.get("SENTINEL_CONSULT_TOKEN"),
+            senv.get("SENTINEL_SERVICE_TOKEN"), skeys.get("SENTINEL_SERVICE_TOKEN"),
+            skeys.get("SENTINEL_CONSULT_TOKEN")),
+    }
+    present = {name: value for name, value in credentials.items() if value}
+    names = list(present)
+    clashes = [(a, b) for i, a in enumerate(names) for b in names[i + 1:]
+               if present[a] == present[b]]
+    for a, b in clashes:
+        bad(f"{a} and {b} are the same value — that is one credential doing two "
+            f"jobs, and revoking either revokes both")
+    if not clashes and len(present) >= 3:
+        ok(f"{len(present)} credentials configured, all distinct")
+    missing = [n for n in credentials if n not in present]
+    if missing:
+        warn("not configured (peer features stay off until they are): "
+             + ", ".join(m.split(" ")[0] for m in missing))
+    if tunnel:
+        if senv.get("SENTINEL_TRUST_PROXY", "").lower() not in ("1", "true", "yes"):
+            warn("SENTINEL_TRUST_PROXY is not set — same consequences as for ARIA")
+        if not senv.get("SENTINEL_ALLOWED_ORIGINS", "").startswith("https://"):
+            warn("SENTINEL_ALLOWED_ORIGINS is not set to the https tunnel "
+                 "hostname: pages will load but every button will fail with "
+                 "403 forbidden_origin")
+
+
 def check_exposure():
-    """Who can reach this box, and what would they be allowed to do?"""
-    head("8. Exposure")
-
+    """Who can reach this box? Authentication is checked in section 8; this is
+    about the network and the vault."""
+    head("9. Exposure")
+    ok("both apps bind 127.0.0.1 in their launchd jobs; only cloudflared "
+       "reaches them")
     try:
-        from backend import main as bmain           # noqa
-        routes = [r for r in bmain.app.routes if getattr(r, "methods", None)]
-        n = len(routes)
-        guarded = 0
-        for r in routes:
-            deps = getattr(getattr(r, "dependant", None), "dependencies", []) or []
-            if deps:
-                guarded += 1
-        if guarded == 0:
-            warn(f"{n} endpoints, NONE requiring authentication. Among them are "
-                 "/api/execute/approve/<id> and /api/desk/auto-execute — the human "
-                 "approval gate is enforced by the port being unreachable, not by "
-                 "a check. Bind 127.0.0.1 and tunnel; never 0.0.0.0.")
+        from src.auth import policy
+        # Every role that is not the owner. Enumerated from the policy itself,
+        # so a role added later is covered without editing this line — the FREE
+        # role this used to name no longer exists, and a check that names roles
+        # by hand goes stale exactly when it matters.
+        others = [r for r in policy.ROLES if r != policy.OWNER]
+        if not any(policy.can_read_vault(r) for r in others):
+            ok(f"the vault is owner-only by construction; refused for "
+               f"{', '.join(others)}")
         else:
-            ok(f"{guarded}/{n} endpoints carry a dependency guard")
+            bad("policy.can_read_vault admits a non-owner role")
     except Exception as e:
-        warn(f"could not introspect routes ({type(e).__name__}) — assume no auth")
-
-    # Chat answers are grounded in the owner's private notes. On a shared box
-    # that is a disclosure path, not a feature.
-    try:
-        from src.brain.vault import get_vault_path
-        vp = get_vault_path()
-        if vp and Path(vp).exists():
-            warn(f"chat is grounded in the vault at {vp}. Every answer may quote "
-                 "those notes verbatim. Anyone who can reach /api/chat can read "
-                 "them, and there is no per-user separation.")
-        else:
-            ok("no vault configured — chat will not surface personal notes")
-    except Exception:
-        pass
+        warn(f"could not import the auth policy ({type(e).__name__})")
 
 
 def check_time():
-    head("7. Time")
+    head("10. Time")
     from datetime import datetime, timezone
     local = datetime.now().astimezone()
     print(f"  local  : {local:%Y-%m-%d %H:%M %Z} (UTC{local:%z})")
@@ -343,8 +463,8 @@ def main():
     print(f"{B}ARIA — Mac mini preflight{X}")
     print(f"repo: {ROOT}")
     for fn in (check_machine, check_deps, check_v5_without_chromadb,
-               check_filesystem, check_network, check_safety, check_exposure,
-               check_time):
+               check_filesystem, check_network, check_safety, check_auth,
+               check_exposure, check_time):
         try:
             fn()
         except Exception as e:
