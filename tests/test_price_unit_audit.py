@@ -126,7 +126,12 @@ def test_a_signals_price_survives_conversion_at_its_true_scale():
     """
     signals = json.loads(Path("data/signals.json").read_text(encoding="utf-8"))
     price = signals["BA"]["current_price"]
-    assert price > 200, "fixture assumption: signals.json holds Boeing's US price"
+    # The assertion is about SCALE, not about what Boeing costs today. It used
+    # to read `> 200` and began failing when the pipeline refreshed the file at
+    # 198.20 — a test that breaks on a 1% price move is measuring the market,
+    # not the defect. The defect turned $214 into $2.92, so anything in the
+    # hundreds proves the join was made on the right instrument.
+    assert price > 100, "fixture assumption: signals.json holds Boeing's US price"
 
     ccy = cur.provider_currency("BA")
     assert ccy == "USD", (
