@@ -78,8 +78,12 @@ OWNER_ONLY = [
 
 
 @pytest.mark.parametrize("path", OWNER_ONLY)
-def test_free_user_is_denied(path):
-    assert policy.is_allowed(path, policy.FREE) is False, path
+def test_nobody_but_the_owner_reaches_owner_routes(path):
+    """There is no second human role any more (the FREE tier went with OAuth),
+    so the only non-owner callers are anonymous ones and the SENTINEL peer."""
+    assert policy.is_allowed(path, policy.ANON) is False, path
+    if ("GET", path) not in policy.SERVICE_ROUTES:     # SENTINEL's five, by name
+        assert policy.is_allowed(path, policy.SERVICE, "GET") is False, path
 
 
 @pytest.mark.parametrize("path", OWNER_ONLY)
@@ -87,43 +91,38 @@ def test_owner_is_allowed(path):
     assert policy.is_allowed(path, policy.OWNER) is True, path
 
 
-# ── what free users legitimately get ─────────────────────────────────────────
+# ── the roles that exist ─────────────────────────────────────────────────────
 
-FREE_OK = [
-    "/health",
-    "/api/v5/analyse/AAPL", "/api/v5/modules",
-    "/api/universe/search", "/api/universe/news/AAPL",
-    "/api/quote/live/AAPL",
-    "/api/technical/AAPL", "/api/signals", "/api/macro",
-    "/api/quant/strategy/iron_condor", "/api/summary",
-    "/api/chat/local",
-]
-
-
-@pytest.mark.parametrize("path", FREE_OK)
-def test_free_user_gets_research(path):
-    assert policy.is_allowed(path, policy.FREE) is True, path
+def test_there_are_exactly_three_roles():
+    """Owner, the SENTINEL service peer, and anonymous. The FREE role existed
+    for other people signing in with Google or GitHub; both were removed at the
+    owner's request, and a role nothing can be granted is dead code with a
+    security-shaped name."""
+    assert not hasattr(policy, "FREE")
+    assert not hasattr(policy, "FREE_PREFIXES")
+    assert {policy.OWNER, policy.SERVICE, policy.ANON} == {"owner", "service", "anon"}
 
 
-def test_chat_local_is_not_shadowed_by_chat():
-    """/api/chat is owner-only and /api/chat/local is public. Prefix matching
-    must not let the shorter, denied path swallow the longer, allowed one."""
-    assert policy.is_allowed("/api/chat", policy.FREE) is False
-    assert policy.is_allowed("/api/chat/local", policy.FREE) is True
+def test_a_session_that_is_not_the_owners_is_anonymous():
+    """Nothing mints one, but if a record ever read as non-owner it must fall
+    to the least privilege, not to some intermediate tier."""
+    assert policy.resolve_role({}, "203.0.113.9", {"owner": False}) == policy.ANON
 
 
 def test_unknown_paths_default_to_deny():
     """The whole point of an allowlist: a route added tomorrow is invisible to
-    free users until someone names it."""
-    for path in ("/api/brand-new-feature", "/api/admin", "/", "/api/v6/secret"):
-        assert policy.is_allowed(path, policy.FREE) is False, path
+    anybody but the owner until someone names it."""
+    for path in ("/api/brand-new-feature", "/api/admin", "/api/v6/secret"):
+        assert policy.is_allowed(path, policy.ANON) is False, path
+        assert policy.is_allowed(path, policy.OWNER) is True, path
 
 
 # ── the vault gate ───────────────────────────────────────────────────────────
 
 def test_only_owner_reads_the_vault():
     assert policy.can_read_vault(policy.OWNER) is True
-    assert policy.can_read_vault(policy.FREE) is False
+    assert policy.can_read_vault(policy.SERVICE) is False
+    assert policy.can_read_vault(policy.ANON) is False
     for junk in ("", None, "admin", "OWNER", "owner "):
         assert policy.can_read_vault(junk) is False, junk
 
@@ -169,8 +168,13 @@ def test_the_only_anon_reachable_api_is_the_sign_in_flow():
     assert not stray, f"anonymous callers can reach {stray}"
 
     # Of the auth routes, only the sign-in flow itself may be unguarded.
-    sign_in_flow = {"/api/auth/providers", "/api/auth/me", "/api/auth/logout",
-                    "/api/auth/login/{provider}", "/api/auth/callback/{provider}"}
+    #
+    # The list shrank when Google, GitHub and Apple were removed: the provider
+    # redirect and its callback are gone, and one credential endpoint replaced
+    # them. `/api/auth/status` joined it so an uninitialised server can say so
+    # rather than rejecting every attempt as a wrong credential.
+    sign_in_flow = {"/api/auth/login", "/api/auth/logout",
+                    "/api/auth/me", "/api/auth/status"}
     for path, route in anon_reachable:
         if path in sign_in_flow:
             continue
@@ -179,42 +183,48 @@ def test_the_only_anon_reachable_api_is_the_sign_in_flow():
             f"require_owner — the prefix is the door, not the lock")
 
 
-def test_the_user_record_is_owner_only_despite_the_open_auth_prefix():
-    """Named explicitly because it is the one that would hurt: the user list is
-    personal data, and it lives under the prefix that has to stay open."""
+def test_the_sensitive_auth_routes_are_owner_only_despite_the_open_prefix():
+    """Named explicitly because these are the ones that would hurt.
+
+    This used to be about `/api/auth/users`, the record of everybody who had
+    signed in via a provider. Both the route and `src/auth/users.py` were
+    removed with OAuth: with no provider there are no other users, so the file
+    was an orphan holding personal data and nothing wrote to it.
+
+    What replaced it under the same open prefix is the session list, which says
+    which devices are signed in, and the sign-out-everywhere control. Neither
+    may be reachable without the owner guard: one is operational detail about
+    the owner's machines, and the other could sign him out of it.
+    """
     import backend.main as m
-    for path in ("/api/auth/users", "/api/auth/users/{key:path}"):
+    for path in ("/api/auth/sessions", "/api/auth/logout-everywhere"):
         routes = [r for r in m.app.routes if getattr(r, "path", "") == path]
         assert routes, f"{path} is no longer registered"
         for r in routes:
             assert _is_owner_guarded(r), f"{path} lost its owner guard"
 
 
-def test_every_free_reachable_endpoint_is_deliberately_public():
-    """A route becoming free-readable must be a decision, not a side effect.
+def test_the_removed_user_record_is_really_gone():
+    """A module nothing imports is still a module somebody can import."""
+    root = Path(__file__).parent.parent
+    assert not (root / "src" / "auth" / "users.py").exists()
+    import backend.main as m
+    paths = {getattr(r, "path", "") for r in m.app.routes}
+    assert not any(p.startswith("/api/auth/users") for p in paths)
 
-    This list is the record of that decision. Adding an endpoint under an
-    existing FREE prefix silently widens public access — which is exactly how
-    an API ends up exposing something it did not mean to — so the new path has
-    to be named here before the suite goes green again.
-    """
-    deliberately_public = {
-        "/api/v5/", "/api/universe/", "/api/quote/", "/api/technical/",
-        "/api/signals", "/api/macro", "/api/futures", "/api/options",
-        "/api/derivatives", "/api/sentiment", "/api/history", "/api/lse",
-        "/api/nexus", "/api/quant/", "/api/backtest", "/api/ml",
-        "/api/summary", "/api/chat/local", "/api/brain/pulse",
-        "/api/system/health", "/api/auth/",
-    }
+
+def test_every_anonymously_reachable_route_is_deliberate():
+    """With no second human role, the only non-owner surface is the anonymous
+    one — and it must stay exactly: sign-in, liveness, readiness, the UI shell.
+    Adding to it has to be a decision recorded here."""
+    deliberately_public = {"/api/auth/", "/health", "/ready", "/app"}
     surprises = []
     for path, concrete, _ in _app_routes():
-        if not policy.is_allowed(concrete, policy.FREE):
+        if not policy.is_allowed(concrete, policy.ANON):
             continue
         if not any(path.startswith(p) for p in deliberately_public):
             surprises.append(path)
-    assert not surprises, (
-        f"these endpoints are readable by any signed-in user and are not on "
-        f"the deliberate list: {surprises}")
+    assert not surprises, f"reachable without signing in: {surprises}"
 
 
 def test_the_owners_private_surfaces_are_owner_only():
@@ -231,17 +241,18 @@ def test_the_owners_private_surfaces_are_owner_only():
     for path, concrete, _ in _app_routes():
         if not any(path.startswith(p) for p in private):
             continue
-        for role in (policy.ANON, policy.FREE):
+        for role in (policy.ANON, policy.SERVICE):
             assert policy.is_allowed(concrete, role) is False, (
                 f"{path} is reachable by {role}")
 
 
-def test_the_brain_aggregate_never_leaks_below_owner():
-    """/api/brain/pulse is deliberately public; /api/brain is not.
+def test_the_brain_is_owner_only():
+    """/api/brain/pulse was public to signed-in non-owners. There are none now,
+    so the brain — pulse included — is the owner's, and SENTINEL reaches only
+    /api/brain/status through its own allowlist."""
+    for path in ("/api/brain/pulse", "/api/brain", "/api/brain/activity",
+                 "/api/brain/memory"):
+        assert policy.is_allowed(path, policy.ANON) is False, path
+    assert policy.is_allowed("/api/brain/status", policy.SERVICE, "GET") is True
+    assert policy.is_allowed("/api/brain/pulse", policy.SERVICE, "GET") is False
 
-    They differ by everything that matters — the aggregate carries the world
-    model, memory counts and the vault-backed cognition summary.
-    """
-    assert policy.is_allowed("/api/brain/pulse", policy.FREE) is True
-    for path in ("/api/brain", "/api/brain/activity", "/api/brain/memory"):
-        assert policy.is_allowed(path, policy.FREE) is False, path

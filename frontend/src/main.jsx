@@ -1,11 +1,10 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
-import axios from 'axios'
 import App from './App'
-import { installOwnerAuth } from './auth/ownerToken'
 import { CurrencyProvider } from './currency/CurrencyContext'
 import { AuthProvider } from './auth/AuthContext'
+import { installStepUp } from './auth/StepUp'
 import { applyA11y, loadA11y } from './components/Accessibility'
 import './index.css'
 
@@ -13,12 +12,23 @@ import './index.css'
 // never flashes at the default size for someone who needs it larger.
 applyA11y(loadA11y())
 
-// Before the first request leaves: attach the owner token to same-origin API
-// calls, whoever sends them. Without this the browser has no way to prove who
-// it is — ARIA_OWNER_TOKEN being set switches off the loopback fallback, and
-// no OAuth provider is configured — so the owner sees the free-tier deck on
-// his own machine. See auth/ownerToken.js.
-installOwnerAuth(axios)
+// NOTHING IS INSTALLED HERE ANY MORE, AND THAT IS THE POINT.
+//
+// This used to call installOwnerAuth(axios), which read the raw
+// ARIA_OWNER_TOKEN out of localStorage and monkey-patched window.fetch to
+// attach it to every same-origin API call. It worked, and it meant one XSS on
+// this origin handed an attacker a permanent credential that opens the broker
+// routes — with no expiry and no way to revoke it.
+//
+// The browser now holds no credential at all. Signing in posts the owner
+// credential once to /api/auth/login and gets back an HttpOnly session cookie
+// the page cannot read, which the browser attaches by itself. There is nothing
+// left for a script on this page to steal.
+//
+// One thing IS installed: the step-up interceptor. A few actions (approving a
+// trade, releasing the kill switch, arming auto-execute) need the credential
+// again if it was not presented recently; see auth/StepUp.jsx.
+installStepUp()
 
 // Install the service worker in production only. Registering it in dev would
 // put a cache in front of Vite's module graph and make HMR lie about what is

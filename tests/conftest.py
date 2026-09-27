@@ -96,6 +96,31 @@ def _redirect_module(mod, tmp_data: Path) -> int:
                         moved += 1
                     except Exception:
                         pass
+        else:
+            # INSTANCE attributes, for a module-level object that holds its own
+            # paths. `src.auth.session.SESSIONS` is one: an OwnerAuth built at
+            # import time with the session store and the signing key baked in.
+            # Redirecting only the module constants left it pointing at the
+            # real data directory, so running the suite signed the owner out of
+            # his own browser — a leak with a symptom nobody would connect to
+            # pytest.
+            #
+            # General rather than a named exception, for the reason the note at
+            # the top of this file gives: a list somebody has to remember to
+            # extend is a list that will be short by one. Only paths that
+            # actually resolve under the real data directory are touched.
+            try:
+                attrs = list(vars(value).items())
+            except TypeError:
+                attrs = []                            # no __dict__, nothing to do
+            for attr, aval in attrs:
+                new_a = remap(aval)
+                if new_a is not None:
+                    try:
+                        setattr(value, attr, new_a)
+                        moved += 1
+                    except Exception:
+                        pass
     return moved
 
 
@@ -112,8 +137,15 @@ def _sweep(tmp_data: Path) -> int:
             continue
         if not (name == "src" or name.startswith("src.") or name.startswith("backend")):
             continue
-        _patched_modules.add(name)
         moved += _redirect_module(mod, tmp_data)
+        # A module still executing its own body is swept for what exists so
+        # far but NOT marked done. backend/main.py imports src.* near its top,
+        # so the import hook below used to sweep it half-built, mark it, and
+        # never look again — every data path defined further down the file
+        # (CHAT_STREAM_METRICS was the one that showed it) kept its REAL value
+        # and tests wrote into the owner's data directory.
+        if not getattr(getattr(mod, "__spec__", None), "_initializing", False):
+            _patched_modules.add(name)
     return moved
 
 

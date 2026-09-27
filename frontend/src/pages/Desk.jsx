@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import axios from 'axios'
 import { useCurrency } from '../currency/CurrencyContext'
 import Term from '../components/Term'
 
@@ -80,11 +81,15 @@ function AutoExecToggle({ status, onChanged }) {
   const toggle = async () => {
     setBusy(true); setRefusal('')
     try {
-      const r = await fetch(`/api/desk/auto-execute?enabled=${!armed}`, { method: 'POST' })
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}))
-        setRefusal(e.detail || `Refused (${r.status})`)
-      }
+      // axios, not fetch: arming needs a recent "confirm it's you", and the
+      // step-up interceptor (auth/StepUp.jsx) only sees axios requests.
+      // Disarming never asks — the server does not require it.
+      await axios.post(`/api/desk/auto-execute?enabled=${!armed}`)
+      onChanged && onChanged()
+    } catch (e) {
+      const d = e?.response?.data?.detail
+      setRefusal(typeof d === 'string' ? d
+        : d?.detail || `Refused (${e?.response?.status || 'no response'})`)
       onChanged && onChanged()
     } finally { setBusy(false) }
   }

@@ -51,9 +51,8 @@ export default function OwnerOnly({ children, what = 'This section' }) {
         {authenticated && (
           <div style={{ ...mono, fontSize: 10, color: 'var(--muted)', marginTop: 18,
                         borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-            Signed in as {user?.email || 'your account'}.
-            {' '}If this should be your terminal, set <code>ARIA_OWNER_EMAIL</code> to
-            that address and restart.
+            Signed in, but not as the owner. The owner signs in with the
+            credential in <code>ARIA_OWNER_TOKEN</code>.
           </div>
         )}
       </div>

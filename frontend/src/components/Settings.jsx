@@ -14,7 +14,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { CURRENCY_META, useCurrency } from '../currency/CurrencyContext'
 import { applyA11y, loadA11y } from './Accessibility'
 import { useAuth } from '../auth/AuthContext'
-import { clearOwnerToken } from '../auth/ownerToken'
 
 const MONO = 'var(--mono)'
 const A11Y_KEY = 'aria-a11y'
@@ -77,7 +76,9 @@ function Account() {
 
   const signOut = async () => {
     setBusy(true)
-    clearOwnerToken()          // the browser's proof of ownership, if it held one
+    // logout() posts to /api/auth/logout, which REVOKES the session record
+    // server-side and then clears the cookie. There is nothing to clear in the
+    // browser beyond that — it no longer holds a credential of its own.
     try { await logout() } finally { window.location.href = '/app/login' }
   }
 

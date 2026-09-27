@@ -24,14 +24,26 @@ is an annoyance; a misconfigured vault flag publishes someone's personal notes.
 
 OWNER IDENTIFICATION
 --------------------
-Set ARIA_OWNER_TOKEN in .env and send it as `Authorization: Bearer <token>` or
-`X-ARIA-Token`.
+Two ways, and both count as PROVEN:
 
-If no token is configured, requests from LOOPBACK are treated as the owner and
-everything else is free. That keeps the existing single-user localhost workflow
-working untouched while making any remote caller a free user by default. It is
+  * `ARIA_OWNER_TOKEN` (or `ARIA_OWNER_TOKEN_HASH`) sent as
+    `Authorization: Bearer <token>` or `X-ARIA-Token`. The break-glass path —
+    scripts, the deploy check, a terminal, and the way back in when a session
+    store is lost.
+  * A session cookie issued by `POST /api/auth/login` and backed by a record in
+    `ownerauth`. This is what a browser uses. It expires, it can be revoked, and
+    it is not a credential: it cannot be replayed as one.
+
+Google, GitHub and Apple sign-in were removed at the owner's request. There is
+no third-party identity in this system any more, so ownership is no longer
+derived from an email address and ARIA_OWNER_EMAIL is no longer consulted.
+
+If NOTHING is configured, requests from LOOPBACK are treated as the owner and
+everything else is anonymous. That keeps the existing single-user localhost
+workflow working untouched while making any remote caller anonymous by default. It is
 a deliberate compromise for a machine that is not yet exposed — the moment this
-is reachable from anywhere else, set the token.
+is reachable from anywhere else, set the credential. Routes that can reach a
+broker refuse inferred ownership outright (see PROVEN_BASES).
 """
 from __future__ import annotations
 
@@ -41,9 +53,118 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# THREE ROLES, AND EACH EXISTS BECAUSE SOMETHING NEEDS IT.
+#
+#   OWNER    the human. The only person who signs in. Everything is theirs.
+#   SERVICE  SENTINEL, calling ARIA with ARIA_SERVICE_TOKEN — five routes.
+#   ANON     not signed in: the login routes, liveness and the UI shell.
+#
+# There used to be a FREE role: signed in, not the owner, research-only. It
+# existed for Google/GitHub sign-in, which let other people in. Both went
+# together — this is a private, owner-only system, and a role nothing can
+# ever be granted is not a safety margin, it is a branch nobody tests against
+# reality. A session that is somehow not the owner's is ANON.
 OWNER = "owner"
-FREE = "free"
 ANON = "anon"          # not signed in — gets nothing but the login routes
+
+# ── the service role ─────────────────────────────────────────────────────────
+#
+# One named peer — SENTINEL — with a method-and-route allowlist and nothing else.
+#
+# WHY IT EXISTS. SENTINEL held ARIA_OWNER_TOKEN, because that was the only
+# credential ARIA had that opened /api/brain/status. That token also opens
+# /api/execute/approve/{id} and /api/execute/kill-switch/release. The rule that
+# SENTINEL does not touch those was enforced by nobody having written the call —
+# which is not a permission boundary, it is an absence. A credential's blast
+# radius is every route it opens, not the routes its holder currently chooses.
+#
+# WHAT IT IS NOT. It is not a tier, not an upgrade path and not a second owner.
+# It cannot be granted anything by editing a config file: the allowlist is a
+# literal below, method-qualified, and every entry had to be justified against
+# a call SENTINEL actually makes.
+SERVICE = "service"
+
+#: Every role there is. Enumerated so that checks like "no role other than the
+#: owner may read the vault" can be written against the list rather than
+#: against a hand-written set of names that goes stale — which is exactly what
+#: happened when FREE was removed and a preflight check kept naming it.
+ROLES: tuple[str, ...] = (OWNER, SERVICE, ANON)
+
+#: Exactly what the service peer may call, as (METHOD, path). Method-qualified
+#: because "may read the brain's status" and "may post to the brain" are not the
+#: same grant, and a path-only allowlist cannot tell them apart.
+#:
+#: Derived from an inventory of every request sentinel/aria.py actually issues.
+#: Four of its five calls are here. The fifth is GET /api/execute/queue, and it
+#: is deliberately ABSENT: that route carries `Depends(require_owner)`, so
+#: admitting the service role would have meant weakening the guard that stands
+#: on every order-placing route. Losing the "ARIA has trades waiting" line in
+#: SENTINEL's morning brief is the correct price. sentinel/aria.py already
+#: renders a refused probe as refused rather than as "nothing pending".
+SERVICE_ROUTES: frozenset[tuple[str, str]] = frozenset({
+    ("GET", "/health"),             # liveness
+    ("GET", "/api/summary"),        # the signal summary
+    ("GET", "/api/brain/status"),   # is the local brain up, and on which model
+    # The ONLY write the service peer may make, and it writes nothing that a
+    # later request can read back. Deliberately /api/chat/local and never
+    # /api/chat: the cloud path RECORDS A HELD TRADE INTENT when the message
+    # parses as an order (backend/main.py, `intents.record`). A consultation
+    # peer must not be able to put an intent in the owner's book by phrasing a
+    # question as "should I buy 20 AAPL".
+    ("POST", "/api/chat/local"),
+    # The STRUCTURED form of the same consultation: analysis plus the data's
+    # age, its sources, whether it needs checking, and a confidence only when
+    # the signal engine actually produced one. Same model and same no-vault,
+    # no-intent path as /api/chat/local; it exists so SENTINEL can tell the
+    # owner how old ARIA's numbers are instead of relaying free text.
+    ("POST", "/api/specialist/analysis"),
+})
+
+
+def service_token() -> str:
+    return (os.environ.get("ARIA_SERVICE_TOKEN") or "").strip()
+
+
+def service_token_is_distinct() -> bool:
+    """A service token equal to the owner token is not a scoped credential; it
+    is the owner token wearing a different name. Refuse rather than pretend."""
+    svc = service_token()
+    if not svc:
+        return False
+    # Asked as "does this value authenticate AS THE OWNER" rather than "is it
+    # the same string as ARIA_OWNER_TOKEN". The string comparison was right
+    # while the credential was always plaintext, and became blind the moment it
+    # could be stored as a hash: `owner_token()` is then empty, the comparison
+    # is skipped, and a service token identical to the owner's would have been
+    # accepted as correctly scoped.
+    from . import ownerauth
+    stored = owner_token_hash() or owner_token()
+    if stored and ownerauth.verify_secret(svc, stored):
+        logger.error(
+            "ARIA_SERVICE_TOKEN is identical to ARIA_OWNER_TOKEN. The service "
+            "role is DISABLED: a scoped credential that equals the owner's is "
+            "not scoped. Issue a different value.")
+        return False
+    # And not the other direction's credential either: one value that opened
+    # SENTINEL -> ARIA and ARIA -> SENTINEL would be one leak for two doors.
+    for other in ("SENTINEL_SERVICE_TOKEN", "SENTINEL_CONSULT_TOKEN"):
+        v = (os.environ.get(other) or "").strip()
+        if v and hmac.compare_digest(svc, v):
+            logger.error("ARIA_SERVICE_TOKEN equals %s — the service role is "
+                         "DISABLED until they differ.", other)
+            return False
+    return True
+
+
+def service_may(method: str, path: str) -> bool:
+    """Exact match on (METHOD, path). No prefixes, deliberately.
+
+    Prefix matching is how `/api/execute/queue` would have quietly become
+    `/api/execute/approve/{id}` — one of those is a read and the other moves
+    money, and they share six characters of path.
+    """
+    p = (path or "").rstrip("/") or "/"
+    return ((method or "").upper(), p) in SERVICE_ROUTES
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 # "testclient" is deliberately NOT here. It was, and it meant every request made
@@ -55,45 +176,29 @@ LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 # and a health check for the deploy script. Everything else requires an account.
 PUBLIC_PREFIXES: tuple[str, ...] = (
     "/health",
-    "/api/auth/",          # providers, login, callback, me, logout
+    # Readiness: a bare true/false for the watchdog and the deploy check. The
+    # reasons are logged and shown only to signed-in callers.
+    "/ready",
+    "/api/auth/",          # login, logout, status, me — sessions + logout-everywhere are guarded per route
+    # THE STATIC INTERFACE: the built SPA's HTML shell, scripts, styles and
+    # icons. No data, no credential — every byte of it is fetched from the API
+    # afterwards, and the API is what is guarded.
+    #
+    # It was owner-only, which meant the backend-served build could not load
+    # its own sign-in page: an anonymous browser asked for /app/login and got a
+    # raw 401 JSON body. Locally that was hidden by the Vite dev server, which
+    # serves the interface itself; behind a tunnel on the Mac mini it would
+    # have meant nobody could ever sign in. SENTINEL made the same call for the
+    # same reason (sentinel/auth.py: "paths outside /api are the static
+    # interface").
+    #
+    # Checked before being opened: the bundle bakes in no environment values
+    # (no import.meta.env.VITE_* anywhere), and the only secret-shaped strings
+    # in it are UI text naming variables. `/app/` with its slash, so "/apple"
+    # is not caught by a bare "/app" prefix.
+    "/app/",
 )
 
-
-# ── what a free user may reach ───────────────────────────────────────────────
-# Research and market data: the actual product. Everything here is public
-# knowledge about public markets — none of it is about the owner.
-FREE_PREFIXES: tuple[str, ...] = (
-    "/health",
-    "/api/v5/",            # the research engine
-    "/api/universe/",      # symbol lookup, quotes, news, fundamentals
-    "/api/quote/",
-    "/api/technical/",
-    "/api/signals",
-    "/api/macro",
-    "/api/futures",
-    "/api/options",
-    "/api/derivatives",
-    "/api/sentiment",
-    "/api/history",
-    "/api/lse",
-    "/api/nexus",
-    "/api/quant/",         # greeks, payoff curves — maths, not positions
-    "/api/backtest",
-    "/api/ml",
-    "/api/summary",
-    "/api/chat/local",     # Ollama only. /api/chat (cloud) is owner-only.
-    # Vital signs ONLY — no reasoning text, no memories, no controls. Watching
-    # ARIA think is the best thing this system does and should not need a
-    # login; but the brain reasons with the owner's vault in context, so
-    # /api/brain/memories, /recall and /last-cycle stay owner-only and every
-    # POST under /api/brain stays owner-only with them.
-    "/api/brain/pulse",
-    # Coarse system health: worker states and a 24h event count. No holdings,
-    # no tickers, no track record — it answers "is ARIA actually working", which
-    # is the honest version of the status dot in the rail. Deliberately NOT in
-    # PUBLIC_PREFIXES: the anonymous surface stays exactly as small as it was.
-    "/api/system/health",
-)
 
 # Named so the reason survives someone reading the list in a hurry.
 NEVER_SHARED: dict[str, str] = {
@@ -138,12 +243,21 @@ def is_execution_path(path: str) -> bool:
 # the desk sizes trades from. Path prefixes alone could never have caught them:
 # they live under /api/v5 and /api/universe, which free users are meant to read.
 PUBLIC_WRITE_ROUTES: frozenset[str] = frozenset({
-    # Sign-in flow. Writes a session cookie and nothing else.
-    "/api/auth/login/{provider}",
+    # Sign-in flow. Writes a session record and a cookie, and nothing else.
+    #
+    # `/api/auth/login` REPLACED `/api/auth/login/{provider}` when Google,
+    # GitHub and Apple were removed. It cannot be owner-guarded for the obvious
+    # reason — it is how you become the owner — so it carries its own defence
+    # instead: the failed-attempt throttle in ownerauth, which gets slower and
+    # then stops, plus the per-IP limiter in the middleware above it.
+    "/api/auth/login",
+    # Ends a session. Revokes only the session presented, so an anonymous caller
+    # has nothing to revoke. `/api/auth/logout-everywhere` is a different thing
+    # and IS owner-guarded: signing the owner out of every device is an owner
+    # action, not part of the sign-in flow.
     "/api/auth/logout",
-    # A local model completion. The policy allowlist routes free users here on
-    # purpose. It is exempt because it changes no state a later request can
-    # read back — NOT because it is cheap: it builds market context first,
+    # A local model completion — the SERVICE peer's consultation route. It is
+    # exempt because it changes no state a later request can read back — NOT because it is cheap: it builds market context first,
     # which fetches a dossier over the network, and then spends minutes of a 4B
     # model. (An earlier version of this comment claimed it "changes nothing",
     # which was untrue about the work it does.) The protection is the rate
@@ -151,6 +265,12 @@ PUBLIC_WRITE_ROUTES: frozenset[str] = frozenset({
     "/api/chat/local",
     # Black-Scholes on numbers in the request body. Pure maths, no state.
     "/api/quant/greeks",
+    # ARIA answering as the specialist SENTINEL consults. Not owner-guarded by
+    # dependency because the SERVICE peer must reach it; the middleware still
+    # admits only OWNER and SERVICE. Writes nothing a later request can read —
+    # deliberately built on the /api/chat/local path, never /api/chat, which
+    # records trade intents.
+    "/api/specialist/analysis",
 })
 
 
@@ -158,11 +278,25 @@ def owner_token() -> str:
     return (os.environ.get("ARIA_OWNER_TOKEN") or "").strip()
 
 
+def owner_token_hash() -> str:
+    """The same credential stored as an scrypt hash (see ownerauth). A hash is
+    not comparable here — `resolve_role_with_basis` needs a constant-time match
+    against a presented value and delegates that to ownerauth — but its
+    PRESENCE is what says a credential is configured at all."""
+    return (os.environ.get("ARIA_OWNER_TOKEN_HASH") or "").strip()
+
+
 def owner_is_configured() -> bool:
-    """True when ownership can be PROVEN — by a token or by an OAuth identity —
-    rather than merely inferred from where the connection came from."""
-    return bool(owner_token()
-                or (os.environ.get("ARIA_OWNER_EMAIL") or "").strip())
+    """True when ownership can be PROVEN rather than merely inferred from where
+    the connection came from.
+
+    This used to also accept ARIA_OWNER_EMAIL, because an OAuth identity was a
+    second way to prove ownership. Google, GitHub and Apple sign-in were removed
+    at the owner's request, so that variable no longer proves anything and is no
+    longer consulted — leaving it in would have meant a stale value in a .env
+    silently satisfying this check while nothing could actually authenticate.
+    """
+    return bool(owner_token() or owner_token_hash())
 
 
 # Evidence, gathered from live traffic, that something is in front of this app.
@@ -246,8 +380,14 @@ def _presented(headers) -> str:
 BASIS_TOKEN = "token"
 BASIS_SESSION = "session"
 BASIS_LOOPBACK = "loopback"          # inferred — never sufficient for a broker
+BASIS_SERVICE = "service_token"      # a named peer, NOT the owner
 BASIS_NONE = "none"
 
+#: Bases that prove OWNERSHIP. `BASIS_SERVICE` is deliberately absent: the
+#: service token proves "I am SENTINEL", which is a different claim from "I am
+#: the owner". `require_owner` tests the role first and would refuse the service
+#: role anyway, so this is the second of two independent reasons a service
+#: credential cannot reach a broker.
 PROVEN_BASES = frozenset({BASIS_TOKEN, BASIS_SESSION})
 
 
@@ -267,17 +407,33 @@ def resolve_role_with_basis(headers, client_host: str | None,
     Asking how THIS request proved ownership has no such gap. There is no
     environment variable that turns a loopback address into proof.
     """
-    token = owner_token()
-    if token:
-        presented = _presented(headers)
-        if presented and hmac.compare_digest(presented, token):
+    presented = _presented(headers)
+    if owner_is_configured() and presented:
+        # Delegated so that a credential stored as an scrypt hash works on this
+        # path too. Comparing against `owner_token()` directly — as this did —
+        # silently stopped authenticating anybody the moment an operator moved
+        # the credential to ARIA_OWNER_TOKEN_HASH, because the plaintext
+        # variable is then empty and the branch was never entered.
+        from . import ownerauth
+        stored = owner_token_hash() or owner_token()
+        if ownerauth.verify_secret(presented, stored):
             return OWNER, BASIS_TOKEN
 
+    # The service peer, checked AFTER the owner so a misconfiguration that set
+    # both to the same value resolves to owner and is caught by
+    # `service_token_is_distinct()` rather than silently downgrading the owner.
+    if presented and service_token_is_distinct() and hmac.compare_digest(
+            presented, service_token()):
+        return SERVICE, BASIS_SERVICE
+
     if session:
-        return (OWNER if session.get("owner") else FREE), BASIS_SESSION
+        if session.get("owner"):
+            return OWNER, BASIS_SESSION
+        return ANON, BASIS_NONE
 
     host = peer_host if peer_host is not None else client_host
-    if not token and loopback_owner_enabled() and (host or "") in LOOPBACK:
+    if (not owner_is_configured() and loopback_owner_enabled()
+            and (host or "") in LOOPBACK):
         return OWNER, BASIS_LOOPBACK
 
     return ANON, BASIS_NONE
@@ -285,12 +441,12 @@ def resolve_role_with_basis(headers, client_host: str | None,
 
 def resolve_role(headers, client_host: str | None, session: dict | None = None,
                  *, peer_host: str | None = None) -> str:
-    """OWNER, FREE or ANON. Never raises — anything unreadable is simply not owner.
+    """OWNER, SERVICE or ANON. Never raises — anything unreadable is simply not owner.
 
     Order matters. The owner token wins outright because it is the break-glass
     path that must keep working when OAuth or the network is broken. Then a
-    signed session, whose `owner` flag was re-derived from ARIA_OWNER_EMAIL on
-    read and cannot be forged. Only then the loopback fallback, and only while
+    session record from ownerauth, which exists only because the credential
+    was presented and so has no owner flag to forge. Only then the loopback fallback, and only while
     no token is configured, so the existing local workflow survives.
 
     `peer_host` is the address of the socket that actually connected. It exists
@@ -311,21 +467,22 @@ def is_public(path: str) -> bool:
     return any(p == q.rstrip("/") or p.startswith(q) for q in PUBLIC_PREFIXES)
 
 
-def is_allowed(path: str, role: str) -> bool:
-    """Default deny. Owner may do anything; signed-in users get the research
-    allowlist; anonymous callers get only the sign-in routes."""
+def is_allowed(path: str, role: str, method: str = "GET") -> bool:
+    """Default deny. The owner may do anything; the service peer gets its five
+    (METHOD, path) pairs; anyone else gets only the public routes.
+
+    `method` matters for one role only. The service peer is granted
+    (METHOD, path) pairs rather than prefixes, so it defaults to GET here and
+    every existing caller keeps its meaning unchanged.
+    """
+    if role == SERVICE:
+        # Checked BEFORE is_public so the service role is described entirely by
+        # its own allowlist — one list to read when asking what SENTINEL can do,
+        # rather than that list plus whatever happens to be public today.
+        return service_may(method, path)
     if is_public(path):
         return True
-    if role == OWNER:
-        return True
-    if role != FREE:
-        return False
-    p = (path or "").rstrip("/") or "/"
-    # Longest-match first so /api/chat/local is not shadowed by /api/chat.
-    for prefix in sorted(FREE_PREFIXES, key=len, reverse=True):
-        if p == prefix.rstrip("/") or p.startswith(prefix):
-            return True
-    return False
+    return role == OWNER
 
 
 def denial_reason(path: str) -> str:
@@ -353,7 +510,8 @@ def warn_if_unprotected():
     if owner_is_configured():
         return
     logger.warning(
-        "No ARIA_OWNER_TOKEN and no ARIA_OWNER_EMAIL is set. Ownership is "
+        "SERVER NOT INITIALIZED: no ARIA_OWNER_TOKEN and no "
+        "ARIA_OWNER_TOKEN_HASH is set, so nobody can sign in. Ownership is "
         "being INFERRED from loopback connections, which is fine on a laptop "
         "and wrong behind any proxy or tunnel — a proxy connects from "
         "127.0.0.1, so every caller would look like you. Routes that can reach "

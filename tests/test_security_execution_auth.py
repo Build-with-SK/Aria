@@ -129,23 +129,20 @@ def test_anonymous_caller_gets_401_not_403(app, anon):
     assert r.status_code == 401
 
 
-def test_signed_in_non_owner_is_refused(app):
-    """A FREE user is authenticated but must still never reach execution.
-    Blocklist-shaped auth passes the anonymous test and fails this one."""
+def test_a_session_that_is_not_the_owners_reaches_no_execution_route(app, monkeypatch):
+    """There is no second human role. A session record that somehow read as
+    non-owner must be treated as nobody at all — 401 everywhere, never an
+    intermediate tier that a blocklist might have forgotten."""
     from src.auth import session as sess
-    # A real signed cookie for somebody who is not ARIA_OWNER_EMAIL. `read()`
-    # re-derives the owner flag from the email, so this cannot self-promote.
-    cookie = sess.issue({"sub": "free-user-1", "provider": "google",
-                         "email": "someone.else@example.com"})
-    assert sess.read(cookie)["owner"] is False
+    monkeypatch.setattr(sess, "read", lambda _cookie: {"owner": False})
     client = TestClient(app, client=(REMOTE, 51235))
-    client.cookies.set(sess.COOKIE, cookie)
+    client.cookies.set(sess.COOKIE, "a-session-belonging-to-somebody-else")
     leaked = []
     for method, path in execution_routes(app):
         r = client.request(method, _concrete(path))
-        if r.status_code != 403:
+        if r.status_code != 401:
             leaked.append((method, path, r.status_code))
-    assert not leaked, f"free user reached execution: {leaked}"
+    assert not leaked, f"non-owner session reached execution: {leaked}"
 
 
 # ── the ways in that are not the front door ──────────────────────────────────
@@ -318,18 +315,49 @@ def test_a_proven_owner_on_loopback_still_works(app, monkeypatch):
                      headers={"x-aria-token": TOKEN}).status_code == 200
 
 
-def test_a_signed_owner_session_is_proof(app, monkeypatch):
-    """OAuth sign-in as the owner is the other proven basis, so configuring
-    ARIA_OWNER_EMAIL and signing in genuinely does restore execution."""
+def test_a_signed_owner_session_is_proof(app, monkeypatch, tmp_path):
+    """A signed-in session is the other PROVEN basis, so signing in genuinely
+    does restore execution from a remote address.
+
+    The session is now opened the way the application opens one — by presenting
+    the owner credential to `open_session` — rather than by minting a cookie
+    around an OAuth identity. Same assertion, real path.
+    """
     from src.auth import session as sess
-    monkeypatch.setenv("ARIA_OWNER_EMAIL", "owner@example.com")
-    monkeypatch.delenv("ARIA_OWNER_TOKEN", raising=False)
-    cookie = sess.issue({"sub": "owner-1", "provider": "google",
-                         "email": "owner@example.com"})
+    monkeypatch.setenv(sess.ENV_TOKEN, TOKEN)
+    monkeypatch.setattr(sess.SESSIONS, "store", tmp_path / "sessions.json")
+    monkeypatch.setattr(sess.SESSIONS, "session_key_file", tmp_path / ".key")
+    sess.SESSIONS._attempts.clear()
+
+    outcome, cookie = sess.open_session(TOKEN, client=REMOTE)
+    assert outcome == "ok"
     assert sess.read(cookie)["owner"] is True
+
     client = TestClient(app, client=(REMOTE, 51996))
     client.cookies.set(sess.COOKIE, cookie)
     assert client.get("/api/execute/queue").status_code == 200
+
+
+def test_a_revoked_owner_session_stops_reaching_execution(app, monkeypatch, tmp_path):
+    """The property the old scheme could not provide at all.
+
+    A cookie used to be a constant derived from the token, so it was valid
+    until the token was rotated — which signed every device out at once.
+    Revoking one session must shut one door.
+    """
+    from src.auth import session as sess
+    monkeypatch.setenv(sess.ENV_TOKEN, TOKEN)
+    monkeypatch.setattr(sess.SESSIONS, "store", tmp_path / "sessions.json")
+    monkeypatch.setattr(sess.SESSIONS, "session_key_file", tmp_path / ".key")
+    sess.SESSIONS._attempts.clear()
+
+    _, cookie = sess.open_session(TOKEN, client=REMOTE)
+    client = TestClient(app, client=(REMOTE, 51997))
+    client.cookies.set(sess.COOKIE, cookie)
+    assert client.get("/api/execute/queue").status_code == 200
+
+    sess.revoke(cookie)
+    assert client.get("/api/execute/queue").status_code == 401
 
 
 def test_a_proxied_request_retires_the_loopback_fallback(app):

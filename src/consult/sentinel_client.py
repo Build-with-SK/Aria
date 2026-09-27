@@ -219,21 +219,45 @@ def _redact(value: Any) -> Any:
     return scrub(value)
 
 
+#: ARIA's credential for consulting SENTINEL. `SENTINEL_SERVICE_TOKEN` is the
+#: name (the mirror of ARIA_SERVICE_TOKEN); `SENTINEL_CONSULT_TOKEN` is the
+#: original and is still read, second, so the rename breaks nothing.
+_TOKEN_NAMES = ("SENTINEL_SERVICE_TOKEN", "SENTINEL_CONSULT_TOKEN")
+
+
 def _token() -> str:
     """
     The shared secret SENTINEL issued. Never generated here — if it is absent,
     consultation is simply unavailable, which is a normal operating state.
+
+    Refused (returned as "") if it equals ARIA's owner token or ARIA's own
+    service token: three credentials with three meanings must be three values,
+    or one leak opens more than one door.
     """
-    env = os.environ.get("SENTINEL_CONSULT_TOKEN", "").strip()
-    if env:
-        return env
-    if KEYS_FILE.exists():
+    tok = ""
+    for name in _TOKEN_NAMES:
+        tok = os.environ.get(name, "").strip()
+        if tok:
+            break
+    if not tok and KEYS_FILE.exists():
         try:
-            return str(json.loads(KEYS_FILE.read_text(encoding="utf-8"))
-                       .get("SENTINEL_CONSULT_TOKEN", "")).strip()
+            data = json.loads(KEYS_FILE.read_text(encoding="utf-8"))
+            for name in _TOKEN_NAMES:
+                tok = str(data.get(name, "")).strip()
+                if tok:
+                    break
         except (OSError, ValueError):
-            pass
-    return ""
+            tok = ""
+    if not tok:
+        return ""
+    import hmac as _hmac
+    for other in ("ARIA_OWNER_TOKEN", "ARIA_SERVICE_TOKEN"):
+        v = os.environ.get(other, "").strip()
+        if v and _hmac.compare_digest(tok, v):
+            logger.error("SENTINEL_SERVICE_TOKEN equals %s — consultation "
+                         "DISABLED until the two differ.", other)
+            return ""
+    return tok
 
 
 def token_configured() -> bool:
