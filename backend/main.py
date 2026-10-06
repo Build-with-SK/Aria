@@ -1324,6 +1324,57 @@ def get_daily_report(response: Response):
     return _load("daily_report.json")
 
 
+@app.get("/api/markets/session", tags=["Markets"])
+def markets_session(symbols: str = "", at: str = ""):
+    """The authoritative session for each symbol (comma-separated), from
+    src/markets/sessions — the same answer prediction scheduling, order
+    planning, execution and backtests use. `at` (ISO, with offset) asks about
+    another instant."""
+    from src.markets.sessions import session
+    when = None
+    if at:
+        try:
+            when = datetime.fromisoformat(at)
+            if when.tzinfo is None:
+                raise ValueError("`at` needs a UTC offset")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"bad `at`: {e}")
+    names = [s.strip() for s in symbols.split(",") if s.strip()][:50]
+    return {"sessions": [session(n, when).to_dict() for n in names]}
+
+
+@app.get("/api/markets/calendars", tags=["Markets"])
+def markets_calendars():
+    """Which venues have a verified holiday calendar for which years. A venue
+    without one reads UNKNOWN on weekdays inside its trading hours."""
+    from src.markets import calendars
+    from src.markets.venues import HOURS_AS_OF, VENUES
+    return {"hours_as_of": HOURS_AS_OF,
+            "venues": {c: {"name": v.name, "timezone": v.tz, "kind": v.kind,
+                           "holiday_rule": v.holiday_rule, "source": v.source}
+                       for c, v in VENUES.items()},
+            "calendars": calendars.coverage()}
+
+
+@app.post("/api/markets/plan", tags=["Markets"],
+          dependencies=[Depends(require_owner)])
+def markets_plan(body: dict = Body(...)):
+    """PREVIEW what a thesis would become given its instrument's session now
+    (src/trading/session_orders.plan_order). Executes nothing and stores
+    nothing — a plan is a decision about an order, not an order."""
+    from src.markets.sessions import session
+    from src.trading.session_orders import SessionPolicy, TradeIntent, plan_order
+    allowed = {f for f in TradeIntent.__dataclass_fields__}
+    try:
+        fields = {k: v for k, v in (body or {}).items() if k in allowed}
+        if fields.get("thesis_expires"):
+            fields["thesis_expires"] = datetime.fromisoformat(fields["thesis_expires"])
+        intent = TradeIntent(**fields)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"bad intent: {e}")
+    return plan_order(intent, session(intent.symbol), SessionPolicy()).to_dict()
+
+
 @app.get("/api/data/freshness", tags=["Data"])
 def data_freshness():
     """Every generated dataset ARIA reads as if current: age, budget, status

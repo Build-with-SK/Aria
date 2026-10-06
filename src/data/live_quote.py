@@ -121,6 +121,12 @@ def live_quote(symbol: str, *, with_intraday: bool = True) -> dict:
         "exchange": exchange,
         "timezone": tz_name,
         "market_state": state,
+        # The AUTHORITATIVE session (src/markets/sessions — the same answer
+        # the execution path and the planner use). `market_state` above is the
+        # data's own evidence (age of the last bar); when the two disagree —
+        # OPEN by schedule, no ticks for an hour — that disagreement is
+        # itself the signal (halt, outage, delayed feed).
+        "session": _session_block(yahoo),
         "as_of": as_of,
         "tick_age_minutes": age_min,
         "intraday": intraday,
@@ -142,6 +148,18 @@ def _num(v) -> Optional[float]:
         return round(f, 4) if f == f else None      # NaN check
     except (TypeError, ValueError):
         return None
+
+
+def _session_block(provider_symbol: str) -> dict:
+    try:
+        from src.markets.sessions import session
+        i = session(provider_symbol)
+        return {"state": i.state.value, "tradable": i.tradable, "venue": i.venue,
+                "local_time": i.local_time, "next_open": i.next_open,
+                "phase_ends_at": i.phase_ends_at,
+                "calendar_verified": i.calendar_verified, "reasons": i.reasons}
+    except Exception as e:                       # unknown is never open
+        return {"state": "UNKNOWN", "tradable": False, "reasons": [str(e)]}
 
 
 def _market_state(last_ts, tz_name: Optional[str]) -> tuple[str, Optional[str], Optional[float]]:

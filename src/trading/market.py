@@ -11,13 +11,14 @@ design: every other choice fails open. Also refused: a quote from the future
 
 MARKET HOURS
 ------------
-  crypto   always open
-  forex    Sunday 17:00 to Friday 17:00, New York time
-  equity   09:30–16:00 New York time, Monday–Friday, excluding NYSE holidays
-
-The holiday list is static and dated. For a year it does not cover, equities are
-reported CLOSED — an out-of-date calendar stops trading rather than letting it
-trade on a day the exchange is shut. Extend `NYSE_HOLIDAYS` each December.
+Every session question is answered by src/markets/sessions.py, the one
+abstraction prediction scheduling, order planning, backtests and the UI also
+use. `market_open(asset_class, now, symbol=...)` resolves THAT instrument's
+venue, timezone and calendar; without a symbol it falls back to the asset
+class's default venue (equity -> NYSE, forex -> FX, crypto -> 24/7), which is
+what callers that predate the abstraction meant. Only OPEN is tradable;
+UNKNOWN (no calendar for the year, unmodelled venue) is refused, never
+guessed.
 """
 from __future__ import annotations
 
@@ -29,17 +30,12 @@ from zoneinfo import ZoneInfo
 
 NY = ZoneInfo("America/New_York")
 
-#: Full-day NYSE closures. Early closes are treated as full sessions — the
-#: validator refuses near-close anyway via max_quote_age on thin books.
-NYSE_HOLIDAYS = {
-    date(2026, 1, 1), date(2026, 1, 19), date(2026, 2, 16), date(2026, 4, 3),
-    date(2026, 5, 25), date(2026, 6, 19), date(2026, 7, 3), date(2026, 9, 7),
-    date(2026, 11, 26), date(2026, 12, 25),
-    date(2027, 1, 1), date(2027, 1, 18), date(2027, 2, 15), date(2027, 3, 26),
-    date(2027, 5, 31), date(2027, 6, 18), date(2027, 7, 5), date(2027, 9, 6),
-    date(2027, 11, 25), date(2027, 12, 24),
-}
-CALENDAR_YEARS = {d.year for d in NYSE_HOLIDAYS}
+#: Full-day NYSE closures — now held in src/markets/calendars.py with every
+#: other venue's; re-exported because callers and messages name them.
+from src.markets import calendars as _calendars          # noqa: E402
+
+NYSE_HOLIDAYS = set(_calendars.get("XNYS").holidays)
+CALENDAR_YEARS = set(_calendars.get("XNYS").years)
 
 #: Tolerated clock skew for a quote timestamped slightly ahead of us.
 MAX_FUTURE_SKEW_S = 2.0
@@ -100,28 +96,39 @@ def check(quote: Optional[Quote], *, max_age_s: float,
     return Freshness(True, max(age, 0.0))
 
 
-def market_open(asset_class: str, now: Optional[datetime] = None) -> tuple[bool, str]:
-    now = (now or datetime.now(timezone.utc)).astimezone(NY)
-    ac = (asset_class or "").lower()
-    if ac == "crypto":
-        return True, "crypto trades continuously"
-    if ac == "forex":
-        wd, t = now.weekday(), now.time()
-        if wd == 5 or (wd == 4 and t >= time(17)) or (wd == 6 and t < time(17)):
-            return False, "FX market closed for the weekend"
-        return True, "FX market open"
-    if ac == "equity":
-        if now.year not in CALENDAR_YEARS:
-            return False, (f"no NYSE holiday calendar for {now.year} — refusing "
-                           f"rather than guessing; extend market.NYSE_HOLIDAYS")
-        if now.weekday() >= 5:
-            return False, "weekend"
-        if now.date() in NYSE_HOLIDAYS:
-            return False, "NYSE holiday"
-        if not (time(9, 30) <= now.time() < time(16, 0)):
-            return False, "outside regular trading hours (09:30-16:00 New York)"
-        return True, "regular session"
-    return False, f"no trading hours defined for asset class {asset_class!r}"
+_DEFAULT_VENUE = {"equity": "XNYS", "etf": "XNYS", "forex": "FX", "fx": "FX",
+                  "crypto": "CRYPTO", "option": "US_EQUITY_OPTIONS"}
+
+
+def market_open(asset_class: str, now: Optional[datetime] = None, *,
+                symbol: Optional[str] = None) -> tuple[bool, str]:
+    """(tradable, why) — from the instrument's own session when `symbol` is
+    given, else from the asset class's default venue."""
+    from src.markets import sessions
+    now = now or datetime.now(timezone.utc)
+    if symbol:
+        info = sessions.session(symbol, now)
+        if info.venue is None:
+            return False, info.reasons[0] if info.reasons else "unknown venue"
+        return info.tradable, _why(info.state.value, info.reasons, info.venue)
+    code = _DEFAULT_VENUE.get((asset_class or "").lower())
+    if code is None:
+        return False, f"no trading hours defined for asset class {asset_class!r}"
+    state, why, _end, _d = sessions.venue_state(code, now)
+    return state.value == "OPEN", _why(state.value, [why], code)
+
+
+def _why(state: str, reasons: list, venue: str) -> str:
+    detail = "; ".join(r for r in reasons if r)
+    if state == "OPEN":
+        return "regular session" if venue != "CRYPTO" else "crypto trades continuously"
+    if state == "HOLIDAY":
+        return f"{'NYSE' if venue == 'XNYS' else venue} holiday"
+    if state == "CLOSED" and detail == "weekend":
+        return "weekend" if venue != "FX" else "FX market closed for the weekend"
+    if state == "CLOSED":
+        return f"outside regular trading hours ({venue}: {detail or 'closed'})"
+    return f"{state.lower()} at {venue}: {detail}"
 
 
 # ── sessions ─────────────────────────────────────────────────────────────────
@@ -137,52 +144,30 @@ SESSION_CLOSE = time(16, 0)
 
 
 def is_trading_day(d: date) -> Optional[bool]:
-    """True/False for a NYSE session day, None when the holiday calendar does
-    not cover that year — unknown is not reported as either answer."""
-    if d.year not in CALENDAR_YEARS:
-        return None
-    return d.weekday() < 5 and d not in NYSE_HOLIDAYS
+    """NYSE: True/False, or None when no verified calendar covers that year."""
+    from src.markets.sessions import is_trading_day as _itd
+    return _itd("XNYS", d)
 
 
 def session_close(d: date) -> datetime:
-    """The regular-session close of `d`, as an aware New York datetime."""
-    return datetime.combine(d, SESSION_CLOSE, NY)
-
-
-def _as_ny(now: Optional[datetime]) -> datetime:
-    # A naive datetime is the machine's local time — astimezone() on a naive
-    # value interprets it that way, which is what every caller in this repo
-    # that passes datetime.now() means.
-    return (now or datetime.now(timezone.utc)).astimezone(NY)
+    """The NYSE close of `d` (early closes included), aware New York time.
+    Falls back to the regular 16:00 for a day the calendar cannot answer."""
+    from src.markets.sessions import session_close as _sc
+    return _sc("XNYS", d) or datetime.combine(d, SESSION_CLOSE, NY)
 
 
 def latest_completed_session(now: Optional[datetime] = None,
                              settle_minutes: int = 60) -> Optional[date]:
     """The most recent NYSE session whose close is at least `settle_minutes`
     in the past. None when the calendar cannot answer — never a guess."""
-    ny = _as_ny(now)
-    d = ny.date()
-    for _ in range(15):
-        td = is_trading_day(d)
-        if td is None:
-            return None
-        if td and ny >= session_close(d) + timedelta(minutes=settle_minutes):
-            return d
-        d -= timedelta(days=1)
-    return None
+    from src.markets.sessions import latest_completed_session as _lcs
+    return _lcs("XNYS", (now or datetime.now(timezone.utc)).astimezone(NY), settle_minutes)
 
 
 def in_session_window(now: Optional[datetime] = None,
                       settle_minutes: int = 60) -> Optional[bool]:
-    """True from the open until `settle_minutes` after the close of a trading
-    day: the stretch in which today's daily bar exists but is not final. A
-    daily call made inside it is built on a different information set from one
-    made after it, so the two must never be pooled as one measurement."""
-    ny = _as_ny(now)
-    td = is_trading_day(ny.date())
-    if td is None:
-        return None
-    if not td:
-        return False
-    opened = datetime.combine(ny.date(), SESSION_OPEN, NY)
-    return opened <= ny < session_close(ny.date()) + timedelta(minutes=settle_minutes)
+    """True from the open until `settle_minutes` after the close of an NYSE
+    trading day: the stretch in which today's daily bar exists but is not
+    final. Delegates to src/markets/sessions."""
+    from src.markets.sessions import in_session_window as _isw
+    return _isw("XNYS", (now or datetime.now(timezone.utc)).astimezone(NY), settle_minutes)

@@ -515,12 +515,11 @@ class PositionManager:
         # Equities only close while the market can actually FILL the order —
         # a market order queued overnight would sit unfilled, the position
         # would be re-adopted next tick, and closes would stack up. Defer.
-        if pos.get("asset_class") != "crypto":
-            from src.desk.desk_daemon import us_equities_open
-            if not us_equities_open():
-                logger.info(f"exit for {ticker} deferred — US market closed "
-                            f"({reason})")
-                return None
+        from src.desk.desk_daemon import instrument_open
+        if not instrument_open(ticker):
+            logger.info(f"exit for {ticker} deferred — its market is not in "
+                        f"continuous trading ({reason})")
+            return None
 
         # A close already in flight? Wait for it — never stack exit orders.
         exit_side = "sell" if long else "buy"

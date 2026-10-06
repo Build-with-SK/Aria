@@ -128,10 +128,12 @@ def greeks(spot: float, strike: float, years: float, vol: float,
 
 
 def market_open() -> bool | None:
-    """True, False, or None when it cannot be determined."""
+    """True, False, or None when it cannot be determined — the US listed
+    options session (src/markets/sessions), holidays included."""
     try:
-        from src.desk.desk_daemon import us_equities_open
-        return bool(us_equities_open())
+        from src.markets.sessions import SessionState, venue_state
+        state = venue_state("US_EQUITY_OPTIONS")[0]
+        return None if state == SessionState.UNKNOWN else state == SessionState.OPEN
     except Exception:
         return None
 

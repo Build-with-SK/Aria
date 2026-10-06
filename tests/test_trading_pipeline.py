@@ -170,7 +170,9 @@ def test_a_stale_quote_stops_the_pipeline():
     assert "market_data_fresh" in " ".join(result.reasons)
 
 
-def test_a_closed_market_is_caught_by_the_validator():
+def test_a_closed_market_is_stopped_before_anything_else():
+    """SESSION is the first gate (2026-10-06): a closed market is refused
+    before the risk engine is asked, not discovered at validation."""
     ready_strategy()
     set_mode("PAPER")
     closed = OPEN_MARKET + timedelta(hours=12)        # 22:00 New York
@@ -178,8 +180,24 @@ def test_a_closed_market_is_caught_by_the_validator():
     b.set_quote(make_quote(now=closed))
     result = pipeline(b).run(make_signal(now=closed), now=closed)
     assert result.submitted is False
-    assert any("market closed" in v for v in result.violations), result.reasons
+    assert result.stage_reached == "session"
+    assert result.decision is None                    # risk was never consulted
+    assert any("market closed" in r for r in result.reasons), result.reasons
+    assert result.session["state"] in ("POST_MARKET", "CLOSED")
+    assert result.session["next_open"]
     assert b.submit_calls == 0
+
+
+def test_the_validator_still_refuses_a_closed_market_on_its_own():
+    """Defence in depth: the validator checks the instrument's session too."""
+    from src.trading.validator import validate
+    from src.trading.account import unknown as unknown_account
+    from src.trading import limits as _limits
+    closed = OPEN_MARKET + timedelta(hours=12)
+    order = OrderSpec(client_order_id="c1", symbol="AAPL", side="buy", qty=1)
+    v = validate(order, quote=make_quote(now=closed), account=unknown_account("x"),
+                 limits=_limits.load(), now=closed, seen_client_ids=set())
+    assert any("market closed" in x for x in v)
 
 
 # ── latency ──────────────────────────────────────────────────────────────────

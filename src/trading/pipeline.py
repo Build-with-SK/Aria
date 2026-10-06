@@ -54,7 +54,7 @@ class PipelineResult:
     signal_id: str
     symbol: str
     mode: str
-    stage_reached: str                 # market_data | risk | validation | submitted
+    stage_reached: str                 # session | market_data | risk | validation | submitted
     submitted: bool = False
     dry_run: bool = False
     reasons: list = field(default_factory=list)
@@ -63,9 +63,11 @@ class PipelineResult:
     order: Optional[dict] = None
     ack: Optional[dict] = None
     timings_ms: dict = field(default_factory=dict)
+    session: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {"signal_id": self.signal_id, "symbol": self.symbol, "mode": self.mode,
+                "session": self.session,
                 "stage_reached": self.stage_reached, "submitted": self.submitted,
                 "dry_run": self.dry_run, "reasons": self.reasons,
                 "decision": self.decision, "violations": self.violations,
@@ -158,6 +160,27 @@ class TradingPipeline:
         res = PipelineResult(signal_id=signal.signal_id, symbol=signal.symbol,
                              mode=mode.value, stage_reached="market_data", dry_run=dry)
         clock = _Clock()
+
+        # 0. SESSION — the first gate of
+        #    SESSION -> DATA FRESH -> PRICE -> RISK -> ORDER -> PERMISSION -> MODE.
+        # Resolved for THIS instrument (venue, timezone, calendar) by the same
+        # abstraction prediction, planning and backtests use. Only OPEN passes;
+        # UNKNOWN is refused, never guessed. A thesis that meets a closed
+        # market is not executed here — src/trading/session_orders.py decides
+        # whether it becomes a standing, conditional or scheduled order.
+        from src.markets import sessions as _sessions
+        sess = _sessions.session(signal.symbol, now)
+        res.session = sess.to_dict()
+        if not sess.tradable:
+            res.stage_reached = "session"
+            res.reasons.append(
+                f"market closed: {sess.state.value} at {sess.venue or 'an unresolved venue'}"
+                + (f" — {'; '.join(sess.reasons)}" if sess.reasons else "")
+                + (f"; next open {sess.next_open}" if sess.next_open else ""))
+            clock.mark("session")
+            res.timings_ms = clock.total()
+            _latency.record(res.timings_ms, broker=self.broker.name, outcome="session_closed")
+            return res
 
         # 1. market data + account
         try:

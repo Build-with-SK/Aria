@@ -67,20 +67,35 @@ def _ensure_dir() -> None:
 
 # ── the prediction log ──────────────────────────────────────────────────────
 
-def information_key(at: datetime) -> tuple[Optional[str], Optional[bool]]:
-    """(latest settled NYSE session, made inside the session window?) at `at`.
+def information_key(at: datetime, venue: str = "XNYS") -> tuple[Optional[str], Optional[bool]]:
+    """(latest settled session at `venue`, made inside its session window?).
 
-    Two calls with the same key were built on the same daily bars. When the
-    calendar does not cover `at`, falls back to the calendar day — the old
-    rule — rather than guessing a session.
+    Two calls with the same key were built on the same daily bars. The venue
+    is the instrument's own (src/markets/sessions): a London name's
+    information set is the London close, not New York's. When the calendar
+    does not cover `at` — or the venue has no daily close (crypto, FX) — falls
+    back to the calendar day rather than guessing a session.
     """
-    from src.trading.market import in_session_window, latest_completed_session
+    from src.markets import sessions
     from src.v5.loop import SETTLE_MINUTES
-    session = latest_completed_session(at, settle_minutes=SETTLE_MINUTES)
-    window = in_session_window(at, settle_minutes=SETTLE_MINUTES)
+    if at.tzinfo is None:
+        at = at.astimezone()
+    session = sessions.latest_completed_session(venue, at, settle_minutes=SETTLE_MINUTES)
+    window = sessions.in_session_window(venue, at, settle_minutes=SETTLE_MINUTES)
     if session is None or window is None:
         return (f"day:{at.date().isoformat()}", None)
     return (session.isoformat(), bool(window))
+
+
+def venue_for(symbol: Optional[str]) -> str:
+    """The exchange venue whose sessions key `symbol`'s information set;
+    XNYS when the symbol is unknown (the pre-2026-10-06 behaviour)."""
+    if not symbol:
+        return "XNYS"
+    from src.markets import sessions
+    from src.markets.venues import VENUES
+    v = sessions.resolve(symbol).venue
+    return v if v and VENUES[v].kind == "exchange" else "XNYS"
 
 
 def _model_version(weights_version: Optional[int]) -> Optional[str]:
@@ -105,7 +120,8 @@ def _entry_information_key(entry: dict) -> tuple[Optional[str], Optional[bool]]:
     if entry.get("information_session"):
         return (entry["information_session"], entry.get("in_session_window"))
     try:
-        return information_key(datetime.fromisoformat(str(entry.get("at"))))
+        return information_key(datetime.fromisoformat(str(entry.get("at"))),
+                               venue_for(entry.get("provider_symbol")))
     except (TypeError, ValueError):
         return (None, None)
 
@@ -131,7 +147,7 @@ def log_prediction(*, ticker: str, direction: str, p_bull: float, confidence: fl
     """
     _ensure_dir()
     now = datetime.now()
-    key = information_key(now)
+    key = information_key(now, venue_for(provider_symbol))
     for existing in reversed(load_predictions(limit=200)):
         if (existing.get("ticker") == ticker
                 and existing.get("direction") == direction

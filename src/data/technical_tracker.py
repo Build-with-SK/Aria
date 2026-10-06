@@ -65,6 +65,20 @@ def _entry_session(e: dict) -> str | None:
         return None
 
 
+def _row_session(symbol: str, batch_session: str | None) -> str | None:
+    from src.data.technical_summary import _resolve_yahoo
+    from src.markets import sessions
+    from src.markets.venues import VENUES
+    venue = sessions.resolve(_resolve_yahoo(symbol)).venue
+    if not venue or VENUES[venue].kind != "exchange":
+        return None
+    if venue == "XNYS":
+        return batch_session
+    d = sessions.latest_completed_session(venue, datetime.now().astimezone(),
+                                          settle_minutes=SETTLE_MINUTES)
+    return d.isoformat() if d else None
+
+
 def snapshot_due(now: datetime | None = None) -> dict:
     """One batch per settled NYSE session, never inside the session window.
 
@@ -129,11 +143,12 @@ def snapshot(timeframe: str = "1d", limit: int = 25, session: str | None = None)
         key = (session, r["symbol"], timeframe)
         if key in seen:
             continue
-        crypto = str(r["symbol"]).upper().endswith("-USD")
+        info_session = _row_session(r["symbol"], session)
         entry = {"at": datetime.now().isoformat(), "date": today,
                  "snapshot_session": session,
-                 # A crypto price is a 24/7 quote, not an NYSE close.
-                 "information_session": None if crypto else session,
+                 # The row's OWN venue's latest settled close (src/markets);
+                 # None for a 24/7 quote (crypto) or an unresolvable venue.
+                 "information_session": info_session,
                  "symbol": r["symbol"], "timeframe": timeframe,
                  "summary": r["summary"], "entry_price": r["price"],
                  "model_version": version, **regime}

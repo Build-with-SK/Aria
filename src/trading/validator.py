@@ -56,7 +56,7 @@ def validate(order: OrderSpec, *, quote: Optional[Quote], account: AccountState,
         if order.client_order_id in seen_client_ids:
             v.append(f"duplicate client order id {order.client_order_id}")
 
-        ok, why = market_open(order.asset_class, now)
+        ok, why = market_open(order.asset_class, now, symbol=order.symbol)
         if not ok:
             v.append(f"market closed: {why}")
         fr = freshness_check(quote, max_age_s=limits.max_quote_age_seconds, now=now)

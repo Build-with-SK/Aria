@@ -248,13 +248,28 @@ def _update(intent_id: str, **fields) -> None:
 # ── is the moment right ──────────────────────────────────────────────────────
 
 def evaluate(intent: dict, price: float | None = None,
-             opinion: dict | None = None) -> dict:
-    """Should this fire now? Returns a decision with its reasons."""
+             opinion: dict | None = None, session: dict | None = None) -> dict:
+    """Should this fire now? Returns a decision with its reasons.
+
+    `session` is src/markets/sessions.session(...).to_dict() for the intent's
+    instrument. When it is given and the instrument is not in continuous
+    trading, the intent is HELD: its price here is the last close, and
+    "conditions met" against yesterday's close would become a market order
+    filled blind at the open — the thing a held intent exists to avoid.
+    """
     reasons: list[str] = []
     ready = True
 
     if intent.get("status") != OPEN:
         return {"ready": False, "reasons": [f"intent is {intent.get('status')}"]}
+
+    if session is not None and not session.get("tradable"):
+        nxt = session.get("next_open")
+        return {"ready": False, "session_closed": True,
+                "reasons": [f"{intent.get('ticker')} is {session.get('state')} at "
+                            f"{session.get('venue') or 'an unknown venue'}"
+                            + (f"; re-evaluated at the next open ({nxt})" if nxt else "")
+                            + " — never filled on the last close"]}
 
     try:
         if datetime.fromisoformat(intent["expires_at"]) < datetime.now():
@@ -328,7 +343,13 @@ def check_once(fill=None) -> dict:
             logger.debug("intent %s: no opinion for %s: %s",
                          intent.get("id"), ticker, e)
 
-        decision = evaluate(intent, price=price, opinion=opinion)
+        try:
+            from src.markets.sessions import session as _session
+            sess = _session(ticker).to_dict()
+        except Exception as e:                    # unknown is never open
+            sess = {"tradable": False, "state": "UNKNOWN", "venue": None,
+                    "reasons": [str(e)]}
+        decision = evaluate(intent, price=price, opinion=opinion, session=sess)
         stamp = {"at": datetime.now().isoformat(timespec="seconds"),
                  "price": price, **decision}
 

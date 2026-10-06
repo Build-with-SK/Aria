@@ -19,10 +19,11 @@ import json
 import logging
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import timezone, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,13 @@ def as_of(when):
 
     A module run under it cannot see a bar it could not have seen on the day —
     which is what makes a walk-forward result mean anything.
+
+    Two modes. A DATE (naive) keeps every bar dated on or before it — fine
+    when every series comes from one venue. An aware INSTANT keeps only bars
+    whose venue had closed by then (src/markets/sessions.bar_known_by): at
+    09:00 Tokyo on Monday, New York's Monday bar does not exist yet, and a
+    date-based cut would hand it to a Tokyo replay. Use the instant mode for
+    anything that mixes markets.
     """
     previous = getattr(_AS_OF, "when", None)
     _AS_OF.when = pd.Timestamp(when) if when is not None else None
@@ -152,6 +160,28 @@ def current_as_of():
     return getattr(_AS_OF, "when", None)
 
 
+def _truncate_point_in_time(symbol: str, full: pd.DataFrame, cutoff,
+                            interval: str = "1d") -> Optional[pd.DataFrame]:
+    if cutoff.tzinfo is None or interval != "1d":
+        naive = cutoff.tz_convert("UTC").tz_localize(None) if cutoff.tzinfo else cutoff
+        return full[full.index <= naive]
+    from src.markets import sessions
+    when = cutoff.to_pydatetime()
+    provider = symbol[len(EXACT):] if symbol.startswith(EXACT) else (
+        (_PROVENANCE.get(f"{symbol}|{interval}") or {}).get("provider_symbol") or symbol)
+    venue = sessions.resolve(provider).venue
+    # Bars dated two or more days before the cutoff's UTC date are over
+    # everywhere; only the last few need the session arithmetic.
+    utc_day = when.astimezone(timezone.utc).date()
+    idx_dates = full.index.date
+    certain = idx_dates < (utc_day - timedelta(days=2))
+    near = ~certain & (idx_dates <= utc_day + timedelta(days=1))
+    keep = certain.copy()
+    for i in np.flatnonzero(near):
+        keep[i] = sessions.bar_known_by(venue, idx_dates[i], when)
+    return full[keep]
+
+
 def history(symbol: str, period: str = "2y", interval: str = "1d") -> Optional[pd.DataFrame]:
     """Daily (or `interval`) OHLCV for one symbol, or None.
 
@@ -163,8 +193,8 @@ def history(symbol: str, period: str = "2y", interval: str = "1d") -> Optional[p
         return None
     cutoff_date = current_as_of()
     if cutoff_date is not None:
-        full = full[full.index <= cutoff_date]
-        if full.empty:
+        full = _truncate_point_in_time(symbol, full, cutoff_date, interval)
+        if full is None or full.empty:
             return None
     days = PERIOD_DAYS.get(period)
     if days:

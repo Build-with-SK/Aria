@@ -67,20 +67,27 @@ def _snapshot_technical_recs():
 
 
 def us_equities_open(now: datetime | None = None) -> bool:
-    """US cash session 09:30–16:00 ET, Mon–Fri. Best-effort (holidays and
-    early closes are not modelled — a closed-market order just queues at
-    the broker). Crypto is always eligible and bypasses this check."""
-    try:
+    """Is the US cash session (NYSE/Nasdaq continuous trading) open now?
+
+    Answered by src/markets/sessions — holidays and early closes included,
+    which the old 09:30-16:00 weekday check here did not model. UNKNOWN (no
+    verified calendar for the year) is False. Prefer `instrument_open(symbol)`
+    for anything that knows which instrument it means.
+    """
+    from src.markets.sessions import SessionState, venue_state
+    if now is not None and now.tzinfo is None:
         from zoneinfo import ZoneInfo
-        et = (now or datetime.now(ZoneInfo("America/New_York")))
-        if et.tzinfo is None:
-            et = et.replace(tzinfo=ZoneInfo("America/New_York"))
-    except Exception:
-        et = now or datetime.now()
-    if et.weekday() >= 5:
+        now = now.replace(tzinfo=ZoneInfo("America/New_York"))
+    return venue_state("XNYS", now)[0] == SessionState.OPEN
+
+
+def instrument_open(symbol: str, now: datetime | None = None) -> bool:
+    """Is THIS instrument in continuous trading at its own venue now?"""
+    from src.markets.sessions import session
+    try:
+        return session(symbol, now).tradable
+    except Exception:                       # unknown is never open
         return False
-    minutes = et.hour * 60 + et.minute
-    return 9 * 60 + 30 <= minutes < 16 * 60
 
 
 class DeskDaemon:

@@ -309,9 +309,10 @@ class ReflexEngine:
         if mgr is None or mgr._alpaca is None or not mgr._alpaca.is_connected():
             return []
 
-        # Equities only fire while the US market can fill; crypto 24/7.
-        from src.desk.desk_daemon import us_equities_open
-        equities_open = us_equities_open()
+        # Each playbook fires only while ITS instrument is in continuous
+        # trading at its own venue (src/markets/sessions) — a London or Tokyo
+        # name is not gated on New York hours, and a holiday is not "open".
+        from src.desk.desk_daemon import instrument_open
         results, changed = [], False
         from src.execution.alpaca_broker import quotable
         for pb in armed:
@@ -330,7 +331,7 @@ class ReflexEngine:
                 pb["rejected_reason"] = why
                 changed = True
                 continue
-            if pb["asset_class"] != "crypto" and not equities_open:
+            if not instrument_open(pb["ticker"]):
                 continue
             price = self._quote(pb["ticker"], mgr)
             if price <= 0:

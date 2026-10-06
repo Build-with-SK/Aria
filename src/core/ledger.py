@@ -561,19 +561,24 @@ def _grading_anchor(r) -> tuple[Optional[str], str]:
     if not created:
         return None, "no creation time"
     try:
-        from src.core.identity import classify_provider_symbol
-        from src.trading.market import in_session_window, latest_completed_session
-        c = classify_provider_symbol(r["subject"])
-        if c.get("exchange") != "US":
-            return None, f"{c.get('asset_class') or 'instrument'} has no NYSE session close"
+        from src.markets import sessions
+        from src.markets.venues import VENUES
+        inst = sessions.resolve(r["subject"])
+        spec = VENUES.get(inst.venue or "")
+        if spec is None or spec.kind != "exchange":
+            return None, (f"{inst.asset_class or 'instrument'} has no exchange session "
+                          f"close ({inst.basis or 'unresolved venue'})")
         at = datetime.fromisoformat(str(created))
-        window = in_session_window(at)
+        if at.tzinfo is None:
+            at = at.astimezone()                  # naive = this machine's local time
+        window = sessions.in_session_window(spec.code, at)
         if window is None:
-            return None, "no NYSE calendar for the creation date"
+            return None, f"no verified {spec.code} calendar for the creation date"
         if window:
             return None, "made inside the session window; the reference is intraday"
-        sess = latest_completed_session(at)
-        return (sess.isoformat(), "derived from creation time") if sess else (None, "no session")
+        sess = sessions.latest_completed_session(spec.code, at)
+        return ((sess.isoformat(), f"derived from creation time at {spec.code}")
+                if sess else (None, "no completed session found"))
     except Exception as e:                       # pragma: no cover - defensive
         return None, f"anchor unavailable: {e}"
 
