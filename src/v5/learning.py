@@ -114,7 +114,8 @@ def log_prediction(*, ticker: str, direction: str, p_bull: float, confidence: fl
                    horizon_days: int, price: Optional[float], modules: list[dict],
                    rationale: str = "", risk: Optional[dict] = None,
                    weights_version: Optional[int] = None,
-                   data_as_of: Optional[str] = None) -> str:
+                   data_as_of: Optional[str] = None,
+                   provider_symbol: Optional[str] = None) -> str:
     """Append one prediction. Returns its id.
 
     Deduplicated by (ticker, direction, information set): opening the analysis
@@ -149,6 +150,9 @@ def log_prediction(*, ticker: str, direction: str, p_bull: float, confidence: fl
         # Reconstructing any of these later would be guessing.
         "model_version": _model_version(weights_version),
         "data_as_of": data_as_of,
+        # Which instrument was analysed. `ticker` is what was asked for, in
+        # the master namespace: "BA" there is BAE Systems (BA.L), not Boeing.
+        "provider_symbol": provider_symbol,
         **_regime_now(),
         "ticker": ticker,
         "direction": direction,
@@ -234,7 +238,9 @@ def resolve_pending(*, now: Optional[datetime] = None) -> dict:
             due = datetime.fromisoformat(e["resolve_after"])
         except Exception:
             continue
-        if now < due:
+        if now.date() <= due.date():
+            # Not on the horizon date itself: its close may not exist yet, and
+            # the bar "at or before" it would be the previous session's.
             continue
         c = md.closes(e["ticker"], period="6mo")
         if c is None or c.empty:

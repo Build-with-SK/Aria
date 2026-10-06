@@ -283,3 +283,49 @@ def test_technical_snapshot_is_once_per_session_and_never_mid_session(tmp_path, 
     assert tr.snapshot_due(after)["due"] is False          # legacy entry maps to 08-12
     sat = datetime(2026, 8, 15, 12, 0, tzinfo=NY)
     assert tr.snapshot_due(sat)["session"] == "2026-08-14"
+
+
+# ── the grader's price source ───────────────────────────────────────────────
+
+def _closes(dates_prices):
+    return pd.Series([p for _, p in dates_prices],
+                     index=pd.to_datetime([d for d, _ in dates_prices]))
+
+
+def test_price_on_never_returns_a_bar_after_the_date(spine, monkeypatch):
+    from src.v5 import marketdata as md
+    monkeypatch.setattr(md, "provider_closes",
+                        lambda s, period="10y": _closes([("2026-08-20", 110.0)]))
+    assert spine._price_on("AAPL", "2026-08-14") is None      # used to return 110
+
+
+def test_price_on_takes_the_close_on_or_just_before(spine, monkeypatch):
+    from src.v5 import marketdata as md
+    monkeypatch.setattr(md, "provider_closes", lambda s, period="10y": _closes(
+        [("2026-08-13", 100.0), ("2026-08-14", 101.0), ("2026-08-17", 102.0)]))
+    assert spine._price_on("AAPL", "2026-08-14") == 101.0
+    assert spine._price_on("AAPL", "2026-08-16") == 101.0      # Sunday -> Friday
+    assert spine._price_on("AAPL", "2026-09-30") is None       # last bar too old
+
+
+def test_price_on_uses_the_exact_provider_symbol(spine, monkeypatch):
+    """The grader passes identity-resolved provider symbols. They must never
+    be re-resolved through the display namespace (BA -> BA.L)."""
+    from src.v5 import marketdata as md
+    asked = []
+    monkeypatch.setattr(md, "closes", lambda sym, period="2y": asked.append(sym) or None)
+    spine._price_on("BA", "2026-08-14")
+    assert asked == ["@BA"]
+
+
+def test_nothing_is_graded_on_its_horizon_date(spine, monkeypatch):
+    made = "2026-08-12T22:30:00"
+    spine.record_prediction(subject="AAPL", claim="bull", direction="bull",
+                            horizon_days=10, price_at=100.0, source="technical",
+                            created_at=made, announce=False)
+    row = spine.predictions(limit=1)[0]
+    monkeypatch.setattr(spine, "_price_on", lambda t, on: 100.0)
+    monkeypatch.setattr(spine, "_resolved_price_symbol", lambda s: ("AAPL", ""))
+    same_day = datetime.fromisoformat(row["resolve_after"] + "T23:00:00")
+    assert spine.resolve_due(now=same_day)["checked"] == 0
+    assert spine.resolve_due(now=same_day + timedelta(days=1))["checked"] == 1

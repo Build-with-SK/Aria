@@ -191,15 +191,37 @@ def _full_history(symbol: str, interval: str) -> Optional[pd.DataFrame]:
                 return hit[1]
 
         prov = {"symbol": symbol, "interval": interval}
-        df = _from_raw(symbol) if interval == "1d" else None
+        # data/raw is written by the signals pipeline, whose files are named
+        # by PROVIDER symbol, while the vendor path below fetches resolve()'s
+        # answer from the master namespace. Reading raw by the bare symbol
+        # would serve Boeing's file for "BA" one day and BAE Systems (BA.L,
+        # pence) from the vendor the next. Both sources use the resolved name.
+        if symbol.startswith(EXACT):
+            provider = symbol[len(EXACT):]
+        else:
+            with _quiet_vendor():
+                provider = resolve(symbol)
+        prov["provider_symbol"] = provider
+        df = _from_raw(provider) if interval == "1d" else None
         if df is not None:
             prov.update(served_from="raw_csv", vendor=None, degraded=False,
+                        adjustment="split+dividend",
                         detail=f"data/raw/{_safe(symbol)}.csv")
         if df is None:
             df = _from_cache(symbol, interval)
             if df is not None:
-                prov.update(served_from="disk_cache", vendor=None, degraded=False,
-                            detail=f"cache within {CACHE_TTL_HOURS}h TTL")
+                # The cache used to be served as clean, un-degraded data
+                # whichever vendor had filled it — a fallback series, raw
+                # closes included, came back looking like a primary fetch for
+                # six hours. The sidecar keeps what the vendor fetch knew.
+                meta = _cache_meta(symbol, interval)
+                prov.update(served_from="disk_cache",
+                            vendor=meta.get("vendor"),
+                            degraded=bool(meta) and not meta.get("is_primary", False),
+                            adjustment=meta.get("adjustment", "unknown"),
+                            detail=(f"cache within {CACHE_TTL_HOURS}h TTL"
+                                    + (f", filled by {meta['vendor']}" if meta.get("vendor")
+                                       else ", filler not recorded")))
         if df is None:
             df, prov = _from_vendors(symbol, interval, prov)
 
@@ -242,15 +264,25 @@ def _finish_provenance(prov: dict, df: pd.DataFrame) -> dict:
         pass
 
     too_old = age_days is not None and age_days > STALE_AFTER_DAYS
-    stale = bool(prov.get("degraded")) or too_old
+    from src.v5.dataquality import assess
+    quality = assess(df, adjustment=prov.get("adjustment", "unknown"))
+    # A "bad" series (non-positive prices, future-dated bars, an unadjusted
+    # split) is treated like stale data: still served for research, but the
+    # meta-review cuts the edge and the report says why.
+    bad = quality["status"] == "bad"
+    stale = bool(prov.get("degraded")) or too_old or bad
     reasons = []
     if prov.get("degraded"):
         reasons.append(prov.get("detail") or "degraded source")
     if too_old:
         reasons.append(f"newest bar is {age_days:.1f} days old "
                        f"(stale after {STALE_AFTER_DAYS})")
+    if bad:
+        reasons.append("data quality: " + "; ".join(quality["issues"]))
 
     return {**prov,
+            "adjustment": prov.get("adjustment", "unknown"),
+            "quality": quality,
             "ok": True,
             "last_bar": last_bar.date().isoformat() if last_bar else None,
             "last_bar_age_days": age_days,
@@ -335,6 +367,18 @@ def _cache_path(symbol: str, interval: str) -> Path:
     return CACHE_DIR / f"{_safe(symbol)}__{interval}.csv"
 
 
+def _cache_meta_path(symbol: str, interval: str) -> Path:
+    return CACHE_DIR / f"{_safe(symbol)}__{interval}.meta.json"
+
+
+def _cache_meta(symbol: str, interval: str) -> dict:
+    """What the vendor fetch that filled the cache knew. {} when not recorded."""
+    try:
+        return json.loads(_cache_meta_path(symbol, interval).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def _from_cache(symbol: str, interval: str) -> Optional[pd.DataFrame]:
     p = _cache_path(symbol, interval)
     if not p.exists() or _age_days(p) * 24 > CACHE_TTL_HOURS:
@@ -357,8 +401,11 @@ def _from_vendors(symbol: str, interval: str,
     """
     from src.v5 import vendors
 
-    with _quiet_vendor():
-        yahoo = resolve(symbol)
+    if symbol.startswith(EXACT):
+        yahoo = symbol[len(EXACT):]
+    else:
+        with _quiet_vendor():
+            yahoo = resolve(symbol)
 
     df, report = vendors.fetch(yahoo, interval, FULL_PERIOD)
     if df is not None:
@@ -368,11 +415,16 @@ def _from_vendors(symbol: str, interval: str,
             if getattr(out.index, "tz", None) is not None:
                 out.index = out.index.tz_localize(None)
             out.to_csv(_cache_path(symbol, interval))
+            _cache_meta_path(symbol, interval).write_text(json.dumps({
+                "vendor": report["vendor"], "is_primary": report["is_primary"],
+                "adjustment": report.get("adjustment", "unknown"),
+                "fetched_at": report.get("fetched_at")}), encoding="utf-8")
         except Exception as e:
             logger.debug(f"v5 cache write failed for {symbol}: {e}")
         return df, {**prov,
                     "served_from": f"vendor:{report['vendor']}",
                     "vendor": report["vendor"],
+                    "adjustment": report.get("adjustment", "unknown"),
                     # A fallback vendor is degraded even when its data is
                     # perfectly fresh: the primary is down and somebody should
                     # know before it matters.
@@ -387,10 +439,12 @@ def _from_vendors(symbol: str, interval: str,
             age = _age_days(p)
             logger.warning(f"v5 using STALE cache for {symbol} "
                            f"({age:.1f} days old) — every vendor failed")
+            meta = _cache_meta(symbol, interval)
             return pd.read_csv(p, index_col=0, parse_dates=True), {
                 **prov,
                 "served_from": "stale_cache",
-                "vendor": None,
+                "vendor": meta.get("vendor"),
+                "adjustment": meta.get("adjustment", "unknown"),
                 "degraded": True,
                 "detail": f"every vendor failed; cache is {age:.1f} days old",
                 "vendor_attempts": report["attempts"]}
@@ -426,6 +480,25 @@ def _normalise(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     except Exception as e:
         logger.debug(f"v5 normalise failed: {e}")
         return None
+
+
+#: Prefix that marks a symbol as an exact PROVIDER symbol: never re-resolved
+#: through the master namespace, and cached under its own key, so "@BA"
+#: (Boeing) and "BA" (resolved to BA.L, BAE Systems) can never share an entry.
+EXACT = "@"
+
+
+def provider_closes(provider_symbol: str, period: str = "10y") -> Optional[pd.Series]:
+    """Closes for an exact provider symbol (e.g. from identity resolution).
+
+    For grading and pricing paths that already know WHICH instrument they
+    mean. Same vendor chain, cache, provenance and quality checks as closes();
+    only the namespace lookup is skipped."""
+    return closes(EXACT + provider_symbol, period=period)
+
+
+def provider_provenance(provider_symbol: str, interval: str = "1d") -> dict:
+    return provenance(EXACT + provider_symbol, interval)
 
 
 def closes(symbol: str, period: str = "2y") -> Optional[pd.Series]:

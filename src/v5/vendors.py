@@ -215,6 +215,17 @@ def fetch_alphavantage(symbol: str, interval: str = "1d",
     if not rows:
         return VendorResult(name, error="series present but unparseable")
     df = pd.DataFrame(rows).set_index("Date").sort_index()
+    # These closes are as traded. A split inside the window would put a fake
+    # -50%/-75% bar into every return, ATR and momentum figure computed from
+    # it, so a raw series that contains one is refused and the chain moves on
+    # to a vendor that adjusts — conventions are never mixed silently.
+    from src.v5.dataquality import probable_splits
+    splits = probable_splits(df)
+    if splits:
+        return VendorResult(name, error=(
+            "unadjusted series contains a probable split on "
+            + ", ".join(f"{j['date']} (x{j['ratio']})" for j in splits[:3])
+            + " — refused rather than served with the wrong scale"))
     return VendorResult(name, df=df)
 
 
@@ -305,8 +316,10 @@ def fetch(symbol: str, interval: str = "1d", period: str = "10y",
             if name != PRIMARY:
                 logger.warning("market data for %s served by FALLBACK vendor %s "
                                "— %s failed", symbol, name, PRIMARY)
+            from src.v5.dataquality import ADJUSTMENT
             return res.df, {
                 "vendor": name,
+                "adjustment": ADJUSTMENT.get(name, "unknown"),
                 "is_primary": name == PRIMARY,
                 "attempts": attempts,
                 "fetched_at": res.fetched_at.isoformat(timespec="seconds"),

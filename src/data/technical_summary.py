@@ -213,18 +213,35 @@ def _resolve_yahoo(symbol: str) -> str:
 
 def summary(symbol: str, timeframe: str = "1d") -> dict:
     """Technical summary for one symbol + timeframe."""
-    import yfinance as yf
     yahoo = _resolve_yahoo(symbol)
     interval, period = TIMEFRAMES.get(timeframe, TIMEFRAMES["1d"])
-    try:
-        df = yf.Ticker(yahoo).history(period=period, interval=interval,
-                                      auto_adjust=True)
-    except Exception as e:
-        return {"error": f"fetch failed for {yahoo} @ {timeframe}: {e}"}
+    data_block = {}
+    if interval == "1d":
+        # Daily bars come through the central market-data layer (2026-10-06):
+        # the same resolution, vendor failover, cache, provenance and quality
+        # checks as V5, so a technical call and a V5 call on one name are
+        # built on one series. Intraday and weekly bars are not served there.
+        from src.v5 import marketdata as md
+        df = md.history(symbol, period=period)
+        if df is None:
+            return {"error": f"fetch failed for {yahoo} @ {timeframe}: no vendor data"}
+        prov = md.provenance(symbol)
+        data_block = {"data_as_of": prov.get("last_bar"),
+                      "data_stale": prov.get("stale"),
+                      "adjustment": prov.get("adjustment"),
+                      "data_quality": (prov.get("quality") or {}).get("status")}
+    else:
+        import yfinance as yf
+        try:
+            df = yf.Ticker(yahoo).history(period=period, interval=interval,
+                                          auto_adjust=True)
+        except Exception as e:
+            return {"error": f"fetch failed for {yahoo} @ {timeframe}: {e}"}
     scored = score_frame(df)
     if not scored:
         return {"error": f"not enough {timeframe} data for {yahoo}"}
-    return {"symbol": symbol, "yahoo": yahoo, "timeframe": timeframe, **scored}
+    return {"symbol": symbol, "yahoo": yahoo, "timeframe": timeframe, **scored,
+            **data_block}
 
 
 def multi_timeframe(symbol: str, timeframes: list | None = None) -> dict:

@@ -425,6 +425,11 @@ def grade(prediction_id: str, *, correct: Optional[bool], price_end: Optional[fl
 
 # ── grading the due ─────────────────────────────────────────────────────────
 
+#: A close older than this before the requested date is not "the close on
+#: that date" — the instrument was suspended or the feed has a hole.
+PRICE_LOOKBACK_DAYS = 10
+
+
 def _price_on(ticker: str, on: str) -> Optional[float]:
     """Close on (or immediately before) a date. None when unavailable.
 
@@ -434,20 +439,29 @@ def _price_on(ticker: str, on: str) -> Optional[float]:
     through `_resolved_price_symbol()` first — handing a bare display symbol
     here is exactly how BAE Systems (`BA` -> `BA.L`) got priced against
     Boeing's NYSE close.
+
+    Served by the central market-data layer in EXACT mode (2026-10-06): the
+    same vendor chain, cache, provenance and quality checks as every V5
+    module, without re-resolving the symbol through the display namespace.
+    It used to call yfinance directly, once per row per end, and — when no bar
+    sat on or before the date inside its window — returned the LAST bar in
+    the window, up to six days AFTER the date. A reference price taken after
+    the call was made is look-ahead; it now returns None instead.
     """
     try:
-        import yfinance as yf
-        end = datetime.fromisoformat(on) + timedelta(days=6)
-        start = datetime.fromisoformat(on) - timedelta(days=10)
-        hist = yf.Ticker(ticker).history(start=start.date().isoformat(),
-                                         end=end.date().isoformat(),
-                                         auto_adjust=True)
-        if hist is None or hist.empty:
+        import pandas as pd
+        from src.v5 import marketdata as md
+        c = md.provider_closes(ticker)
+        if c is None or c.empty:
             return None
-        cutoff = datetime.fromisoformat(on).date()
-        upto = hist[hist.index.date <= cutoff]
-        use = upto if not upto.empty else hist
-        return float(use["Close"].iloc[-1])
+        day = pd.Timestamp(datetime.fromisoformat(on).date())
+        upto = c[c.index <= day]
+        if upto.empty:
+            return None
+        last = upto.index[-1]
+        if (day - last).days > PRICE_LOOKBACK_DAYS:
+            return None
+        return float(upto.iloc[-1])
     except Exception as e:
         logger.debug("price lookup failed for %s on %s: %s", ticker, on, e)
         return None
@@ -577,8 +591,11 @@ def resolve_due(*, now: Optional[datetime] = None, limit: int = 80) -> dict:
         with connect() as conn:
             due = conn.execute("""
                 SELECT * FROM predictions
-                WHERE resolved=0 AND resolve_after IS NOT NULL AND resolve_after <= ?
+                WHERE resolved=0 AND resolve_after IS NOT NULL AND resolve_after < ?
                 ORDER BY resolve_after LIMIT ?""", (today, limit)).fetchall()
+            # STRICTLY before today: on the horizon date itself that day's
+            # close may not exist yet, and "the close on or before" would
+            # quietly grade on the previous session instead.
     except Exception as e:
         logger.warning("ledger.resolve_due query failed: %s", e)
         return {"checked": 0, "resolved": 0, "unresolvable": 0}
