@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -122,3 +122,67 @@ def market_open(asset_class: str, now: Optional[datetime] = None) -> tuple[bool,
             return False, "outside regular trading hours (09:30-16:00 New York)"
         return True, "regular session"
     return False, f"no trading hours defined for asset class {asset_class!r}"
+
+
+# ── sessions ─────────────────────────────────────────────────────────────────
+#
+# "Which close is the latest one a daily call can be built on?" is a calendar
+# question, and getting it wrong in either direction corrupts a track record:
+# answer it with a wall-clock hour in some other timezone and a machine that
+# is never awake at that hour stops predicting; answer it per calendar day and
+# a Saturday call is logged as new evidence when it is Friday's close again.
+
+SESSION_OPEN = time(9, 30)
+SESSION_CLOSE = time(16, 0)
+
+
+def is_trading_day(d: date) -> Optional[bool]:
+    """True/False for a NYSE session day, None when the holiday calendar does
+    not cover that year — unknown is not reported as either answer."""
+    if d.year not in CALENDAR_YEARS:
+        return None
+    return d.weekday() < 5 and d not in NYSE_HOLIDAYS
+
+
+def session_close(d: date) -> datetime:
+    """The regular-session close of `d`, as an aware New York datetime."""
+    return datetime.combine(d, SESSION_CLOSE, NY)
+
+
+def _as_ny(now: Optional[datetime]) -> datetime:
+    # A naive datetime is the machine's local time — astimezone() on a naive
+    # value interprets it that way, which is what every caller in this repo
+    # that passes datetime.now() means.
+    return (now or datetime.now(timezone.utc)).astimezone(NY)
+
+
+def latest_completed_session(now: Optional[datetime] = None,
+                             settle_minutes: int = 60) -> Optional[date]:
+    """The most recent NYSE session whose close is at least `settle_minutes`
+    in the past. None when the calendar cannot answer — never a guess."""
+    ny = _as_ny(now)
+    d = ny.date()
+    for _ in range(15):
+        td = is_trading_day(d)
+        if td is None:
+            return None
+        if td and ny >= session_close(d) + timedelta(minutes=settle_minutes):
+            return d
+        d -= timedelta(days=1)
+    return None
+
+
+def in_session_window(now: Optional[datetime] = None,
+                      settle_minutes: int = 60) -> Optional[bool]:
+    """True from the open until `settle_minutes` after the close of a trading
+    day: the stretch in which today's daily bar exists but is not final. A
+    daily call made inside it is built on a different information set from one
+    made after it, so the two must never be pooled as one measurement."""
+    ny = _as_ny(now)
+    td = is_trading_day(ny.date())
+    if td is None:
+        return None
+    if not td:
+        return False
+    opened = datetime.combine(ny.date(), SESSION_OPEN, NY)
+    return opened <= ny < session_close(ny.date()) + timedelta(minutes=settle_minutes)

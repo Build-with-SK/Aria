@@ -5,8 +5,18 @@ from datetime import datetime, timedelta
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import pytest
+
 import src.desk.reflex as reflex
 from src.desk.reflex import crossed, confidence_ok, is_expired, Playbook
+
+
+@pytest.fixture
+def fresh_signals(monkeypatch):
+    """Arming refuses stale signals (tested below). The arming-logic tests
+    are about bands and sides, so they declare the signals current."""
+    monkeypatch.setattr(reflex, "signals_freshness",
+                        lambda: {"fresh": True, "age_hours": 1.0, "why": ""})
 
 
 # ── crossed() — momentum trigger, longs and shorts ───────────────────────
@@ -60,7 +70,7 @@ def test_is_expired():
 
 # ── arming (store round-trip) ────────────────────────────────────────────
 
-def test_arm_from_debate_near_bar(tmp_path, monkeypatch):
+def test_arm_from_debate_near_bar(tmp_path, monkeypatch, fresh_signals):
     monkeypatch.setattr(reflex, "PLAYBOOKS_FILE", tmp_path / "pb.json")
     monkeypatch.setattr(reflex, "load_data_json",
                         lambda f: {"AAPL": {"current_price": 320.0,
@@ -77,7 +87,7 @@ def test_arm_from_debate_near_bar(tmp_path, monkeypatch):
     assert reflex.load_playbooks()[0]["ticker"] == "AAPL"
 
 
-def test_arm_skips_over_bar_and_far_below(tmp_path, monkeypatch):
+def test_arm_skips_over_bar_and_far_below(tmp_path, monkeypatch, fresh_signals):
     monkeypatch.setattr(reflex, "PLAYBOOKS_FILE", tmp_path / "pb.json")
     monkeypatch.setattr(reflex, "load_data_json",
                         lambda f: {"AAPL": {"current_price": 320.0}})
@@ -92,7 +102,7 @@ def test_arm_skips_over_bar_and_far_below(tmp_path, monkeypatch):
          "judge": {"verdict": "BUY", "conviction": 50}}, 65, cfg) is None
 
 
-def test_arm_from_signal_spike(tmp_path, monkeypatch):
+def test_arm_from_signal_spike(tmp_path, monkeypatch, fresh_signals):
     monkeypatch.setattr(reflex, "PLAYBOOKS_FILE", tmp_path / "pb.json")
     monkeypatch.setattr(reflex, "load_data_json",
                         lambda f: {"NVDA": {"current_price": 500.0,
@@ -107,7 +117,7 @@ def test_arm_from_signal_spike(tmp_path, monkeypatch):
     assert "SPY" not in tickers     # 5 < 40
 
 
-def test_signal_spike_skips_held_and_crypto_shorts(tmp_path, monkeypatch):
+def test_signal_spike_skips_held_and_crypto_shorts(tmp_path, monkeypatch, fresh_signals):
     monkeypatch.setattr(reflex, "PLAYBOOKS_FILE", tmp_path / "pb.json")
     monkeypatch.setattr(reflex, "load_data_json",
                         lambda f: {"ETH-USD": {"current_price": 3000.0,

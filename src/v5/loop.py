@@ -34,7 +34,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+import threading
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -83,8 +84,17 @@ DEFAULT_WATCHLIST = [
     "SPY", "QQQ",
 ]
 
-PREDICT_HOUR = 22        # after the US close, local time
+PREDICT_HOUR = 22        # the evening slot, local time (kept for the cron)
 RESOLVE_INTERVAL_HOURS = 6
+# A session's daily bar is treated as final this long after the 16:00 New York
+# close. The old 22:10-London slot was 17:10 New York, so this keeps the same
+# information set while no longer depending on which timezone the box is in.
+SETTLE_MINUTES = 60
+# How long after a session settles the loop may take to make its call before
+# health() reports the miss. The catch-up job checks hourly.
+PREDICT_GRACE_HOURS = 3
+
+_predict_lock = threading.Lock()
 
 
 def watchlist() -> list[str]:
@@ -143,12 +153,14 @@ def predict_once(tickers: list[str] | None = None) -> dict:
             logger.exception("research loop failed on %s", t)
             errors.append({"ticker": t, "error": str(e)[:200]})
 
+    session = _latest_session(datetime.now())
     summary = {"tickers": len(names), "logged": len(logged),
                "skipped": len(skipped), "errors": len(errors),
+               "session": session.isoformat() if session else None,
                "detail": logged, "skipped_detail": skipped,
                "error_detail": errors}
     _beat("predict", {k: summary[k] for k in
-                      ("tickers", "logged", "skipped", "errors")})
+                      ("tickers", "logged", "skipped", "errors", "session")})
     logger.info("research loop: %d/%d predictions logged (%d skipped, %d errors)",
                 len(logged), len(names), len(skipped), len(errors))
     return summary
@@ -170,58 +182,123 @@ def resolve_once() -> dict:
     return out
 
 
-def predict_last_run_date() -> str:
-    """The date the predict leg last ran, from the heartbeat file."""
+# ── sessions: what the predict leg is keyed on ──────────────────────────────
+
+def _latest_session(now: datetime) -> date | None:
+    from src.trading.market import latest_completed_session
+    return latest_completed_session(now, settle_minutes=SETTLE_MINUTES)
+
+
+def _read_heartbeat() -> dict:
     if not HEARTBEAT.exists():
-        return ""
+        return {}
     try:
         state = json.loads(HEARTBEAT.read_text(encoding="utf-8"))
+        return state if isinstance(state, dict) else {}
     except Exception:
-        return ""
-    return str((state.get("predict") or {}).get("at", ""))[:10]
+        return {}
+
+
+def predict_last_run_date() -> str:
+    """The date the predict leg last ran, from the heartbeat file."""
+    return str((_read_heartbeat().get("predict") or {}).get("at", ""))[:10]
+
+
+def predict_last_session() -> date | None:
+    """The NYSE session the predict leg last made its calls on.
+
+    Heartbeats written before sessions were recorded carry only a local
+    timestamp; the session is then the one that was latest-completed at that
+    moment, which is exactly what those calls were built on.
+    """
+    leg = _read_heartbeat().get("predict") or {}
+    if leg.get("session"):
+        try:
+            return date.fromisoformat(str(leg["session"]))
+        except ValueError:
+            pass
+    at = leg.get("at")
+    if not at:
+        return None
+    try:
+        return _latest_session(datetime.fromisoformat(str(at)))
+    except (ValueError, TypeError):
+        return None
+
+
+def predict_due(now: datetime | None = None) -> dict:
+    """Should the predict leg run now? Keyed on the NYSE session, not a clock.
+
+    THE BUG THIS FIXES (2026-10-06)
+    -------------------------------
+    The previous rule was "not before 22:00 local". The predict cron needs the
+    process alive at 22:10 and the catch-up ran once, at startup. Every backend
+    start between 23 Sep and 6 Oct happened before 22:00 London and the box was
+    never up at 22:10, so the catch-up declined every time and no prediction
+    was made for thirteen days while the resolve leg kept running.
+
+    "22:00 London" was standing in for "after the US close". The rule now says
+    that directly:
+
+      * never inside the session window (open to close + SETTLE_MINUTES) — a
+        call built on a partial daily bar is a different measurement;
+      * one call per completed session — a Saturday call is Friday's close
+        again, and logging it as new evidence double-counts the sample;
+      * a missed session is made up the next time the box is awake outside the
+        window (e.g. 07:40 London before the open), on that session's close.
+
+    This is still not a backfill: the call is made now, timestamped now, on the
+    latest close available now — exactly what the evening cron would have used.
+    """
+    now = now or datetime.now()
+    from src.trading.market import in_session_window
+    window = in_session_window(now, settle_minutes=SETTLE_MINUTES)
+    session = _latest_session(now)
+    if window is None or session is None:
+        return {"due": False, "session": None,
+                "why": "no NYSE holiday calendar covers today — refusing to "
+                       "guess which close a call would be built on; extend "
+                       "src/trading/market.NYSE_HOLIDAYS"}
+    if window:
+        return {"due": False, "session": session.isoformat(),
+                "why": "inside the US session window (open to close + "
+                       f"{SETTLE_MINUTES} min) — a call on a partial daily bar "
+                       "is not the same measurement"}
+    last = predict_last_session()
+    if last is not None and last >= session:
+        return {"due": False, "session": session.isoformat(),
+                "why": f"predict has already run for the {session} session"}
+    return {"due": True, "session": session.isoformat(),
+            "last_session": last.isoformat() if last else None,
+            "why": f"no calls yet for the {session} session"}
 
 
 def predict_catchup(now: datetime | None = None) -> dict:
-    """Make today's prediction if the scheduled slot was missed.
+    """Make the latest session's calls if they have not been made.
 
-    THE BUG THIS FIXES
-    ------------------
-    `resolve` is registered with `next_run_time=now`, so it runs the moment the
-    backend wakes. `predict` is a plain daily cron at PREDICT_HOUR:10. A
-    machine that is not awake at 22:10 therefore skips that day's predictions
-    entirely and nothing anywhere says so — the resolve leg keeps running
-    happily over an input that stopped arriving. That asymmetry is why 16
-    predictions exist in total and none have resolved: the loop has been
-    turning with nothing going into it.
-
-    THIS IS NOT A BACKFILL (invariant 5)
-    ------------------------------------
-    A backfill invents calls that were never made. This makes TODAY's call,
-    late, with today's data and today's timestamp — the same thing the cron
-    would have done a few hours earlier.
-
-    And it will not run before PREDICT_HOUR. The slot is after the US close on
-    purpose: a call made at 11am against an unsettled session is a different
-    measurement from one made at 22:10, and quietly mixing the two would put a
-    methodological seam through the middle of the sample that nobody would
-    find later. Before the hour, this does nothing and lets the cron fire.
+    Safe to call as often as you like — on startup, hourly, from the evening
+    cron. predict_due() decides; a lock stops two jobs from running the leg at
+    once, and the heartbeat written by predict_once() stops a restart loop
+    from manufacturing rows.
     """
-    now = now or datetime.now()
-    today = now.date().isoformat()
-
-    if predict_last_run_date() == today:
-        return {"ran": False, "why": "predict has already run today"}
-    if now.hour < PREDICT_HOUR:
-        return {"ran": False,
-                "why": f"before the {PREDICT_HOUR}:10 slot — the cron will fire "
-                       f"today; a pre-close call is not the same measurement"}
-
-    logger.warning("research loop: the %d:10 predict slot was missed (last run "
-                   "%s) — making today's call now", PREDICT_HOUR,
-                   predict_last_run_date() or "never")
-    summary = predict_once()
-    summary["catchup"] = True
-    return {"ran": True, **summary}
+    due = predict_due(now)
+    if not due["due"]:
+        return {"ran": False, **due}
+    if not _predict_lock.acquire(blocking=False):
+        return {"ran": False, "why": "the predict leg is already running"}
+    try:
+        # Re-check under the lock: another job may have finished meanwhile.
+        due = predict_due(now)
+        if not due["due"]:
+            return {"ran": False, **due}
+        logger.warning("research loop: no calls yet for the %s session (last "
+                       "session %s) — making them now", due["session"],
+                       due.get("last_session") or "never")
+        summary = predict_once()
+        summary["catchup"] = True
+        return {"ran": True, **summary, "session": due["session"]}
+    finally:
+        _predict_lock.release()
 
 
 def run_once() -> dict:
@@ -230,6 +307,45 @@ def run_once() -> dict:
 
 
 # ── health ───────────────────────────────────────────────────────────────────
+
+def _missed_sessions(last: date | None, expected: date) -> int | None:
+    """Trading sessions after the last one predicted, up to the expected one."""
+    from src.trading.market import is_trading_day
+    if last is None:
+        return None
+    n, d = 0, last + timedelta(days=1)
+    while d <= expected and n < 400:
+        if is_trading_day(d):
+            n += 1
+        d += timedelta(days=1)
+    return n
+
+
+def predict_health(now: datetime | None = None) -> dict:
+    """Has the latest completed session been predicted? With a grace period
+    after the session settles, because the catch-up checks hourly."""
+    now = now or datetime.now()
+    from src.trading.market import session_close
+    expected = _latest_session(now)
+    last = predict_last_session()
+    if expected is None:
+        return {"ok": None, "expected_session": None,
+                "last_session": last.isoformat() if last else None,
+                "missed_sessions": None,
+                "why": "no NYSE calendar for this date — cannot say what is due"}
+    missed = _missed_sessions(last, expected)
+    settled_at = session_close(expected) + timedelta(minutes=SETTLE_MINUTES)
+    in_grace = (now.astimezone(settled_at.tzinfo) - settled_at
+                < timedelta(hours=PREDICT_GRACE_HOURS))
+    ok = missed == 0 or (missed == 1 and in_grace)
+    return {"ok": bool(ok), "expected_session": expected.isoformat(),
+            "last_session": last.isoformat() if last else None,
+            "missed_sessions": missed,
+            "why": ("up to date" if missed == 0 else
+                    "within the grace period after the close" if ok else
+                    "never run" if missed is None else
+                    f"{missed} completed session(s) have no calls")}
+
 
 def health() -> dict:
     """Is the flywheel actually turning? Answered from the heartbeat file, not
@@ -252,9 +368,12 @@ def health() -> dict:
             return None
 
     predict_age, resolve_age = age_h("predict"), age_h("resolve")
-    # A day and a half of grace on the daily leg: one missed run is a restart,
-    # two is a fault.
-    predict_ok = predict_age is not None and predict_age < 36
+    # Judged by sessions, not hours: a 36-hour rule called every Monday a
+    # stall (Friday's call is 72 h old by then) and could not tell a holiday
+    # from a fault. Without a calendar, fall back to a generous age bound.
+    ph = predict_health()
+    predict_ok = bool(ph["ok"]) if ph["ok"] is not None else (
+        predict_age is not None and predict_age < 96)
     resolve_ok = resolve_age is not None and resolve_age < RESOLVE_INTERVAL_HOURS * 3
 
     from src.v5 import learning
@@ -265,6 +384,10 @@ def health() -> dict:
         "healthy": bool(predict_ok and resolve_ok),
         "predict": {"last_run": (state.get("predict") or {}).get("at"),
                     "hours_ago": predict_age, "ok": predict_ok,
+                    "expected_session": ph["expected_session"],
+                    "last_session": ph["last_session"],
+                    "missed_sessions": ph["missed_sessions"],
+                    "status": ph["why"],
                     **{k: v for k, v in (state.get("predict") or {}).items()
                        if k != "at"}},
         "resolve": {"last_run": (state.get("resolve") or {}).get("at"),
@@ -276,5 +399,6 @@ def health() -> dict:
         "predictions_resolved": len(resolved),
         "note": ("The loop has never run." if predict_age is None else
                  "Running." if predict_ok and resolve_ok else
-                 "The loop has stalled — predictions are not accumulating."),
+                 "The loop has stalled — predictions are not accumulating"
+                 + (f" ({ph['why']})." if not predict_ok else ".")),
     }

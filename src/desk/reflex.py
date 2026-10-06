@@ -36,7 +36,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src.desk.config import load_config, paper_mode_confirmed
-from src.desk.opinion import load_data_json
+from src.desk.opinion import load_data_json, signals_freshness
 from src.desk.position_manager import _sane_levels, trading_age_days
 
 logger = logging.getLogger(__name__)
@@ -63,10 +63,36 @@ class Playbook:
     expires_at: str
     asset_class: str = "equity"
     thesis: str = ""
-    status: str = "armed"     # armed | fired | expired
+    status: str = "armed"     # armed | fired | expired | rejected
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+# ── what this lane can actually execute ─────────────────────────────────────
+
+def executable(ticker: str) -> tuple[bool, str, str]:
+    """(can the reflex lane trade it, asset class, reason) — from the symbol.
+
+    The lane used to label everything that did not end in -USD as "equity",
+    so NG=F, KC=F, BTC=F and ETH=F were armed as equity playbooks and polled
+    against Alpaca's stock endpoint every three seconds for days (about 5,700
+    rejected quotes in one log). A future can never fill on this broker, and a
+    playbook that can never fire is not caution, it is noise that hides real
+    failures. The classification is the shared one in src/core/identity, and
+    the executable set is the single source of truth in src/risk/profiles.
+    Equities must be a US listing: Alpaca does not route NSE or LSE.
+    """
+    from src.core.identity import classify_provider_symbol
+    from src.risk.profiles import EXECUTABLE_ASSET_CLASSES
+    c = classify_provider_symbol(ticker)
+    aclass = c.get("asset_class") or "unknown"
+    if aclass not in EXECUTABLE_ASSET_CLASSES:
+        return False, aclass, f"{aclass} is research-only — not executable here"
+    if aclass == "equity" and c.get("exchange") != "US":
+        return False, aclass, (f"listed on {c.get('exchange') or 'an unknown venue'}"
+                               f" — the reflex broker trades US listings only")
+    return True, aclass, ""
 
 
 # ── pure trigger / confidence logic (unit-tested) ────────────────────────────
@@ -143,6 +169,8 @@ def arm_from_debate(transcript: dict, conviction_bar: int,
     """A debate that landed just UNDER the bar with a clean trigger level arms
     a playbook instead of being discarded. Called from the hunt cycle."""
     cfg = cfg or load_config()
+    if not signals_freshness()["fresh"]:
+        return None              # trigger/stop would be computed from stale prices
     judge = transcript.get("judge") or {}
     verdict = judge.get("verdict")
     conviction = int(judge.get("conviction", 0))
@@ -174,6 +202,11 @@ def arm_from_signal(cfg: dict | None = None, account: dict | None = None) -> lis
     """Intraday composite spikes on liquid, unheld names arm signal playbooks.
     Called on the management tick (cheap: reads cached signals)."""
     cfg = cfg or load_config()
+    sf = signals_freshness()
+    if not sf["fresh"]:
+        # A "spike" in a nine-day-old composite is not an intraday spike.
+        logger.debug("REFLEX not arming from signals: %s", sf["why"])
+        return []
     spike = float(cfg.get("reflex_signal_spike", 40.0))
     held = {p.get("ticker") for p in (account or {}).get("positions") or []}
     armed_now = {p["ticker"] for p in load_playbooks() if p.get("status") == "armed"}
@@ -206,13 +239,17 @@ def arm_from_signal(cfg: dict | None = None, account: dict | None = None) -> lis
 
 def _arm(ticker, side, trigger, stop, target, conviction, debate_id,
          source, sig, cfg, thesis) -> dict | None:
+    ok, aclass, why = executable(ticker)
+    if not ok:
+        logger.debug("REFLEX not arming %s: %s", ticker, why)
+        return None
     days = int(cfg.get("reflex_playbook_expiry_days", 2))
     pb = Playbook(
         ticker=ticker, side=side, trigger_price=round(float(trigger), 4),
         stop=stop, target=target, conviction=conviction, debate_id=debate_id,
         source=source, armed_at=datetime.now().isoformat(),
         expires_at=_expiry(days),
-        asset_class="crypto" if str(ticker).endswith("-USD") else "equity",
+        asset_class=aclass,
         thesis=thesis).to_dict()
     pbs = [p for p in load_playbooks()
            if not (p["ticker"] == ticker and p.get("status") == "armed")]
@@ -276,9 +313,21 @@ class ReflexEngine:
         from src.desk.desk_daemon import us_equities_open
         equities_open = us_equities_open()
         results, changed = [], False
+        from src.execution.alpaca_broker import quotable
         for pb in armed:
             if is_expired(pb):
                 pb["status"] = "expired"
+                changed = True
+                continue
+            # Playbooks armed before executable() existed (or for a symbol the
+            # broker has since refused to quote) are retired with the reason,
+            # not polled forever.
+            ok, _, why = executable(pb["ticker"])
+            if ok and not quotable(pb["ticker"]):
+                ok, why = False, "the broker cannot quote this symbol"
+            if not ok:
+                pb["status"] = "rejected"
+                pb["rejected_reason"] = why
                 changed = True
                 continue
             if pb["asset_class"] != "crypto" and not equities_open:
@@ -314,6 +363,13 @@ class ReflexEngine:
         if not sig.get("current_price"):
             return {**self._base(pb, price), "stage": "validate",
                     "reason": "no signal data", "executed": False}
+        sf = signals_freshness()
+        if not sf["fresh"]:
+            # The comment above always said "fresh signal"; nothing checked it.
+            # Terminal: a playbook armed on stale data is retired, not retried.
+            return {**self._base(pb, price), "stage": "validate",
+                    "reason": f"signals stale — {sf['why']}", "executed": False,
+                    "terminal": True}
 
         # 3. confidence gate (cheap; do before the paid veto)
         ok, prob = confidence_ok(sig, pb["side"], float(self.cfg["reflex_min_prob"]))

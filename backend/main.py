@@ -58,7 +58,7 @@ except ImportError:
     pass
 
 from fastapi import (BackgroundTasks, Body, Depends, FastAPI, File,
-                     HTTPException, Request, UploadFile)
+                     HTTPException, Request, Response, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -131,8 +131,12 @@ def _configure_logging():
 
     try:
         from logging.handlers import RotatingFileHandler
-        (ROOT / "data").mkdir(parents=True, exist_ok=True)
-        fh = RotatingFileHandler(ROOT / "data" / "aria.log",
+        log_file = _log_file_path()
+        if log_file is None:
+            raise RuntimeError("refusing to write the production audit log "
+                               "from a test run — set ARIA_LOG_FILE")
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        fh = RotatingFileHandler(log_file,
                                  maxBytes=5_000_000, backupCount=3,
                                  encoding="utf-8")
         fh.setFormatter(file_fmt)
@@ -147,6 +151,28 @@ def _configure_logging():
     for noisy in ("httpx", "httpcore", "urllib3", "yfinance", "peewee",
                   "watchfiles", "asyncio", "chromadb", "sentence_transformers"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def _log_file_path() -> Path | None:
+    """Where the rotating file log goes. ARIA_LOG_FILE overrides it.
+
+    data/aria.log is the audit trail — kill-switch engagements, mode changes,
+    strategy promotions. Test runs used to write into it, because test modules
+    import this file at collection time, before any isolation fixture runs:
+    the owner's log carried "KILL SWITCH ENGAGED by test" and promotions of
+    strategies that never existed. tests/conftest.py now sets ARIA_LOG_FILE at
+    import; this refusal is the backstop if anything ever bypasses it.
+
+    The production path is computed here rather than held in a module
+    constant on purpose: the test isolation sweep rewrites module-level data
+    paths, which would make the backstop compare against a temp directory.
+    """
+    production = Path(__file__).resolve().parent.parent / "data" / "aria.log"
+    raw = (os.environ.get("ARIA_LOG_FILE") or "").strip().strip('"').strip("'")
+    path = Path(raw) if raw else production
+    if "pytest" in sys.modules and path.resolve() == production:
+        return None
+    return path
 
 
 _configure_logging()
@@ -739,6 +765,33 @@ def _load(filename: str) -> Any:
         raise HTTPException(status_code=500, detail=f"Could not parse {filename}: {e}")
 
 
+def _freshness(filename: str) -> dict:
+    """The world model's freshness verdict for one generated dataset."""
+    try:
+        from src.core.world import dataset_freshness
+        return dataset_freshness(filename)
+    except Exception as e:                       # unknown is never "fresh"
+        return {"dataset": filename, "status": "UNKNOWN", "stale": True,
+                "why": f"freshness unavailable: {e}"}
+
+
+def _mark_freshness(response: Response, filename: str) -> dict:
+    """Stamp a response with how old the file behind it is.
+
+    Headers, because several of these endpoints return the file verbatim as a
+    ticker-keyed map that the UI iterates — a body key would appear as a
+    ticker. Wrapper-shaped endpoints also carry it in the body.
+    """
+    f = _freshness(filename)
+    response.headers["X-ARIA-Data-Status"] = str(f.get("status"))
+    response.headers["X-ARIA-Data-As-Of"] = str(f.get("as_of") or "unknown")
+    if f.get("age_hours") is not None:
+        response.headers["X-ARIA-Data-Age-Hours"] = str(f["age_hours"])
+    if f.get("legacy"):
+        response.headers["X-ARIA-Data-Legacy"] = "true"
+    return f
+
+
 def _load_optional(filename: str) -> Any:
     """Load a JSON data file. Returns empty dict if missing (no error)."""
     path = ROOT / "data" / filename
@@ -865,11 +918,13 @@ def get_futures():
 
 
 @app.get("/api/options", tags=["Derivatives"])
-def get_options():
+def get_options(response: Response):
     """
     Get options chain analysis.
     Includes P/C ratios, IV skew, ATM greeks, sentiment scores.
+    Legacy output: see the X-ARIA-Data-* headers for its age.
     """
+    _mark_freshness(response, "options_data.json")
     return _load("options_data.json")
 
 
@@ -1045,17 +1100,20 @@ def quant_option_strategies_list():
 # ===========================================================================
 
 @app.get("/api/ml", tags=["ML Predictions"])
-def get_ml_predictions():
+def get_ml_predictions(response: Response):
     """
     Get ML predictions for all assets.
     Includes 1d, 5d, 20d directional probabilities and ensemble signal.
+    The X-ARIA-Data-* headers say how old the run behind them is.
     """
+    _mark_freshness(response, "ml_predictions.json")
     return _load("ml_predictions.json")
 
 
 @app.get("/api/ml/{ticker}", tags=["ML Predictions"])
-def get_ml_prediction(ticker: str):
+def get_ml_prediction(ticker: str, response: Response):
     """Get ML predictions for a single asset."""
+    _mark_freshness(response, "ml_predictions.json")
     data = _load("ml_predictions.json")
     if ticker not in data:
         raise HTTPException(status_code=404, detail=f"No ML predictions for '{ticker}'")
@@ -1067,23 +1125,26 @@ def get_ml_prediction(ticker: str):
 # ===========================================================================
 
 @app.get("/api/backtest", tags=["Backtesting"])
-def get_backtest_results():
+def get_backtest_results(response: Response):
     """
     Get backtest results for all assets.
     Includes equity curves, trade logs, and performance metrics.
     """
+    freshness = _mark_freshness(response, "backtest_results.json")
     data = _sanitize(_load("backtest_results.json"))
     sharpes = [v.get("metrics", {}).get("sharpe_ratio") or 0 for v in data.values()]
     return {
         "count": len(data),
         "avg_sharpe": round(sum(sharpes) / len(sharpes), 3) if sharpes else 0,
         "results": data,
+        "freshness": freshness,
     }
 
 
 @app.get("/api/backtest/{ticker}", tags=["Backtesting"])
-def get_backtest(ticker: str):
+def get_backtest(ticker: str, response: Response):
     """Get backtest result for a single asset."""
+    _mark_freshness(response, "backtest_results.json")
     data = _load("backtest_results.json")
     if ticker not in data:
         raise HTTPException(status_code=404, detail=f"No backtest for '{ticker}'")
@@ -1095,16 +1156,18 @@ def get_backtest(ticker: str):
 # ===========================================================================
 
 @app.get("/api/portfolio", tags=["Portfolio"])
-def get_portfolio():
+def get_portfolio(response: Response):
     """
     Get portfolio analysis and all 3 optimised allocations.
     Includes exposure, correlation, diversification score, and risk contribution.
     """
+    freshness = _mark_freshness(response, "portfolio_analysis.json")
     analysis  = _load_optional("portfolio_analysis.json")
     optimised = _load_optional("optimised_portfolios.json")
     return {
         "analysis":   analysis,
         "optimised":  optimised,
+        "freshness":  freshness,
     }
 
 
@@ -1254,9 +1317,22 @@ def get_sentiment():
 # ===========================================================================
 
 @app.get("/api/report", tags=["Reports"])
-def get_daily_report():
-    """Get the full daily market intelligence report."""
+def get_daily_report(response: Response):
+    """Get the full daily market intelligence report (legacy single file;
+    the dated reports live under /api/daily-report)."""
+    _mark_freshness(response, "daily_report.json")
     return _load("daily_report.json")
+
+
+@app.get("/api/data/freshness", tags=["Data"])
+def data_freshness():
+    """Every generated dataset ARIA reads as if current: age, budget, status
+    (FRESH / STALE / UNKNOWN), its writer and whether anything still runs it."""
+    from src.core.world import all_dataset_freshness
+    rows = all_dataset_freshness()
+    return {"datasets": rows,
+            "stale": [r["dataset"] for r in rows if r["status"] != "FRESH"],
+            "as_of": datetime.now().isoformat(timespec="seconds")}
 
 
 # ===========================================================================

@@ -57,6 +57,16 @@ METERED_HOSTS = ("api.bls.gov", "home.treasury.gov", "markets.newyorkfed.org",
 _TMP_DATA: Path | None = None
 _patched_modules: set[str] = set()
 
+# ── the audit log ────────────────────────────────────────────────────────────
+# Set at IMPORT, not in a fixture: pytest imports this file before it collects
+# test modules, and test modules import backend.main at collection time, which
+# attaches the rotating file handler there and then. A session fixture runs too
+# late — that is how data/aria.log came to hold "KILL SWITCH ENGAGED by test"
+# and promotions of strategies that only exist in fixtures.
+_TEST_LOG_DIR = Path(tempfile.mkdtemp(prefix="aria-test-logs-"))
+os.environ["ARIA_LOG_FILE"] = str(_TEST_LOG_DIR / "aria_test.log")
+TEST_LOG_FILE = Path(os.environ["ARIA_LOG_FILE"])
+
 
 def _redirect_module(mod, tmp_data: Path) -> int:
     """Repoint every Path constant in `mod` that lives under the real data dir.
@@ -209,6 +219,13 @@ def isolate_production_state():
                     "ARIA_DATA_DIR"):
             os.environ.pop(key, None)
         shutil.rmtree(tmp_root, ignore_errors=True)
+        # Windows will not delete a file a handler still holds open.
+        import logging
+        for h in list(logging.getLogger().handlers):
+            if str(_TEST_LOG_DIR) in str(getattr(h, "baseFilename", "")):
+                logging.getLogger().removeHandler(h)
+                h.close()
+        shutil.rmtree(_TEST_LOG_DIR, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)

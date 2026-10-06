@@ -138,18 +138,21 @@ class DeskDaemon:
         # the machine stays up: predictions were only ever logged when a human
         # opened a page, and resolution only ever ran from a manual POST.
         from src.v5 import loop as v5_loop
-        self.scheduler.add_job(v5_loop.predict_once, "cron",
-                               hour=v5_loop.PREDICT_HOUR, minute=10,
+        # PREDICT is checked every hour, not fired once at 22:10. The old cron
+        # needed the process alive at 22:10 London and the box never was from
+        # 23 Sep to 6 Oct, so no call was made for thirteen days.
+        # predict_catchup() is idempotent per NYSE session: it declines inside
+        # the session window and once a session's calls exist, so running it
+        # hourly (and on weekends) cannot add rows — it can only stop missing
+        # them.
+        self.scheduler.add_job(v5_loop.predict_catchup, "cron", minute=10,
                                id="v5_predict", replace_existing=True)
         self.scheduler.add_job(v5_loop.resolve_once, "interval",
                                hours=v5_loop.RESOLVE_INTERVAL_HOURS,
                                id="v5_resolve", replace_existing=True,
                                next_run_time=datetime.now())
-        # RESOLVE catches up on startup; PREDICT did not, and that asymmetry is
-        # why the loop kept turning with nothing going into it. A machine that
-        # is asleep at 22:10 skipped the whole day's predictions silently.
-        # predict_catchup() declines before the slot and declines twice in one
-        # day — it makes today's call late, it does not invent past ones.
+        # And once at startup, beside resolve: a box that wakes at 07:40 makes
+        # the previous session's calls before the open instead of an hour later.
         self.scheduler.add_job(v5_loop.predict_catchup, "date",
                                run_date=datetime.now(),
                                id="v5_predict_catchup", replace_existing=True)

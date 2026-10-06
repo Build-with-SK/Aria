@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import threading
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -45,6 +48,60 @@ try:
 except ImportError:
     ALPACA_AVAILABLE = False
     logger.warning("alpaca-py not installed. Run: pip install alpaca-py")
+
+
+# ── which symbols Alpaca can quote at all ───────────────────────────────────
+#
+# Alpaca's crypto endpoint validates pairs against ^[A-Z]+x?/[A-Z]+$ (so no
+# digits: 1INCH and API3 are refused) and its stock endpoint knows US listings
+# only. Asking anyway produced ~13,000 identical warnings in one log, one every
+# three seconds per symbol, which buried every warning that mattered. A symbol
+# the shape check passes but Alpaca still refuses as invalid is remembered for
+# UNQUOTABLE_TTL_S, so it is asked about once per window, not forever.
+
+_ALPACA_CRYPTO_PAIR = re.compile(r"^[A-Z]+x?/[A-Z]+$")
+_ALPACA_STOCK = re.compile(r"^[A-Z]{1,5}([.][A-Z]{1,2})?$")
+UNQUOTABLE_TTL_S = 6 * 3600
+_unquotable: dict[str, float] = {}
+_unquotable_lock = threading.Lock()
+
+
+def _shape_ok(ticker: str) -> bool:
+    t = (ticker or "").upper().strip()
+    if "-USD" in t or "/" in t:
+        return bool(_ALPACA_CRYPTO_PAIR.match(crypto_symbol(t)))
+    return bool(_ALPACA_STOCK.match(t))
+
+
+def quotable(ticker: str, now: Optional[float] = None) -> bool:
+    """Can Alpaca quote this symbol? Pure: a shape check plus the cache of
+    symbols Alpaca has already refused. Touches no network and no account."""
+    t = (ticker or "").upper().strip()
+    if not _shape_ok(t):
+        return False
+    now = time.time() if now is None else now
+    with _unquotable_lock:
+        until = _unquotable.get(t)
+        if until is not None and until > now:
+            return False
+        if until is not None:
+            _unquotable.pop(t, None)
+    return True
+
+
+def _mark_unquotable(ticker: str, reason: str) -> None:
+    t = (ticker or "").upper().strip()
+    with _unquotable_lock:
+        first = t not in _unquotable
+        _unquotable[t] = time.time() + UNQUOTABLE_TTL_S
+    if first:
+        logger.warning("Alpaca cannot quote %s (%s) — not asking again for %dh",
+                       t, reason[:160], UNQUOTABLE_TTL_S // 3600)
+
+
+def _is_invalid_symbol_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return "invalid symbol" in msg or "does not match" in msg
 
 
 def crypto_symbol(ticker: str) -> str:
@@ -481,6 +538,8 @@ class AlpacaBroker(BrokerBase):
     def get_quote(self, ticker: str) -> dict:
         if not self._stock_data:
             return {}
+        if not quotable(ticker):
+            return {}
         try:
             is_crypto = "-USD" in ticker.upper() or "/" in ticker
             if is_crypto:
@@ -519,5 +578,8 @@ class AlpacaBroker(BrokerBase):
                     "bid_size": float(getattr(q, "bid_size", 0) or 0),
                     "ask_size": float(getattr(q, "ask_size", 0) or 0)}
         except Exception as e:
-            logger.warning(f"Alpaca get_quote({ticker}): {e}")
+            if _is_invalid_symbol_error(e):
+                _mark_unquotable(ticker, str(e))
+            else:
+                logger.warning(f"Alpaca get_quote({ticker}): {e}")
             return {}

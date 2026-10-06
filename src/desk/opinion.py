@@ -42,6 +42,28 @@ def ev(claim: str, value, source: str, lean: str = "neutral") -> dict:
     return {"claim": claim, "value": value, "source": source, "lean": lean}
 
 
+def signals_freshness() -> dict:
+    """Is data/signals.json current enough to act on without a human?
+
+    signals.json is written only by the full pipeline, a manual run. On
+    2026-10-06 it was nine days old and the reflex lane had armed 44
+    playbooks from it that morning — composites, trigger levels and stops
+    computed on 27 September, waiting to fire against live prices. Its rows
+    carry no timestamp, so the FILE is aged, by the same policy and budget the
+    world model uses (src/core/world.py, "signals": 30 h). Unknown is stale.
+    """
+    try:
+        from src.core.world import dataset_freshness
+        f = dataset_freshness("signals.json")
+    except Exception as e:                       # never fail open on a bug
+        return {"fresh": False, "age_hours": None,
+                "why": f"signal freshness could not be determined: {e}"}
+    fresh = f["status"] == "FRESH"
+    return {"fresh": fresh, "age_hours": f.get("age_hours"),
+            "as_of": f.get("as_of"),
+            "why": "" if fresh else (f.get("why") or "signals.json is missing")}
+
+
 def load_data_json(filename: str) -> dict:
     """Load a JSON file from data/. Returns {} on any failure."""
     path = DATA / filename

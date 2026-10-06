@@ -119,21 +119,49 @@ def _open_heat(positions: list, equity: float) -> float:
             continue
         atr = _atr(sym)
         c = md.closes(sym, period="3mo")
-        px = float(c.iloc[-1]) if c is not None and len(c) else None
-        frac = (STOP_ATR_MULTIPLE * atr / px) if (atr and px) else 0.02
+        px = _finite_positive(c.iloc[-1]) if c is not None and len(c) else None
+        frac = (STOP_ATR_MULTIPLE * atr / px) if (atr is not None and px is not None) else 0.02
         total += mv * frac / equity * 100
     return round(total, 3)
 
 
+def _finite_positive(x) -> Optional[float]:
+    """x as a float when it is a usable positive number, else None.
+
+    `if atr and px` was the old test, and NaN is truthy: one gappy bar made
+    ATR NaN, NaN flowed into the stop distance and the open heat, and every
+    comparison against a cap read False — so a single bad bar on any holding
+    vetoed every new trade with a "nan%" reason (handoff, Aug 2026).
+    """
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if math.isfinite(v) and v > 0 else None
+
+
 def _atr(ticker: str, n: int = 14) -> Optional[float]:
+    """Mean true range over the last `n` bars that HAVE a true range.
+
+    A missing High/Low on one day used to poison the whole rolling window.
+    Bars with no true range are dropped rather than filled — inventing a range
+    for a day with no data would be fabrication — and fewer than `n` usable
+    bars means no ATR, not a guess.
+    """
     df = md.history(ticker, period="6mo")
     if df is None or len(df) < n + 5 or "High" not in df.columns:
         return None
     hl = df["High"] - df["Low"]
     hc = (df["High"] - df["Close"].shift()).abs()
     lc = (df["Low"] - df["Close"].shift()).abs()
-    tr = hl.combine(hc, max).combine(lc, max)
-    return float(tr.rolling(n).mean().iloc[-1])
+    # combine(max) with a NaN on either side returns whichever argument the
+    # builtin max happens to keep, so take the row max explicitly instead.
+    import pandas as pd
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1, skipna=False).dropna()
+    tr = tr[tr >= 0]
+    if len(tr) < n:
+        return None
+    return _finite_positive(tr.iloc[-n:].mean())
 
 
 # ── the gate ────────────────────────────────────────────────────────────────
@@ -157,10 +185,11 @@ def assess(ticker: str, ens: EnsembleResult, reports: list[ModuleReport],
     price = None
     c = md.closes(ticker, period="3mo")
     if c is not None and len(c):
-        price = float(c.iloc[-1])
+        price = _finite_positive(c.iloc[-1])
 
     r = md.returns(ticker, period="1y")
-    vol = float(r.std() * math.sqrt(252)) if r is not None and len(r) > 30 else None
+    vol = (_finite_positive(r.std() * math.sqrt(252))
+           if r is not None and len(r) > 30 else None)
     atr = _atr(ticker)
 
     # ── 1. Conviction floor — capital preservation outranks opportunity ─────
@@ -185,12 +214,14 @@ def assess(ticker: str, ens: EnsembleResult, reports: list[ModuleReport],
         # (confidence 62.5%) releases the full budget, half that releases half.
         budget = RISK_BUDGET_PCT * size_scale
         size_pct = (budget / 100.0) * equity / stop_distance * price / equity * 100.0
+        basis = (f"Realised vol {vol:.0%} annualised, ATR {atr:.2f}." if atr and vol else
+                 f"ATR {atr:.2f}; realised volatility unavailable." if atr else
+                 f"Sizing from volatility only ({vol:.0%} annualised) — ATR unavailable.")
         checks.append(RiskCheck(
             "volatility sizing", True,
-            f"Realised vol {vol:.0%} annualised, ATR {atr:.2f}. Stop {STOP_ATR_MULTIPLE:.0f}×ATR "
+            f"{basis} Stop {'%.0f×ATR' % STOP_ATR_MULTIPLE if atr else 'from volatility'} "
             f"= {stop_distance:.2f} ({stop_distance / price:.1%} away). Risking {budget:.2f}% of "
-            f"equity implies {size_pct:.2f}% position size." if atr and vol else
-            f"Sizing from volatility only ({vol:.0%} annualised) — ATR unavailable."))
+            f"equity implies {size_pct:.2f}% position size."))
     else:
         checks.append(RiskCheck("volatility sizing", False,
                                 "No price or volatility data — position cannot be sized.", "veto"))

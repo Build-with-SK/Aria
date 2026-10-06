@@ -67,30 +67,64 @@ def _ensure_dir() -> None:
 
 # ── the prediction log ──────────────────────────────────────────────────────
 
+def information_key(at: datetime) -> tuple[Optional[str], Optional[bool]]:
+    """(latest settled NYSE session, made inside the session window?) at `at`.
+
+    Two calls with the same key were built on the same daily bars. When the
+    calendar does not cover `at`, falls back to the calendar day — the old
+    rule — rather than guessing a session.
+    """
+    from src.trading.market import in_session_window, latest_completed_session
+    from src.v5.loop import SETTLE_MINUTES
+    session = latest_completed_session(at, settle_minutes=SETTLE_MINUTES)
+    window = in_session_window(at, settle_minutes=SETTLE_MINUTES)
+    if session is None or window is None:
+        return (f"day:{at.date().isoformat()}", None)
+    return (session.isoformat(), bool(window))
+
+
+def _entry_information_key(entry: dict) -> tuple[Optional[str], Optional[bool]]:
+    if entry.get("information_session"):
+        return (entry["information_session"], entry.get("in_session_window"))
+    try:
+        return information_key(datetime.fromisoformat(str(entry.get("at"))))
+    except (TypeError, ValueError):
+        return (None, None)
+
+
 def log_prediction(*, ticker: str, direction: str, p_bull: float, confidence: float,
                    horizon_days: int, price: Optional[float], modules: list[dict],
                    rationale: str = "", risk: Optional[dict] = None,
                    weights_version: Optional[int] = None) -> str:
     """Append one prediction. Returns its id.
 
-    Deduplicated by (ticker, calendar day, direction): opening the analysis page
-    five times is one call, not five. Without this the hit rate would be
+    Deduplicated by (ticker, direction, information set): opening the analysis
+    page five times is one call, not five. Without this the hit rate would be
     computed over copies of the same view and would silently overstate the
     sample behind every calibration number.
+
+    The information set is the latest settled NYSE session plus whether the
+    call was made inside the session window. It used to be the calendar day,
+    which got both directions wrong: a Saturday call on Friday's close counted
+    as new evidence, and a Monday pre-open call (Friday's close) collapsed
+    into Monday evening's call (Monday's close).
     """
     _ensure_dir()
-    today = datetime.now().date().isoformat()
+    now = datetime.now()
+    key = information_key(now)
     for existing in reversed(load_predictions(limit=200)):
         if (existing.get("ticker") == ticker
                 and existing.get("direction") == direction
                 and not existing.get("resolved")
-                and str(existing.get("at", ""))[:10] == today):
+                and _entry_information_key(existing) == key):
             return existing["id"]
 
     pid = f"v5-{uuid.uuid4().hex[:10]}"
     entry = {
         "id": pid,
-        "at": datetime.now().isoformat(timespec="seconds"),
+        "at": now.isoformat(timespec="seconds"),
+        "information_session": key[0],
+        "in_session_window": key[1],
         "ticker": ticker,
         "direction": direction,
         "p_bull": round(float(p_bull), 4),

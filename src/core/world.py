@@ -66,7 +66,54 @@ STALE_AFTER_HOURS = {
     # it as current — the world model tracked six artefacts and this was not
     # one of them.
     "ml": 48,
+    # Legacy pipeline outputs. Their only writer is main_phase4_backup.py,
+    # which nothing runs any more; they are kept because endpoints and the
+    # Streamlit dashboard still read them, and they must say how old they are.
+    "options": 30,
+    "backtest": 24 * 7,
+    "model_portfolio": 24 * 7,
+    "report": 30,
 }
+
+#: Every generated dataset an endpoint, the chat or the brain reads as if it
+#: were current, with who writes it. "legacy" means no running code path
+#: refreshes it: it is not deleted (endpoints still serve it) but it is never
+#: allowed to look current. Established 2026-10-06 by tracing every writer.
+DATASETS: dict[str, dict] = {
+    "signals.json":            {"kind": "signals", "writer": "main.py (full pipeline, manual)", "legacy": False},
+    "macro_data.json":         {"kind": "macro", "writer": "backend _macro_loop", "legacy": False},
+    "brain_state.json":        {"kind": "brain", "writer": "brain daemon (needs Ollama)", "legacy": False},
+    "ml_predictions.json":     {"kind": "ml", "writer": "main.py run_ml (full pipeline, manual)", "legacy": False},
+    "options_data.json":       {"kind": "options", "writer": "main_phase4_backup.py only", "legacy": True},
+    "backtest_results.json":   {"kind": "backtest", "writer": "main_phase4_backup.py only", "legacy": True},
+    "portfolio_analysis.json": {"kind": "model_portfolio", "writer": "main_phase4_backup.py only", "legacy": True},
+    "daily_report.json":       {"kind": "report", "writer": "main_phase4_backup.py only — superseded by src/report/daily.py", "legacy": True},
+}
+
+
+def dataset_freshness(name: str) -> dict:
+    """FRESH / STALE / UNKNOWN for one generated dataset, with its budget.
+
+    Built on _age_block so the API, the chat context and the world model judge
+    staleness by one policy. A file whose contents state a date is aged by
+    that date, not by when the file was last touched.
+    """
+    spec = DATASETS.get(name, {"kind": "unknown", "writer": "unregistered",
+                               "legacy": None})
+    stated = None
+    body = _read_json(name)
+    if isinstance(body, dict):
+        stated = body.get("data_date") or body.get("date") or body.get("timestamp")
+    block = _age_block(name, spec["kind"], stated)
+    status = ("UNKNOWN" if block["as_of"] is None else
+              "STALE" if block["stale"] else "FRESH")
+    return {"dataset": name, "status": status,
+            "stale_threshold_hours": STALE_AFTER_HOURS.get(spec["kind"], 24),
+            "writer": spec["writer"], "legacy": spec["legacy"], **block}
+
+
+def all_dataset_freshness() -> list[dict]:
+    return [dataset_freshness(n) for n in DATASETS]
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS world_snapshots (

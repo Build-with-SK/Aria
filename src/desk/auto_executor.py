@@ -140,9 +140,17 @@ class AutoExecutor:
         confirmed = account.get("paper_confirmed")
         g["paper_confirmed"] = confirmed
         g["paper_status"] = account.get("paper_status")
+        # Gate 6 (2026-10-06): nothing executes without a human on signals the
+        # world model calls stale. Red sends the trade to the approval queue
+        # like every other gate — the human can still take it.
+        from src.desk.opinion import signals_freshness
+        sf = signals_freshness()
+        g["signals_fresh"] = sf["fresh"]
+        g["signals_age_hours"] = sf.get("age_hours")
         g["auto_allowed"] = (env_paper and armed and account.get("connected")
                              and broker_paper is True
                              and confirmed is True
+                             and sf["fresh"] is True
                              and budget_left > 0 and trades_left > 0)
         return g
 
@@ -285,6 +293,11 @@ class AutoExecutor:
             reasons.append("max trades/day reached")
         if g["budget_left"] <= 0:
             reasons.append("daily notional budget spent")
+        if g.get("signals_fresh") is not True:
+            age = g.get("signals_age_hours")
+            reasons.append("signals are stale" + (f" ({age:.0f}h old)" if age is not None else
+                                                  " (age unknown)")
+                           + " — run the pipeline before anything executes unattended")
         return "; ".join(reasons) or "safety gate closed"
 
     def _log(self, record: dict):
