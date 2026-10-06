@@ -712,7 +712,8 @@ class ObsidianExporter:
             f"---\n\n"
             f"## 📊 Per-Asset Results\n\n{rows}\n"
             f"> ⚠️ **Survivorship bias**: Universe fixed to current winners.\n"
-            f"> ⚠️ **Look-ahead bias**: Fix pending in `src/backtesting/backtester.py`.\n"
+            f"> ✅ **Look-ahead**: decisions use the prior bar's score and execute at the next open; "
+            f"`tests/test_no_lookahead.py` rewrites the future and requires the past equity curve unchanged.\n"
             f"> ⚠️ Results with < 5 trades are statistically insignificant.\n\n"
             f"---\n\n"
             f"## 🔗 Related\n\n"
@@ -957,7 +958,7 @@ class ObsidianExporter:
             check_md += f"- [{mark}] {module}\n"
 
         known_issues = (
-            "- [ ] Look-ahead bias in backtester (`src/backtesting/backtester.py`)\n"
+            "- [x] Look-ahead in the signal backtester — tested absent (`tests/test_no_lookahead.py`, 2026-10-06)\n"
             "- [ ] Forex ML 0 rows — no volume in yfinance forex (`src/models/ml_model.py`)\n"
             "- [ ] FRED data broken — pandas-datareader incompatibility (`src/macro/macro_data.py`)\n"
             "- [ ] Sentiment no negation detection (`src/sentiment/sentiment_analyzer.py`)\n"

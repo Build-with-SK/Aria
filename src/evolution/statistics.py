@@ -104,7 +104,8 @@ def expected_max_sharpe(trial_sharpes: list[float], n_trials: int | None = None)
 def deflated_sharpe(observed_sharpe: float, trial_sharpes: list[float],
                     n_observations: int, skew: float = 0.0,
                     kurtosis: float = 3.0,
-                    n_trials: int | None = None) -> dict:
+                    n_trials: int | None = None,
+                    periods_per_year: int = 252) -> dict:
     """P(true Sharpe > 0) for a strategy that was CHOSEN by a search.
 
     Returns the probability alongside the bar it had to clear, because the
@@ -123,13 +124,24 @@ def deflated_sharpe(observed_sharpe: float, trial_sharpes: list[float],
                 "observed": observed_sharpe, "n_trials": n_trials or len(trial_sharpes),
                 "verdict": "insufficient data"}
 
+    # UNITS (corrected 2026-10-06). Bailey & Lopez de Prado's statistic pairs
+    # the PER-PERIOD Sharpe with sqrt(T-1), T counted in the same periods.
+    # This function takes annualised Sharpes (its contract above), and used to
+    # put them straight into the formula with a daily T — inflating z about
+    # tenfold, so the "probability" saturated at 0 or 1. A holdout Sharpe a
+    # hair above the luck bar scored ~0.998 and would have "survived" where
+    # the true figure is nearer 0.6. Converting first is the whole fix.
+    root = math.sqrt(max(1, int(periods_per_year)))
+    sr = observed_sharpe / root
+    sr_star = threshold / root
+
     # Non-normality correction: the variance of a Sharpe estimate grows with
-    # negative skew and with excess kurtosis.
-    denominator = 1 - skew * observed_sharpe + ((kurtosis - 1) / 4) * observed_sharpe ** 2
+    # negative skew and with excess kurtosis (per-period moments).
+    denominator = 1 - skew * sr + ((kurtosis - 1) / 4) * sr ** 2
     if denominator <= 0:
         denominator = 1e-9
 
-    z = ((observed_sharpe - threshold) * math.sqrt(n - 1)) / math.sqrt(denominator)
+    z = ((sr - sr_star) * math.sqrt(n - 1)) / math.sqrt(denominator)
     probability = _norm_cdf(z)
 
     return {
@@ -138,6 +150,7 @@ def deflated_sharpe(observed_sharpe: float, trial_sharpes: list[float],
         "observed": round(observed_sharpe, 4),
         "n_trials": int(n_trials or len(trial_sharpes)),
         "n_observations": n,
+        "periods_per_year": int(periods_per_year),
         "beats_luck": bool(observed_sharpe > threshold),
         "verdict": _verdict(probability),
     }

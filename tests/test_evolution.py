@@ -11,6 +11,7 @@ data-mining machine with a progress bar.
 The fast backtester is also checked cell-for-cell against quant_lab's loop,
 so the speed-up can never quietly become a different strategy.
 """
+import math
 import random
 import sys
 from pathlib import Path
@@ -659,3 +660,66 @@ def test_scaling_a_strategy_down_no_longer_preserves_its_score():
     # And with no rate charged the old, exploitable invariance is visible.
     assert abs(sharpe_of(full, risk_free=0.0)
                - sharpe_of(tenth, risk_free=0.0)) < 1e-9
+
+
+# ══════════════════════════════════════ deflated Sharpe units (2026-10-06)
+
+def test_psr_matches_the_textbook_value_for_one_year_of_daily_data():
+    """Annualised SR 1.0 over 252 daily returns, a single trial (bar 0),
+    normal returns: PSR = Phi(1/sqrt(252) * sqrt(251) / sqrt(1 + SR_d^2/2))
+    ~ 0.84. The old code, which put the annualised 1.0 into the formula,
+    returned ~1.0 — certainty from one year of data."""
+    out = deflated_sharpe(1.0, [0.0], n_observations=252, n_trials=1)
+    sr_d = 1.0 / math.sqrt(252)
+    expected = 0.5 * (1 + math.erf((sr_d * math.sqrt(251) / math.sqrt(1 + sr_d ** 2 / 2))
+                                   / math.sqrt(2)))
+    assert out["probability"] == pytest.approx(expected, abs=1e-3)
+    assert 0.83 < out["probability"] < 0.85
+
+
+def test_a_hair_above_the_bar_is_not_survival():
+    """The failure the unit error caused: beating the luck threshold by 0.1
+    on a year of holdout scored ~0.99. It is close to a coin flip."""
+    spread = [0.2 * ((i % 7) - 3) for i in range(200)]
+    bar = expected_max_sharpe(spread, n_trials=1500)
+    out = deflated_sharpe(bar + 0.1, spread, n_observations=252, n_trials=1500)
+    assert out["beats_luck"] is True
+    assert 0.5 < out["probability"] < 0.7
+    assert out["verdict"] == "indistinguishable from a lucky search"
+
+
+# ══════════════════════════════════════ quant lab library deflation
+
+def _lib(sharpes, days=252, with_moments=True):
+    out = []
+    for i, sr in enumerate(sharpes):
+        oos = {"sharpe": sr, "days": days}
+        if with_moments:
+            oos.update(skew=0.0, kurtosis=3.0)
+        out.append({"template": "t", "metrics": {"oos": oos, "full": {}}})
+    return out
+
+
+def test_quant_lab_charges_the_library_for_its_size():
+    from src.brain.quant_lab import deflate_library
+    small = _lib([0.9, 0.1, -0.2])
+    big = _lib([0.9] + [0.2 * ((i % 9) - 4) for i in range(199)])
+    deflate_library(small)
+    deflate_library(big)
+    assert big[0]["deflated"]["threshold"] > small[0]["deflated"]["threshold"]
+    assert big[0]["deflated"]["probability"] < small[0]["deflated"]["probability"]
+    assert "200 library strategies" in big[0]["deflated"]["note"]
+
+
+def test_quant_lab_says_when_moments_were_assumed():
+    from src.brain.quant_lab import deflate_library
+    lib = _lib([0.5, 0.2], with_moments=False)
+    deflate_library(lib)
+    assert "moments assumed normal" in lib[0]["deflated"]["note"]
+
+
+def test_quant_lab_backtest_records_oos_moments():
+    from src.brain.quant_lab import backtest
+    closes = _prices(days=600, seed=4)
+    out = backtest("ma_cross", {"fast": 20, "slow": 100}, closes)
+    assert {"skew", "kurtosis"} <= set(out["oos"])
