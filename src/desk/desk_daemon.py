@@ -60,8 +60,8 @@ def _snapshot_technical_recs():
     """Record today's technical recommendations so their forward performance
     can be measured. Runs once daily; safe no-op on any failure."""
     try:
-        from src.data.technical_tracker import snapshot
-        snapshot(timeframe="1d", limit=30)
+        from src.data.technical_tracker import snapshot_catchup
+        snapshot_catchup(timeframe="1d", limit=30)
     except Exception as e:
         logger.warning(f"technical recs snapshot failed: {e}")
 
@@ -173,9 +173,13 @@ class DeskDaemon:
         # Nightly state backup (cheap insurance against a corrupted JSON file)
         self.scheduler.add_job(_backup_desk_state, "cron", hour=2, minute=0,
                                id="desk_backup", replace_existing=True)
-        # Daily technical-recommendations snapshot (for forward hit-rate)
-        self.scheduler.add_job(_snapshot_technical_recs, "cron", hour=21,
-                               minute=30, id="tech_snapshot", replace_existing=True)
+        # Technical-recommendations snapshot (for forward hit-rate). Checked
+        # hourly and at startup, taken once per settled NYSE session: the old
+        # 21:30 cron needed the box awake at 21:30 London (none was from
+        # 28 Sep) and fired before the US daily bar was final.
+        self.scheduler.add_job(_snapshot_technical_recs, "cron", minute=20,
+                               id="tech_snapshot", replace_existing=True,
+                               next_run_time=datetime.now())
         self.scheduler.start()
         self.running = True
         # REFLEX fast lane — watches armed playbooks, fires in seconds

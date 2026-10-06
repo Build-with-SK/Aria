@@ -139,6 +139,8 @@ def ingest_desk_outcomes() -> dict:
             claim=f"{view or 'directional'} view over {r.get('horizon_days', 1)} day(s)",
             direction=view if view in ("bull", "bear") else "neutral",
             probability=prob, confidence=prob,
+            # Ordering only — the desk never stated a probability.
+            probability_kind="mapped" if prob is not None else "none",
             horizon_days=int(r.get("horizon_days") or 1),
             price_at=r.get("entry"), regime_at=r.get("regime"),
             strategy="desk-debate",
@@ -219,12 +221,24 @@ def ingest_technical() -> dict:
         summary = (r.get("summary") or "").strip().lower()
         if not sym or not at or summary not in _TECH_DIRECTION:
             continue
-        ref = f"tech:{sym}:{r.get('date')}:{r.get('timeframe')}"
+        # New rows are keyed on the session their batch was taken for; old
+        # rows keep their calendar-day key so nothing already ingested moves.
+        ref = (f"tech:{sym}:s{r['snapshot_session']}:{r.get('timeframe')}"
+               if r.get("snapshot_session") else
+               f"tech:{sym}:{r.get('date')}:{r.get('timeframe')}")
         ledger.record_prediction(
             subject=sym, source="technical",
             claim=f"technical composite reads {r.get('summary')} on {r.get('timeframe')}",
             direction=_TECH_DIRECTION[summary],
             probability=None, confidence=None,
+            # The indicator composite is a vote count, not a probability, and
+            # no honest transformation turns one into the other. These calls
+            # are graded for hit rate and kept out of calibration.
+            probability_kind="none",
+            model_version=r.get("model_version"),
+            regime_at=r.get("regime_at"), regime_basis=r.get("regime_basis"),
+            data_as_of=r.get("data_as_of"),
+            information_session=r.get("information_session"),
             horizon_days=10, price_at=r.get("entry_price"),
             strategy=f"technical-composite:{r.get('timeframe')}",
             rationale=f"Indicator composite summary: {r.get('summary')}.",
@@ -234,6 +248,25 @@ def ingest_technical() -> dict:
 
 
 # ── V5 ensemble ─────────────────────────────────────────────────────────────
+
+def v5_stated_probability(r: dict) -> Optional[float]:
+    """P(this V5 call's direction is right), as V5 stated it, or None.
+
+    V5's contract: `confidence` is P(direction correct), in [0.5, 1.0], after
+    meta-review. `p_bull` is the ensemble's P(bull) and equals P(correct) only
+    on a bull call. A neutral call states no probability of staying flat.
+    """
+    if (r.get("direction") or "") not in ("bull", "bear"):
+        return None
+    c = r.get("confidence")
+    try:
+        c = float(c)
+    except (TypeError, ValueError):
+        return None
+    if not (0.0 <= c <= 1.0):
+        return None
+    return round(c, 4)
+
 
 def ingest_v5() -> dict:
     """The long-horizon ensemble calls, with their stated probability kept.
@@ -248,10 +281,22 @@ def ingest_v5() -> dict:
         if not tid or not ticker:
             continue
         ref = f"v5:{tid}"
+        stated = v5_stated_probability(r)
         pid = ledger.record_prediction(
             subject=ticker, source="v5",
             claim=(f"{r.get('direction')} over {r.get('horizon_days')} trading days"),
+            # `probability` keeps P(bull) as V5 logged it. p_correct is the
+            # probability that THIS call is right — the complement on a bear.
             direction=r.get("direction"), probability=r.get("p_bull"),
+            probability_kind="stated" if stated is not None else "none",
+            p_correct=stated,
+            model_version=(r.get("model_version")
+                           or (f"v5|weights={r['weights_version']}"
+                               if r.get("weights_version") is not None else None)),
+            information_session=(r.get("information_session")
+                                 if r.get("in_session_window") is False else None),
+            data_as_of=r.get("data_as_of"),
+            regime_at=r.get("regime_at"), regime_basis=r.get("regime_basis"),
             confidence=r.get("confidence"),
             horizon_days=int(r.get("horizon_days") or 21),
             price_at=r.get("price_at"), strategy=f"v5-ensemble:v{r.get('weights_version')}",
@@ -260,9 +305,12 @@ def ingest_v5() -> dict:
             created_at=_iso(r.get("at")), external_ref=ref, announce=False)
         n += 1
         if pid and r.get("resolved") and r.get("correct") is not None:
+            # V5 names these price_then / realised_return; reading the
+            # ledger's names here dropped both on every carried grade.
             graded += int(ledger.grade(
-                pid, correct=bool(r["correct"]), price_end=r.get("price_end"),
-                actual_return=r.get("actual_return"),
+                pid, correct=bool(r["correct"]),
+                price_end=r.get("price_then", r.get("price_end")),
+                actual_return=r.get("realised_return", r.get("actual_return")),
                 announce=False,
                 note="grade carried over from the V5 learning loop"))
     return {"source": "v5", "seen": n, "graded_now": graded}

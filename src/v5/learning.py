@@ -83,6 +83,24 @@ def information_key(at: datetime) -> tuple[Optional[str], Optional[bool]]:
     return (session.isoformat(), bool(window))
 
 
+def _model_version(weights_version: Optional[int]) -> Optional[str]:
+    try:
+        from src.core.versioning import model_version
+        return model_version("v5", "src/v5", weights=weights_version)
+    except Exception as e:                       # never block a prediction
+        logger.debug("v5 model version unavailable: %s", e)
+        return None
+
+
+def _regime_now() -> dict:
+    """The macro regime as ARIA knows it at this moment, with its basis."""
+    try:
+        from src.macro.regime import stamp
+        return stamp()
+    except Exception as e:
+        return {"regime_at": None, "regime_basis": f"unavailable: {e}"[:200]}
+
+
 def _entry_information_key(entry: dict) -> tuple[Optional[str], Optional[bool]]:
     if entry.get("information_session"):
         return (entry["information_session"], entry.get("in_session_window"))
@@ -95,7 +113,8 @@ def _entry_information_key(entry: dict) -> tuple[Optional[str], Optional[bool]]:
 def log_prediction(*, ticker: str, direction: str, p_bull: float, confidence: float,
                    horizon_days: int, price: Optional[float], modules: list[dict],
                    rationale: str = "", risk: Optional[dict] = None,
-                   weights_version: Optional[int] = None) -> str:
+                   weights_version: Optional[int] = None,
+                   data_as_of: Optional[str] = None) -> str:
     """Append one prediction. Returns its id.
 
     Deduplicated by (ticker, direction, information set): opening the analysis
@@ -125,6 +144,12 @@ def log_prediction(*, ticker: str, direction: str, p_bull: float, confidence: fl
         "at": now.isoformat(timespec="seconds"),
         "information_session": key[0],
         "in_session_window": key[1],
+        # Provenance stamped AT CREATION (2026-10-06): which code made the
+        # call, which bar it was built on, and the regime as known right then.
+        # Reconstructing any of these later would be guessing.
+        "model_version": _model_version(weights_version),
+        "data_as_of": data_as_of,
+        **_regime_now(),
         "ticker": ticker,
         "direction": direction,
         "p_bull": round(float(p_bull), 4),
@@ -171,6 +196,24 @@ def _rewrite(entries: list[dict]) -> None:
 
 
 # ── outcome resolution + attribution ────────────────────────────────────────
+
+def _series_start(e: dict, c, idx) -> tuple[float, str]:
+    """(start price, basis) for grading prediction `e` against series `c`."""
+    import pandas as pd
+    session, window = _entry_information_key(e)
+    if window is False and session and not str(session).startswith("day:"):
+        try:
+            ts = pd.Timestamp(session)
+            if getattr(idx, "tz", None) is not None:
+                ts = ts.tz_localize(idx.tz)
+            upto = c[idx <= ts]
+            if not upto.empty and str(upto.index[-1].date()) == session:
+                return float(upto.iloc[-1]), f"series close {session}"
+        except Exception:
+            pass
+        return float(e["price_at"]), f"recorded price (no {session} bar in series)"
+    return float(e["price_at"]), "recorded price (intraday or no session)"
+
 
 def resolve_pending(*, now: Optional[datetime] = None) -> dict:
     """Score every prediction whose horizon has elapsed. Safe to call repeatedly."""
@@ -225,7 +268,13 @@ def resolve_pending(*, now: Optional[datetime] = None) -> dict:
 
         price_then = float(at_or_before.iloc[-1])
         measured_at = at_or_before.index[-1]
-        ret = price_then / float(e["price_at"]) - 1.0
+        # Both ends from the SAME series (2026-10-06). `price_at` is the raw
+        # price on the day of the call; `c` is today's adjusted series, so a
+        # dividend inside the window used to vanish from the return and a
+        # split read as a crash. The start is the close of the session the
+        # call was built on; intraday calls keep their recorded price.
+        price_start, return_basis = _series_start(e, c, idx)
+        ret = price_then / price_start - 1.0
         correct = (ret > 0) if e["direction"] == "bull" else \
                   (ret < 0) if e["direction"] == "bear" else abs(ret) < 0.02
 
@@ -241,6 +290,8 @@ def resolve_pending(*, now: Optional[datetime] = None) -> dict:
             "measured_at": str(measured_at),
             "elapsed_days": elapsed,          # so a mis-scored window is visible
             "price_then": price_then,
+            "price_start": price_start,
+            "return_basis": return_basis,
             "realised_return": round(ret, 5),
             "correct": bool(correct),
             "attribution": _attribute(e, ret, bool(correct)),

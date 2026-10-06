@@ -47,31 +47,101 @@ def _append(entry: dict):
         f.write(json.dumps(entry, default=str) + "\n")
 
 
-def snapshot(timeframe: str = "1d", limit: int = 25) -> dict:
-    """Record today's technical recommendations with entry prices. Idempotent
-    per (date, symbol, timeframe) so repeated runs in a day don't double-log."""
+SETTLE_MINUTES = 60
+
+
+def _entry_session(e: dict) -> str | None:
+    """The NYSE session an entry's batch was taken for. Entries written before
+    2026-10-06 carry only a timestamp; the session is then the one that was
+    latest-settled at that moment."""
+    if e.get("snapshot_session"):
+        return e["snapshot_session"]
+    try:
+        from src.trading.market import latest_completed_session
+        d = latest_completed_session(datetime.fromisoformat(str(e.get("at"))),
+                                     settle_minutes=SETTLE_MINUTES)
+        return d.isoformat() if d else None
+    except (TypeError, ValueError):
+        return None
+
+
+def snapshot_due(now: datetime | None = None) -> dict:
+    """One batch per settled NYSE session, never inside the session window.
+
+    The old trigger was a 21:30 cron: it needed the process alive at 21:30
+    London (none was from 28 Sep), and 21:30 London is 16:30 New York, when
+    the daily bar is not yet final, so entry prices were provisional closes.
+    """
+    from src.trading.market import in_session_window, latest_completed_session
+    now = now or datetime.now()
+    window = in_session_window(now, settle_minutes=SETTLE_MINUTES)
+    session = latest_completed_session(now, settle_minutes=SETTLE_MINUTES)
+    if window is None or session is None:
+        return {"due": False, "session": None, "why": "no NYSE calendar for today"}
+    if window:
+        return {"due": False, "session": session.isoformat(),
+                "why": "inside the US session window"}
+    done = {_entry_session(e) for e in _load_log()}
+    if session.isoformat() in done:
+        return {"due": False, "session": session.isoformat(),
+                "why": f"already snapshotted for the {session} session"}
+    return {"due": True, "session": session.isoformat(), "why": "not yet taken"}
+
+
+def snapshot_catchup(now: datetime | None = None, timeframe: str = "1d",
+                     limit: int = 30) -> dict:
+    """Take the latest session's snapshot if it has not been taken. Safe to
+    call hourly; it declines everywhere except the first eligible moment."""
+    due = snapshot_due(now)
+    if not due["due"]:
+        return {"ran": False, **due}
+    out = snapshot(timeframe=timeframe, limit=limit, session=due["session"])
+    return {"ran": True, **out}
+
+
+def snapshot(timeframe: str = "1d", limit: int = 25, session: str | None = None) -> dict:
+    """Record the recommendations with entry prices. Idempotent per
+    (session, symbol, timeframe) so repeated runs don't double-log."""
     from src.data.technical_summary import scan_universe_recommendations
+    if session is None:
+        session = _entry_session({"at": datetime.now().isoformat()})
     scan = scan_universe_recommendations(timeframe, limit)
     recs = scan.get("strong_buy", []) + scan.get("buy", []) + scan.get("sell", [])
     today = date.today().isoformat()
-    seen = {(e["date"], e["symbol"], e["timeframe"]) for e in _load_log()}
+    seen = {(_entry_session(e), e["symbol"], e["timeframe"]) for e in _load_log()}
     added = []
     import math
+    try:
+        from src.core.versioning import model_version
+        version = model_version("technical-composite", "src/data/technical_summary.py",
+                                timeframe=timeframe)
+    except Exception:
+        version = None
+    try:
+        from src.macro.regime import stamp
+        regime = stamp()
+    except Exception:
+        regime = {"regime_at": None, "regime_basis": None}
     for r in recs:
         px = r.get("price")
         if not px or (isinstance(px, float) and math.isnan(px)):
             continue
-        key = (today, r["symbol"], timeframe)
+        key = (session, r["symbol"], timeframe)
         if key in seen:
             continue
+        crypto = str(r["symbol"]).upper().endswith("-USD")
         entry = {"at": datetime.now().isoformat(), "date": today,
+                 "snapshot_session": session,
+                 # A crypto price is a 24/7 quote, not an NYSE close.
+                 "information_session": None if crypto else session,
                  "symbol": r["symbol"], "timeframe": timeframe,
-                 "summary": r["summary"], "entry_price": r["price"]}
+                 "summary": r["summary"], "entry_price": r["price"],
+                 "model_version": version, **regime}
         _append(entry)
         added.append(r["symbol"])
     logger.info(f"technical tracker: snapshot logged {len(added)} recs")
-    return {"date": today, "timeframe": timeframe, "logged": len(added),
-            "symbols": added}
+    return {"date": today, "session": session, "timeframe": timeframe,
+            "logged": len(added), "symbols": added}
 
 
 # ── evaluate (did they work?) ────────────────────────────────────────────────

@@ -281,3 +281,24 @@ def current(macro: Optional[dict] = None) -> dict:
             f"the stored regime says '{out['stored_regime']}' but these inputs "
             f"classify as '{out['regime']}' — the cached label is stale.")
     return out
+
+
+def stamp() -> dict:
+    """{regime_at, regime_basis} for a record being written NOW.
+
+    A prediction must carry the regime as it was known when it was made, with
+    where that came from and how fresh its inputs were. Reconstructing it
+    later from a different snapshot would be using information the call
+    never had.
+    """
+    try:
+        r = current()
+    except Exception as e:
+        return {"regime_at": None, "regime_basis": f"unavailable: {e}"[:200]}
+    if not r.get("regime"):
+        return {"regime_at": None, "regime_basis": "no regime could be classified"}
+    basis = (f"src.macro.regime.current at creation; inputs as of "
+             f"{r.get('as_of') or 'unknown'}; coverage {float(r.get('coverage') or 0):.2f}")
+    if r.get("stale"):
+        basis += "; STALE inputs"
+    return {"regime_at": r["regime"], "regime_basis": basis}

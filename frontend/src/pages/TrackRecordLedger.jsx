@@ -289,9 +289,20 @@ export default function TrackRecordLedger() {
               <span style={{ ...mono, fontSize: 10, color: 'var(--text-dim)', flex: 1 }}>
                 {p.claim}
               </span>
-              {p.probability != null && (
-                <span style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
-                  said {(p.probability * 100).toFixed(0)}%
+              {/* Only a probability the source STATED is shown as one. The
+                  legacy `probability` field holds V5's P(bull) — the opposite
+                  of the claim on a bear call — and the desk's mapped
+                  conviction, which orders calls but is not a probability. */}
+              {p.probability_kind === 'stated' && p.p_correct != null && (
+                <span style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}
+                      title="The probability the source stated that this direction is right">
+                  said {(p.p_correct * 100).toFixed(0)}%
+                </span>
+              )}
+              {p.probability_kind === 'mapped' && p.probability != null && (
+                <span style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}
+                      title="Conviction strength mapped to 50–95%. It ranks calls; it is not a probability.">
+                  strength {(p.probability * 100).toFixed(0)}
                 </span>
               )}
               {p.actual_return != null && (

@@ -96,7 +96,14 @@ CREATE TABLE IF NOT EXISTS predictions (
     -- the migration is written to repair an existing database, and a new user
     -- has nothing to repair.
     provider_symbol TEXT,
-    identity_basis  TEXT             -- UNAMBIGUOUS | MASTER_RESOLVED | PRICE_VERIFIED | EXACT_PRICE_MATCH
+    identity_basis  TEXT,            -- UNAMBIGUOUS | MASTER_RESOLVED | PRICE_VERIFIED | EXACT_PRICE_MATCH
+    -- Provenance (2026-10-06). See _PROVENANCE_COLUMNS for what each means.
+    probability_kind    TEXT,
+    p_correct           REAL,
+    model_version       TEXT,
+    data_as_of          TEXT,
+    information_session TEXT,
+    regime_basis        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pred_resolve ON predictions(resolved, resolve_after);
 CREATE INDEX IF NOT EXISTS idx_pred_subject ON predictions(subject, created_at DESC);
@@ -127,6 +134,46 @@ CREATE INDEX IF NOT EXISTS idx_dec_kind ON decisions(kind, at DESC);
 _lock = threading.RLock()
 _ready = False
 
+#: Columns added 2026-10-06, by ALTER TABLE on an existing ledger. All nullable:
+#: NULL means "not known", and a backfill only ever fills what it can prove.
+#:
+#:   probability_kind     stated | mapped | none.
+#:                        stated  — the source asserted P(its direction is right)
+#:                        mapped  — a strength score squashed onto 0.5–0.95; it
+#:                                  keeps ORDER, it is not a probability
+#:                        none    — the source states no probability at all
+#:   p_correct            P(the stated direction is right), only when kind is
+#:                        "stated". Calibration reads this and nothing else.
+#:
+#: Why: the legacy `probability` column held three different things — V5's
+#: P(bull) (which is the COMPLEMENT of P(correct) on a bear call), the desk's
+#: mapped conviction, and nothing for technical calls — and calibration scored
+#: all of them as P(correct). It is kept exactly as ingested; it is just no
+#: longer read as a probability.
+#:
+#:   model_version        which code/weights produced the call (versioning.py)
+#:   data_as_of           last bar / data date the call was built on
+#:   information_session  latest settled NYSE session at creation (US calls)
+#:   regime_basis         where regime_at came from, and how fresh it was
+_PROVENANCE_COLUMNS = {
+    "probability_kind": "TEXT",
+    "p_correct": "REAL",
+    "model_version": "TEXT",
+    "data_as_of": "TEXT",
+    "information_session": "TEXT",
+    "regime_basis": "TEXT",
+}
+PROBABILITY_KINDS = ("stated", "mapped", "none")
+
+
+def _migrate(conn) -> None:
+    """Add any missing provenance column. Idempotent, additive, never drops."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(predictions)")}
+    for name, typ in _PROVENANCE_COLUMNS.items():
+        if name not in cols:
+            conn.execute(f"ALTER TABLE predictions ADD COLUMN {name} {typ}")
+    conn.commit()
+
 
 @contextmanager
 def connect():
@@ -142,6 +189,7 @@ def connect():
                 if not _ready:
                     conn.executescript(_SCHEMA)
                     conn.commit()
+                    _migrate(conn)
                     _ready = True
         yield conn
 
@@ -166,7 +214,13 @@ def record_prediction(*, subject: str, claim: str, source: str = "aria",
                       invalidation: str = "",
                       created_at: Optional[str] = None,
                       external_ref: Optional[str] = None,
-                      announce: bool = True) -> Optional[str]:
+                      announce: bool = True,
+                      probability_kind: Optional[str] = None,
+                      p_correct: Optional[float] = None,
+                      model_version: Optional[str] = None,
+                      data_as_of: Optional[str] = None,
+                      information_session: Optional[str] = None,
+                      regime_basis: Optional[str] = None) -> Optional[str]:
     """Write one falsifiable claim into the record.
 
     `external_ref` is the dedupe key. Ingesting the same source file twice must
@@ -212,36 +266,54 @@ def record_prediction(*, subject: str, claim: str, source: str = "aria",
     except Exception as e:                      # never block a write
         logger.debug("ledger: identity unresolved for %s: %s", subject, e)
 
+    # ── probability semantics ──────────────────────────────────────────────
+    # A p_correct outside [0, 1] or non-finite is not a probability; store
+    # nothing rather than a number calibration would trust.
+    import math
+    # `probability` is documented as the stated P(direction is right). A
+    # caller that passes only that, with no kind, is taken at its word; the
+    # ingest paths that put something else there now declare their kind.
+    if p_correct is None and probability is not None and probability_kind is None:
+        p_correct, probability_kind = probability, "stated"
+    if p_correct is not None:
+        try:
+            p_correct = float(p_correct)
+        except (TypeError, ValueError):
+            p_correct = None
+        if p_correct is not None and not (math.isfinite(p_correct) and 0.0 <= p_correct <= 1.0):
+            p_correct = None
+    if probability_kind is not None and probability_kind not in PROBABILITY_KINDS:
+        probability_kind = None
+    if probability_kind is None and p_correct is not None:
+        probability_kind = "stated"
+    if probability_kind != "stated":
+        p_correct = None
+
+    values = {
+        "id": pid, "created_at": created, "source": source,
+        "subject": subject.upper(), "claim": claim, "direction": direction,
+        "probability": probability, "confidence": confidence,
+        "horizon_days": int(horizon_days), "resolve_after": resolve_after,
+        "price_at": price_at, "regime_at": regime_at, "strategy": strategy,
+        "rationale": rationale,
+        "evidence": json.dumps(evidence, default=str) if evidence else None,
+        "invalidation": invalidation, "external_ref": ref,
+        "provider_symbol": provider_symbol, "identity_basis": identity_basis,
+        "probability_kind": probability_kind, "p_correct": p_correct,
+        "model_version": model_version, "data_as_of": data_as_of,
+        "information_session": information_session, "regime_basis": regime_basis,
+    }
     try:
         with connect() as conn:
+            # Only the columns this database has: a ledger that predates a
+            # migration still accepts writes (the names come from the dict
+            # above, never from input).
             cols = {r[1] for r in conn.execute("PRAGMA table_info(predictions)")}
-            has_identity = {"provider_symbol", "identity_basis"} <= cols
-            if has_identity:
-                conn.execute("""
-                    INSERT OR IGNORE INTO predictions
-                    (id, created_at, source, subject, claim, direction, probability,
-                     confidence, horizon_days, resolve_after, price_at, regime_at,
-                     strategy, rationale, evidence, invalidation, external_ref,
-                     provider_symbol, identity_basis)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (pid, created, source, subject.upper(), claim, direction,
-                     probability, confidence, int(horizon_days), resolve_after,
-                     price_at, regime_at, strategy, rationale,
-                     json.dumps(evidence, default=str) if evidence else None,
-                     invalidation, ref, provider_symbol, identity_basis))
-            else:
-                # A ledger that predates the identity migration still works.
-                conn.execute("""
-                    INSERT OR IGNORE INTO predictions
-                    (id, created_at, source, subject, claim, direction, probability,
-                     confidence, horizon_days, resolve_after, price_at, regime_at,
-                     strategy, rationale, evidence, invalidation, external_ref)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                    (pid, created, source, subject.upper(), claim, direction,
-                     probability, confidence, int(horizon_days), resolve_after,
-                     price_at, regime_at, strategy, rationale,
-                     json.dumps(evidence, default=str) if evidence else None,
-                     invalidation, ref))
+            use = [c for c in values if c in cols]
+            conn.execute(
+                f"INSERT OR IGNORE INTO predictions ({', '.join(use)}) "
+                f"VALUES ({', '.join('?' * len(use))})",
+                [values[c] for c in use])
             changed = conn.total_changes
     except Exception as e:
         logger.warning("ledger.record_prediction failed for %s: %s", subject, e)
@@ -409,7 +481,8 @@ def _resolved_price_symbol(subject: str) -> tuple[Optional[str], str]:
     return ident.provider_symbol, ""
 
 
-def _reference_matches(ticker: str, made_on: str, price_at: float) -> tuple[bool, str]:
+def _reference_matches(ticker: str, made_on: str, price_at: float,
+                       got: Optional[float] = None) -> tuple[bool, str]:
     """Does the price source agree with the price the prediction was made at?
 
     THE BUG THIS EXISTS FOR
@@ -432,7 +505,8 @@ def _reference_matches(ticker: str, made_on: str, price_at: float) -> tuple[bool
     A magnitude rule would also wrongly reject genuine crypto moves; this does
     not, because it tests instrument identity rather than volatility.
     """
-    got = _price_on(ticker, made_on)
+    if got is None:
+        got = _price_on(ticker, made_on)
     if got is None or not price_at:
         # Unverifiable is not the same as mismatched. Grading proceeds; the
         # note on the outcome records that the check could not run.
@@ -446,6 +520,48 @@ def _reference_matches(ticker: str, made_on: str, price_at: float) -> tuple[bool
         f"{max(got, price_at) / max(1e-12, min(got, price_at)):.1f}. These are "
         f"almost certainly different instruments (a venue, ADR or "
         f"currency-unit mismatch), so this cannot be graded.")
+
+
+def _grading_anchor(r) -> tuple[Optional[str], str]:
+    """The date whose close a call's return is measured FROM, or (None, why).
+
+    The return used to be (adjusted close at the horizon - recorded price) /
+    recorded price. The recorded price is a raw price from the day of the
+    call; the horizon close comes from today's adjusted series. Every dividend
+    inside the window was therefore dropped from the return — biasing calls
+    near zero towards "bear correct" — and a split read as a different
+    instrument. Measuring both ends on ONE adjusted series removes both.
+
+    The anchor is the session the call was built on: a 07:40-London call on
+    Monday was built on Friday's close, and anchoring it on Monday's close
+    would credit it with a move it never saw. Calls made inside the US session
+    window, and anything without a US session (crypto, other venues), have no
+    such close and keep the recorded reference price.
+    """
+    keys = r.keys() if hasattr(r, "keys") else r
+    if "information_session" in keys and r["information_session"]:
+        sess = str(r["information_session"])
+        if not sess.startswith("day:"):
+            return sess, "information session recorded at creation"
+    created = r["created_at"]
+    if not created:
+        return None, "no creation time"
+    try:
+        from src.core.identity import classify_provider_symbol
+        from src.trading.market import in_session_window, latest_completed_session
+        c = classify_provider_symbol(r["subject"])
+        if c.get("exchange") != "US":
+            return None, f"{c.get('asset_class') or 'instrument'} has no NYSE session close"
+        at = datetime.fromisoformat(str(created))
+        window = in_session_window(at)
+        if window is None:
+            return None, "no NYSE calendar for the creation date"
+        if window:
+            return None, "made inside the session window; the reference is intraday"
+        sess = latest_completed_session(at)
+        return (sess.isoformat(), "derived from creation time") if sess else (None, "no session")
+    except Exception as e:                       # pragma: no cover - defensive
+        return None, f"anchor unavailable: {e}"
 
 
 def resolve_due(*, now: Optional[datetime] = None, limit: int = 80) -> dict:
@@ -493,8 +609,10 @@ def resolve_due(*, now: Optional[datetime] = None, limit: int = 80) -> dict:
         # Step 2 — does the resolved instrument agree with the price the
         # prediction was recorded at? Catches a correct-looking resolution that
         # nonetheless prices a different line (ADR vs local, unit mismatch).
-        same, why = _reference_matches(provider, (r["created_at"] or "")[:10],
-                                       r["price_at"])
+        anchor, anchor_why = _grading_anchor(r)
+        ref_day = anchor or (r["created_at"] or "")[:10]
+        ref_px = _price_on(provider, ref_day)
+        same, why = _reference_matches(provider, ref_day, r["price_at"], got=ref_px)
         if not same:
             grade(r["id"], correct=None,
                   note=f"GRADING_SKIPPED / IDENTITY_UNRESOLVED — {why}")
@@ -510,7 +628,15 @@ def resolve_due(*, now: Optional[datetime] = None, limit: int = 80) -> dict:
         end_px = _price_on(provider, r["resolve_after"])
         if end_px is None:
             continue                      # try again next tick
-        ret = (end_px - r["price_at"]) / r["price_at"]
+        start_px = ref_px if anchor else None
+        if start_px:
+            ret = (end_px - start_px) / start_px
+            basis = (f"adjusted close {anchor} -> {r['resolve_after']} "
+                     f"({anchor_why}); recorded reference {r['price_at']:.6g}")
+        else:
+            ret = (end_px - r["price_at"]) / r["price_at"]
+            basis = (f"recorded reference price -> close of {r['resolve_after']} "
+                     f"({anchor_why})")
         direction = (r["direction"] or "").lower()
         if direction == "bull":
             correct: Optional[bool] = ret > 0
@@ -523,7 +649,7 @@ def resolve_due(*, now: Optional[datetime] = None, limit: int = 80) -> dict:
             band = 0.02 * max(1.0, (r["horizon_days"] or 21) / 21) ** 0.5
             correct = abs(ret) <= band
         grade(r["id"], correct=correct, price_end=end_px, actual_return=round(ret, 5),
-              note=f"graded on the close of {r['resolve_after']}")
+              note=f"graded on the close of {r['resolve_after']}; return: {basis}")
         resolved += 1
 
     if resolved:
@@ -599,7 +725,11 @@ def stats() -> dict:
                        COUNT(*) n,
                        SUM(resolved) n_resolved,
                        SUM(CASE WHEN correct=1 THEN 1 ELSE 0 END) n_correct,
-                       SUM(CASE WHEN correct IS NOT NULL THEN 1 ELSE 0 END) n_scored
+                       SUM(CASE WHEN correct IS NOT NULL THEN 1 ELSE 0 END) n_scored,
+                       SUM(CASE WHEN correct IS NOT NULL AND direction IN ('bull','bear')
+                                THEN 1 ELSE 0 END) n_dir_scored,
+                       SUM(CASE WHEN correct=1 AND direction IN ('bull','bear')
+                                THEN 1 ELSE 0 END) n_dir_correct
                 FROM predictions GROUP BY source ORDER BY n DESC""").fetchall()
             dec = conn.execute("SELECT status, COUNT(*) n FROM decisions GROUP BY status").fetchall()
             oldest = conn.execute(
@@ -622,11 +752,18 @@ def stats() -> dict:
                           f"below 20, because it would not survive one more result"),
         "oldest_prediction": oldest,
         "next_resolution_due": next_due,
+        # `hit_rate` pools neutral calls, whose "correct" means the price
+        # stayed inside a band — a different claim from a direction. The
+        # directional figures are the ones comparable to a coin flip.
         "by_source": [{"source": r["source"], "n": r["n"],
                        "resolved": r["n_resolved"] or 0,
                        "scored": r["n_scored"] or 0,
                        "hit_rate": (round((r["n_correct"] or 0) / r["n_scored"], 4)
-                                    if r["n_scored"] else None)}
+                                    if r["n_scored"] else None),
+                       "directional_scored": r["n_dir_scored"] or 0,
+                       "hit_rate_directional": (
+                           round((r["n_dir_correct"] or 0) / r["n_dir_scored"], 4)
+                           if r["n_dir_scored"] else None)}
                       for r in by_source],
         "decisions": {r["status"]: r["n"] for r in dec},
     }
@@ -639,8 +776,14 @@ def calibration(min_total: int = 20, min_bucket: int = 5) -> dict:
     Refuses to draw a curve through too few points, and says so rather than
     returning a shape that looks like evidence.
     """
-    rows = [p for p in predictions(limit=1000, resolved=True)
-            if p.get("correct") is not None and p.get("probability") is not None]
+    # Only rows whose source STATED P(direction right) — see _PROVENANCE_COLUMNS.
+    # The legacy `probability` column is not read here: it holds P(bull) for
+    # V5 (wrong on every bear call) and a mapped strength for the desk.
+    rows = [dict(p, probability=p["p_correct"])
+            for p in predictions(limit=1000, resolved=True)
+            if p.get("correct") is not None and p.get("p_correct") is not None
+            and p.get("probability_kind") == "stated"
+            and (p.get("direction") or "") in ("bull", "bear")]
     if len(rows) < min_total:
         return {"measurable": False, "n_resolved": len(rows), "n_required": min_total,
                 "note": (f"{len(rows)} scored calls carry a stated probability. "
@@ -664,4 +807,5 @@ def calibration(min_total: int = 20, min_bucket: int = 5) -> dict:
                         "gap": round(realised - stated, 4)})
     return {"measurable": True, "n_resolved": len(rows),
             "brier": round(brier, 4), "skill": round(1 - brier / 0.25, 4),
-            "ece": round(ece, 4), "buckets": buckets}
+            "ece": round(ece, 4), "buckets": buckets,
+            "probability_field": "p_correct (stated, directional calls only)"}

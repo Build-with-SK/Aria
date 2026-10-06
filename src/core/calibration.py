@@ -113,6 +113,32 @@ def _dedupe(preds: Iterable[dict]) -> list[dict]:
     return out
 
 
+def _as_stated(r: dict) -> dict:
+    """Split one ledger row's number into the two claims it can carry.
+
+      probability  the stated P(direction right) — Brier, ECE and the curve
+                   read only this. None unless the source stated one for a
+                   directional call (neutral calls state no P(flat)).
+      strength     anything that ORDERS calls: the stated probability, or a
+                   mapped conviction. Population means and the rank test read
+                   this, because ordering is testable for both.
+
+    Rows written before the 2026-10-06 migration carry no kind; their legacy
+    number is treated as a strength, never as a probability.
+    """
+    kind = r.get("probability_kind")
+    directional = (r.get("direction") or "") in ("bull", "bear")
+    stated = kind == "stated" and r.get("p_correct") is not None and directional
+    if stated:
+        strength = r["p_correct"]
+    elif kind in ("mapped", None) and r.get("probability") is not None:
+        strength = r["probability"]
+    else:
+        strength = None
+    return {**r, "probability": r["p_correct"] if stated else None,
+            "strength": strength, "legacy_probability": r.get("probability")}
+
+
 def _brier(rows: list[dict]) -> Optional[float]:
     usable = [r for r in rows
               if r.get("probability") is not None and r.get("correct") is not None]
@@ -133,6 +159,13 @@ def investigate(source: Optional[str] = None, *, pool_populations: bool = False)
 
     raw = ledger.predictions(limit=2000, source=source, resolved=True)
     raw = [r for r in raw if r.get("correct") is not None]
+    # Every probability read below is p_correct, and only where the source
+    # STATED one (probability_kind == "stated"). The legacy `probability`
+    # column mixed V5's P(bull), the desk's mapped conviction and nothing —
+    # scoring those as P(correct) is what produced a meaningless Brier of
+    # 0.288 in the 2026-10-06 audit. Rows without a stated probability still
+    # count toward hit rates; they simply carry no probability here.
+    raw = [_as_stated(r) for r in raw]
     deduped = _dedupe(raw)
 
     out: dict = {
@@ -171,11 +204,11 @@ def investigate(source: Optional[str] = None, *, pool_populations: bool = False)
 
     out["by_population"] = {
         name: {**rate(sum(1 for r in rs if r["correct"]), len(rs)),
-               "mean_confidence": (round(sum(r["probability"] for r in rs
-                                             if r.get("probability") is not None)
+               "mean_confidence": (round(sum(r["strength"] for r in rs
+                                             if r.get("strength") is not None)
                                          / max(1, sum(1 for r in rs
-                                                      if r.get("probability") is not None)), 4)
-                                   if any(r.get("probability") is not None for r in rs) else None)}
+                                                      if r.get("strength") is not None)), 4)
+                                   if any(r.get("strength") is not None for r in rs) else None)}
         for name, rs in sorted(pops.items(), key=lambda kv: -len(kv[1]))
     }
     if len(pops) > 1 and not pool_populations:
@@ -200,7 +233,11 @@ def investigate(source: Optional[str] = None, *, pool_populations: bool = False)
         else max(pops, key=lambda k: len(pops[k])) if pops else "all")
 
     # ── confidence as probability vs as ranking ─────────────────────────────
-    out["confidence_semantics"] = _semantics(target)
+    # The rank test asks only for ORDER, which a mapped strength can carry.
+    out["confidence_semantics"] = _semantics(
+        [dict(r, probability=r.get("strength")) for r in target])
+    out["probability_field"] = ("p_correct where the source stated it; mapped "
+                                "strengths are used for ordering only")
     return out
 
 
