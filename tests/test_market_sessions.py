@@ -188,11 +188,16 @@ def test_a_calendar_file_is_loaded_and_needs_a_source(tmp_path, monkeypatch):
     calendars.clear_cache()
     (tmp_path / "XHKG.json").write_text(json.dumps(
         {"source": "HKEX circular", "years": [2026], "holidays": ["2026-10-01"]}))
-    (tmp_path / "XSHG.json").write_text(json.dumps({"years": [2026], "holidays": []}))
+    # No `source`: must be ignored. Shenzhen, because exchange_calendars has
+    # no XSHE calendar — nothing else can answer, so ignored means UNKNOWN.
+    (tmp_path / "XSHE.json").write_text(json.dumps({"years": [2026], "holidays": []}))
     try:
         assert S.session("0005.HK", u(2026, 10, 1, 3, 0)).state == St.HOLIDAY
         assert S.session("0005.HK", u(2026, 10, 2, 3, 0)).state == St.OPEN
-        assert S.session("600519.SS", u(2026, 10, 2, 3, 0)).state == St.UNKNOWN   # no source
+        assert S.session("000001.SZ", u(2026, 10, 2, 3, 0)).state == St.UNKNOWN   # no source
+        # Shanghai has no file at all and is answered by exchange_calendars:
+        # 2 Oct 2026 is inside China's National Day closure.
+        assert S.session("600519.SS", u(2026, 10, 2, 3, 0)).state == St.HOLIDAY
     finally:
         calendars.clear_cache()
 

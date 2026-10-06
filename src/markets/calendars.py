@@ -51,6 +51,10 @@ class CalendarData:
     early_closes: dict = field(default_factory=dict)        # date -> "HH:MM" local
     special_sessions: dict = field(default_factory=dict)    # date -> ((state, "HH:MM", "HH:MM"), ...)
     source: str = ""
+    #: An owner decision that this venue shares another calendar code's
+    #: trading days (e.g. XNSE -> XBOM). Never made in code — only in a file
+    #: that states its source.
+    alias_of: Optional[str] = None
 
 
 _BUILTIN: dict[str, CalendarData] = {
@@ -101,8 +105,9 @@ def _from_file(code: str) -> Optional[CalendarData]:
                               (raw.get("early_closes") or {}).items()},
                 special_sessions={_parse_date(d): tuple(tuple(p) for p in phases)
                                   for d, phases in (raw.get("special_sessions") or {}).items()},
-                source=str(raw.get("source") or "").strip())
-            if not cal.source or not cal.years:
+                source=str(raw.get("source") or "").strip(),
+                alias_of=(str(raw["alias_of"]).strip() or None) if raw.get("alias_of") else None)
+            if not cal.source or not (cal.years or cal.alias_of):
                 logger.warning("calendar %s has no source or no years — ignored", code)
                 cal = None
         except Exception as e:                       # a broken file is no calendar
@@ -110,6 +115,24 @@ def _from_file(code: str) -> Optional[CalendarData]:
             cal = None
     _file_cache[code] = cal
     return cal
+
+
+def get_override(code: Optional[str]) -> Optional[CalendarData]:
+    """An owner-supplied calendar (runtime registration, else
+    data/calendars/<CODE>.json). Highest precedence: an exchange circular the
+    owner filed is more current than any library release."""
+    if not code:
+        return None
+    if code in _overrides:
+        return _overrides[code]
+    return _from_file(code)
+
+
+def get_builtin(code: Optional[str]) -> Optional[CalendarData]:
+    """The dated calendars shipped in this file (XNYS, XLON 2026-2027).
+    Lowest precedence; they agree with exchange_calendars on every 2026 date
+    (tests/test_calendar_provider.py checks it)."""
+    return _BUILTIN.get(code) if code else None
 
 
 def get(code: Optional[str]) -> Optional[CalendarData]:
@@ -147,13 +170,26 @@ def clear_cache() -> None:
 
 
 def coverage() -> dict:
-    """Which venues have a verified calendar for which years — for the UI and
-    the docs, so the gaps are visible rather than discovered."""
+    """Which venues have a verified calendar for which dates, from which
+    provider — for the UI and the docs, so the gaps are visible rather than
+    discovered. Order is the precedence the session engine applies."""
+    from src.markets import providers
     from src.markets.venues import VENUES
     out = {}
     for spec in VENUES.values():
-        if spec.holiday_rule == "calendar":
-            cal = get(spec.calendar)
-            out[spec.code] = {"years": sorted(cal.years) if cal else [],
-                              "source": cal.source if cal else None}
+        if spec.holiday_rule != "calendar":
+            continue
+        code = spec.calendar or spec.code
+        ov, bi = get_override(code), get_builtin(code)
+        out[spec.code] = {
+            "calendar": code,
+            # the static years (owner file + built-in), as before
+            "years": sorted((ov.years if ov else frozenset()) | (bi.years if bi else frozenset())),
+            "source": "; ".join(c.source for c in (ov, bi) if c) or None,
+            "providers": [x for x in (
+                {"provider": "owner file", "years": sorted(ov.years), "source": ov.source} if ov else None,
+                *[b for b in (p.bounds(code) for p in providers.chain()) if b],
+                {"provider": "built-in", "years": sorted(bi.years), "source": bi.source} if bi else None,
+            ) if x],
+        }
     return out

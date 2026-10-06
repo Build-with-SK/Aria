@@ -69,6 +69,12 @@ class VenueSpec:
     calendar: str | None = None                 # calendar code when rule is "calendar"
     closing_auction_minutes: int = 0            # re-anchored to an early close
     source: str = ""
+    #: How the CALENDAR PROVIDER reports this venue's early closes: True when
+    #: its half-day close is the end of the closing auction although its
+    #: regular close is the end of continuous trading. exchange_calendars
+    #: 4.13.2 reports Euronext's regular close as 17:30 but its 24/31 Dec
+    #: close as 14:05 (continuous trading ends 14:00, auction to 14:05).
+    early_close_includes_auction: bool = False
 
     def phases(self, weekday: int) -> tuple:
         return self.week.get(weekday, ())
@@ -142,6 +148,7 @@ for _code, _name, _country, _tz in (("XPAR", "Euronext Paris", "FR", "Europe/Par
                              Phase.of(OPEN, "09:00", "17:30"),
                              Phase.of(AUCTION, "17:30", "17:35")),
                    calendar=_code, closing_auction_minutes=5,
+                   early_close_includes_auction=True,
                    source="Euronext: pre-open 07:15, continuous 09:00-17:30, closing auction 17:30-17:35"))
 _add(VenueSpec("XSWX", "SIX Swiss Exchange", "CH", "Europe/Zurich", "exchange",
                _weekdays(Phase.of(PRE_OPEN, "06:00", "09:00"),

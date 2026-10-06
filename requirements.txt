@@ -25,3 +25,8 @@ APScheduler>=3.11.0
 # runs without it (memory features degrade gracefully). Install separately
 # on low-power hosts:  pip install chromadb>=1.5.0
 # chromadb>=1.5.0
+# Exchange trading calendars (holidays, early closes, half days, historical
+# session times) for src/markets/providers.py. PINNED: session answers are
+# financial facts, and a library upgrade can change them — bump deliberately
+# and re-run tests/test_calendar_provider.py. Local data, no network access.
+exchange_calendars==4.13.2

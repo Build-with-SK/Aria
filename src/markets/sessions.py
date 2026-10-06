@@ -39,7 +39,7 @@ from enum import Enum
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from src.markets import calendars
+from src.markets import calendars, providers
 from src.markets.venues import (AUCTION, BREAK, EXCHANGE_ALIASES, FUTURES_ROOTS,
                                 INDEX_OPTION_ROOTS, INDEX_VENUES, OPEN, POST_MARKET,
                                 PRE_OPEN, VENUES, Phase, VenueSpec, _m)
@@ -124,10 +124,9 @@ def resolve(symbol: str, *, venue: Optional[str] = None,
 
 # ── per-day phases ──────────────────────────────────────────────────────────
 
-def _truncate(spec: VenueSpec, phases: tuple, close_hhmm: str) -> tuple:
-    """An early close: continuous trading ends at `close`, a closing auction
-    (if the venue has one) follows it, extended hours are dropped."""
-    close = _m(close_hhmm)
+def _truncate_at(spec: VenueSpec, phases: tuple, close: int) -> tuple:
+    """An early close: continuous trading ends at `close` (minutes), a closing
+    auction (if the venue has one) follows it, extended hours are dropped."""
     out = []
     for p in phases:
         if p.state in (AUCTION, POST_MARKET) or p.start >= close:
@@ -138,33 +137,156 @@ def _truncate(spec: VenueSpec, phases: tuple, close_hhmm: str) -> tuple:
     return tuple(out)
 
 
+def _truncate(spec: VenueSpec, phases: tuple, close_hhmm: str) -> tuple:
+    return _truncate_at(spec, phases, _m(close_hhmm))
+
+
+def _hhmm(minute: int) -> str:
+    return f"{minute // 60:02d}:{minute % 60:02d}"
+
+
+def _static_day(spec: VenueSpec, cal, d: date, week: tuple, label: str):
+    """A day from a dated static calendar (owner file or built-in)."""
+    if d in cal.special_sessions:
+        return tuple(Phase.of(*p) for p in cal.special_sessions[d]), f"special session ({label})"
+    if not week:
+        return week, "weekend"
+    if d in cal.holidays:
+        return _HOLIDAY, f"{spec.code} holiday ({label})"
+    if d in cal.early_closes:
+        return (_truncate(spec, week, cal.early_closes[d]),
+                f"early close {cal.early_closes[d]} ({label})")
+    return week, ""
+
+
+def _facts_day(spec: VenueSpec, f, week: tuple):
+    """A day from a calendar provider's facts, applied to the venue's phases.
+
+    Deviations are measured against the PROVIDER'S OWN regular times for that
+    date, so a calendar whose close includes the closing auction and one whose
+    close does not are both read correctly. A date whose regular times differ
+    from today's (a historical schedule) and a session on a day the venue
+    spec has no hours for (a special session) are built from the facts.
+    """
+    if not f.is_session:
+        return (_HOLIDAY, f"{spec.code} holiday ({f.source})") if week else (week, "weekend")
+    if f.open_minute is None or f.close_minute is None or f.close_minute <= f.open_minute:
+        return None, f"calendar facts unusable for {spec.code} ({f.source})"
+    if not week or f.historical_schedule:
+        bs, be = f.break_start, f.break_end
+        if bs is not None and be is not None and f.open_minute < bs < be < f.close_minute:
+            phases = (Phase(OPEN, f.open_minute, bs), Phase(BREAK, bs, be),
+                      Phase(OPEN, be, f.close_minute))
+        else:
+            phases = (Phase(OPEN, f.open_minute, f.close_minute),)
+        kind = "special session" if not week else "historical schedule"
+        return phases, f"{kind} {_hhmm(f.open_minute)}-{_hhmm(f.close_minute)} ({f.source})"
+    phases, notes = week, []
+    if f.regular_close is not None and f.close_minute != f.regular_close:
+        delta = f.close_minute - f.regular_close
+        cont_end = max(p.end for p in week if p.state == OPEN)
+        new_end = cont_end + delta
+        if delta < 0 and spec.early_close_includes_auction:
+            new_end -= spec.closing_auction_minutes
+        if delta < 0:
+            phases = _truncate_at(spec, phases, new_end)
+            notes.append(f"early close {_hhmm(new_end)}")
+        else:                                     # a late close: extend, shift the rest
+            phases = tuple(Phase(p.state, p.start + (delta if p.start >= cont_end else 0),
+                                 min(1440, p.end + delta if p.end >= cont_end else p.end))
+                           for p in phases)
+            notes.append(f"late close {_hhmm(new_end)}")
+    if f.regular_open is not None and f.open_minute != f.regular_open:
+        delta = f.open_minute - f.regular_open
+        first = min(p.start for p in phases if p.state == OPEN)
+        phases = tuple(Phase(p.state, max(p.start, first + delta) if p.state == OPEN
+                             and p.start == first else p.start, p.end)
+                       for p in phases)
+        notes.append(f"{'late' if delta > 0 else 'early'} open {_hhmm(first + delta)}")
+    return phases, (f"{'; '.join(notes)} ({f.source})" if notes else "")
+
+
+def _calendar_code(spec: VenueSpec) -> str:
+    return spec.calendar or spec.code
+
+
 def _day(spec: VenueSpec, d: date):
-    """(phases | _HOLIDAY | None, reason). None means UNKNOWN."""
+    """(phases | _HOLIDAY | None, reason). None means UNKNOWN.
+
+    The ONE place a venue-day is resolved. Calendar precedence:
+      1. owner file / runtime registration (calendars.get_override)
+      2. calendar providers (src/markets/providers.py: exchange_calendars)
+      3. built-in static calendars (calendars.get_builtin)
+      4. none -> UNKNOWN (a weekend is still certainly closed)
+    """
     week = spec.phases(d.weekday())
+    if _zone(spec) is None:
+        return None, f"invalid timezone {spec.tz!r} for {spec.code}"
     if spec.holiday_rule == "none":
         return week, ""
     if spec.holiday_rule == "us_futures":
-        cal = calendars.get("XNYS")
-        if cal is None or d.year not in cal.years or (d + timedelta(days=1)).year not in cal.years:
-            return None, f"no verified US holiday calendar for {d.year} — futures hours unknown"
-        if week and (d in cal.holidays or (d + timedelta(days=1)) in cal.holidays):
-            return None, ("US holiday: futures trade an abbreviated schedule that is "
-                          "not modelled here")
+        # US futures stay on their contract hours; US holidays (and the
+        # evening before one) are UNKNOWN because the abbreviated holiday
+        # schedules are product-specific and not modelled. The holiday facts
+        # come from the same chain as the NYSE itself.
+        nyse = VENUES["XNYS"]
+        for dd in (d, d + timedelta(days=1)):
+            ph, why = _day(nyse, dd)
+            if ph is None:
+                return None, f"no verified US holiday calendar for {dd} — futures hours unknown"
+            if ph is _HOLIDAY and week:
+                return None, ("US holiday: futures trade an abbreviated schedule that is "
+                              "not modelled here")
         return week, ""
-    cal = calendars.get(spec.calendar)
-    if cal is not None and d.year in cal.years and d in cal.special_sessions:
-        return tuple(Phase.of(*p) for p in cal.special_sessions[d]), "special session"
+
+    code = _calendar_code(spec)
+    override = calendars.get_override(code)
+    if override is not None and d.year in override.years:
+        return _static_day(spec, override, d, week, override.source or "owner calendar")
+    provider_code = override.alias_of if (override is not None and override.alias_of) else code
+    try:
+        zone_ok = bool(ZoneInfo(spec.tz))
+    except Exception:
+        zone_ok = False
+    if zone_ok:
+        for provider in providers.chain():
+            try:
+                facts = provider.facts(provider_code, d, spec.tz)
+            except Exception as e:                # a broken provider is no answer
+                _warn_once(f"{getattr(provider, 'name', provider)}:{type(e).__name__}",
+                           f"calendar provider {getattr(provider, 'name', provider)} raised "
+                           f"{type(e).__name__}: {e} — falling back")
+                facts = None
+            if facts is not None:
+                ph, why = _facts_day(spec, facts, week)
+                if provider_code != code and ph is not None:
+                    why = (why + "; " if why else "") + \
+                        f"{code} reads {provider_code}'s calendar per owner file ({override.source})"
+                return ph, why
+    builtin = calendars.get_builtin(code)
+    if builtin is not None and d.year in builtin.years:
+        return _static_day(spec, builtin, d, week, builtin.source or "built-in calendar")
     if not week:
         return week, "weekend"
-    if cal is None or d.year not in cal.years:
-        return None, (f"no verified {spec.calendar or spec.code} holiday calendar for "
-                      f"{d.year} — refusing rather than guessing (add data/calendars/"
-                      f"{spec.calendar or spec.code}.json)")
-    if d in cal.holidays:
-        return _HOLIDAY, f"{spec.code} holiday"
-    if d in cal.early_closes:
-        return _truncate(spec, week, cal.early_closes[d]), f"early close {cal.early_closes[d]}"
-    return week, ""
+    return None, (f"no verified {code} holiday calendar for {d.isoformat()} — refusing "
+                  f"rather than guessing (add data/calendars/{code}.json)")
+
+
+_warned: set = set()
+
+
+def _warn_once(key: str, msg: str) -> None:
+    if key not in _warned:
+        _warned.add(key)
+        import logging
+        logging.getLogger(__name__).warning(msg)
+
+
+def _zone(spec: VenueSpec) -> Optional[ZoneInfo]:
+    try:
+        return ZoneInfo(spec.tz)
+    except Exception:
+        return None
 
 
 def _local(spec: VenueSpec, at: Optional[datetime]) -> datetime:
@@ -194,6 +316,7 @@ class SessionInfo:
     trading_day: Optional[str]
     phase_ends_at: Optional[str] = None          # ISO UTC
     next_open: Optional[str] = None              # ISO UTC, None when unknown
+    next_close: Optional[str] = None             # ISO UTC: the end of the current or next session
     calendar_verified: bool = False
     expiry: Optional[str] = None
     reasons: list = field(default_factory=list)
@@ -220,6 +343,8 @@ def venue_state(code: str, at: Optional[datetime] = None) -> tuple:
     spec = VENUES.get(code)
     if spec is None:
         return SessionState.UNKNOWN, f"no session spec for venue {code!r}", None, None
+    if _zone(spec) is None:
+        return SessionState.UNKNOWN, f"invalid timezone {spec.tz!r} for {code}", None, None
     loc = _local(spec, at)
     d = loc.date()
     phases, why = _day(spec, d)
@@ -282,9 +407,10 @@ def session(symbol: str, at: Optional[datetime] = None, *,
         return _unknown(inst.symbol, inst, inst.basis or "no venue could be resolved")
     spec = VENUES[inst.venue]
     state, why, phase_end, d = venue_state(spec.code, at)
+    if _zone(spec) is None:
+        return _unknown(inst.symbol, inst, why)
     loc = _local(spec, at)
-    cal = calendars.get(spec.calendar) if spec.holiday_rule == "calendar" else (
-        calendars.get("XNYS") if spec.holiday_rule == "us_futures" else None)
+    verified = spec.holiday_rule == "none" or (d is not None and _day(spec, d)[0] is not None)
     reasons = [why] if why else []
 
     if inst.expiry is not None and state not in (SessionState.UNKNOWN,):
@@ -302,6 +428,7 @@ def session(symbol: str, at: Optional[datetime] = None, *,
         reasons.append("halt status not observed — quote freshness is the backstop")
 
     nxt = None if state == SessionState.OPEN else _next_open(spec, at)
+    nclose = next_close(spec.code, at) if state != SessionState.UNKNOWN else None
     return SessionInfo(
         symbol=inst.symbol, venue=spec.code, venue_name=spec.name, country=spec.country,
         timezone=spec.tz, asset_class=inst.asset_class, state=state,
@@ -309,14 +436,15 @@ def session(symbol: str, at: Optional[datetime] = None, *,
         trading_day=d.isoformat() if d else None,
         phase_ends_at=phase_end.astimezone(timezone.utc).isoformat() if phase_end else None,
         next_open=nxt.isoformat() if nxt else None,
-        calendar_verified=(spec.holiday_rule == "none") or bool(cal and d and d.year in cal.years),
+        next_close=nclose.isoformat() if nclose else None,
+        calendar_verified=verified,
         expiry=inst.expiry.isoformat() if inst.expiry else None,
         reasons=reasons)
 
 
 def is_trading_day(code: str, d: date) -> Optional[bool]:
     spec = VENUES.get(code)
-    if spec is None:
+    if spec is None or _zone(spec) is None:
         return None
     phases, _ = _day(spec, d)
     if phases is None:
@@ -331,7 +459,7 @@ def session_close(code: str, d: date) -> Optional[datetime]:
     AUCTION phase, early closes included — as an aware datetime in the
     venue's timezone. None for a non-trading or unknown day."""
     spec = VENUES.get(code)
-    if spec is None:
+    if spec is None or _zone(spec) is None:
         return None
     phases, _ = _day(spec, d)
     if not isinstance(phases, tuple):
@@ -340,9 +468,53 @@ def session_close(code: str, d: date) -> Optional[datetime]:
     return _at(spec, d, max(ends)) if ends else None
 
 
+def next_close(code: str, at: Optional[datetime] = None,
+               horizon_days: int = 15) -> Optional[datetime]:
+    """When trading next stops (UTC).
+
+    Exchanges and options: the session close of the trading day in progress,
+    or of the next one — an intraday lunch break is not a close. Futures and
+    FX: the end of the contiguous trading stretch, because their daily
+    maintenance break (and the weekend) really does stop trading. Crypto never
+    closes (None). None as well when a day on the way is UNKNOWN.
+    """
+    spec = VENUES.get(code)
+    if spec is None or _zone(spec) is None or spec.kind == "crypto":
+        return None
+    at = (at or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    d = _local(spec, at).date()
+    if spec.kind in ("exchange", "options"):
+        for k in range(horizon_days):
+            dd = d + timedelta(days=k)
+            td = is_trading_day(code, dd)
+            if td is None:
+                return None
+            c = session_close(code, dd) if td else None
+            if c is not None and c.astimezone(timezone.utc) > at:
+                return c.astimezone(timezone.utc)
+        return None
+    end = None
+    for k in range(horizon_days):
+        dd = d + timedelta(days=k)
+        phases, _ = _day(spec, dd)
+        if phases is None:
+            return None
+        if phases is _HOLIDAY:
+            return end
+        for p in sorted((p for p in phases if p.state in (OPEN, AUCTION)), key=lambda p: p.start):
+            start = _at(spec, dd, p.start).astimezone(timezone.utc)
+            stop = _at(spec, dd, p.end).astimezone(timezone.utc)
+            if stop <= at:
+                continue
+            if end is not None and start > end:
+                return end                         # the stretch ended at a gap
+            end = max(end, stop) if end else stop
+    return end
+
+
 def session_open(code: str, d: date) -> Optional[datetime]:
     spec = VENUES.get(code)
-    if spec is None:
+    if spec is None or _zone(spec) is None:
         return None
     phases, _ = _day(spec, d)
     if not isinstance(phases, tuple):
@@ -356,7 +528,7 @@ def latest_completed_session(code: str, at: Optional[datetime] = None,
     """The most recent trading day at `code` whose close is at least
     `settle_minutes` before `at`. None when the calendar cannot answer."""
     spec = VENUES.get(code)
-    if spec is None:
+    if spec is None or _zone(spec) is None:
         return None
     at = at or datetime.now(timezone.utc)
     d = _local(spec, at).date()
@@ -378,7 +550,7 @@ def in_session_window(code: str, at: Optional[datetime] = None,
     """True from the regular open until `settle_minutes` after the close: the
     stretch in which today's daily bar exists but is not final."""
     spec = VENUES.get(code)
-    if spec is None:
+    if spec is None or _zone(spec) is None:
         return None
     at = at or datetime.now(timezone.utc)
     d = _local(spec, at).date()
@@ -405,7 +577,7 @@ def bar_available_at(code: Optional[str], d: date,
     if code is None:
         return None
     spec = VENUES.get(code)
-    if spec is None:
+    if spec is None or _zone(spec) is None:
         return None
     if spec.kind == "crypto":
         return datetime.combine(d + timedelta(days=1), time(0), timezone.utc) \

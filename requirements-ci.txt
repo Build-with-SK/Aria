@@ -21,3 +21,8 @@ python-dotenv>=1.0
 numpy>=1.26
 pandas>=2.0
 ta>=0.11          # technical-summary tests compute real indicators
+# Exchange trading calendars (holidays, early closes, half days, historical
+# session times) for src/markets/providers.py. PINNED: session answers are
+# financial facts, and a library upgrade can change them — bump deliberately
+# and re-run tests/test_calendar_provider.py. Local data, no network access.
+exchange_calendars==4.13.2
