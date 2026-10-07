@@ -491,13 +491,20 @@ class _RecordingBroker:
         self._filled = filled
         self._price = price
         self.placed = []
+        self.held = 0.0          # what a filled entry leaves the account holding
+
+    def get_positions(self):
+        return ([{"ticker": "AAPL", "qty": abs(self.held),
+                  "side": "long" if self.held > 0 else "short"}] if self.held else [])
 
     def is_connected(self):
         return True
 
     def submit_order(self, req):
-        from src.execution.broker_base import OrderResult
+        from src.execution.broker_base import OrderResult, OrderSide, OrderType
         self.placed.append(req)
+        if req.order_type == OrderType.MARKET and self._filled:
+            self.held += self._filled if req.side == OrderSide.BUY else -self._filled
         return OrderResult(broker_order_id=f"o{len(self.placed)}",
                            status=self._status, filled_qty=self._filled,
                            avg_fill_price=self._price)
@@ -511,9 +518,6 @@ class _RecordingBroker:
         return True
 
     def get_open_orders(self):
-        return []
-
-    def get_positions(self):
         return []
 
 
@@ -563,7 +567,15 @@ def test_order_manager_does_not_bracket_a_partial_fill(tmp_path, monkeypatch):
 
 
 def test_order_manager_brackets_a_real_fill(tmp_path, monkeypatch):
-    """The counterpart: a genuine fill must still get its protection."""
+    """The counterpart: a genuine fill must still get its protection.
+
+    Changed 2026-10-07: this broker has no OCO, and the test used to require a
+    full-size STOP *and* a separate full-size LIMIT. Two independent exits for
+    one position can both fill — up through the target, back down through
+    the stop — and turn a 100-share long into a 100-share short. Without OCO
+    the protection is the stop alone, sized to the position the broker
+    reports, and the missing target is reported rather than silently risked.
+    The OCO case is tested in tests/test_reduce_only.py."""
     from src.execution.order_manager import OrderManager
     from src.execution.broker_base import OrderType
 
@@ -573,9 +585,12 @@ def test_order_manager_brackets_a_real_fill(tmp_path, monkeypatch):
     result = mgr.execute(queued.id, now=_NYSE_OPEN)
 
     assert result["ok"] is True
-    types = {r.order_type for r in broker.placed[1:]}
-    assert OrderType.STOP in types and OrderType.LIMIT in types
-    assert result["brackets_pending"] is False
+    protective = broker.placed[1:]
+    assert [r.order_type for r in protective] == [OrderType.STOP]
+    assert protective[0].qty == 100 and protective[0].reduce_only is True
+    assert result["stop_loss_order"] is not None
+    assert result["brackets_pending"] is True            # the target was not placed
+    assert "no OCO" in result["protection"]["target_skipped"]
 
 
 def test_order_manager_marks_a_rejection_rejected(tmp_path, monkeypatch):

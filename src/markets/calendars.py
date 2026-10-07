@@ -64,7 +64,14 @@ PHASE_STATES = frozenset({"PRE_OPEN", "OPEN", "BREAK", "AUCTION", "POST_MARKET"}
 FILE_KEYS = frozenset({
     "source", "years", "holidays", "closures", "early_closes", "special_sessions",
     "unknown_days", "regular_days", "provenance", "alias_of", "segment",
-    "retrieved", "notes", "limitations", "cross_checks", "kind", "applies_to"})
+    "retrieved", "notes", "limitations", "cross_checks", "kind", "applies_to",
+    "verification"})
+
+#: How far a calendar's dates have been checked against the issuer itself.
+#:   verified     every date read from the issuing exchange's own document
+#:   provisional  the issuer's document could not be read directly; the dates
+#:                come from a faithful copy and are flagged in every answer
+VERIFICATION_STATES = ("verified", "provisional")
 
 
 class CalendarError(ValueError):
@@ -92,6 +99,8 @@ class CalendarData:
     provenance: tuple = ()
     #: Set when a file exists but failed validation: the venue is UNKNOWN.
     invalid: Optional[str] = None
+    #: "verified" | "provisional" | "" (not stated) — see VERIFICATION_STATES.
+    verification: str = ""
 
 
 _BUILTIN: dict[str, CalendarData] = {
@@ -258,12 +267,17 @@ def parse(code: str, raw) -> CalendarData:
     prov = raw.get("provenance") or []
     if not isinstance(prov, list):
         raise CalendarError("provenance must be a list of documents")
+    ver = raw.get("verification")
+    status = (ver.get("status") if isinstance(ver, dict) else ver) if ver is not None else ""
+    if status and status not in VERIFICATION_STATES:
+        raise CalendarError(f"verification status {status!r} is not one of {VERIFICATION_STATES}")
     return CalendarData(
         code, years, holidays=frozenset(holidays), early_closes=early,
         special_sessions=special, source=source.strip(),
         alias_of=alias.strip() if alias else None, unknown_days=unknown_days,
         regular_days=frozenset(regular), names=names,
-        provenance=tuple(p for p in prov if isinstance(p, dict)))
+        provenance=tuple(p for p in prov if isinstance(p, dict)),
+        verification=status or "")
 
 
 def _from_file(code: str) -> Optional[CalendarData]:
@@ -343,6 +357,7 @@ def _describe_override(ov: CalendarData) -> dict:
         return {"provider": "owner file", "valid": False, "why": ov.invalid}
     return {"provider": "owner file", "valid": True, "years": sorted(ov.years),
             "source": ov.source, "alias_of": ov.alias_of,
+            "verification": ov.verification or "not stated",
             "unknown_days": {d.isoformat(): r for d, r in sorted(ov.unknown_days.items())},
             "documents": [p.get("ref") for p in ov.provenance if p.get("ref")]}
 

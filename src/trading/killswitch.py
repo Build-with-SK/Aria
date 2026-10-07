@@ -23,14 +23,26 @@ protective orders cancelled only if they were pending ENTRY orders — see
 `cancel_protective`. Liquidating a book in a panic is a trading decision, often
 a bad one, and a kill switch should not make trading decisions by default.
 
-FLATTEN: closing market orders for every long position, reduce-only (a sell can
-never exceed what is held, so it cannot open a short). Chosen explicitly in
+FLATTEN: closing market orders for every long position, reduce-only
+(src/execution/reduce_only): each sell is at most the position read from the
+broker AFTER cancellation, net of every sell still resting on that symbol, so
+even if a stop that survived the cancel also fills, the position reaches zero
+and never flips. A symbol with a resting order the adapter cannot describe is
+skipped, not guessed. Shorts are reported, not covered. Chosen explicitly in
 data/trading/kill_policy.json. Documented, tested, and off unless chosen.
+
+FLATTEN is a paper-only, best-effort step: the order goes to the same adapter
+every other order does, and through the production adapter
+(access.paper_adapter) the mode gate (RESEARCH after step 2) and the broker's
+own kill-switch check (step 1) refuse it. Each refusal is in the report. No
+order path below the kill switch is opened for it.
 
 Cancelling protective stops is itself a choice: with PRESERVE and
 `cancel_protective: false` (the default), orders that protect an existing
-position (sells of held quantity) are LEFT RESTING, so halting does not strip a
-position of its stop.
+position (a sell against a long, a buy against a short) are LEFT RESTING, so
+halting does not strip a position of its stop. Positions are read from the
+broker when the caller does not pass them: an empty `held` used to make every
+stop look like an entry and cancel it.
 
 This module imports nothing from src.brain, src.inference or src.consult.
 tests/test_trading_structure.py enforces that.
@@ -108,6 +120,8 @@ def halt(reason: str, *, actor: str = "owner", broker=None,
         report["steps"]["desk_auto_execute"] = {"error": str(exc)}
 
     # 3. cancel pending orders
+    if held is None and broker is not None:
+        held = _held(broker, report)
     held = held or {}
     if broker is None:
         report["steps"]["cancel"] = {"skipped": "no broker supplied"}
@@ -118,10 +132,10 @@ def halt(reason: str, *, actor: str = "owner", broker=None,
         except Exception as exc:
             open_orders = []
             failed["_list"] = str(exc)
+        details = _order_details(broker)
         for o in open_orders:
-            spec = getattr(broker, "specs", {}).get(o.client_order_id)
-            protective = bool(spec and spec.side == "sell"
-                              and held.get(spec.symbol, 0) > 0)
+            d = details.get(o.client_order_id)
+            protective = bool(d and _reduces(d["side"], d["symbol"], held))
             if protective and not report["policy"]["cancel_protective"]:
                 kept.append(o.client_order_id)
                 continue
@@ -146,26 +160,88 @@ def halt(reason: str, *, actor: str = "owner", broker=None,
     return report
 
 
+def _signed(p: dict) -> float:
+    qty = float(p.get("qty", 0) or 0)
+    return -abs(qty) if (str(p.get("side") or "").lower() == "short" or qty < 0) else abs(qty)
+
+
+def _held(broker, report: dict) -> dict:
+    """{symbol: signed qty} read from the broker. Unreadable is recorded
+    and treated as "nothing known to be held" — which cancels rather than
+    keeps, the pre-existing behaviour, never a guess that keeps an entry."""
+    try:
+        return {p["symbol"]: _signed(p) for p in broker.get_positions()}
+    except Exception as exc:
+        report["steps"]["positions_read"] = {"error": str(exc)}
+        return {}
+
+
+def _order_details(broker) -> dict:
+    """{client_order_id: {symbol, side, qty, parent_id}} for open orders, from
+    whichever description the adapter offers. Missing = unknown."""
+    try:
+        if hasattr(broker, "open_order_details"):
+            return {d["client_order_id"]: d for d in broker.open_order_details()}
+        specs = getattr(broker, "specs", None) or {}
+        return {cid: {"client_order_id": cid, "symbol": s.symbol, "side": s.side,
+                      "qty": s.qty, "parent_id": None} for cid, s in specs.items()}
+    except Exception:
+        return {}
+
+
+def _reduces(side: str, symbol: str, held: dict) -> bool:
+    """Does an order on `side` shrink what is held in `symbol`?"""
+    from src.execution import reduce_only
+    net = sum(q for s, q in held.items() if reduce_only.same_symbol(s, symbol))
+    return reduce_only.reducing_side(net) == str(side or "").lower()
+
+
 def _flatten(broker, reason: str) -> dict:
-    """Reduce-only closing orders. Sent directly to the broker adapter: the
-    kill switch is engaged by now and would refuse them on the normal path,
-    and closing is the one thing a halt is allowed to do."""
+    """Reduce-only closing orders, sent to the adapter like any other order.
+
+    For each long: sell at most the position read NOW (after step 3's
+    cancellations), net of every sell still resting on that symbol — so if a
+    stop that survived the cancel fills as well, the book reaches zero and
+    does not flip short. Nothing is sent for a symbol whose resting orders
+    cannot be accounted for. Shorts are reported, not covered."""
+    from src.execution import reduce_only
     from .broker import OrderSpec
     out = {}
     try:
         positions = broker.get_positions()
     except Exception as exc:
         return {"error": f"could not read positions: {exc}"}
+    try:
+        open_now = broker.get_open_orders()
+        details = _order_details(broker)
+        resting = [details.get(o.client_order_id) for o in open_now]
+    except Exception as exc:
+        return {"error": f"could not read resting orders, nothing sent "
+                         f"(a flatten could double-sell): {exc}"}
+    unaccounted = any(d is None for d in resting)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     for p in positions:
-        qty = float(p.get("qty", 0))
-        if qty <= 0:
+        sym, signed = p["symbol"], _signed(p)
+        if signed < 0:
+            out[sym] = {"skipped": "short position: FLATTEN closes longs only — cover it "
+                                   "at the broker"}
             continue
-        spec = OrderSpec(client_order_id=f"aria-halt-{p['symbol']}-{stamp}",
-                         symbol=p["symbol"], side="sell", qty=qty,
+        if signed <= 0:
+            continue
+        if unaccounted:
+            out[sym] = {"skipped": "an open order the adapter cannot describe is still "
+                                   "resting; a flatten could double-sell"}
+            continue
+        ro = reduce_only.check("sell", signed, signed,
+                               reduce_only.resting_reduce_qty(resting, sym, "sell"))
+        if not ro.ok:
+            out[sym] = {"skipped": ro.reason, "reduce_only": ro.to_dict()}
+            continue
+        spec = OrderSpec(client_order_id=f"aria-halt-{sym}-{stamp}",
+                         symbol=sym, side="sell", qty=ro.qty,
                          strategy_id="killswitch", signal_id=reason[:40])
         try:
-            out[p["symbol"]] = broker.submit_order(spec).to_dict()
+            out[sym] = {**broker.submit_order(spec).to_dict(), "reduce_only": ro.to_dict()}
         except Exception as exc:
-            out[p["symbol"]] = {"error": str(exc)}
+            out[sym] = {"error": str(exc), "reduce_only": ro.to_dict()}
     return out

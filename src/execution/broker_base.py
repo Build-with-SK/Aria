@@ -69,6 +69,9 @@ class OrderRequest:
     # with the same id, and the order can be found again by it after a timeout.
     # Set by src/trading/orders.py; the legacy desk leaves it None.
     client_order_id: Optional[str] = None
+    # Reduces an existing position (an exit). Enforced where it is sent —
+    # src/execution/reduce_only — not trusted from here.
+    reduce_only: bool = False
 
 
 @dataclass

@@ -333,7 +333,10 @@ def _day(spec: VenueSpec, d: date, contract: Optional[str] = None):
             return week, "weekend"
         return None, f"owner calendar for {code} is invalid — {override.invalid}"
     if override is not None and d.year in override.years:
-        return _static_day(spec, override, d, week, override.source or "owner calendar")
+        label = override.source or "owner calendar"
+        if getattr(override, "verification", "") == "provisional":
+            label += " — PROVISIONALLY verified: not yet read from the issuer directly"
+        return _static_day(spec, override, d, week, label)
     provider_code = override.alias_of if (override is not None and override.alias_of) else code
     try:
         zone_ok = bool(ZoneInfo(spec.tz))

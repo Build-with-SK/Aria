@@ -4,6 +4,9 @@
   "segment": "NSE Capital Market (CM) segment — equities. F&O, currency and commodity segments publish their own circulars and are not covered here.",
   "years": [2025, 2026],
   "retrieved": "2026-10-07",
+  "verification": {"status": "verified",
+                   "how": "each circular PDF in provenance was fetched from nsearchives.nseindia.com on 2026-10-07 and read in full; its sha256 is recorded beside it",
+                   "open_items": ["2026-11-08 Muhurat: NSE has announced the session but not its hours; the day stays UNKNOWN until NSE's timing circular is read."]},
   "provenance": [
     {"ref": "NSE/CMTR/65587", "circular_no": "170/2024", "date": "2024-12-13",
      "title": "Trading holidays for the calendar year 2025",

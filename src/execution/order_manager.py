@@ -64,13 +64,15 @@ class OrderManager:
 
     @staticmethod
     def session_refusal(ticker: str, asset_class: str,
-                        now: Optional[datetime] = None) -> Optional[str]:
+                        now: Optional[datetime] = None,
+                        halted: Optional[bool] = None) -> Optional[str]:
         """None when the instrument is in continuous trading at its own venue
         now (src/markets/sessions); otherwise why not. UNKNOWN, a provider
-        failure and any error here are refusals — never a pass."""
+        failure and any error here are refusals — never a pass. `halted` is a
+        data feed's halt flag when the caller has one; a schedule cannot know."""
         try:
             from src.markets.sessions import session
-            info = session(ticker, now, asset_class=asset_class)
+            info = session(ticker, now, asset_class=asset_class, halted=halted)
         except Exception as e:
             return f"session check failed ({type(e).__name__}: {e}) — unknown is never open"
         if info.tradable:
@@ -79,7 +81,8 @@ class OrderManager:
         nxt = f"; next open {info.next_open}" if info.next_open else ""
         return f"{ticker} is {info.state.value} at {info.venue or 'an unknown venue'} ({why}){nxt}"
 
-    def execute(self, trade_id: str, now: Optional[datetime] = None) -> dict:
+    def execute(self, trade_id: str, now: Optional[datetime] = None,
+                halted: Optional[bool] = None) -> dict:
         """Execute an approved trade. Returns status dict.
 
         The instrument's session is checked HERE, at the moment of sending,
@@ -88,6 +91,12 @@ class OrderManager:
         that checked the session when it started can finish after the close.
         A closed or UNKNOWN market leaves the trade pending, unsent: a market
         order sent now would be filled blind at the next open.
+
+        A queued EXIT (`reduce_only`) is re-checked against the broker's
+        position at the moment of sending and clipped to it, or refused when
+        the position has gone — an exit approved late must not open a new
+        position. Protective brackets go through place_protective_orders,
+        which enforces the same invariant.
         """
         trade = self._queue.get_by_id(trade_id)
         if not trade:
@@ -95,7 +104,7 @@ class OrderManager:
         if trade.status not in ("pending", "approved"):
             return {"ok": False, "error": f"Trade {trade_id} status is '{trade.status}', not approvable"}
 
-        refusal = self.session_refusal(trade.ticker, trade.asset_class, now)
+        refusal = self.session_refusal(trade.ticker, trade.asset_class, now, halted)
         if refusal:
             logger.warning(f"Trade {trade_id} not sent — {refusal}")
             return {"ok": False, "session_closed": True,
@@ -115,6 +124,16 @@ class OrderManager:
             return {"ok": False, "error": f"{broker.name} is not connected"}
 
         req    = self._build_order_request(trade)
+        ro = None
+        if getattr(trade, "reduce_only", False):
+            from src.execution import reduce_only
+            ro = reduce_only.at_broker(broker, trade.ticker, trade.side, trade.qty)
+            if not ro.ok:
+                self._queue.reject(trade_id, f"reduce-only exit refused: {ro.reason}")
+                return {"ok": False, "reduce_only": ro.to_dict(),
+                        "error": f"reduce-only exit not sent: {ro.reason}"}
+            req.qty = ro.qty
+            req.reduce_only = True
         result = broker.submit_order(req)
 
         if result.status in (OrderStatus.SUBMITTED, OrderStatus.FILLED, OrderStatus.PARTIAL):
@@ -136,12 +155,17 @@ class OrderManager:
 
             sl_result = None
             tp_result = None
-            fill_price = result.avg_fill_price or trade.limit_price or 0.0
-            if result.status == OrderStatus.FILLED:
-                if trade.stop_loss:
-                    sl_result = self._place_stop_loss(broker, trade, fill_price)
-                if trade.take_profit:
-                    tp_result = self._place_take_profit(broker, trade, fill_price)
+            protection = None
+            if result.status == OrderStatus.FILLED and (trade.stop_loss or trade.take_profit):
+                # One path for every protective order: reduce-only against the
+                # position as it is now, and never a stop and a target as two
+                # independent full-size orders (both could fill and reverse it).
+                protection = self.place_protective_orders(
+                    trade.ticker, result.filled_qty or req.qty, trade.side,
+                    trade.stop_loss, trade.take_profit,
+                    asset_class=trade.asset_class, broker=broker)
+                sl_result = protection.get("stop_loss_order")
+                tp_result = protection.get("take_profit_order")
                 if (trade.stop_loss and not sl_result) or (trade.take_profit and not tp_result):
                     logger.error(f"BRACKETS INCOMPLETE for {trade.ticker} — "
                                  f"reconciliation must heal on next desk tick")
@@ -167,6 +191,8 @@ class OrderManager:
                 "brackets_pending": bool(
                     (trade.stop_loss and not sl_result) or
                     (trade.take_profit and not tp_result)),
+                "protection": protection,
+                "reduce_only": ro.to_dict() if ro else None,
             }
         else:
             self._queue.reject(trade_id, result.error_message)
@@ -197,11 +223,27 @@ class OrderManager:
                                 asset_class: str = "equity",
                                 broker: Optional[BrokerBase] = None) -> dict:
         """Place SL/TP for an already-held position (used by fill flow and by
-        the desk's reconciliation pass when brackets are found missing)."""
+        the desk's reconciliation pass when brackets are found missing).
+
+        These orders rest at the venue outside any session gate — a stop must
+        stand through the night — so they carry the reduce-only invariant
+        instead (src/execution/reduce_only): checked against the broker's
+        position and resting orders NOW, clipped to what is held, refused
+        when that cannot be read. A stop and a target together go out as ONE
+        OCO; a broker without OCO gets the stop only, because two independent
+        full-size exits can both fill and turn a long into a short."""
+        from src.execution import reduce_only
         broker = broker or self._alpaca
         out = {"stop_loss_order": None, "take_profit_order": None}
         if not broker or not broker.is_connected():
             return out
+        exit_side = OrderSide.SELL if entry_side in ("buy", "long") else OrderSide.BUY
+        ro = reduce_only.at_broker(broker, ticker, exit_side.value, qty)
+        out["reduce_only"] = ro.to_dict()
+        if not ro.ok:
+            logger.warning(f"protective orders for {ticker} not placed — {ro.reason}")
+            return out
+        qty = ro.qty
         # Equities demand whole-cent prices — sub-penny is rejected (42210000)
         # — and fractional qtys cannot be GTC, so floor to whole shares
         # (the sub-share dust stays managed by the 5-min software tick).
@@ -212,30 +254,37 @@ class OrderManager:
             if qty <= 0:
                 return out
         # Both protections on one position need ONE OCO order — separate
-        # stop + limit sells fight over the same reserved shares (40310000).
-        if stop and target and hasattr(broker, "submit_oco_exit"):
-            oid = broker.submit_oco_exit(ticker, qty, entry_side, stop, target)
-            if oid:
-                out["stop_loss_order"] = {"broker_order_id": oid, "stop_price": stop}
-                out["take_profit_order"] = {"broker_order_id": oid, "limit_price": target}
-                return out
-            logger.warning(f"OCO exit failed for {ticker} — falling back to stop-only")
+        # stop + limit sells fight over the same reserved shares (40310000),
+        # and at a broker that does not reserve them, both could fill.
+        if stop and target:
+            if hasattr(broker, "submit_oco_exit"):
+                oid = broker.submit_oco_exit(ticker, qty, entry_side, stop, target)
+                if oid:
+                    out["stop_loss_order"] = {"broker_order_id": oid, "stop_price": stop}
+                    out["take_profit_order"] = {"broker_order_id": oid, "limit_price": target}
+                    return out
+                logger.warning(f"OCO exit failed for {ticker} — falling back to stop-only")
+                out["target_skipped"] = "OCO refused; stop only rather than two independent exits"
+            else:
+                out["target_skipped"] = (f"{getattr(broker, 'name', 'broker')} has no OCO: a "
+                                         f"separate target and stop could both fill")
             target = None       # protect the downside at minimum
-        exit_side = OrderSide.SELL if entry_side in ("buy", "long") else OrderSide.BUY
         try:
             if stop:
                 r = broker.submit_order(OrderRequest(
                     ticker=ticker, side=exit_side, qty=qty,
                     order_type=OrderType.STOP, stop_price=stop,
-                    time_in_force="gtc", asset_class=AssetClass(asset_class)))
+                    time_in_force="gtc", asset_class=AssetClass(asset_class),
+                    reduce_only=True))
                 if r.status not in (OrderStatus.REJECTED,):
                     out["stop_loss_order"] = {"broker_order_id": r.broker_order_id,
                                               "stop_price": stop}
-            if target:
+            elif target:
                 r = broker.submit_order(OrderRequest(
                     ticker=ticker, side=exit_side, qty=qty,
                     order_type=OrderType.LIMIT, limit_price=target,
-                    time_in_force="gtc", asset_class=AssetClass(asset_class)))
+                    time_in_force="gtc", asset_class=AssetClass(asset_class),
+                    reduce_only=True))
                 if r.status not in (OrderStatus.REJECTED,):
                     out["take_profit_order"] = {"broker_order_id": r.broker_order_id,
                                                 "limit_price": target}
@@ -306,49 +355,6 @@ class OrderManager:
                         logger.info(f"Cancelled stale order {o['id']} "
                                     f"({o['side']} {o['qty']:g} {ticker})")
         return cancelled
-
-    def _place_stop_loss(self, broker: BrokerBase, trade: PendingTrade, fill_price: float) -> Optional[dict]:
-        try:
-            # Stop-loss is opposite side
-            sl_side = OrderSide.SELL if trade.side == "buy" else OrderSide.BUY
-            stop_price = (trade.stop_loss if trade.asset_class == "crypto"
-                          else round(trade.stop_loss, 2))
-            req = OrderRequest(
-                ticker=trade.ticker,
-                side=sl_side,
-                qty=trade.qty,
-                order_type=OrderType.STOP,
-                stop_price=stop_price,
-                time_in_force="gtc",
-                asset_class=AssetClass(trade.asset_class),
-            )
-            result = broker.submit_order(req)
-            logger.info(f"Stop-loss placed for {trade.ticker} @ {trade.stop_loss}")
-            return {"broker_order_id": result.broker_order_id, "stop_price": trade.stop_loss}
-        except Exception as e:
-            logger.error(f"Failed to place stop-loss: {e}")
-            return None
-
-    def _place_take_profit(self, broker: BrokerBase, trade: PendingTrade, fill_price: float) -> Optional[dict]:
-        try:
-            tp_side = OrderSide.SELL if trade.side == "buy" else OrderSide.BUY
-            limit_price = (trade.take_profit if trade.asset_class == "crypto"
-                           else round(trade.take_profit, 2))
-            req = OrderRequest(
-                ticker=trade.ticker,
-                side=tp_side,
-                qty=trade.qty,
-                order_type=OrderType.LIMIT,
-                limit_price=limit_price,
-                time_in_force="gtc",
-                asset_class=AssetClass(trade.asset_class),
-            )
-            result = broker.submit_order(req)
-            logger.info(f"Take-profit placed for {trade.ticker} @ {trade.take_profit}")
-            return {"broker_order_id": result.broker_order_id, "limit_price": trade.take_profit}
-        except Exception as e:
-            logger.error(f"Failed to place take-profit: {e}")
-            return None
 
     def get_broker_status(self) -> dict:
         alpaca_connected = self._alpaca.is_connected() if self._alpaca else False

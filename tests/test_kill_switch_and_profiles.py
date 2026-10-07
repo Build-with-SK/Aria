@@ -292,10 +292,23 @@ def test_executable_asset_classes_is_the_narrow_truth():
 
 
 class _FakeBroker:
-    """Connected, paper-confirmed, and records anything submitted to it."""
-    def __init__(self):
+    """Connected, paper-confirmed, and records anything submitted to it.
+
+    `holdings` is what the broker reports holding ({ticker: signed qty}): an
+    exit is now checked against the broker's position at the moment it is
+    sent (src/execution/reduce_only), so a fake with no position is a fake
+    whose exits are — correctly — refused."""
+    def __init__(self, holdings=None):
         self.submitted = []
         self.cancelled = []
+        self.holdings = dict(holdings or {})
+
+    def get_positions(self):
+        return [{"ticker": t, "qty": abs(q), "side": "long" if q > 0 else "short"}
+                for t, q in self.holdings.items() if q]
+
+    def get_open_orders(self):
+        return []
 
     def is_connected(self):
         return True
@@ -323,7 +336,7 @@ def _drive_close(monkeypatch, asset_class, ticker="SPY"):
     broker that would happily accept the order, and report what happened."""
     from src.desk import position_manager as pm
 
-    broker = _FakeBroker()
+    broker = _FakeBroker({ticker: 10})
     mgr = _FakeMgr(broker)
     pmgr = pm.PositionManager.__new__(pm.PositionManager)
     pmgr.cfg = {}

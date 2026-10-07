@@ -4,6 +4,16 @@
   "segment": "SZSE equities (A-shares). Lunch break and closing call are venue phases in src/markets/venues.py (XSHE), not calendar data.",
   "years": [2026],
   "retrieved": "2026-10-07",
+  "verification": {
+    "status": "provisional",
+    "why": "szse.cn refused every connection from the build machine on 2026-10-07 (TLS reset over https, connection reset over http, in-app browser refused; retried later the same day with the same result), so no date here has been read from SZSE's own page.",
+    "checked": [
+      "Securities Times republication retrieved 2026-10-07 (sha256 in provenance): its text of the joint SSE/SZSE/BSE notice gives exactly the seven closure ranges and the six declared weekend closures encoded here.",
+      "The search engine's extraction of the szse.cn notice page itself gives the same ranges.",
+      "exchange_calendars 4.13.2 XSHG (Shanghai, independent) has the same 19 weekday closures."
+    ],
+    "to_upgrade": "Open the szse.cn URL in provenance from a machine that can reach it, confirm the seven ranges, record its sha256, and set status to 'verified'."
+  },
   "provenance": [
     {"ref": "SZSE notice t20251222_618087", "date": "2025-12-22",
      "title": "关于2026年部分节假日休市安排的通知",
@@ -14,7 +24,9 @@
      "title": "刚刚，沪深北交易所重磅发布！2026年A股休市安排来了",
      "url": "https://www.stcn.com/article/detail/3551896.html",
      "publisher": "证券时报 (Securities Times), a CSRC-designated information-disclosure newspaper",
-     "covers": "republishes the SSE, SZSE and BSE (Beijing) 2026 closure notices issued that day"}
+     "retrieved": "2026-10-07",
+     "sha256": "62804772560b16bb82f0636bec293aee87eec1c9532ed1045e111f5b2c57c12c",
+     "covers": "quotes the joint notice of SSE, SZSE and BSE (Beijing): 2026 closure ranges, weekend closures, and CSDC settlement arrangements"}
   ],
   "closures": [
     {"from": "2026-01-01", "to": "2026-01-03", "name": "元旦 New Year's Day", "reopens": "2026-01-05"},

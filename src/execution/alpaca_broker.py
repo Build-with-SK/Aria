@@ -503,9 +503,11 @@ class AlpacaBroker(BrokerBase):
             for o in orders:
                 out.append(to_dict(o))
                 # OCO stop legs sit "held" under the parent — expose them so
-                # bracket healing can see the stop actually exists
+                # bracket healing can see the stop actually exists. The
+                # parent id links the legs: only one of them can fill, which
+                # the reduce-only check (src/execution/reduce_only) relies on.
                 for leg in (getattr(o, "legs", None) or []):
-                    out.append(to_dict(leg))
+                    out.append({**to_dict(leg), "parent_id": str(o.id)})
             return out
         except Exception as e:
             logger.error(f"Alpaca get_open_orders error: {e}")

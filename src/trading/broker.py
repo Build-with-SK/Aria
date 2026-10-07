@@ -180,6 +180,15 @@ class SimulatedBroker(BrokerAdapter):
     def get_open_orders(self) -> list[OrderAck]:
         return [a for a in self.orders.values() if a.status in (NEW, PARTIALLY_FILLED)]
 
+    def open_order_details(self) -> list[dict]:
+        """Symbol, side and quantity of each resting order — what the kill
+        switch needs to tell a protective order from an entry."""
+        return [{"client_order_id": a.client_order_id, "symbol": self.specs[a.client_order_id].symbol,
+                 "side": self.specs[a.client_order_id].side,
+                 "qty": self.specs[a.client_order_id].qty - (a.filled_qty or 0.0),
+                 "parent_id": None}
+                for a in self.get_open_orders() if a.client_order_id in self.specs]
+
     # writes
     def submit_order(self, order: OrderSpec) -> OrderAck:
         with self._lock:
@@ -268,7 +277,8 @@ class LegacyBrokerAdapter(BrokerAdapter):
 
     def get_positions(self) -> list[dict]:
         return [{"symbol": p.ticker, "qty": p.qty, "avg_price": p.avg_cost,
-                 "market_value": p.market_value} for p in self._b.get_positions()]
+                 "market_value": p.market_value, "side": getattr(p, "side", "")}
+                for p in self._b.get_positions()]
 
     def get_balances(self) -> dict:
         a = self._b.get_account()
@@ -323,4 +333,13 @@ class LegacyBrokerAdapter(BrokerAdapter):
     def get_open_orders(self) -> list[OrderAck]:
         return [OrderAck(str(o.get("client_order_id") or o.get("id")), NEW,
                          broker_order_id=str(o.get("id")))
+                for o in (self._b.get_open_orders() or [])]
+
+    def open_order_details(self) -> list[dict]:
+        """Symbol, side and quantity of each resting order, keyed like
+        get_open_orders(). OCO legs carry their parent's id."""
+        return [{"client_order_id": str(o.get("client_order_id") or o.get("id")),
+                 "symbol": str(o.get("ticker") or o.get("symbol") or ""),
+                 "side": str(o.get("side") or "").lower(),
+                 "qty": float(o.get("qty") or 0.0), "parent_id": o.get("parent_id")}
                 for o in (self._b.get_open_orders() or [])]

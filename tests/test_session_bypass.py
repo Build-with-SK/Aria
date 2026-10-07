@@ -198,7 +198,7 @@ def test_the_desk_queues_a_trade_whose_market_closed_mid_cycle(tmp_path, monkeyp
 def _close(monkeypatch, ticker, asset_class):
     from test_kill_switch_and_profiles import _FakeBroker, _FakeMgr
     from src.desk import position_manager as pm
-    broker = _FakeBroker()
+    broker = _FakeBroker({ticker: 10})
     pmgr = pm.PositionManager.__new__(pm.PositionManager)
     pmgr.cfg = {}
     monkeypatch.setattr(pmgr, "_log_execution", lambda rec: None, raising=False)
@@ -290,16 +290,17 @@ SENDERS = {
     "src/trading/orders.py": (1, "OrderEngine.submit: reached only from TradingPipeline.run, "
                                  "after its SESSION stage and the validator's session check"),
     "src/trading/broker.py": (1, "LegacyBrokerAdapter forwarding to the wrapped broker"),
-    "src/execution/order_manager.py": (6, "execute(): session_refusal() before the entry; "
-                                          "protective stop/target/OCO: reduce-only GTC orders "
-                                          "for a position already held, resting at the venue"),
+    "src/execution/order_manager.py": (4, "execute(): session_refusal() before the entry, "
+                                          "reduce_only.at_broker() for a queued exit; protective "
+                                          "OCO / stop / target: reduce_only.at_broker() first"),
     "src/execution/alpaca_broker.py": (2, "the Alpaca adapter itself (order + OCO exit)"),
     "src/execution/ibkr_broker.py": (1, "the IBKR adapter itself"),
     "src/desk/position_manager.py": (1, "exit engine: instrument_open(ticker, asset_class) first"),
     "src/trading/killswitch.py": (1, "halt flatten: reduce-only closes on a halt, deliberately "
                                      "below the normal path; the kill switch is not session-gated"),
 }
-_SEND = re.compile(r"\.(submit_order|submit_oco_exit|placeOrder)\(")
+_SEND = re.compile(r"\.(submit_order|submit_oco_exit|placeOrder|place_order|send_order|"
+                   r"close_position|close_all_positions|replace_order|liquidate)\(")
 
 
 def test_every_order_sending_call_site_is_accounted_for():
@@ -323,10 +324,17 @@ def test_the_session_check_precedes_the_send_in_each_gated_path():
     from src.desk.position_manager import PositionManager
     from src.execution.order_manager import OrderManager
     from src.trading.pipeline import TradingPipeline
+    from src.trading import killswitch
     for fn, check, send in (
             (OrderManager.execute, "session_refusal(", "broker.submit_order(req)"),
+            (OrderManager.execute, "reduce_only.at_broker(", "broker.submit_order(req)"),
+            (OrderManager.place_protective_orders, "reduce_only.at_broker(",
+             "broker.submit_oco_exit("),
             (PositionManager._close, "instrument_open(", "broker.submit_order(req)"),
+            (PositionManager._close, "reduce_only.at_broker(", "broker.submit_order(req)"),
             (TradingPipeline.run, "_sessions.session(", "self.orders.submit("),
+            (TradingPipeline.run, "at_send = _sessions.session(", "self.orders.submit("),
+            (killswitch._flatten, "reduce_only.check(", "broker.submit_order(spec)"),
     ):
         src = _source(fn)
         assert check in src and send in src, fn.__qualname__

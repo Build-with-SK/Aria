@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -88,6 +89,28 @@ def _may_mutate_broker(mgr) -> bool:
         logger.warning(f"paper gate unanswerable ({e}) — broker mutations "
                        f"skipped this tick")
         return False
+
+
+def _await_cancelled(broker, order_ids: list, timeout_s: float = 2.0,
+                     poll_s: float = 0.25) -> bool:
+    """Wait (briefly) until cancelled orders stop being listed as open.
+
+    A cancel request is not a cancellation: an order in "pending cancel" can
+    still fill, so the reduce-only check counts it as resting and refuses the
+    exit. Waiting for the broker to finish turns a refused-until-next-tick
+    exit into one sent now. True when every id has gone (or none was given)."""
+    ids = {str(i) for i in order_ids or []}
+    if not ids:
+        return True
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            still = ids & {str(o.get("id")) for o in (broker.get_open_orders() or [])}
+        except Exception:
+            return False
+        if not still or time.monotonic() >= deadline:
+            return not still
+        time.sleep(poll_s)
 
 
 def _sane_levels(stop: float | None, target: float | None, entry: float,
@@ -532,6 +555,24 @@ class PositionManager:
         # Cancel protective orders first so the GTC brackets can't double-fill
         for o in open_for_ticker:
             broker.cancel_order(o["id"])
+        _await_cancelled(broker, [o["id"] for o in open_for_ticker])
+
+        # REDUCE-ONLY, at the moment of sending: the snapshot this tick began
+        # with can be stale — a stop may have filled, a human may have closed
+        # it — and a market "exit" against a position that is no longer there
+        # opens a new one in the other direction. Read the broker NOW, after
+        # the cancels; send at most what is held, net of anything still
+        # resting on the exit side. Unreadable = nothing sent, retry next tick.
+        from src.execution import reduce_only
+        ro = reduce_only.at_broker(broker, ticker, exit_side, qty)
+        if not ro.ok:
+            logger.warning(f"exit for {ticker} not sent — {ro.reason}")
+            return None
+        if ro.qty < qty:
+            logger.warning(f"exit for {ticker} {ro.reason}")
+            qty = ro.qty if held_class == "crypto" else float(int(ro.qty))
+            if qty <= 0:
+                return None
 
         req = OrderRequest(
             ticker=ticker,
@@ -540,6 +581,7 @@ class PositionManager:
             order_type=OrderType.MARKET,
             time_in_force="gtc" if pos.get("asset_class") == "crypto" else "day",
             asset_class=AssetClass(held_class),   # guarded above
+            reduce_only=True,
         )
         result = broker.submit_order(req)
         if result.status == OrderStatus.REJECTED:
@@ -611,6 +653,7 @@ class PositionManager:
                 asset_class=AssetClass(pos.get("asset_class", "equity")),
                 situation=f"EXIT — {reason}",
                 thesis_summary=f"PositionManager exit: {reason}",
+                reduce_only=True,
             ), confidence="exit rule", broker="alpaca")
         except Exception as e:
             logger.error(f"could not queue manual exit for {ticker}: {e}")

@@ -64,10 +64,11 @@ class PipelineResult:
     ack: Optional[dict] = None
     timings_ms: dict = field(default_factory=dict)
     session: Optional[dict] = None
+    session_at_send: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {"signal_id": self.signal_id, "symbol": self.symbol, "mode": self.mode,
-                "session": self.session,
+                "session": self.session, "session_at_send": self.session_at_send,
                 "stage_reached": self.stage_reached, "submitted": self.submitted,
                 "dry_run": self.dry_run, "reasons": self.reasons,
                 "decision": self.decision, "violations": self.violations,
@@ -153,7 +154,13 @@ class TradingPipeline:
     def run(self, signal: Signal, *, now: Optional[datetime] = None,
             adv: Optional[float] = None, daily_vol: Optional[float] = None,
             order_type: str = "market", limit_price: Optional[float] = None,
-            force_dry_run: bool = False) -> PipelineResult:
+            force_dry_run: bool = False,
+            send_at: Optional[datetime] = None) -> PipelineResult:
+        """`now` is when the decision is made; `send_at` is when the order
+        actually leaves (default: `now` when the caller fixed it, else the
+        wall clock at that moment). The session is checked at both, and the
+        SEND-time state is the one that authorizes."""
+        explicit_now = now is not None
         now = now or datetime.now(timezone.utc)
         mode = modes.effective_mode()
         dry = force_dry_run or mode is modes.ExecutionMode.RESEARCH
@@ -237,6 +244,23 @@ class TradingPipeline:
             res.reasons.append("orders are not permitted in the current mode or the "
                                "kill switch is engaged")
             res.timings_ms = clock.total()
+            return res
+
+        # 5. SESSION again, at the send boundary. Everything above was
+        #    decided at `now`; the order leaves at `send_at`. A market that
+        #    closed, halted or became UNKNOWN in between refuses here.
+        from src.markets import sessions as _sessions
+        when = send_at or (now if explicit_now else datetime.now(timezone.utc))
+        at_send = _sessions.session(signal.symbol, when, asset_class=signal.asset_class)
+        if not at_send.tradable:
+            res.session_at_send = at_send.to_dict()
+            res.stage_reached = "session"
+            res.reasons.append(
+                f"session changed before send: {at_send.state.value} at "
+                f"{at_send.venue or 'an unresolved venue'}"
+                + (f" — {'; '.join(at_send.reasons)}" if at_send.reasons else ""))
+            res.timings_ms = clock.total()
+            _latency.record(res.timings_ms, broker=self.broker.name, outcome="session_closed")
             return res
 
         ack: OrderAck = self.orders.submit(order, self.broker)

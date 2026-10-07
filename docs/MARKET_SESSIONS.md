@@ -268,11 +268,21 @@ own notices.
 ### Shenzhen (China)
 
 `data/calendars/XSHE.json` transcribes the SZSE notice 关于2026年部分节假日休市安排的通知
-(2025-12-22) as closure ranges. szse.cn refused connections from the build
-machine, so the text came from the search engine's extraction of that exact
-page and from the Securities Times republication. The two agree date for date,
-and the file says so. Re-verify the dates from a machine that can reach
-szse.cn.
+(2025-12-22) as closure ranges. Its status is **PROVISIONALLY VERIFIED**
+(`"verification": {"status": "provisional"}`).
+
+* szse.cn refused every connection from the build machine, on two attempts on
+  2026-10-07. No date has been read from SZSE's own page.
+* The dates come from the Securities Times republication of the joint
+  SSE/SZSE/BSE notice. That copy was retrieved and its SHA-256 recorded; it
+  matches the encoded ranges exactly.
+* They were checked against the search engine's extraction of the szse.cn page
+  itself.
+* Every session reason drawn from this file says "PROVISIONALLY verified".
+
+To upgrade it to `verified`, read the szse.cn URL in `provenance`, record its
+checksum, and change the status. NSE's file is `verified`: every circular was
+read from nsearchives.nseindia.com, with its checksum recorded.
 
 * China's make-up working weekends (调休) are **not** trading days. The notice
   declares each of them closed.
@@ -355,18 +365,91 @@ sending, and only OPEN passes:
 
 | path | where the session is checked |
 |---|---|
-| `TradingPipeline.run` | stage `session`, before risk; again in the validator |
-| owner approve route, desk auto-executor, reflex lane | `OrderManager.execute()` → `session_refusal()`. A closed or UNKNOWN market leaves the trade **pending and unsent**. The desk records it as `queued` for the owner |
-| exit engine (`PositionManager._close`) | `instrument_open(ticker, asset_class)` immediately before the order |
-| held intents (`src/desk/intents.py`) | `evaluate(..., session=)`. Not tradable means HELD |
-| session plans (`src/trading/session_orders.py`) | pure previews. No module in `src/` imports them |
-| protective stop / target / OCO for a held position | deliberately not session-gated: reduce-only GTC orders resting at the venue |
-| kill-switch halt flatten | deliberately below the normal path: reduce-only closes on a halt |
+| `TradingPipeline.run` | stage `session` at `now`, before risk; in the validator; and **again at the send boundary** (`send_at`, default the send-time clock) |
+| owner approve route, desk auto-executor, reflex lane | `OrderManager.execute(now=, halted=)` → `session_refusal()`. A closed, halted or UNKNOWN market leaves the trade **pending and unsent**. The desk records it as `queued` for the owner |
+| queued manual exits (`reduce_only=True`) | the same session check, plus **reduce-only at send**: clipped to the broker's position, refused if it has gone |
+| exit engine (`PositionManager._close`) | `instrument_open(ticker, asset_class)`, then cancels the brackets, then **reduce-only at send** against the broker's position now |
+| held intents (`src/desk/intents.py`) | `evaluate(..., session=)`. Not tradable means HELD. An intent has no execution path of its own |
+| session plans (`src/trading/session_orders.py`) | inert previews with no `execute`. No module in `src/` imports them |
+| protective stop / target / OCO for a held position | deliberately **not** session-gated, because a stop must stand overnight. **Reduce-only** instead, and one OCO or a stop alone, never two independent exits |
+| kill-switch halt flatten | deliberately not session-gated (an emergency). **Reduce-only**: nets out resting sells, skips what it cannot account for, never covers shorts |
+
+### The reduce-only invariant (`src/execution/reduce_only.py`)
+
+Any order allowed outside the entry gates must, at the moment it is sent, sit
+on the reducing side of a position that exists now. Its quantity plus
+everything already resting on that side must be at most the position:
+
+    |position after every resting reducing order and this one fill| <= |position now|
+
+The rules:
+
+* OCO legs (linked by `parent_id`) count once; unlinked orders count in full.
+* If the position or the resting orders cannot be read, **nothing is sent**.
+* The exit engine waits briefly for its cancellations to settle before it
+  checks. A "pending cancel" order can still fill, so until then it counts as
+  resting.
+* At a broker without OCO, a stop and a target are never placed as two
+  full-size orders. The stop goes alone and the missing target is reported.
+
+`tests/test_reduce_only.py` covers 15 scenarios:
+
+1. long with a reducing sell
+2. short with a reducing buy
+3. no position
+4. oversized order
+5. wrong side
+6. duplicate order
+7. stale snapshot
+8. position vanished
+9. symbol changed
+10. partial fill
+11. rejection
+12. OCO sibling left behind
+13. flatten
+14. halt outside the session
+15. UNKNOWN session during a protective order
+
+With the guard disabled, 27 of the file's 48 cases fail.
+
+### The halt in production
+
+The halt route passes `access.paper_adapter()` and does not pass `held`. Two
+consequences:
+
+* **Positions are now read from the broker.** Before 2026-10-07 the empty
+  `held` made every stop look like an entry, so PRESERVE cancelled every
+  protective order.
+* **FLATTEN reaches the mode gate and stops there.** The halt has already
+  forced RESEARCH, and the Alpaca adapter refuses everything while the kill
+  switch is engaged. The report records each refusal. The positions keep
+  their stops (PRESERVE behaviour), and the owner closes them at the broker.
+
+No order path below the kill switch was opened for FLATTEN. Making it work in
+production would need such a path, and that is an owner decision.
 
 `tests/test_session_bypass.py` pins every call site in `src/` and `backend/`
-that sends an order. A new one fails the test until someone states how it
-passes the session check. A provider failure, an engine exception, an invalid
-calendar and an UNKNOWN day each refuse.
+that sends an order:
+
+* `submit_order`, `submit_oco_exit`, `placeOrder`, `place_order`, `send_order`,
+  `close_position`, `replace_order`, `liquidate`;
+* in each gated path, the session or reduce-only check must come before the
+  send.
+
+A new call site fails the test until someone states how it passes the session
+check. A provider failure, an engine exception, an invalid calendar and an
+UNKNOWN day each refuse. `tests/test_send_time.py` plans in one state and
+sends in another; the send-time state decides:
+
+* OPEN → CLOSED
+* OPEN → POST_MARKET
+* OPEN → HALTED
+* OPEN → UNKNOWN
+* OPEN → holiday
+* PRE_OPEN → OPEN
+* a plan, a conditional plan or a held intent across a boundary
+* an instrument that resolves differently at send
+* a mode drop or kill switch between queue and send
 
 `TradingPipeline.run` checks, in order:
 
