@@ -334,7 +334,14 @@ def predict_health(now: datetime | None = None) -> dict:
                 "missed_sessions": None,
                 "why": "no NYSE calendar for this date — cannot say what is due"}
     missed = _missed_sessions(last, expected)
-    settled_at = session_close(expected) + timedelta(minutes=SETTLE_MINUTES)
+    close = session_close(expected)
+    if close is None:
+        return {"ok": None, "expected_session": expected.isoformat(),
+                "last_session": last.isoformat() if last else None,
+                "missed_sessions": missed,
+                "why": f"the NYSE calendar gives no close for {expected} — cannot say "
+                       f"whether the grace period has passed"}
+    settled_at = close + timedelta(minutes=SETTLE_MINUTES)
     in_grace = (now.astimezone(settled_at.tzinfo) - settled_at
                 < timedelta(hours=PREDICT_GRACE_HOURS))
     ok = missed == 0 or (missed == 1 and in_grace)

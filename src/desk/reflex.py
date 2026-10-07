@@ -331,7 +331,7 @@ class ReflexEngine:
                 pb["rejected_reason"] = why
                 changed = True
                 continue
-            if not instrument_open(pb["ticker"]):
+            if not instrument_open(pb["ticker"], asset_class=pb.get("asset_class")):
                 continue
             price = self._quote(pb["ticker"], mgr)
             if price <= 0:

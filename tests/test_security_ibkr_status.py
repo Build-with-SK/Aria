@@ -15,6 +15,7 @@ rejected order was rejected. Where the summary and the events disagree, the
 events are the record of what happened.
 """
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -516,6 +517,13 @@ class _RecordingBroker:
         return []
 
 
+#: A Tuesday 11:00 New York instant. OrderManager.execute checks the
+#: instrument's session at the moment of sending; these tests are about
+#: brackets, so they send inside regular hours rather than at whatever time
+#: the suite happens to run.
+_NYSE_OPEN = datetime(2026, 10, 6, 15, 0, tzinfo=timezone.utc)
+
+
 def _queue_a_trade(tmp_path, monkeypatch, **overrides):
     """A pending trade in an isolated queue file — never the real one."""
     from src.execution import approval_queue as aq
@@ -543,7 +551,7 @@ def test_order_manager_does_not_bracket_a_partial_fill(tmp_path, monkeypatch):
     # waiting, keep the outcome the code would actually see.
     monkeypatch.setattr(OrderManager, "_await_fill",
                         lambda self, b, r, **kw: b.get_order_status(r.broker_order_id))
-    result = mgr.execute(queued.id)
+    result = mgr.execute(queued.id, now=_NYSE_OPEN)
 
     assert result["ok"] is True
     assert result["status"] == OrderStatus.PARTIAL.value
@@ -562,7 +570,7 @@ def test_order_manager_brackets_a_real_fill(tmp_path, monkeypatch):
     broker = _RecordingBroker(OrderStatus.FILLED, filled=100)
     queued = _queue_a_trade(tmp_path, monkeypatch)
     mgr = OrderManager(alpaca=broker)
-    result = mgr.execute(queued.id)
+    result = mgr.execute(queued.id, now=_NYSE_OPEN)
 
     assert result["ok"] is True
     types = {r.order_type for r in broker.placed[1:]}
@@ -578,7 +586,7 @@ def test_order_manager_marks_a_rejection_rejected(tmp_path, monkeypatch):
     broker = _RecordingBroker(OrderStatus.REJECTED)
     queued = _queue_a_trade(tmp_path, monkeypatch)
     mgr = OrderManager(alpaca=broker)
-    result = mgr.execute(queued.id)
+    result = mgr.execute(queued.id, now=_NYSE_OPEN)
 
     assert result["ok"] is False
     # The queue is the audit trail. execute() marks a trade approved before it

@@ -62,13 +62,45 @@ class OrderManager:
             thesis_summary=trade.thesis_summary,
         )
 
-    def execute(self, trade_id: str) -> dict:
-        """Execute an approved trade. Returns status dict."""
+    @staticmethod
+    def session_refusal(ticker: str, asset_class: str,
+                        now: Optional[datetime] = None) -> Optional[str]:
+        """None when the instrument is in continuous trading at its own venue
+        now (src/markets/sessions); otherwise why not. UNKNOWN, a provider
+        failure and any error here are refusals — never a pass."""
+        try:
+            from src.markets.sessions import session
+            info = session(ticker, now, asset_class=asset_class)
+        except Exception as e:
+            return f"session check failed ({type(e).__name__}: {e}) — unknown is never open"
+        if info.tradable:
+            return None
+        why = "; ".join(r for r in info.reasons if r) or "not in continuous trading"
+        nxt = f"; next open {info.next_open}" if info.next_open else ""
+        return f"{ticker} is {info.state.value} at {info.venue or 'an unknown venue'} ({why}){nxt}"
+
+    def execute(self, trade_id: str, now: Optional[datetime] = None) -> dict:
+        """Execute an approved trade. Returns status dict.
+
+        The instrument's session is checked HERE, at the moment of sending,
+        for every caller — the owner's approve button, the desk's auto-executor
+        and the reflex lane all arrive through this method, and a desk cycle
+        that checked the session when it started can finish after the close.
+        A closed or UNKNOWN market leaves the trade pending, unsent: a market
+        order sent now would be filled blind at the next open.
+        """
         trade = self._queue.get_by_id(trade_id)
         if not trade:
             return {"ok": False, "error": f"Trade {trade_id} not found"}
         if trade.status not in ("pending", "approved"):
             return {"ok": False, "error": f"Trade {trade_id} status is '{trade.status}', not approvable"}
+
+        refusal = self.session_refusal(trade.ticker, trade.asset_class, now)
+        if refusal:
+            logger.warning(f"Trade {trade_id} not sent — {refusal}")
+            return {"ok": False, "session_closed": True,
+                    "error": f"market not in continuous trading: {refusal}. Nothing was "
+                             f"sent; the trade stays {trade.status}."}
 
         # Mark approved
         self._queue.approve(trade_id)

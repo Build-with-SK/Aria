@@ -318,7 +318,7 @@ class _FakeMgr:
         return {}
 
 
-def _drive_close(monkeypatch, asset_class):
+def _drive_close(monkeypatch, asset_class, ticker="SPY"):
     """Run PositionManager._close for a position of `asset_class` against a
     broker that would happily accept the order, and report what happened."""
     from src.desk import position_manager as pm
@@ -342,10 +342,10 @@ def _drive_close(monkeypatch, asset_class):
     monkeypatch.setattr("src.execution.live_guard.paper_confirmed",
                         lambda broker: True)
 
-    tracked = {"SPY": {"asset_class": asset_class, "side": "long",
-                       "entry_price": 100.0, "qty": 10}}
+    tracked = {ticker: {"asset_class": asset_class, "side": "long",
+                        "entry_price": 100.0, "qty": 10}}
     bp = {"qty": 10, "side": "long"}
-    out = pmgr._close(tracked, "SPY", bp, mgr, reason="stop hit")
+    out = pmgr._close(tracked, ticker, bp, mgr, reason="stop hit")
     return out, broker, queued
 
 
@@ -366,8 +366,13 @@ def test_unsupported_asset_class_is_queued_not_coerced(monkeypatch, bad_class):
 
 def test_supported_asset_class_still_reaches_the_broker(monkeypatch):
     """The guard must not have welded the normal crypto exit shut. Crypto is
-    used here because it skips the market-hours deferral."""
-    out, broker, queued = _drive_close(monkeypatch, "crypto")
+    used here because it skips the market-hours deferral.
+
+    The position is BTCUSD — how Alpaca reports a crypto position. It used to
+    be "SPY" labelled crypto, which passed only while New York was open once
+    the exit check began resolving each instrument's own venue (11c18aa); a
+    label that contradicts the symbol now resolves to no venue at all."""
+    out, broker, queued = _drive_close(monkeypatch, "crypto", ticker="BTCUSD")
 
     assert len(broker.submitted) == 1
     assert broker.submitted[0].asset_class == AssetClass.CRYPTO

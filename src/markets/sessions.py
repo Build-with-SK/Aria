@@ -40,9 +40,9 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from src.markets import calendars, providers
-from src.markets.venues import (AUCTION, BREAK, EXCHANGE_ALIASES, FUTURES_ROOTS,
-                                INDEX_OPTION_ROOTS, INDEX_VENUES, OPEN, POST_MARKET,
-                                PRE_OPEN, VENUES, Phase, VenueSpec, _m)
+from src.markets.venues import (AUCTION, BREAK, EXCHANGE_ALIASES, FUTURES_CALENDARS,
+                                FUTURES_ROOTS, INDEX_OPTION_ROOTS, INDEX_VENUES, OPEN,
+                                POST_MARKET, PRE_OPEN, VENUES, Phase, VenueSpec, _m)
 
 
 class SessionState(str, Enum):
@@ -75,9 +75,48 @@ class Instrument:
     expiry: Optional[date] = None
     underlying: Optional[str] = None
     basis: str = ""
+    #: Futures: the contract calendar (product group) whose holidays apply —
+    #: venues.FUTURES_CALENDARS. None for everything else.
+    calendar: Optional[str] = None
 
 
 _OCC = re.compile(r"^([A-Z]{1,6})(\d{2})(\d{2})(\d{2})([CP])(\d{8})$")
+#: A broker's crypto pair without a separator (Alpaca reports "BTCUSD").
+_CRYPTO_PAIR = re.compile(r"^[A-Z0-9]{2,10}(USD|USDT|USDC|BTC|ETH|EUR|GBP)$")
+_FX_PAIR = re.compile(r"^[A-Z]{6}$")
+
+
+def _by_asset_class(sym: str, asset_class: str,
+                    expiry: Optional[date]) -> Optional[Instrument]:
+    """A bare symbol whose shape says nothing, read with the asset class the
+    caller already knows (a broker position, a queued trade). The class only
+    settles a FORMAT ambiguity: "BTCUSD" labelled crypto is the BTC/USD pair.
+    A class that contradicts the symbol ("SPY" labelled crypto) resolves to
+    no venue — UNKNOWN — rather than letting a label make an equity 24/7."""
+    ac = (asset_class or "").strip().lower()
+    if ac == "crypto":
+        if _CRYPTO_PAIR.match(sym):
+            return Instrument(sym, "crypto", "CRYPTO", expiry,
+                              basis="crypto pair (asset class given by the caller)")
+        return Instrument(sym, "crypto", None, expiry,
+                          basis=f"labelled crypto but {sym!r} is not a crypto pair — "
+                                f"no venue rather than a guessed one")
+    if ac in ("forex", "fx"):
+        if _FX_PAIR.match(sym):
+            return Instrument(sym, "forex", "FX", expiry,
+                              basis="FX pair (asset class given by the caller)")
+        return Instrument(sym, "forex", None, expiry,
+                          basis=f"labelled forex but {sym!r} is not a currency pair")
+    if ac in ("futures", "future"):
+        return Instrument(sym, "futures", FUTURES_ROOTS.get(sym), expiry, underlying=sym,
+                          basis=(f"future root {sym} (asset class given by the caller)"
+                                 if sym in FUTURES_ROOTS else
+                                 f"future {sym!r} has no modelled contract session"),
+                          calendar=FUTURES_CALENDARS.get(sym))
+    if ac in ("option", "options"):
+        return Instrument(sym, "option", None, expiry,
+                          basis="option without an OCC symbol: its expiry and venue are unknown")
+    return None
 
 
 def resolve(symbol: str, *, venue: Optional[str] = None,
@@ -87,7 +126,9 @@ def resolve(symbol: str, *, venue: Optional[str] = None,
 
     Reads the symbol's own shape — the same rules as
     src/core/identity.classify_provider_symbol — and never a display-name
-    lookup, so "BA" is the US listing and "BA.L" is London.
+    lookup, so "BA" is the US listing and "BA.L" is London. A bare symbol
+    with a crypto, FX, futures or option `asset_class` is read as that class
+    (see _by_asset_class); the shape, when it says something, still wins.
     """
     sym = (symbol or "").strip().upper()
     if venue:
@@ -108,11 +149,16 @@ def resolve(symbol: str, *, venue: Optional[str] = None,
         root = sym[:-2]
         return Instrument(sym, "futures", FUTURES_ROOTS.get(root), expiry, underlying=root,
                           basis=(f"continuous future, root {root}" if root in FUTURES_ROOTS
-                                 else f"future root {root} has no modelled session"))
+                                 else f"future root {root} has no modelled session"),
+                          calendar=FUTURES_CALENDARS.get(root))
     if sym.endswith("=X"):
         return Instrument(sym, "forex", "FX", expiry, basis="FX cross")
     if sym.endswith("-USD") or "/" in sym:
         return Instrument(sym, asset_class or "crypto", "CRYPTO", expiry, basis="crypto pair")
+    if asset_class:
+        by_class = _by_asset_class(sym, asset_class, expiry)
+        if by_class is not None:
+            return by_class
     from src.core.identity import classify_provider_symbol
     c = classify_provider_symbol(sym)
     ex = c.get("exchange")
@@ -147,6 +193,9 @@ def _hhmm(minute: int) -> str:
 
 def _static_day(spec: VenueSpec, cal, d: date, week: tuple, label: str):
     """A day from a dated static calendar (owner file or built-in)."""
+    if d in getattr(cal, "unknown_days", {}):
+        return None, (f"{cal.unknown_days[d]} ({label}) — the whole day is UNKNOWN "
+                      f"until the source gives its hours")
     if d in cal.special_sessions:
         return tuple(Phase.of(*p) for p in cal.special_sessions[d]), f"special session ({label})"
     if not week:
@@ -210,14 +259,64 @@ def _calendar_code(spec: VenueSpec) -> str:
     return spec.calendar or spec.code
 
 
-def _day(spec: VenueSpec, d: date):
+def _futures_day(spec: VenueSpec, d: date, week: tuple, contract: Optional[str]):
+    """A futures day: the venue's contract hours, the CONTRACT's holidays.
+
+    A contract calendar (data/calendars/<GROUP>.json, e.g. CME_EQUITY) that
+    covers the year answers for the dates it lists: an abbreviated session
+    (special_sessions, the day's phases in full), a full closure (holidays),
+    an announced-but-unspecified day (unknown_days), or an explicit regular
+    day (regular_days). Every US holiday and the evening before it must be
+    listed one way or another; one the calendar is silent about is UNKNOWN,
+    not assumed regular. Without a contract calendar every US holiday and its
+    eve are UNKNOWN, as before. US holiday facts come from the XNYS chain.
+    """
+    cal = calendars.get_override(contract) if contract else None
+    if cal is not None and cal.invalid:
+        if not week:
+            return week, "weekend"
+        return None, f"contract calendar {contract} is invalid — {cal.invalid}"
+    covered = cal is not None and d.year in cal.years
+    if covered:
+        label = cal.source or f"{contract} contract calendar"
+        if d in cal.unknown_days:
+            return None, f"{cal.unknown_days[d]} ({label})"
+        if d in cal.special_sessions:
+            return (tuple(Phase.of(*p) for p in cal.special_sessions[d]),
+                    f"{contract} abbreviated session ({label})")
+        if d in cal.early_closes:
+            return None, (f"{contract}: an early close alone does not say when the "
+                          f"evening session reopens — state the day in special_sessions")
+        if d in cal.holidays:
+            return (_HOLIDAY, f"{contract} holiday ({label})") if week else (week, "weekend")
+        if d in cal.regular_days:
+            return week, f"regular session confirmed by {label}"
+    nyse = VENUES["XNYS"]
+    for dd in (d, d + timedelta(days=1)):
+        ph, why = _day(nyse, dd)
+        if ph is None:
+            return None, f"no verified US holiday calendar for {dd} — futures hours unknown"
+        if ph is _HOLIDAY and week:
+            if covered:
+                return None, (f"{dd} is a US holiday and the {contract} calendar does not "
+                              f"state {d}'s schedule — UNKNOWN, not assumed regular")
+            return None, ("US holiday: futures trade an abbreviated schedule that is "
+                          "not modelled here" + (f" (no {contract} contract calendar)"
+                                                 if contract else ""))
+    return week, ""
+
+
+def _day(spec: VenueSpec, d: date, contract: Optional[str] = None):
     """(phases | _HOLIDAY | None, reason). None means UNKNOWN.
 
     The ONE place a venue-day is resolved. Calendar precedence:
-      1. owner file / runtime registration (calendars.get_override)
+      1. owner file / runtime registration (calendars.get_override) — an
+         owner file that exists but does not validate makes the venue
+         UNKNOWN; it does not fall through to what it meant to override
       2. calendar providers (src/markets/providers.py: exchange_calendars)
       3. built-in static calendars (calendars.get_builtin)
       4. none -> UNKNOWN (a weekend is still certainly closed)
+    Futures take `contract` (their product group's calendar) instead.
     """
     week = spec.phases(d.weekday())
     if _zone(spec) is None:
@@ -225,22 +324,14 @@ def _day(spec: VenueSpec, d: date):
     if spec.holiday_rule == "none":
         return week, ""
     if spec.holiday_rule == "us_futures":
-        # US futures stay on their contract hours; US holidays (and the
-        # evening before one) are UNKNOWN because the abbreviated holiday
-        # schedules are product-specific and not modelled. The holiday facts
-        # come from the same chain as the NYSE itself.
-        nyse = VENUES["XNYS"]
-        for dd in (d, d + timedelta(days=1)):
-            ph, why = _day(nyse, dd)
-            if ph is None:
-                return None, f"no verified US holiday calendar for {dd} — futures hours unknown"
-            if ph is _HOLIDAY and week:
-                return None, ("US holiday: futures trade an abbreviated schedule that is "
-                              "not modelled here")
-        return week, ""
+        return _futures_day(spec, d, week, contract)
 
     code = _calendar_code(spec)
     override = calendars.get_override(code)
+    if override is not None and override.invalid:
+        if not week:
+            return week, "weekend"
+        return None, f"owner calendar for {code} is invalid — {override.invalid}"
     if override is not None and d.year in override.years:
         return _static_day(spec, override, d, week, override.source or "owner calendar")
     provider_code = override.alias_of if (override is not None and override.alias_of) else code
@@ -338,8 +429,19 @@ def _unknown(sym: str, inst: Optional[Instrument], why: str) -> SessionInfo:
                        None, None, reasons=[why])
 
 
-def venue_state(code: str, at: Optional[datetime] = None) -> tuple:
-    """(SessionState, reason, phase_end_local | None, trading_day) for a venue."""
+def _announced_unknown(spec: VenueSpec, d: date, contract: Optional[str] = None) -> bool:
+    """Has the venue's calendar declared `d` a deviation it cannot specify
+    (a Muhurat session whose hours are not yet notified)? Then no time of
+    that day is known — not even "outside regular hours"."""
+    code = contract if spec.holiday_rule == "us_futures" else _calendar_code(spec)
+    cal = calendars.get_override(code) if code else None
+    return cal is not None and not cal.invalid and d in cal.unknown_days
+
+
+def venue_state(code: str, at: Optional[datetime] = None,
+                contract: Optional[str] = None) -> tuple:
+    """(SessionState, reason, phase_end_local | None, trading_day) for a venue.
+    `contract` is a futures product group's calendar (venues.FUTURES_CALENDARS)."""
     spec = VENUES.get(code)
     if spec is None:
         return SessionState.UNKNOWN, f"no session spec for venue {code!r}", None, None
@@ -347,16 +449,18 @@ def venue_state(code: str, at: Optional[datetime] = None) -> tuple:
         return SessionState.UNKNOWN, f"invalid timezone {spec.tz!r} for {code}", None, None
     loc = _local(spec, at)
     d = loc.date()
-    phases, why = _day(spec, d)
+    phases, why = _day(spec, d, contract)
     minute = loc.hour * 60 + loc.minute
     if phases is None:
         # A missing holiday calendar can only REMOVE trading hours, so outside
         # the regular schedule the venue is certainly not trading. Inside it,
         # it might be a holiday: UNKNOWN. (A special session outside regular
         # hours cannot be known without the calendar either — reading that as
-        # CLOSED errs towards not trading, the safe side.)
+        # CLOSED errs towards not trading, the safe side.) A day the calendar
+        # itself declares unknown is UNKNOWN at every hour.
         regular = spec.phases(d.weekday())
         if spec.holiday_rule == "calendar" and regular and \
+                not _announced_unknown(spec, d) and \
                 not any(p.start <= minute < p.end for p in regular):
             return (SessionState.CLOSED,
                     "outside regular hours (holiday calendar unverified)", None, d)
@@ -369,13 +473,14 @@ def venue_state(code: str, at: Optional[datetime] = None) -> tuple:
     return SessionState.CLOSED, why or "outside the venue's trading phases", None, d
 
 
-def _next_open(spec: VenueSpec, at: datetime, horizon_days: int = 15) -> Optional[datetime]:
+def _next_open(spec: VenueSpec, at: datetime, horizon_days: int = 15,
+               contract: Optional[str] = None) -> Optional[datetime]:
     loc = _local(spec, at)
     minute = loc.hour * 60 + loc.minute
-    state, *_ = venue_state(spec.code, at)
+    state, *_ = venue_state(spec.code, at, contract)
     for k in range(horizon_days):
         d = loc.date() + timedelta(days=k)
-        phases, _ = _day(spec, d)
+        phases, _ = _day(spec, d, contract)
         if phases is None:
             return None                         # cannot see past an unknown day
         if phases is _HOLIDAY:
@@ -390,7 +495,7 @@ def _next_open(spec: VenueSpec, at: datetime, horizon_days: int = 15) -> Optiona
             start = _at(spec, d, p.start)
             # an OPEN phase that merely continues across midnight is not a re-open
             if p.start == 0:
-                prev, _ = _day(spec, d - timedelta(days=1))
+                prev, _ = _day(spec, d - timedelta(days=1), contract)
                 if isinstance(prev, tuple) and any(q.state == OPEN and q.end == 1440 for q in prev):
                     continue
             return start.astimezone(timezone.utc)
@@ -399,18 +504,23 @@ def _next_open(spec: VenueSpec, at: datetime, horizon_days: int = 15) -> Optiona
 
 def session(symbol: str, at: Optional[datetime] = None, *,
             halted: Optional[bool] = None, venue: Optional[str] = None,
-            expiry: Optional[date] = None) -> SessionInfo:
-    """The authoritative session for one instrument at one instant."""
+            expiry: Optional[date] = None,
+            asset_class: Optional[str] = None) -> SessionInfo:
+    """The authoritative session for one instrument at one instant.
+    `asset_class` is what the caller already knows about the instrument (a
+    broker position's class); see resolve()."""
     at = at or datetime.now(timezone.utc)
-    inst = resolve(symbol, venue=venue, expiry=expiry)
+    inst = resolve(symbol, venue=venue, expiry=expiry, asset_class=asset_class)
     if inst.venue is None:
         return _unknown(inst.symbol, inst, inst.basis or "no venue could be resolved")
     spec = VENUES[inst.venue]
-    state, why, phase_end, d = venue_state(spec.code, at)
+    contract = inst.calendar
+    state, why, phase_end, d = venue_state(spec.code, at, contract)
     if _zone(spec) is None:
         return _unknown(inst.symbol, inst, why)
     loc = _local(spec, at)
-    verified = spec.holiday_rule == "none" or (d is not None and _day(spec, d)[0] is not None)
+    verified = spec.holiday_rule == "none" or (d is not None and
+                                               _day(spec, d, contract)[0] is not None)
     reasons = [why] if why else []
 
     if inst.expiry is not None and state not in (SessionState.UNKNOWN,):
@@ -427,8 +537,9 @@ def session(symbol: str, at: Optional[datetime] = None, *,
     elif halted is None and state == SessionState.OPEN and spec.kind != "crypto":
         reasons.append("halt status not observed — quote freshness is the backstop")
 
-    nxt = None if state == SessionState.OPEN else _next_open(spec, at)
-    nclose = next_close(spec.code, at) if state != SessionState.UNKNOWN else None
+    nxt = None if state == SessionState.OPEN else _next_open(spec, at, contract=contract)
+    nclose = next_close(spec.code, at, contract=contract) \
+        if state != SessionState.UNKNOWN else None
     return SessionInfo(
         symbol=inst.symbol, venue=spec.code, venue_name=spec.name, country=spec.country,
         timezone=spec.tz, asset_class=inst.asset_class, state=state,
@@ -442,11 +553,11 @@ def session(symbol: str, at: Optional[datetime] = None, *,
         reasons=reasons)
 
 
-def is_trading_day(code: str, d: date) -> Optional[bool]:
+def is_trading_day(code: str, d: date, contract: Optional[str] = None) -> Optional[bool]:
     spec = VENUES.get(code)
     if spec is None or _zone(spec) is None:
         return None
-    phases, _ = _day(spec, d)
+    phases, _ = _day(spec, d, contract)
     if phases is None:
         return None
     if phases is _HOLIDAY:
@@ -454,14 +565,14 @@ def is_trading_day(code: str, d: date) -> Optional[bool]:
     return any(p.state == OPEN for p in phases)
 
 
-def session_close(code: str, d: date) -> Optional[datetime]:
+def session_close(code: str, d: date, contract: Optional[str] = None) -> Optional[datetime]:
     """When trading day `d` ends at `code` — the end of its last OPEN or
     AUCTION phase, early closes included — as an aware datetime in the
     venue's timezone. None for a non-trading or unknown day."""
     spec = VENUES.get(code)
     if spec is None or _zone(spec) is None:
         return None
-    phases, _ = _day(spec, d)
+    phases, _ = _day(spec, d, contract)
     if not isinstance(phases, tuple):
         return None
     ends = [p.end for p in phases if p.state in (OPEN, AUCTION)]
@@ -469,7 +580,7 @@ def session_close(code: str, d: date) -> Optional[datetime]:
 
 
 def next_close(code: str, at: Optional[datetime] = None,
-               horizon_days: int = 15) -> Optional[datetime]:
+               horizon_days: int = 15, contract: Optional[str] = None) -> Optional[datetime]:
     """When trading next stops (UTC).
 
     Exchanges and options: the session close of the trading day in progress,
@@ -496,7 +607,7 @@ def next_close(code: str, at: Optional[datetime] = None,
     end = None
     for k in range(horizon_days):
         dd = d + timedelta(days=k)
-        phases, _ = _day(spec, dd)
+        phases, _ = _day(spec, dd, contract)
         if phases is None:
             return None
         if phases is _HOLIDAY:
@@ -598,3 +709,82 @@ def bar_known_by(code: Optional[str], d: date, when: datetime,
     if avail is None:
         avail = datetime.combine(d + timedelta(days=2), time(0), timezone.utc)
     return avail <= when.astimezone(timezone.utc)
+
+
+# ── where the calendar ends ─────────────────────────────────────────────────
+
+def _merge(spans: list) -> list:
+    out = []
+    for lo, hi, who in sorted(spans):
+        if out and lo <= out[-1][1] + timedelta(days=1):
+            plo, phi, pwho = out[-1]
+            out[-1] = (plo, max(phi, hi), pwho if who in pwho else f"{pwho} + {who}")
+        else:
+            out.append((lo, hi, who))
+    return out
+
+
+def calendar_bounds(code: str) -> dict:
+    """The deterministic edge of what the engine can say about venue `code`.
+
+    `spans` are the date ranges some provider in the chain covers (owner
+    file > exchange_calendars > built-in), merged; `final_known_date` is the
+    last covered date and `first_unknown_date` the day after it, from which
+    every weekday reads UNKNOWN inside trading hours. `unknown_days` are
+    holes the calendar itself declares (an announced session without hours).
+    Nothing here extrapolates a holiday pattern past the last covered date.
+    """
+    spec = VENUES.get(code)
+    if spec is None:
+        return {"venue": code, "rule": "no session spec", "spans": [],
+                "final_known_date": None, "first_unknown_date": None}
+    if spec.holiday_rule == "none":
+        return {"venue": code, "rule": "no exchange holidays (weekly hours only)",
+                "spans": [], "final_known_date": None, "first_unknown_date": None}
+    if spec.holiday_rule == "us_futures":
+        nyse = calendar_bounds("XNYS")
+        last = date.fromisoformat(nyse["final_known_date"]) if nyse["final_known_date"] else None
+        # A futures day can need the US calendar for the NEXT day too (an
+        # evening session belongs to tomorrow's trade date), so the edge is
+        # the last day the engine itself can resolve near the US horizon.
+        while last is not None:
+            ph, why = _day(spec, last)
+            if ph is not None or not why.startswith("no verified US holiday calendar"):
+                break
+            last -= timedelta(days=1)
+        return {"venue": code, "spans": nyse["spans"],
+                "rule": ("contract hours; US holidays and their eves are UNKNOWN unless "
+                         "the root's contract calendar states the day"),
+                "final_known_date": last.isoformat() if last else None,
+                "first_unknown_date": (last + timedelta(days=1)).isoformat() if last else None,
+                "unknown_days": []}
+    cal_code = _calendar_code(spec)
+    ov = calendars.get_override(cal_code)
+    if ov is not None and ov.invalid:
+        return {"venue": code, "calendar": cal_code, "valid": False, "why": ov.invalid,
+                "spans": [], "final_known_date": None, "first_unknown_date": None,
+                "unknown_days": []}
+    spans = []
+    if ov is not None:
+        spans += [(date(y, 1, 1), date(y, 12, 31), "owner file") for y in ov.years]
+    provider_code = ov.alias_of if (ov is not None and ov.alias_of) else cal_code
+    for p in providers.chain():
+        rng = getattr(p, "verified_range", None)
+        if rng is None:
+            continue
+        try:
+            lo, hi = rng(provider_code)
+        except Exception:
+            continue
+        if lo <= hi:
+            spans.append((lo, hi, getattr(p, "name", "provider")))
+    bi = calendars.get_builtin(cal_code)
+    if bi is not None:
+        spans += [(date(y, 1, 1), date(y, 12, 31), "built-in") for y in bi.years]
+    merged = _merge(spans)
+    last = merged[-1][1] if merged else None
+    return {"venue": code, "calendar": cal_code,
+            "spans": [{"from": a.isoformat(), "to": b.isoformat(), "by": w} for a, b, w in merged],
+            "final_known_date": last.isoformat() if last else None,
+            "first_unknown_date": (last + timedelta(days=1)).isoformat() if last else None,
+            "unknown_days": sorted(d.isoformat() for d in (ov.unknown_days if ov else {}))}

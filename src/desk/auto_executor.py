@@ -249,6 +249,14 @@ class AutoExecutor:
             push(fmt_entry(entry["side"], entry["qty"], entry["ticker"], fill,
                            entry.get("stop"), entry.get("target")), self.cfg)
             self._alert_feed(entry, fill)
+        elif result.get("session_closed"):
+            # The market closed (or became unknown) between the cycle's check
+            # and the send. Not a failure: the trade waits in the queue for
+            # the owner, exactly like any other red gate.
+            record["mode"] = "queued"
+            record["reason"] = result.get("error", "market not in continuous trading")
+            self._notify(f"⏸ QUEUED {entry['side'].upper()} {entry['qty']:g} {entry['ticker']}",
+                         f"Awaiting your approval — {record['reason']}")
         else:
             record["mode"] = "failed"
             record["reason"] = result.get("error", "broker rejected")

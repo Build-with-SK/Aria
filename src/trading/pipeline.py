@@ -169,7 +169,7 @@ class TradingPipeline:
         # market is not executed here — src/trading/session_orders.py decides
         # whether it becomes a standing, conditional or scheduled order.
         from src.markets import sessions as _sessions
-        sess = _sessions.session(signal.symbol, now)
+        sess = _sessions.session(signal.symbol, now, asset_class=signal.asset_class)
         res.session = sess.to_dict()
         if not sess.tradable:
             res.stage_reached = "session"

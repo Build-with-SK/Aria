@@ -107,7 +107,7 @@ def market_open(asset_class: str, now: Optional[datetime] = None, *,
     from src.markets import sessions
     now = now or datetime.now(timezone.utc)
     if symbol:
-        info = sessions.session(symbol, now)
+        info = sessions.session(symbol, now, asset_class=asset_class)
         if info.venue is None:
             return False, info.reasons[0] if info.reasons else "unknown venue"
         return info.tradable, _why(info.state.value, info.reasons, info.venue)
@@ -139,6 +139,8 @@ def _why(state: str, reasons: list, venue: str) -> str:
 # is never awake at that hour stops predicting; answer it per calendar day and
 # a Saturday call is logged as new evidence when it is Friday's close again.
 
+#: The NYSE's regular hours, for display. Nothing decides a session from
+#: these: src/markets/venues.py holds the hours and the calendar chain the days.
 SESSION_OPEN = time(9, 30)
 SESSION_CLOSE = time(16, 0)
 
@@ -149,11 +151,12 @@ def is_trading_day(d: date) -> Optional[bool]:
     return _itd("XNYS", d)
 
 
-def session_close(d: date) -> datetime:
+def session_close(d: date) -> Optional[datetime]:
     """The NYSE close of `d` (early closes included), aware New York time.
-    Falls back to the regular 16:00 for a day the calendar cannot answer."""
+    None for a day the calendar cannot answer or a non-trading day — never an
+    assumed 16:00, which on a half day is three hours late."""
     from src.markets.sessions import session_close as _sc
-    return _sc("XNYS", d) or datetime.combine(d, SESSION_CLOSE, NY)
+    return _sc("XNYS", d)
 
 
 def latest_completed_session(now: Optional[datetime] = None,

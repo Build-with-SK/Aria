@@ -32,13 +32,16 @@ WHY THE MAPPING IS NARROW
 Only venues the library covers AUTHORITATIVELY are mapped. Not mapped, on
 purpose:
   XNSE, XSHE      the library has no NSE or Shenzhen calendar; aliasing them
-                  to BSE / Shanghai would be an inference, not coverage. An
-                  owner file (data/calendars/XNSE.json, with a source) or an
-                  explicit {"alias_of": "XBOM", "source": ...} enables them.
+                  to BSE / Shanghai would be an inference, not coverage. They
+                  are answered by owner files built from each exchange's own
+                  notices (data/calendars/XNSE.json, XSHE.json — see their
+                  `provenance`), and are UNKNOWN outside the years those cover.
   futures         CMES / IEPA / us_futures are generic approximations (CMES
                   models one 17:00-17:00 CT session for every CME product and
                   no daily maintenance break). The contract-specific hours in
-                  venues.py are kept; US holidays stay UNKNOWN for futures.
+                  venues.py are kept; holidays come from per-product-group
+                  contract calendars (venues.FUTURES_CALENDARS), and without
+                  one a US holiday and its eve stay UNKNOWN.
 US listed options use the NYSE calendar (their venue specs name "XNYS"), with
 their own 16:00 / 16:15 closes, so an NYSE early close moves index options to
 13:15 by the same delta.
@@ -128,6 +131,10 @@ class ExchangeCalendarsProvider(CalendarProvider):
 
     def __init__(self):
         self._cals: dict = {}
+        #: The date range each calendar was BUILT for. Dates inside it but
+        #: before the first / after the last session (a holiday on 31 Dec,
+        #: say) are non-sessions, which the library refuses to say itself.
+        self._ranges: dict[str, tuple] = {}
         self._failed: dict[str, str] = {}
         self._lock = threading.Lock()
         self._warned: set = set()
@@ -163,6 +170,7 @@ class ExchangeCalendarsProvider(CalendarProvider):
                     end = min(end, bmax.date())
                 cal = xc.get_calendar(name, start=start.isoformat(), end=end.isoformat())
                 self._cals[name] = cal
+                self._ranges[name] = (start, end)
                 return cal
             except ImportError as e:
                 self._failed[name] = f"{LIBRARY} not installed: {e}"
@@ -192,14 +200,18 @@ class ExchangeCalendarsProvider(CalendarProvider):
         try:
             import pandas as pd
             ts = pd.Timestamp(d)
-            if ts < cal.first_session or ts > cal.last_session:
+            lo, hi = self.verified_range(code)
+            if d < lo or d > hi:
                 return None                       # outside the verified range
             zone = ZoneInfo(tz)
             src = f"{LIBRARY} {PINNED_VERSION} {XCALS_MAP[code]}"
             reg_open, reg_close = _regular(cal.open_times, d), _regular(cal.close_times, d)
             cur_open = _regular(cal.open_times, date.max)
             cur_close = _regular(cal.close_times, date.max)
-            if not cal.is_session(ts):
+            # Inside the built range the library lists every session, so a
+            # date before its first or after its last one is not a session —
+            # though asking it directly raises DateOutOfBounds.
+            if ts < cal.first_session or ts > cal.last_session or not cal.is_session(ts):
                 return DayFacts(False, regular_open=reg_open, regular_close=reg_close,
                                 current_open=cur_open, current_close=cur_close, source=src)
             bs, be = cal.session_break_start(ts), cal.session_break_end(ts)
@@ -215,14 +227,25 @@ class ExchangeCalendarsProvider(CalendarProvider):
                             f"(this venue-day reads UNKNOWN)")
             return None
 
+    def verified_range(self, code: str) -> tuple:
+        """(first, last) date this provider answers for `code` — the fixed
+        START..HORIZON clamped to the calendar's recorded bounds."""
+        cal = self.calendar(code)
+        name = XCALS_MAP.get(code)
+        if cal is None or name is None:
+            return (date.max, date.min)            # answers nothing
+        return self._ranges.get(name, (cal.first_session.date(), cal.last_session.date()))
+
     def bounds(self, code: str) -> Optional[dict]:
         cal = self.calendar(code)
         if cal is None:
             why = self._failed.get(XCALS_MAP.get(code, ""), "not mapped")
             return {"provider": LIBRARY, "available": False, "why": why}
+        lo, hi = self.verified_range(code)
         return {"provider": LIBRARY, "available": True, "calendar": XCALS_MAP[code],
-                "from": cal.first_session.date().isoformat(),
-                "to": cal.last_session.date().isoformat(),
+                "from": lo.isoformat(), "to": hi.isoformat(),
+                "first_session": cal.first_session.date().isoformat(),
+                "last_session": cal.last_session.date().isoformat(),
                 "version": _installed_version()}
 
 

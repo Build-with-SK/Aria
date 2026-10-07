@@ -1,0 +1,47 @@
+{
+  "_comment": "Shenzhen Stock Exchange (SZSE) equity trading calendar. The closure ranges below are the SZSE notice's own '...至...休市' ranges; nothing is inferred from Shanghai, from a prior year, or from the State Council schedule. Years not listed read UNKNOWN.",
+  "source": "Shenzhen Stock Exchange notice 关于2026年部分节假日休市安排的通知 (2025-12-22)",
+  "segment": "SZSE equities (A-shares). Lunch break and closing call are venue phases in src/markets/venues.py (XSHE), not calendar data.",
+  "years": [2026],
+  "retrieved": "2026-10-07",
+  "provenance": [
+    {"ref": "SZSE notice t20251222_618087", "date": "2025-12-22",
+     "title": "关于2026年部分节假日休市安排的通知",
+     "url": "https://www.szse.cn/disclosure/notice/t20251222_618087.html",
+     "retrieval": "szse.cn refused direct connections from the build machine on 2026-10-07 (TLS reset over https, connection reset over http, in-app browser refused). The closure text was taken from (a) the search engine's extraction of this exact szse.cn page and (b) the Securities Times report below; the two agree date-for-date. Re-verify against the URL from a machine that can reach szse.cn.",
+     "covers": "all 2026 holiday closures and the weekend days declared closed"},
+    {"ref": "Securities Times 2025-12-22", "date": "2025-12-22",
+     "title": "刚刚，沪深北交易所重磅发布！2026年A股休市安排来了",
+     "url": "https://www.stcn.com/article/detail/3551896.html",
+     "publisher": "证券时报 (Securities Times), a CSRC-designated information-disclosure newspaper",
+     "covers": "republishes the SSE, SZSE and BSE (Beijing) 2026 closure notices issued that day"}
+  ],
+  "closures": [
+    {"from": "2026-01-01", "to": "2026-01-03", "name": "元旦 New Year's Day", "reopens": "2026-01-05"},
+    {"from": "2026-02-15", "to": "2026-02-23", "name": "春节 Spring Festival", "reopens": "2026-02-24"},
+    {"from": "2026-04-04", "to": "2026-04-06", "name": "清明节 Qingming", "reopens": "2026-04-07"},
+    {"from": "2026-05-01", "to": "2026-05-05", "name": "劳动节 Labour Day", "reopens": "2026-05-06"},
+    {"from": "2026-06-19", "to": "2026-06-21", "name": "端午节 Dragon Boat Festival", "reopens": "2026-06-22"},
+    {"from": "2026-09-25", "to": "2026-09-27", "name": "中秋节 Mid-Autumn Festival", "reopens": "2026-09-28"},
+    {"from": "2026-10-01", "to": "2026-10-07", "name": "国庆节 National Day", "reopens": "2026-10-08"}
+  ],
+  "holidays": [
+    {"date": "2026-01-04", "name": "weekend closure on an official working day (调休), per the SZSE notice"},
+    {"date": "2026-02-14", "name": "weekend closure on an official working day (调休), per the SZSE notice"},
+    {"date": "2026-02-28", "name": "weekend closure on an official working day (调休), per the SZSE notice"},
+    {"date": "2026-05-09", "name": "weekend closure on an official working day (调休), per the SZSE notice"},
+    {"date": "2026-09-20", "name": "weekend closure on an official working day (调休), per the SZSE notice"},
+    {"date": "2026-10-10", "name": "weekend closure on an official working day (调休), per the SZSE notice"}
+  ],
+  "notes": [
+    "Make-up working weekends (调休) are NOT trading days: the notice declares each of them '周末休市'. The engine reads every weekend as closed; they are listed so the closure is explicit.",
+    "The lunch break (11:30-13:00) is a BREAK phase, not a close; the closing call auction runs 14:57-15:00."
+  ],
+  "limitations": [
+    "Years before 2026 and from 2027 read UNKNOWN. The 2027 schedule depends on the State Council's 2027 holiday notice and the exchange notice that follows it (normally late in the preceding year); neither is transcribed here.",
+    "Related SZSE reminder notices exist for each 2026 closure (t20260206_618970 春节, t20260331_619774 清明节, t20260423_620142 劳动节, general/t20260611_620979 端午节, t20260917_622911 中秋节/国庆节); their titles were seen in the search index, their contents were not retrieved."
+  ],
+  "cross_checks": [
+    "exchange_calendars 4.13.2 XSHG (Shanghai, an independent dataset) has exactly the same 19 weekday closures in 2026. It is a consistency check only and is NOT used to answer for Shenzhen."
+  ]
+}

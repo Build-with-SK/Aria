@@ -25,9 +25,13 @@ Holiday rules
 -------------
   calendar     the venue's own calendar (src/markets/calendars.py); a year
                without a verified calendar is UNKNOWN on weekdays
-  us_futures   CME/ICE US: weekly hours, and any US holiday (or the evening
-               before one) is UNKNOWN — abbreviated holiday schedules are not
-               modelled, and guessing them is exactly what must not happen
+  us_futures   CME/ICE US: weekly hours from the venue; holidays from the
+               contract's own calendar (FUTURES_CALENDARS below — one per
+               product group, because CME's equity, rates, FX, energy, metals,
+               grains and crypto products keep different holiday hours). With
+               no contract calendar for the year, any US holiday (or the
+               evening before one) is UNKNOWN — guessing an abbreviated
+               schedule is exactly what must not happen
   none         FX and crypto: no exchange holidays
 """
 from __future__ import annotations
@@ -259,6 +263,24 @@ FUTURES_ROOTS = {
                                  "CL", "NG", "RB", "HO", "BZ", "GC", "SI", "HG", "PL",
                                  "PA", "MGC", "ZN", "ZB", "ZF", "ZT", "UB", "6E", "6J",
                                  "6B", "6A", "6C", "6S", "BTC", "ETH", "MBT", "MET")},
+    **{r: "CBOT_GRAINS" for r in ("ZC", "ZS", "ZW", "ZM", "ZL", "KE", "ZO")},
+    "KC": "ICE_KC", "SB": "ICE_SB", "CC": "ICE_CC", "CT": "ICE_CT",
+}
+
+#: Continuous-future roots -> the CONTRACT CALENDAR (product group) whose
+#: holiday schedule applies. Hours come from FUTURES_ROOTS' venue; holidays
+#: do not, because one exchange's products do not share them — CME publishes
+#: separate holiday hours for equity index, interest rate, FX, energy, metals,
+#: grains and crypto contracts, and an ICE soft keeps its own. A group has a
+#: calendar only when data/calendars/<GROUP>.json (with a source) covers the
+#: year; until then every US holiday and its eve read UNKNOWN for its roots.
+FUTURES_CALENDARS = {
+    **{r: "CME_EQUITY" for r in ("ES", "NQ", "YM", "RTY", "MES", "MNQ", "MYM", "M2K")},
+    **{r: "CME_ENERGY" for r in ("CL", "NG", "RB", "HO", "BZ")},
+    **{r: "CME_METALS" for r in ("GC", "SI", "HG", "PL", "PA", "MGC")},
+    **{r: "CME_RATES" for r in ("ZN", "ZB", "ZF", "ZT", "UB")},
+    **{r: "CME_FX" for r in ("6E", "6J", "6B", "6A", "6C", "6S")},
+    **{r: "CME_CRYPTO" for r in ("BTC", "ETH", "MBT", "MET")},
     **{r: "CBOT_GRAINS" for r in ("ZC", "ZS", "ZW", "ZM", "ZL", "KE", "ZO")},
     "KC": "ICE_KC", "SB": "ICE_SB", "CC": "ICE_CC", "CT": "ICE_CT",
 }

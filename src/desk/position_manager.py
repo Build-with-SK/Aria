@@ -516,7 +516,7 @@ class PositionManager:
         # a market order queued overnight would sit unfilled, the position
         # would be re-adopted next tick, and closes would stack up. Defer.
         from src.desk.desk_daemon import instrument_open
-        if not instrument_open(ticker):
+        if not instrument_open(ticker, asset_class=held_class):
             logger.info(f"exit for {ticker} deferred — its market is not in "
                         f"continuous trading ({reason})")
             return None

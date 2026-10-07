@@ -81,11 +81,14 @@ def us_equities_open(now: datetime | None = None) -> bool:
     return venue_state("XNYS", now)[0] == SessionState.OPEN
 
 
-def instrument_open(symbol: str, now: datetime | None = None) -> bool:
-    """Is THIS instrument in continuous trading at its own venue now?"""
+def instrument_open(symbol: str, now: datetime | None = None,
+                    asset_class: str | None = None) -> bool:
+    """Is THIS instrument in continuous trading at its own venue now?
+    `asset_class` is what the position or playbook already records, so a
+    broker's "BTCUSD" is read as the crypto pair, not a US ticker."""
     from src.markets.sessions import session
     try:
-        return session(symbol, now).tradable
+        return session(symbol, now, asset_class=asset_class).tradable
     except Exception:                       # unknown is never open
         return False
 
