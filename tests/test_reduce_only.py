@@ -54,6 +54,16 @@ class _Book:
     cancelling its OCO sibling. No OCO support — see _OcoBook."""
     name = "book"
     paper = True
+    quote_time = None
+
+    def get_account(self):
+        from src.execution.broker_base import AccountInfo
+        return AccountInfo(broker="book", cash=1e6, portfolio_value=1e6,
+                           buying_power=1e6, currency="USD")
+
+    def get_quote(self, ticker):
+        return {"bid": 9.99, "ask": 10.01, "mid": 10.0,
+                "timestamp": self.quote_time.isoformat() if self.quote_time else None}
 
     def __init__(self, holdings=None):
         self.holdings = dict(holdings or {})
@@ -251,6 +261,7 @@ def test_10_a_partial_entry_gets_no_full_size_brackets(tmp_path, monkeypatch):
     from src.execution import approval_queue as aq
     monkeypatch.setattr(aq, "QUEUE_FILE", tmp_path / "q.json")
     book = Book({})
+    book.quote_time = TUE_OPEN
     book.partial_next = 40
     q = aq.ApprovalQueue().push(OrderRequest(
         ticker="AAPL", side=OrderSide.BUY, qty=100, order_type=OrderType.MARKET,

@@ -65,10 +65,13 @@ class PipelineResult:
     timings_ms: dict = field(default_factory=dict)
     session: Optional[dict] = None
     session_at_send: Optional[dict] = None
+    portfolio_risk: Optional[dict] = None
+    plan: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {"signal_id": self.signal_id, "symbol": self.symbol, "mode": self.mode,
                 "session": self.session, "session_at_send": self.session_at_send,
+                "portfolio_risk": self.portfolio_risk, "plan": self.plan,
                 "stage_reached": self.stage_reached, "submitted": self.submitted,
                 "dry_run": self.dry_run, "reasons": self.reasons,
                 "decision": self.decision, "violations": self.violations,
@@ -99,13 +102,21 @@ class TradingPipeline:
                  risk_engine: Optional[RiskEngine] = None,
                  order_engine: Optional[OrderEngine] = None,
                  min_net_edge_bps: float = 10.0,
-                 tradable_symbols: Optional[set] = None):
+                 tradable_symbols: Optional[set] = None,
+                 market_data=None, portfolio_limits=None):
         self.broker = broker
         self.fees = fee_schedule or _costs.SCHEDULES["simulated"]
         self.risk = risk_engine or RiskEngine(fee_schedule=self.fees,
                                               min_net_edge_bps=min_net_edge_bps)
         self.orders = order_engine or OrderEngine()
         self.tradable_symbols = tradable_symbols
+        # Portfolio risk (src/risk/pretrade). `market_data` is a src/risk/
+        # market_data.MarketData read point in time; without it the check runs
+        # on exposures alone and holds unknown-risk positions to a fraction of
+        # the name limit. Never a network default: a test or a replay supplies
+        # its data, production passes MdMarketData().
+        self.market_data = market_data
+        self.portfolio_limits = portfolio_limits
 
     # ── inputs ───────────────────────────────────────────────────────────
     def account_snapshot(self, *, persist: bool = True,
@@ -184,6 +195,11 @@ class TradingPipeline:
                 f"market closed: {sess.state.value} at {sess.venue or 'an unresolved venue'}"
                 + (f" — {'; '.join(sess.reasons)}" if sess.reasons else "")
                 + (f"; next open {sess.next_open}" if sess.next_open else ""))
+            # The thesis is deferred, not discarded: an inert plan (scheduled /
+            # conditional / deferred) says when it may be re-evaluated. Nothing
+            # executes it — it re-enters this pipeline, every gate again.
+            from src.risk import pretrade as _pretrade
+            res.plan = _pretrade.deferred_plan(signal.symbol, signal.side, sess, now)
             clock.mark("session")
             res.timings_ms = clock.total()
             _latency.record(res.timings_ms, broker=self.broker.name, outcome="session_closed")
@@ -214,6 +230,30 @@ class TradingPipeline:
             res.timings_ms = clock.total()
             _latency.record(res.timings_ms, broker=self.broker.name, outcome="no_trade")
             return res
+
+        # 2b. PORTFOLIO RISK — how much risk this adds to THE book: exposure,
+        #     concentration, currency, correlation, volatility, factors,
+        #     liquidity (src/risk/pretrade). It may reduce the size; it never
+        #     enlarges it. A signal's confidence is not permission.
+        pr = self._portfolio_risk(signal, decision, quote, account, lim, now)
+        clock.mark("portfolio_risk")
+        res.portfolio_risk = pr.to_dict()
+        if not pr.ok:
+            res.stage_reached = "portfolio_risk"
+            res.reasons.extend(f"portfolio risk {pr.verdict.value}: {r}" for r in pr.reasons)
+            res.timings_ms = clock.total()
+            _latency.record(res.timings_ms, broker=self.broker.name, outcome="no_trade")
+            return res
+        if pr.approved_qty < decision.qty - 1e-12:
+            decision = self.risk.resize(decision, pr.approved_qty, signal=signal, quote=quote,
+                                        reason=f"portfolio risk REDUCE_SIZE ({pr.binding})",
+                                        adv=adv, daily_vol=daily_vol)
+            res.decision = decision.to_dict()
+            if not decision.approved:
+                res.reasons.extend(decision.reasons)
+                res.timings_ms = clock.total()
+                _latency.record(res.timings_ms, broker=self.broker.name, outcome="no_trade")
+                return res
 
         # 3. order generation + validation
         order: OrderSpec = self.orders.build(signal, decision, order_type=order_type,
@@ -274,6 +314,22 @@ class TradingPipeline:
         _latency.record(res.timings_ms, broker=self.broker.name,
                         outcome=ack.status.lower())
         return res
+
+    def _portfolio_risk(self, signal, decision, quote, account, lim, now):
+        from src.risk import decisions as _decisions
+        from src.risk import pretrade as _pretrade
+        limits = self.portfolio_limits or _pretrade.PortfolioRiskLimits.from_trading_limits(lim)
+        order = _pretrade.ProposedOrder(
+            symbol=signal.symbol, side=signal.side, qty=decision.qty, price=decision.price,
+            price_at=getattr(quote, "timestamp", None), asset_class=signal.asset_class,
+            spread_bps=getattr(quote, "spread_bps", None),
+            lot=1e-6 if signal.fractionable else 1.0, sector=signal.sector,
+            strategy_id=signal.strategy_id, reduce_only=decision.closing)
+        pr = _pretrade.assess(order, account, at=now, limits=limits, data=self.market_data)
+        _decisions.record(pr, path="pipeline", context={
+            "strategy_id": signal.strategy_id, "signal_id": signal.signal_id,
+            "broker": self.broker.name})
+        return pr
 
     @staticmethod
     def _kill_switch() -> bool:

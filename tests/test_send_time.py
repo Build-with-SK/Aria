@@ -45,6 +45,20 @@ class Recorder:
     name = "recorder"
     paper = True
 
+    # The send path now values the book and prices the order before it
+    # sends (src/risk/pretrade): an account to measure against and a timed
+    # quote. `quote_time` is set by each test to the instant it sends at.
+    quote_time = None
+
+    def get_account(self):
+        from src.execution.broker_base import AccountInfo
+        return AccountInfo(broker=self.name, cash=1e6, portfolio_value=1e6,
+                           buying_power=1e6, currency="USD")
+
+    def get_quote(self, ticker):
+        return {"bid": 9.99, "ask": 10.01, "mid": 10.0,
+                "timestamp": self.quote_time.isoformat() if self.quote_time else None}
+
     def __init__(self):
         self.sent = []
 
@@ -100,6 +114,7 @@ def test_the_send_time_state_decides(tmp_path, monkeypatch, name, sym, planned,
     assert S.session(sym, planned).state == planned_state, name
     q = queue(tmp_path, monkeypatch, sym)
     rec = Recorder()
+    rec.quote_time = sent_at
     res = OrderManager(alpaca=rec).execute(q.id, now=sent_at, halted=halted)
     assert bool(rec.sent) is expect, (name, res)
     if not expect:
@@ -245,17 +260,41 @@ def test_mode_and_kill_switch_are_read_at_send_time_on_the_approval_path(tmp_pat
     modes.STATE_FILE.write_text('{"mode": "PAPER"}', encoding="utf-8")
     raw = FakeLegacyBroker(paper=True)
     raw.is_connected = lambda: True
+    # a quote timed at the send and an account large enough that one share
+    # fits every portfolio limit, so it is the MODE gate that refuses below
+    raw.get_quote = lambda ticker: {"bid": 99.95, "ask": 100.05, "mid": 100.0,
+                                    "timestamp": t.isoformat()}
+    from src.execution.broker_base import AccountInfo
+    raw.get_account = lambda: AccountInfo(broker="alpaca", cash=1e6, portfolio_value=1e6,
+                                          buying_power=1e6, currency="USD")
     q = queue(tmp_path, monkeypatch)
     modes.STATE_FILE.write_text('{"mode": "RESEARCH"}', encoding="utf-8")
     res = OrderManager(alpaca=access.gate_for_approvals(raw)).execute(q.id, now=t)
     assert res["ok"] is False and raw.submitted == []
+    assert "RESEARCH" in res["error"], res
 
     class Connected(AlpacaBroker):
+        name = "connected"
+
         def __init__(self):
             self._client = None
 
         def is_connected(self):
             return True
+
+        def get_account(self):
+            from src.execution.broker_base import AccountInfo
+            return AccountInfo(broker="alpaca", cash=1e6, portfolio_value=1e6,
+                               buying_power=1e6, currency="USD")
+
+        def get_positions(self):
+            return []
+
+        def get_open_orders(self):
+            return []
+
+        def get_quote(self, ticker):
+            return {"bid": 9.99, "ask": 10.01, "mid": 10.0, "timestamp": t.isoformat()}
     modes.STATE_FILE.write_text('{"mode": "PAPER"}', encoding="utf-8")
     q2 = queue(tmp_path, monkeypatch)
     kill_switch.engage("test", actor="test")

@@ -453,13 +453,18 @@ sends in another; the send-time state decides:
 
 `TradingPipeline.run` checks, in order:
 
-1. **SESSION** (stage `session`)
+1. **SESSION** (stage `session`). A closed or UNKNOWN market leaves an inert
+   re-evaluation plan (`result.plan`) and sends nothing.
 2. **DATA FRESH** (risk engine: account snapshot age, quote freshness, signal
    data age)
 3. **PRICE / RISK** (risk engine)
-4. **ORDER** (validator, which re-checks the session per instrument)
-5. **PERMISSION** (kill switch, `can_place_orders`)
-6. **MODE** (RESEARCH is a dry run)
+4. **PORTFOLIO RISK** (stage `portfolio_risk`, `src/risk/pretrade`): exposure,
+   concentration, currency, correlation, volatility, factors and liquidity. It
+   may reduce the size and never enlarges it (`docs/PORTFOLIO_RISK.md`).
+5. **ORDER** (validator, which re-checks the session per instrument)
+6. **PERMISSION** (kill switch, `can_place_orders`)
+7. **MODE** (RESEARCH is a dry run)
+8. **SESSION, again, at the send boundary**
 
 A market moving from CLOSED to OPEN triggers nothing by itself.
 

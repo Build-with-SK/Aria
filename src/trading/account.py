@@ -23,6 +23,16 @@ UNKNOWN STATE STOPS TRADING
 ---------------------------
 `AccountState.known` is False when it could not be read. The risk engine refuses
 every signal against an unknown account.
+
+ONE PORTFOLIO RECORD
+--------------------
+This is THE portfolio state: cash, equity, positions, pending orders and the
+capital they reserve, realised and unrealised P&L, gross / net / long / short
+exposure and leverage. Each holding carries its quote currency and venue, so
+the portfolio-risk layer (src/risk/portfolio_risk.py) can VALUE it in the base
+currency, with a cited FX rate, without keeping a second copy of the book.
+A holding's prices are in its own quote currency; with `currency` empty it is
+the account currency, which is what every adapter before 2026-10-07 meant.
 """
 from __future__ import annotations
 
@@ -54,6 +64,8 @@ class Holding:
     asset_class: str = "equity"
     sector: str = ""
     strategy_id: str = ""
+    currency: str = ""          # quote currency ("" = the account currency)
+    venue: str = ""             # src/markets venue code, when known
 
     @property
     def market_value(self) -> float:
@@ -91,6 +103,30 @@ class AccountState:
     @property
     def gross_exposure(self) -> float:
         return sum(abs(h.market_value) for h in self.holdings)
+
+    @property
+    def long_exposure(self) -> float:
+        return sum(h.market_value for h in self.holdings if h.qty > 0)
+
+    @property
+    def short_exposure(self) -> float:
+        return sum(-h.market_value for h in self.holdings if h.qty < 0)
+
+    @property
+    def net_exposure(self) -> float:
+        return sum(h.market_value for h in self.holdings)
+
+    @property
+    def reserved_capital(self) -> float:
+        """Cash committed to resting buy orders."""
+        return sum(float(o.get("notional", 0.0)) for o in self.pending_orders
+                   if o.get("side") == "buy")
+
+    @property
+    def buying_power(self) -> float:
+        """What a new purchase may use: cash net of reserved capital. No
+        margin in this phase, so never more than the cash itself."""
+        return self.available_cash
 
     @property
     def leverage(self) -> float:
@@ -140,6 +176,11 @@ class AccountState:
                  daily_pnl_pct=round(self.daily_pnl_pct, 4),
                  unrealised_pnl=round(self.unrealised_pnl, 6),
                  gross_exposure=round(self.gross_exposure, 6),
+                 long_exposure=round(self.long_exposure, 6),
+                 short_exposure=round(self.short_exposure, 6),
+                 net_exposure=round(self.net_exposure, 6),
+                 reserved_capital=round(self.reserved_capital, 6),
+                 buying_power=round(self.buying_power, 6),
                  leverage=round(self.leverage, 4) if self.equity > 0 else None)
         return d
 
@@ -248,3 +289,46 @@ def from_snapshot(*, equity: float, cash: float, holdings: list[Holding],
         fees_paid=fees_paid, realised_pnl=realised_pnl,
         performance_equity=perf, performance_hwm=hwm,
         performance_day_start=day_start, as_of=now, source=source)
+
+
+def from_legacy_broker(broker, *, now: Optional[datetime] = None) -> AccountState:
+    """THE portfolio state from a src/execution broker (Alpaca, IBKR, or the
+    mode-gated wrapper around one), read now. Positions keep their sign
+    (shorts negative) and their asset class; values are in the account
+    currency as the broker reports them. Any read failure is a KNOWN-UNKNOWN
+    state — never a zero-filled guess. Not persisted to the equity history,
+    which belongs to the trading layer's own account."""
+    now = now or datetime.now(timezone.utc)
+    try:
+        acct = broker.get_account()
+        positions = broker.get_positions()
+    except Exception as exc:
+        return unknown(f"{getattr(broker, 'name', 'broker')}: {type(exc).__name__}: {exc}")
+    holdings = []
+    for p in positions or []:
+        qty = abs(float(getattr(p, "qty", 0) or 0))
+        if qty <= 0:
+            continue
+        side = str(getattr(p, "side", "long") or "long").lower()
+        signed = -qty if (side == "short" or float(getattr(p, "qty", 0) or 0) < 0) else qty
+        mv = abs(float(getattr(p, "market_value", 0) or 0))
+        price = mv / qty if mv else float(getattr(p, "avg_cost", 0) or 0)
+        ac = getattr(p, "asset_class", "equity")
+        holdings.append(Holding(symbol=str(getattr(p, "ticker", "")), qty=signed,
+                                avg_price=float(getattr(p, "avg_cost", 0) or 0),
+                                market_price=price,
+                                asset_class=str(getattr(ac, "value", ac) or "equity")))
+    pending = []
+    try:
+        for o in broker.get_open_orders() or []:
+            px = o.get("limit_price") or o.get("stop_price") or 0.0
+            pending.append({"symbol": o.get("ticker"), "side": o.get("side"),
+                            "qty": float(o.get("qty") or 0),
+                            "notional": float(o.get("qty") or 0) * float(px or 0)})
+    except Exception as exc:
+        return unknown(f"open orders unreadable: {exc}")
+    equity = float(getattr(acct, "portfolio_value", 0) or 0) or float(getattr(acct, "cash", 0) or 0)
+    return from_snapshot(equity=equity, cash=float(getattr(acct, "cash", 0) or 0),
+                         holdings=holdings, pending_orders=pending,
+                         currency=str(getattr(acct, "currency", "") or "USD"),
+                         source=getattr(broker, "name", "broker"), persist=False, now=now)

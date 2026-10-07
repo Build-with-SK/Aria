@@ -214,3 +214,40 @@ class RiskEngine:
 
         d.qty, d.notional, d.approved = qty, round(qty * price, 6), True
         return d
+
+    def resize(self, decision: RiskDecision, qty: float, *, signal: Signal,
+               quote: Quote, reason: str, adv: float | None = None,
+               daily_vol: float | None = None) -> RiskDecision:
+        """The same decision at a SMALLER size imposed by a later gate (the
+        portfolio-risk layer). The minimum trade and the cost viability are
+        checked again at the new size: an edge that survives its costs at 10
+        shares need not survive them at 3. Never enlarges a decision."""
+        d = RiskDecision(approved=False, price=decision.price, closing=decision.closing,
+                         checks=dict(decision.checks), sizing=dict(decision.sizing),
+                         reasons=[])
+        qty = min(float(qty), decision.qty)
+        qty = math.floor(qty * 1e6) / 1e6 if signal.fractionable else float(math.floor(qty))
+        d.sizing["portfolio_risk"] = round(qty, 6)
+        d.sizing["binding_constraint"] = "portfolio_risk"
+        d.checks["portfolio_risk_size"] = {"ok": True, "detail": reason}
+        if qty <= 0 or qty * d.price < MIN_NOTIONAL:
+            d.checks["size_viable"] = {"ok": False, "detail": f"reduced size {qty:g} "
+                                                              f"({qty * d.price:.2f}) is below the minimum trade"}
+            d.reasons.append(f"size_viable: reduced to {qty:g} by portfolio risk — below "
+                             f"the minimum trade of {MIN_NOTIONAL}")
+            return d
+        if not d.closing:
+            est = _costs.round_trip(self.fees, quote, qty, signal.side, adv=adv, daily_vol=daily_vol)
+            d.costs = est.to_dict()
+            net = signal.expected_edge_bps - est.total_bps
+            d.expected_net_edge_bps = round(net, 2)
+            ok = net >= self.min_net_edge_bps
+            d.checks["economically_viable"] = {
+                "ok": ok, "detail": f"at the reduced {qty * d.price:.2f} notional the round trip "
+                                    f"costs {est.total_bps:.1f} bps, leaving {net:.1f} bps"}
+            if not ok:
+                d.reasons.append(f"economically_viable: NO TRADE at the reduced size — "
+                                 f"{net:.1f} bps net (needs {self.min_net_edge_bps:.1f})")
+                return d
+        d.qty, d.notional, d.approved = qty, round(qty * d.price, 6), True
+        return d

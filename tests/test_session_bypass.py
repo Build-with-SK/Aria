@@ -69,6 +69,20 @@ class RecordingBroker:
     name = "Recording"
     paper = True
 
+    # The send path now values the book and prices the order before it
+    # sends (src/risk/pretrade): an account to measure against and a timed
+    # quote. `quote_time` is set by each test to the instant it sends at.
+    quote_time = None
+
+    def get_account(self):
+        from src.execution.broker_base import AccountInfo
+        return AccountInfo(broker=self.name, cash=1e6, portfolio_value=1e6,
+                           buying_power=1e6, currency="USD")
+
+    def get_quote(self, ticker):
+        return {"bid": 9.99, "ask": 10.01, "mid": 10.0,
+                "timestamp": self.quote_time.isoformat() if self.quote_time else None}
+
     def __init__(self):
         self.submitted = []
 
@@ -123,6 +137,7 @@ def test_execute_checks_the_instruments_session_at_the_moment_of_sending(
     from src.execution import approval_queue as aq
     from src.execution.order_manager import OrderManager
     broker = RecordingBroker()
+    broker.quote_time = when
     queued = queue_trade(tmp_path, monkeypatch, ticker, ac)
     result = OrderManager(alpaca=broker, ibkr=broker).execute(queued.id, now=when)
     assert (len(broker.submitted) == 1) is sent, (ticker, when, result)
@@ -334,6 +349,8 @@ def test_the_session_check_precedes_the_send_in_each_gated_path():
             (PositionManager._close, "reduce_only.at_broker(", "broker.submit_order(req)"),
             (TradingPipeline.run, "_sessions.session(", "self.orders.submit("),
             (TradingPipeline.run, "at_send = _sessions.session(", "self.orders.submit("),
+            (TradingPipeline.run, "self._portfolio_risk(", "self.orders.submit("),
+            (OrderManager.execute, "self.portfolio_risk(", "broker.submit_order(req)"),
             (killswitch._flatten, "reduce_only.check(", "broker.submit_order(spec)"),
     ):
         src = _source(fn)
@@ -341,8 +358,24 @@ def test_the_session_check_precedes_the_send_in_each_gated_path():
         assert src.index(check) < src.index(send), fn.__qualname__
 
 
+#: Modules allowed to BUILD a plan: they produce an inert preview and import
+#: nothing that can send an order (checked below). Refined 2026-10-07 when the
+#: portfolio-risk layer began attaching a deferral plan to a closed-market
+#: decision; the invariant was always "no execution path", not "no module".
+PLAN_PREVIEWERS = {"src/risk/pretrade.py"}
+SENDING_MODULES = ("src.execution.order_manager", "src.execution.alpaca_broker",
+                   "src.execution.ibkr_broker", "src.trading.orders", "src.trading.broker",
+                   "src.trading.pipeline", "src.trading.access", "src.desk")
+
+
 def test_planned_orders_cannot_reach_a_broker():
-    """session_orders plans are previews: no execution path imports them."""
+    """session_orders plans are previews: no execution path imports them,
+    and the modules that build one cannot send anything."""
+    for rel in PLAN_PREVIEWERS:
+        tree = ast.parse((ROOT / rel).read_text(encoding="utf-8"))
+        imported = {(n.module or "") for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
+        imported |= {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+        assert not any(m.startswith(SENDING_MODULES) for m in imported), (rel, imported)
     importers = []
     for p in (ROOT / "src").rglob("*.py"):
         if "__pycache__" in p.parts or p.name == "session_orders.py":
@@ -355,4 +388,4 @@ def test_planned_orders_cannot_reach_a_broker():
                     isinstance(node, ast.ImportFrom) and
                     any(a.name == "session_orders" for a in node.names)):
                 importers.append(p.relative_to(ROOT).as_posix())
-    assert importers == [], importers
+    assert set(importers) <= PLAN_PREVIEWERS, importers

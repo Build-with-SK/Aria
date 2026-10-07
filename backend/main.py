@@ -5108,6 +5108,21 @@ def trading_record_contribution(payload: dict = Body(default={})):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@app.get("/api/trading/risk-decisions", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_risk_decisions(symbol: Optional[str] = None, verdict: Optional[str] = None,
+                           path: Optional[str] = None, decision_id: Optional[str] = None,
+                           limit: int = 50):
+    """Portfolio-risk decisions, most recent first (src/risk/decisions): why a
+    trade was accepted, reduced, deferred or rejected — the binding limit,
+    the exposures before and after, the factor and session context, and the
+    timestamp of every piece of data it used. Read-only."""
+    from src.risk import decisions
+    return _sanitize({"decisions": decisions.query(
+        symbol=symbol, verdict=verdict, path=path, decision_id=decision_id,
+        limit=max(1, min(int(limit), 500)))})
+
+
 @app.get("/api/trading/orders", tags=["Trading"],
          dependencies=[Depends(require_owner)])
 def trading_orders():

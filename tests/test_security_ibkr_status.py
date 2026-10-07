@@ -493,6 +493,15 @@ class _RecordingBroker:
         self.placed = []
         self.held = 0.0          # what a filled entry leaves the account holding
 
+    def get_account(self):
+        from src.execution.broker_base import AccountInfo
+        return AccountInfo(broker="fake", cash=1e6, portfolio_value=1e6,
+                           buying_power=1e6, currency="USD")
+
+    def get_quote(self, ticker):
+        # timed at the instant these tests send at (_NYSE_OPEN, below)
+        return {"bid": 9.99, "ask": 10.01, "mid": 10.0, "timestamp": _NYSE_OPEN.isoformat()}
+
     def get_positions(self):
         return ([{"ticker": "AAPL", "qty": abs(self.held),
                   "side": "long" if self.held > 0 else "short"}] if self.held else [])

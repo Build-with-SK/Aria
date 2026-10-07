@@ -30,8 +30,9 @@ tested on its own:
 | market data | `market.py` | is this price fit to trade on, is the market open |
 | costs | `costs.py` | fees, spread, slippage |
 | signal | `signals.py` | a proposal: side, gross edge, stop, data time |
-| account | `account.py` | what there is to trade with |
+| account | `account.py` | what there is to trade with — THE portfolio state (exposures, reserved capital, buying power) |
 | risk engine | `risk.py` | **size, or NO TRADE with reasons** |
+| portfolio risk | `src/risk/pretrade.py` | **how much risk the trade adds to the book**: ACCEPT / REDUCE_SIZE / DEFER / REJECT, recorded (docs/PORTFOLIO_RISK.md) |
 | order build | `orders.py` | one signal → one order, for ever |
 | validation | `validator.py` | is this concrete order sendable now |
 | broker | `broker.py` | the eight-method adapter, and a paper venue |
