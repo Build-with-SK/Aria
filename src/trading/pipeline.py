@@ -166,11 +166,17 @@ class TradingPipeline:
             adv: Optional[float] = None, daily_vol: Optional[float] = None,
             order_type: str = "market", limit_price: Optional[float] = None,
             force_dry_run: bool = False,
-            send_at: Optional[datetime] = None) -> PipelineResult:
+            send_at: Optional[datetime] = None,
+            conviction: Optional[dict] = None) -> PipelineResult:
         """`now` is when the decision is made; `send_at` is when the order
         actually leaves (default: `now` when the caller fixed it, else the
         wall clock at that moment). The session is checked at both, and the
-        SEND-time state is the one that authorizes."""
+        SEND-time state is the one that authorizes.
+
+        `conviction` is the prediction behind the signal, as a plain dict
+        (src/intelligence/conviction.Conviction.to_dict). It reaches the
+        portfolio-risk gate as context; it can veto or defer the entry, never
+        size it up. The pipeline does not import the code that builds it."""
         explicit_now = now is not None
         now = now or datetime.now(timezone.utc)
         mode = modes.effective_mode()
@@ -235,7 +241,8 @@ class TradingPipeline:
         #     concentration, currency, correlation, volatility, factors,
         #     liquidity (src/risk/pretrade). It may reduce the size; it never
         #     enlarges it. A signal's confidence is not permission.
-        pr = self._portfolio_risk(signal, decision, quote, account, lim, now)
+        pr = self._portfolio_risk(signal, decision, quote, account, lim, now,
+                                  conviction=conviction)
         clock.mark("portfolio_risk")
         res.portfolio_risk = pr.to_dict()
         if not pr.ok:
@@ -315,7 +322,7 @@ class TradingPipeline:
                         outcome=ack.status.lower())
         return res
 
-    def _portfolio_risk(self, signal, decision, quote, account, lim, now):
+    def _portfolio_risk(self, signal, decision, quote, account, lim, now, conviction=None):
         from src.risk import decisions as _decisions
         from src.risk import pretrade as _pretrade
         limits = self.portfolio_limits or _pretrade.PortfolioRiskLimits.from_trading_limits(lim)
@@ -324,7 +331,8 @@ class TradingPipeline:
             price_at=getattr(quote, "timestamp", None), asset_class=signal.asset_class,
             spread_bps=getattr(quote, "spread_bps", None),
             lot=1e-6 if signal.fractionable else 1.0, sector=signal.sector,
-            strategy_id=signal.strategy_id, reduce_only=decision.closing)
+            strategy_id=signal.strategy_id, reduce_only=decision.closing,
+            conviction=conviction)
         pr = _pretrade.assess(order, account, at=now, limits=limits, data=self.market_data)
         _decisions.record(pr, path="pipeline", context={
             "strategy_id": signal.strategy_id, "signal_id": signal.signal_id,

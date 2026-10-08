@@ -139,6 +139,11 @@ class ProposedOrder:
     lot: float = 1.0                             # 1.0 whole units, 1e-6 fractional
     sector: str = ""
     strategy_id: str = ""
+    #: The prediction behind the trade (src/intelligence/conviction.Conviction
+    #: as a dict), or None. CONTEXT, never permission: it is recorded with the
+    #: decision and can only REJECT (it does not support this side) or DEFER
+    #: (its data are POOR). It never enlarges an order.
+    conviction: Optional[dict] = None
 
 
 @dataclass
@@ -264,6 +269,29 @@ def assess(order: ProposedOrder, account, *, at: datetime, limits: PortfolioRisk
                                 f"re-evaluation, not executed (plan: "
                                 f"{(v.plan or {}).get('kind', 'none')})")
         return done(Verdict.DEFER)
+
+    # ── the prediction behind the trade: context, and a veto, never a lever ─
+    # Same rule as src/intelligence/conviction.blocking(), applied to the dict
+    # so this module imports nothing that could reach a model.
+    if order.conviction is not None:
+        c = order.conviction
+        v.data["conviction"] = {k: c.get(k) for k in
+                                ("model_id", "model_version", "prediction_ref", "direction",
+                                 "probability_type", "labels", "routing", "data_quality",
+                                 "model_reliability", "disagreement", "calibration_quality")}
+        want = {"LONG": "buy", "SHORT": "sell"}.get(c.get("direction"))
+        if not check("prediction_supports_side", want == side,
+                     (f"{c.get('direction')} supports a {side} entry" if want == side else
+                      f"the prediction is {c.get('direction') or 'missing'}; a {side} "
+                      f"entry is not what it says")):
+            return done(Verdict.REJECT)
+        dq = c.get("data_quality") or {}
+        if not check("prediction_data_usable", dq.get("value") != "POOR",
+                     f"prediction data {dq.get('value')}: {dq.get('basis') or ''}".strip()):
+            return done(Verdict.DEFER)
+    else:
+        v.checks["prediction_supports_side"] = {
+            "ok": True, "detail": "no prediction attached: the risk layer decides alone"}
 
     if limits.allowed_asset_classes and \
             (order.asset_class or "").lower() not in limits.allowed_asset_classes:

@@ -89,6 +89,22 @@ def _iso(v) -> str:
     return str(v)[:19]
 
 
+#: Provenance every ingested row can PROVE (2026-10-08). No router existed
+#: before src/intelligence/routing, so every historical call reached the
+#: ledger directly from its source; no calibration map has ever been deployed,
+#: so every number is raw. Neither is a default — both are facts of the code.
+DIRECT_ROUTE = "DIRECT: recorded by its own source (not routed)"
+NO_CALIBRATION = "none"
+
+
+def _feature_version(model_version: Optional[str], package: str) -> Optional[str]:
+    """The features were computed inside `package`, so the package's code hash
+    in model_version identifies them. No hash, no feature version."""
+    from src.intelligence.dataset import model_hash
+    h = model_hash(model_version)
+    return f"{package}@{h}" if h else None
+
+
 # ── desk: pre-graded directional calls ──────────────────────────────────────
 
 def ingest_desk_outcomes() -> dict:
@@ -148,7 +164,8 @@ def ingest_desk_outcomes() -> dict:
                        f"(bar {r.get('conviction_bar')})."),
             invalidation=(f"price through {r['invalidation_level']}"
                           if r.get("invalidation_level") else ""),
-            created_at=_iso(r.get("at")), external_ref=ref, announce=False)
+            created_at=_iso(r.get("at")), external_ref=ref, announce=False,
+            routing_decision=DIRECT_ROUTE, calibration_version=NO_CALIBRATION)
         n += 1
         if pid and r.get("correct") is not None:
             ret = r.get("return_pct")
@@ -242,7 +259,10 @@ def ingest_technical() -> dict:
             horizon_days=10, price_at=r.get("entry_price"),
             strategy=f"technical-composite:{r.get('timeframe')}",
             rationale=f"Indicator composite summary: {r.get('summary')}.",
-            created_at=_iso(at), external_ref=ref, announce=False)
+            created_at=_iso(at), external_ref=ref, announce=False,
+            feature_version=_feature_version(r.get("model_version"),
+                                             "src/data/technical_summary.py"),
+            routing_decision=DIRECT_ROUTE, calibration_version=NO_CALIBRATION)
         n += 1
     return {"source": "technical", "seen": n}
 
@@ -302,7 +322,9 @@ def ingest_v5() -> dict:
             price_at=r.get("price_at"), strategy=f"v5-ensemble:v{r.get('weights_version')}",
             rationale=(r.get("rationale") or "")[:1200],
             evidence=(r.get("modules") or [])[:40],
-            created_at=_iso(r.get("at")), external_ref=ref, announce=False)
+            created_at=_iso(r.get("at")), external_ref=ref, announce=False,
+            feature_version=_feature_version(r.get("model_version"), "src/v5"),
+            routing_decision=DIRECT_ROUTE, calibration_version=NO_CALIBRATION)
         n += 1
         if pid and r.get("resolved") and r.get("correct") is not None:
             # V5 names these price_then / realised_return; reading the

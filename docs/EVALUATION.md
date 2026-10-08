@@ -52,6 +52,40 @@ Effect on recorded results (`data/evolution/campaigns.jsonl`, 12 campaigns):
 * Stored probabilities are left as recorded; this note is the correction. Known-answer test:
 annualised SR 1.0 over 252 daily returns, one trial → PSR ≈ 0.84.
 
+## Ledger models: walk-forward, holdout and the charge for searching
+
+Models evaluated from the prediction ledger (desk, technical, V5, ML) use
+`src/intelligence/walkforward.py`: anchored, expanding windows in creation
+order, never shuffled, PURGED on the label — a training call is used only if
+its outcome was knowable (`resolve_after` passed) before the first validation
+call was made, and likewise validation before test. Every fit or selection
+appends a trial (model, purpose, hyperparameters, windows, n, score) to
+`data/intelligence/trials.jsonl`; the count is what a multiple-testing charge
+reads.
+
+Selection among many is charged:
+
+* per-model slices (horizon, asset class, version, regime) are re-read after a
+  Holm correction across every slice of that model;
+* the promotion gate's holdout test and the router's slice tests are Holm-
+  corrected across every model / slice examined;
+* rates use a cluster-robust interval (one cluster per information date) with
+  Student's t on (clusters - 1) degrees of freedom, because thirty calls built
+  on one session's bars are closer to one observation than to thirty.
+
+Strategy-level selection keeps the deflated Sharpe below, unchanged.
+
+## ML training labels (fixed 2026-10-08)
+
+`src/models/targets.direction_label` / `binary_direction` and
+`ml_model._prepare_features` labelled the last `horizon` rows — whose future
+close does not exist — as 0 ("not up"): `NaN > x` is False. The trainer's
+`y.notna()` filter, written for exactly those rows, kept them, so every model
+was trained to say "not up" on the most recent conditions it had seen. Unknown
+labels are now NaN and dropped; `triple_barrier_label` likewise leaves an
+unfinished window NaN instead of "touched neither barrier". Models trained
+before this date carry the bias; nothing was retrained here.
+
 ## Quant lab
 
 `deflate_library` charges every strategy for the whole library. On the

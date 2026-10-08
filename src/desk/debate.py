@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.request
 import uuid
 from datetime import datetime
@@ -78,6 +79,7 @@ class DebateEngine:
     def debate(self, ticker: str, opinions: list[Opinion], conditioner) -> dict:
         """Run the full debate for one ticker. Returns the persisted transcript dict."""
         debate_id = f"dbt-{uuid.uuid4().hex[:8]}"
+        t0 = time.perf_counter()
         per_ticker = [o for o in opinions if o.agent in WEIGHTS]
         macro_op = conditioner.opinion
 
@@ -89,9 +91,12 @@ class DebateEngine:
         recall = self._recall(ticker)
         contradictions = self._contradiction_guard(ticker, bull_ev, bear_ev)
 
+        t_rounds = time.perf_counter()
         rounds = self._run_rounds(ticker, bull_ev, bear_ev, recall, contradictions)
+        t_judge = time.perf_counter()
         judge = self._judge(ticker, per_ticker, conditioner, bull_ev, bear_ev,
                             contradictions, rounds)
+        t_end = time.perf_counter()
 
         transcript = {
             "id": debate_id,
@@ -103,8 +108,15 @@ class DebateEngine:
             "contradictions": contradictions,
             "rounds": rounds,
             "judge": judge,
+            # Measured from 2026-10-08: what the debate costs in time, and how
+            # much of it is the language model writing prose.
+            "timings_ms": {"preparation": round((t_rounds - t0) * 1000, 1),
+                           "rounds": round((t_judge - t_rounds) * 1000, 1),
+                           "judge": round((t_end - t_judge) * 1000, 1),
+                           "total": round((t_end - t0) * 1000, 1)},
         }
         self._persist(transcript)
+        record_in_ledger(transcript)
         return transcript
 
     # ── researchers ───────────────────────────────────────────────────────
@@ -311,6 +323,70 @@ class DebateEngine:
             path.write_text(json.dumps(transcript, indent=2, default=str), encoding="utf-8")
         except Exception as e:
             logger.warning(f"could not persist debate {transcript.get('id')}: {e}")
+
+
+def record_in_ledger(transcript: dict) -> str | None:
+    """The judge's directional call, as a falsifiable ledger prediction.
+
+    From 2026-07-18 to 2026-08-01 the desk's calls reached the ledger only
+    through a one-off backfill script; after that, ~2,200 debates were never
+    graded at all. This records each one at creation, with its provenance.
+
+      * one claim per (ticker, view, calendar day): the desk re-debates a
+        ticker many times a day, and every one of those debates is graded on
+        the same next bar, so they are one claim;
+      * no reference price: the judge saw signals.json, whose prices can be a
+        day old. The ledger grades it "next_close" — from the close of the
+        first bar strictly after the debate's day — so the call is never
+        credited with a move it could have seen;
+      * conviction is a CONFIDENCE (0-100), stored squashed onto 0.5-0.95
+        exactly as the imported desk rows were, kind "mapped": it orders calls,
+        it is not a probability, and it never enters a Brier score.
+
+    Neutral views are not recorded (the desk makes no flat claim). Never raises
+    and never blocks a debate.
+    """
+    try:
+        judge = transcript.get("judge") or {}
+        view = judge.get("view")
+        ticker = transcript.get("ticker")
+        at = str(transcript.get("at") or "")
+        if view not in ("bull", "bear") or not ticker or not at:
+            return None
+        from src.core import ledger
+        from src.core.versioning import model_version
+        try:
+            from src.desk.opinion import signals_freshness
+            data_as_of = signals_freshness().get("as_of")
+        except Exception:
+            data_as_of = None
+        conviction = judge.get("conviction")
+        mapped = (0.5 + min(max(float(conviction), 0), 100) / 100 * 0.45
+                  if conviction is not None else None)
+        version = model_version("desk-debate", "src/desk",
+                                llm=transcript.get("llm") or None)
+        from src.intelligence.dataset import model_hash
+        return ledger.record_prediction(
+            subject=ticker, source="desk",
+            claim=f"{view} view over 1 day (desk judge verdict {judge.get('verdict')})",
+            direction=view, probability=mapped, confidence=mapped,
+            probability_kind="mapped" if mapped is not None else "none",
+            horizon_days=1, price_at=None, reference_basis="next_close",
+            regime_at=judge.get("regime"),
+            regime_basis="desk conditioner at debate time (src/desk/debate)",
+            strategy="desk-debate",
+            rationale=(f"Desk verdict {judge.get('verdict')} at conviction {conviction} "
+                       f"(bar {judge.get('conviction_bar')}); debate {transcript.get('id')}."),
+            invalidation=(f"price through {judge['invalidation_level']}"
+                          if judge.get("invalidation_level") else ""),
+            created_at=at[:19], external_ref=f"desk-debate:{ticker}:{view}:{at[:10]}",
+            model_version=version, data_as_of=data_as_of,
+            feature_version=f"src/desk@{model_hash(version)}" if model_hash(version) else None,
+            routing_decision="DIRECT: recorded by its own source (not routed)",
+            calibration_version="none", announce=False)
+    except Exception as e:
+        logger.warning(f"debate {transcript.get('id')}: not recorded in the ledger: {e}")
+        return None
 
 
 def load_debate(debate_id: str) -> dict:

@@ -257,11 +257,26 @@ class OrderManager:
         order = pretrade.ProposedOrder(
             symbol=trade.ticker, side=trade.side, qty=float(trade.qty), price=price,
             price_at=price_at, asset_class=trade.asset_class, spread_bps=spread,
-            lot=1e-6 if trade.asset_class == "crypto" else 1.0)
+            lot=1e-6 if trade.asset_class == "crypto" else 1.0,
+            conviction=self._conviction(trade, at))
         verdict = pretrade.assess(order, acct, at=at, limits=limits, data=self.market_data)
         decisions.record(verdict, path="approval_queue",
                          context={"trade_id": trade.id, "broker": getattr(broker, "name", "")})
         return verdict
+
+    @staticmethod
+    def _conviction(trade, at) -> Optional[dict]:
+        """The prediction behind a desk trade (its debate), as context for the
+        risk gate — src/intelligence/conviction. None for a trade that names no
+        debate, or when it cannot be built: the gate then decides exactly as it
+        did before predictions were attached. It can only ever veto or defer;
+        it never enlarges an order."""
+        try:
+            from src.intelligence.conviction import for_queued_trade
+            return for_queued_trade(trade, as_of=at)
+        except Exception as e:
+            logger.warning(f"conviction unavailable for {getattr(trade, 'id', '?')}: {e}")
+            return None
 
     def _await_fill(self, broker: BrokerBase, result: OrderResult,
                     timeout_s: float = 30.0, poll_s: float = 2.0) -> OrderResult:

@@ -28,6 +28,7 @@ import React, { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useCalibration, useInvestigation, useLedger, useLedgerDecisions } from '../hooks/useApi'
 import { Empty, SectionHeader, Spinner } from '../components/UI'
+import ModelIntelligence from '../components/ModelIntelligence'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -196,6 +197,9 @@ export default function TrackRecordLedger() {
           horizon yet.
         </div>
       </div>
+
+      {/* ── which model may be trusted, and how much ── */}
+      <ModelIntelligence />
 
       {/* ── methodology, stated before the numbers ── */}
       {inv && (

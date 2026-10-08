@@ -1,6 +1,7 @@
 # The prediction ledger: what is recorded, how it is graded, what it may claim
 
-Last revised 2026-10-06. Describes `src/core/ledger.py`, `src/core/ingest.py`,
+Last revised 2026-10-08 (see "2026-10-08" below and docs/MODEL_INTELLIGENCE.md).
+Describes `src/core/ledger.py`, `src/core/ingest.py`,
 `src/core/calibration.py`, `src/core/baseline.py`, `src/v5/learning.py`,
 `src/v5/loop.py` and `src/data/technical_tracker.py` as they are.
 
@@ -98,6 +99,42 @@ an improvement (`src/core/baseline.compare`). It:
 2. reports `insufficient data` below 30 scored events on either side;
 3. calls a hit-rate change real only on a two-proportion z-test at 95%, and a
    Brier change only beyond 1.96 standard errors of the difference.
+
+## 2026-10-08: types, provenance, new sources, and two grading defects
+
+* `probability_type` is stored explicitly (src/intelligence/semantics):
+  STATED / CALIBRATED probability, SCORE, CONFIDENCE, NONE, UNKNOWN. Kinds
+  `calibrated` and `score` join `stated | mapped | none`; only stated and
+  calibrated keep a `p_correct`, and a calibrated one must name its
+  `calibration_version`.
+* New provenance columns: `venue`, `market_session` (derived from
+  src/markets/sessions at write time), `feature_version`, `routing_decision`,
+  `calibration_version`, `reference_basis`, `model_hash`. NULL means not
+  recorded; nothing is back-filled.
+* `reference_basis = next_close`: graded from the close of the first bar
+  strictly after the call's day to the close `horizon_days` bars later.
+* New sources: **desk** debates are recorded at creation (once per ticker /
+  view / day, CONFIDENCE, 1 day, next_close) — previously only a one-off
+  backfill reached the ledger and ~2,200 debates after 2026-08-01 were never
+  graded; the **ML ensemble** is recorded as a SCORE when the pipeline runs.
+* A row whose `external_ref` is already recorded returns its id without being
+  re-stamped (the INSERT was already ignored).
+
+| source | written by | horizon | number |
+|---|---|---|---|
+| `desk` (from 2026-10-08) | `src/desk/debate.record_in_ledger` | 1 day, next_close | CONFIDENCE (mapped conviction) |
+| `ml-ensemble` | `src/intelligence/recorders.record_ml_predictions` via `main.run_ml` | 1 / 5 / 20 days | SCORE |
+
+**Grading defects found 2026-10-08** (not repaired in the ledger; re-measured
+in a view, src/intelligence/regrade.py):
+
+* 318 technical and 9 V5 grades were made on the horizon date before that
+  date's close existed, so they were graded on the previous session's close.
+* Grades before 2026-10-06 ran from a raw recorded price to an adjusted close.
+
+The canonical evaluation dataset (src/intelligence/dataset.py) excludes such
+rows with a reason, or uses the same-series re-measurement in their place and
+counts how many outcomes changed.
 
 ## Backfill
 

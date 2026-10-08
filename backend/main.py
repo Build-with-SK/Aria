@@ -471,6 +471,16 @@ def _ledger_loop():
                     bus.publish("CALIBRATION_UPDATED",
                                 f"{out['resolved']} predictions graded",
                                 source="ledger", payload=out)
+            # The evidence the order path reads (src/intelligence/evidence):
+            # rebuilt HERE, off the trade path, when grades moved or every six
+            # hours — never computed while an order is being sent.
+            try:
+                from src.intelligence import evidence
+                age = evidence.age_hours(evidence.load())
+                if out.get("resolved") or age is None or age > 6:
+                    evidence.refresh()
+            except Exception as e:
+                logger.debug(f"evidence snapshot refresh failed: {e}")
             from src.core import bus as _bus
             _bus.prune()
             workers.sweep()
@@ -4571,6 +4581,187 @@ def ledger_resolve(limit: int = 80):
     every half hour; this is the manual nudge."""
     from src.core import ledger
     return _sanitize(ledger.resolve_due(limit=max(1, min(limit, 400))))
+
+
+# ===========================================================================
+# MODEL INTELLIGENCE (src/intelligence)
+#
+# Which prediction to trust, how much, from which model — and what the record
+# cannot yet support. Every number below carries its sample; below its floor
+# the answer is a status (INSUFFICIENT_DATA, CALIBRATION_INSUFFICIENT_DATA,
+# ROUTING_INSUFFICIENT_EVIDENCE), never a number. Read from the last evidence
+# snapshot (data/intelligence/evidence_snapshot.json); POST .../refresh
+# rebuilds it from the ledger. Nothing here can place or size an order.
+# ===========================================================================
+
+class ModelStatusChange(BaseModel):
+    status: str
+    reason: str = ""
+
+
+def _intel_snapshot(max_age_hours: float = 6.0) -> dict:
+    """The saved evidence snapshot, rebuilt when missing or older than
+    `max_age_hours`. Rebuilding reads the ledger read-only."""
+    from src.intelligence import evidence
+    snap = evidence.load()
+    age = evidence.age_hours(snap)
+    if snap is None or age is None or age > max_age_hours:
+        snap = evidence.refresh()
+        age = evidence.age_hours(snap)
+    return {**snap, "snapshot_age_hours": age}
+
+
+@app.get("/api/intelligence/semantics", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_semantics():
+    """What ARIA calls a probability, a calibrated probability, a score and a
+    confidence — and which of them a Brier score may read."""
+    from src.intelligence import semantics
+    return semantics.describe()
+
+
+@app.get("/api/intelligence/baseline", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_baseline():
+    """The data-integrity audit of the prediction ledger: counts by model,
+    horizon, asset class, venue and regime; probability validity; graded /
+    pending; field-by-field provenance. Counts only, no claims."""
+    from src.intelligence import baseline, dataset
+    return _sanitize(baseline.audit(dataset.ledger_rows()))
+
+
+@app.get("/api/intelligence/models", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_models():
+    """Per-model evaluation, calibration status and registry card, with the
+    canonical dataset's inclusion / exclusion counts."""
+    snap = _intel_snapshot()
+    return _sanitize({k: snap.get(k) for k in
+                      ("built_at", "snapshot_age_hours", "as_of", "dataset",
+                       "evaluations", "calibration", "registry", "routing_table")})
+
+
+@app.get("/api/intelligence/registry", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_registry():
+    """Model cards: version, code hash, probability type, calibration, sample,
+    evidence status, owner status and the promotion gate, criterion by
+    criterion."""
+    from src.intelligence import registry
+    snap = _intel_snapshot()
+    return _sanitize({"registry": snap.get("registry"),
+                      "status_log": registry.status_log()[-50:],
+                      "built_at": snap.get("built_at")})
+
+
+@app.post("/api/intelligence/registry/{model_id}/status", tags=["Model Intelligence"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def intelligence_set_status(model_id: str, body: ModelStatusChange):
+    """Record an owner decision about a model. VALIDATED / PRODUCTION are
+    refused unless the promotion gate passes on a FRESH evaluation; RETIRED
+    and EXPERIMENTAL never need evidence. Nothing is promoted automatically."""
+    from src.intelligence import dataset, evidence, registry
+    rows = dataset.ledger_rows()
+    snap = evidence.build(rows=rows)
+    check = None
+    if model_id in registry.CATALOGUE and registry.CATALOGUE[model_id].ledger_source:
+        check = registry.promotion_check(model_id, snap["_dataset"], ledger_rows=rows)
+    try:
+        entry = registry.set_status(model_id, body.status, by="owner",
+                                    reason=body.reason, check=check)
+    except registry.PromotionRefused as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    evidence.save(snap)
+    return _sanitize({"recorded": entry, "promotion_check": check})
+
+
+@app.post("/api/intelligence/refresh", tags=["Model Intelligence"],
+          dependencies=[Depends(require_owner)])
+def intelligence_refresh():
+    """Rebuild the evidence snapshot from the ledger (read-only) and save it."""
+    from src.intelligence import evidence
+    snap = evidence.refresh()
+    return _sanitize({"built_at": snap.get("built_at"), "dataset": snap.get("dataset")})
+
+
+@app.get("/api/intelligence/routing", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_routing(symbol: str = "", horizon_days: int = 1,
+                         asset_class: str = "", data_quality: str = ""):
+    """The routing decision for an asset / horizon, with the evidence behind
+    it — or ROUTING_INSUFFICIENT_EVIDENCE and the conservative default."""
+    from src.intelligence import routing
+    from src.intelligence.dataset import instrument_of
+    snap = _intel_snapshot()
+    ac = asset_class or (instrument_of(symbol.upper())[0] if symbol else None)
+    if (data_quality or "").upper() == "POOR":
+        return {"reason_code": routing.ABSTAIN, "route": routing.DEFAULT,
+                "routed": False, "default_route": routing.DEFAULT_ROUTE,
+                "request": {"symbol": symbol, "horizon_days": horizon_days,
+                            "asset_class": ac, "data_quality": "POOR"}}
+    d = routing.lookup(snap.get("routing_table"), ac, horizon_days)
+    return _sanitize({**d, "request": {"symbol": symbol, "horizon_days": horizon_days,
+                                       "asset_class": ac},
+                      "snapshot_built_at": snap.get("built_at")})
+
+
+@app.get("/api/intelligence/conviction", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_conviction(symbol: str):
+    """The latest recorded call from each model on `symbol`, decomposed:
+    direction, probability AND its type, calibration, reliability, data
+    quality, regime fit, routing — and whether the models agree. Labels say
+    what must not be assumed (UNCALIBRATED, RELIABILITY INSUFFICIENT DATA …)."""
+    from src.core import ledger
+    from src.intelligence import conviction
+    snap = _intel_snapshot()
+    rows = ledger.predictions(limit=200, subject=symbol.upper())
+    latest = {}
+    for r in rows:                                   # newest first
+        latest.setdefault(r.get("source"), r)
+    convs = [conviction.from_ledger_row(r, snapshot=snap) for r in latest.values()]
+    return _sanitize({"symbol": symbol.upper(),
+                      "per_model": [c.to_dict() for c in convs],
+                      "cross_model_disagreement": conviction.cross_model(convs).to_dict(),
+                      "snapshot_built_at": snap.get("built_at")})
+
+
+@app.get("/api/intelligence/ensemble", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_ensemble():
+    """Do the models add independent information? Agreement, prediction and
+    error correlation, conditional accuracy, incremental likelihood ratio."""
+    from src.intelligence import dataset, ensemble, regrade
+    rows = dataset.ledger_rows()
+    ds = dataset.build(rows, regrades=regrade.load(), v5_bases=dataset.v5_return_bases())
+    return _sanitize(ensemble.independence(rows, ds))
+
+
+@app.get("/api/intelligence/debate", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_debate():
+    """What the debate desk measurably adds: operations (LLM failure rate,
+    latency, cost) always; graded value from the last baseline run."""
+    from src.intelligence import debate_eval
+    cached = debate_eval.cached()
+    live = debate_eval.run(None)
+    return _sanitize({"operations": live["operations"],
+                      "evaluation": (cached or {}).get("evaluation") or live["evaluation"],
+                      "evaluation_computed_at": (cached or {}).get("computed_at")})
+
+
+@app.get("/api/intelligence/exclusions", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_exclusions(model: str = "", reason: str = "", limit: int = 200):
+    """Every prediction kept out of the evaluation, and why — auditable row
+    by row."""
+    from src.intelligence import dataset, regrade
+    ds = dataset.build(dataset.ledger_rows(), regrades=regrade.load(),
+                       v5_bases=dataset.v5_return_bases())
+    rows = [e for e in ds.excluded
+            if (not model or e["model"] == model) and (not reason or reason in e["reasons"])]
+    return {"count": len(rows), "excluded": rows[:max(1, min(limit, 2000))],
+            "reasons": dataset.EXCLUSION_REASONS}
 
 
 # ===========================================================================

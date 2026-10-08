@@ -7,10 +7,45 @@ engine already did the thinking; this agent cites it.
 """
 from __future__ import annotations
 
-from src.desk.opinion import Opinion, ev, load_data_json
+from datetime import datetime, timedelta
+
+from src.desk.opinion import DATA, Opinion, ev, load_data_json
 
 SRC = "data/signals.json"
 SRC_ML = "data/ml_predictions.json"
+
+#: The ledger's trading-day -> calendar-day rule.
+CALENDAR_PER_TRADING_DAY = 7 / 5
+
+
+def ml_made_by() -> datetime | None:
+    """The latest instant the ML predictions could have been made: the file's
+    modification time. Its rows carry no timestamp of their own."""
+    path = DATA / "ml_predictions.json"
+    try:
+        return datetime.fromtimestamp(path.stat().st_mtime)
+    except OSError:
+        return None
+
+
+def ml_horizon_live(horizon_days, made_by: datetime | None,
+                    now: datetime | None = None) -> bool:
+    """Is an h-day ML prediction still inside its horizon?
+
+    On 2026-10-08 data/ml_predictions.json dated from 2026-05-31, and every
+    debate still cited its 1/5/20-day calls as current evidence — judges
+    explained NO_TRADE verdicts with "the consistent bearish sentiment from the
+    machine learning models". A 20-day call made in May says nothing about
+    October. Even the most generous reading (made at the file's mtime) has
+    expired, so the call is not cited.
+    """
+    if made_by is None:
+        return False
+    try:
+        h = int(horizon_days)
+    except (TypeError, ValueError):
+        return False
+    return (now or datetime.now()) <= made_by + timedelta(days=h * CALENDAR_PER_TRADING_DAY)
 
 
 def opine(ticker: str) -> Opinion:
@@ -44,13 +79,17 @@ def opine(ticker: str) -> Opinion:
            "bull" if sig.get("regime") == "Bull" else "bear" if sig.get("regime") == "Bear" else "neutral"),
     ]
 
-    # ML ensemble horizons — cite each horizon's directional probability
+    # ML ensemble horizons — cite each horizon's directional score, only while
+    # the horizon it was made for has not elapsed.
     horizons = (ml.get("horizons") or {})
+    made_by = ml_made_by()
     for h, hd in sorted(horizons.items(), key=lambda kv: int(kv[0])):
         if not isinstance(hd, dict):
             continue
         bp = hd.get("bullish_prob")
         if bp is None:
+            continue
+        if not ml_horizon_live(hd.get("horizon_days", h), made_by):
             continue
         evidence.append(ev(
             f"ML ensemble {h}d horizon: {hd.get('direction', '?')} ({bp:.0%} bullish, "

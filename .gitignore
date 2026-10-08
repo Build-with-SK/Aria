@@ -118,6 +118,11 @@ configs/universe_phase4_backup.yaml
 # Technical recommendation outcomes — your own hit-rate record, same reasoning
 # as data/v5/ above: a real track record, not sample data to ship.
 data/technical/
+# Model intelligence (src/intelligence): regrades keyed by prediction id, the
+# evidence snapshot, the owner's model-status decisions, the trial log —
+# derived from the same private record. The committed baseline holds
+# aggregates only (docs/baselines/model_intelligence_baseline.json).
+data/intelligence/
 
 # Session signing key — generated per install. Committing it would let anyone
 # mint a cookie for any identity, including the owner.

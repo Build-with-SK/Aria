@@ -1,0 +1,2631 @@
+{
+ "measured_at": "2026-10-08T18:40:03",
+ "note": "Aggregates only. Regrades are a same-series VIEW of defective historical grades; the ledger itself is unchanged.",
+ "data_integrity": {
+  "overall": {
+   "total": 1081,
+   "probability_types": {
+    "NONE": 898,
+    "STATED_PROBABILITY": 88,
+    "CONFIDENCE": 65,
+    "UNKNOWN": 30
+   },
+   "valid_probabilities": 88,
+   "without_valid_probability": {
+    "NO_PROBABILITY_STATED": 898,
+    "NUMBER_IS_NOT_A_PROBABILITY": 65,
+    "PROBABILITY_KIND_UNRECORDED": 30
+   },
+   "by_horizon": {
+    "1M": 578,
+    ">3M": 2,
+    "3M": 436,
+    "1D": 65
+   },
+   "by_horizon_days": {
+    "1": 65,
+    "10": 578,
+    "22": 7,
+    "23": 23,
+    "35": 1,
+    "36": 1,
+    "37": 24,
+    "38": 3,
+    "41": 11,
+    "42": 71,
+    "43": 24,
+    "44": 10,
+    "45": 96,
+    "46": 124,
+    "47": 37,
+    "48": 4,
+    "252": 2
+   },
+   "by_asset_class": {
+    "equity": 928,
+    "crypto": 153
+   },
+   "by_venue": {
+    "XLON": 38,
+    "XNYS": 890,
+    "CRYPTO": 153
+   },
+   "by_direction": {
+    "bull": 523,
+    "bear": 211,
+    "neutral": 347
+   },
+   "by_macro_regime": {
+    "none": 248,
+    "Expansion (Goldilocks)": 833
+   },
+   "macro_regime_validity": {
+    "ABSENT": 248,
+    "SOURCE_RECORDED": 65,
+    "VERIFIED_PIT": 768
+   },
+   "graded": 590,
+   "ungraded": 491,
+   "graded_undecidable": 0,
+   "duplicate_external_refs": 0,
+   "model_versions": {
+    "UNRECORDED": 610,
+    "v5|weights=1": 348,
+    "technical-composite|code=ba9422d8fff2|timeframe=1d": 59,
+    "v5|code=f26380b95bfc|weights=1": 60,
+    "desk-debate|code=9db8ca392a0d|llm=qwen2.5:7b-instruct-q4_K_M": 4
+   },
+   "created": [
+    "2026-07-18T14:03:47",
+    "2026-10-08T18:17:15"
+   ],
+   "field_presence": {
+    "prediction_id": 1081,
+    "symbol": 1081,
+    "provider_symbol": 1080,
+    "timestamp": 1081,
+    "horizon": 1081,
+    "direction": 1081,
+    "probability": 88,
+    "probability_kind": 1051,
+    "model": 1081,
+    "model_version": 471,
+    "model_hash": 123,
+    "data_timestamp": 64,
+    "market_session": 455,
+    "venue": 4,
+    "regime": 833,
+    "regime_basis": 772,
+    "feature_version": 4,
+    "routing_decision": 4,
+    "calibration_version": 4,
+    "grading_timestamp": 1081,
+    "grading_status": 1081
+   },
+   "provenance_complete": 4,
+   "provenance_missing": {
+    "venue": 1077,
+    "market_session": 1077,
+    "feature_version": 1077,
+    "routing_decision": 1077,
+    "calibration_version": 1077,
+    "data_as_of": 1017,
+    "model_hash": 958,
+    "model_version": 610,
+    "regime_basis": 309,
+    "regime_at": 248,
+    "probability_type": 30,
+    "probability": 30,
+    "provider_symbol": 1
+   }
+  },
+  "by_model": {
+   "desk": {
+    "total": 65,
+    "probability_types": {
+     "CONFIDENCE": 65
+    },
+    "valid_probabilities": 0,
+    "without_valid_probability": {
+     "NUMBER_IS_NOT_A_PROBABILITY": 65
+    },
+    "by_horizon": {
+     "1D": 65
+    },
+    "by_horizon_days": {
+     "1": 65
+    },
+    "by_asset_class": {
+     "crypto": 35,
+     "equity": 30
+    },
+    "by_venue": {
+     "CRYPTO": 35,
+     "XNYS": 29,
+     "XLON": 1
+    },
+    "by_direction": {
+     "bull": 33,
+     "bear": 32
+    },
+    "by_macro_regime": {
+     "Expansion (Goldilocks)": 65
+    },
+    "macro_regime_validity": {
+     "SOURCE_RECORDED": 65
+    },
+    "graded": 61,
+    "ungraded": 4,
+    "graded_undecidable": 0,
+    "duplicate_external_refs": 0,
+    "model_versions": {
+     "UNRECORDED": 61,
+     "desk-debate|code=9db8ca392a0d|llm=qwen2.5:7b-instruct-q4_K_M": 4
+    },
+    "created": [
+     "2026-07-18T14:03:47",
+     "2026-10-08T18:17:15"
+    ],
+    "field_presence": {
+     "prediction_id": 65,
+     "symbol": 65,
+     "provider_symbol": 65,
+     "timestamp": 65,
+     "horizon": 65,
+     "direction": 65,
+     "probability": 0,
+     "probability_kind": 65,
+     "model": 65,
+     "model_version": 4,
+     "model_hash": 4,
+     "data_timestamp": 4,
+     "market_session": 4,
+     "venue": 4,
+     "regime": 65,
+     "regime_basis": 4,
+     "feature_version": 4,
+     "routing_decision": 4,
+     "calibration_version": 4,
+     "grading_timestamp": 65,
+     "grading_status": 65
+    },
+    "provenance_complete": 4,
+    "provenance_missing": {
+     "venue": 61,
+     "market_session": 61,
+     "model_version": 61,
+     "model_hash": 61,
+     "feature_version": 61,
+     "data_as_of": 61,
+     "regime_basis": 61,
+     "routing_decision": 61,
+     "calibration_version": 61
+    }
+   },
+   "technical": {
+    "total": 578,
+    "probability_types": {
+     "NONE": 578
+    },
+    "valid_probabilities": 0,
+    "without_valid_probability": {
+     "NO_PROBABILITY_STATED": 578
+    },
+    "by_horizon": {
+     "1M": 578
+    },
+    "by_horizon_days": {
+     "10": 578
+    },
+    "by_asset_class": {
+     "equity": 460,
+     "crypto": 118
+    },
+    "by_venue": {
+     "XLON": 23,
+     "XNYS": 437,
+     "CRYPTO": 118
+    },
+    "by_direction": {
+     "bull": 399,
+     "bear": 179
+    },
+    "by_macro_regime": {
+     "none": 140,
+     "Expansion (Goldilocks)": 438
+    },
+    "macro_regime_validity": {
+     "ABSENT": 140,
+     "VERIFIED_PIT": 438
+    },
+    "graded": 489,
+    "ungraded": 89,
+    "graded_undecidable": 0,
+    "duplicate_external_refs": 0,
+    "model_versions": {
+     "UNRECORDED": 519,
+     "technical-composite|code=ba9422d8fff2|timeframe=1d": 59
+    },
+    "created": [
+     "2026-07-27T21:30:06",
+     "2026-10-07T22:20:24"
+    ],
+    "field_presence": {
+     "prediction_id": 578,
+     "symbol": 578,
+     "provider_symbol": 578,
+     "timestamp": 578,
+     "horizon": 578,
+     "direction": 578,
+     "probability": 0,
+     "probability_kind": 578,
+     "model": 578,
+     "model_version": 59,
+     "model_hash": 59,
+     "data_timestamp": 0,
+     "market_session": 44,
+     "venue": 0,
+     "regime": 438,
+     "regime_basis": 438,
+     "feature_version": 0,
+     "routing_decision": 0,
+     "calibration_version": 0,
+     "grading_timestamp": 578,
+     "grading_status": 578
+    },
+    "provenance_complete": 0,
+    "provenance_missing": {
+     "venue": 578,
+     "market_session": 578,
+     "feature_version": 578,
+     "data_as_of": 578,
+     "routing_decision": 578,
+     "calibration_version": 578,
+     "model_version": 519,
+     "model_hash": 519,
+     "regime_at": 140,
+     "regime_basis": 140
+    }
+   },
+   "v5": {
+    "total": 438,
+    "probability_types": {
+     "STATED_PROBABILITY": 88,
+     "NONE": 320,
+     "UNKNOWN": 30
+    },
+    "valid_probabilities": 88,
+    "without_valid_probability": {
+     "NO_PROBABILITY_STATED": 320,
+     "PROBABILITY_KIND_UNRECORDED": 30
+    },
+    "by_horizon": {
+     ">3M": 2,
+     "3M": 436
+    },
+    "by_horizon_days": {
+     "22": 7,
+     "23": 23,
+     "35": 1,
+     "36": 1,
+     "37": 24,
+     "38": 3,
+     "41": 11,
+     "42": 71,
+     "43": 24,
+     "44": 10,
+     "45": 96,
+     "46": 124,
+     "47": 37,
+     "48": 4,
+     "252": 2
+    },
+    "by_asset_class": {
+     "equity": 438
+    },
+    "by_venue": {
+     "XNYS": 424,
+     "XLON": 14
+    },
+    "by_direction": {
+     "bull": 91,
+     "neutral": 347
+    },
+    "by_macro_regime": {
+     "none": 108,
+     "Expansion (Goldilocks)": 330
+    },
+    "macro_regime_validity": {
+     "ABSENT": 108,
+     "VERIFIED_PIT": 330
+    },
+    "graded": 40,
+    "ungraded": 398,
+    "graded_undecidable": 0,
+    "duplicate_external_refs": 0,
+    "model_versions": {
+     "v5|weights=1": 348,
+     "UNRECORDED": 30,
+     "v5|code=f26380b95bfc|weights=1": 60
+    },
+    "created": [
+     "2026-08-01T16:44:23",
+     "2026-10-07T22:12:21"
+    ],
+    "field_presence": {
+     "prediction_id": 438,
+     "symbol": 438,
+     "provider_symbol": 437,
+     "timestamp": 438,
+     "horizon": 438,
+     "direction": 438,
+     "probability": 88,
+     "probability_kind": 408,
+     "model": 438,
+     "model_version": 408,
+     "model_hash": 60,
+     "data_timestamp": 60,
+     "market_session": 407,
+     "venue": 0,
+     "regime": 330,
+     "regime_basis": 330,
+     "feature_version": 0,
+     "routing_decision": 0,
+     "calibration_version": 0,
+     "grading_timestamp": 438,
+     "grading_status": 438
+    },
+    "provenance_complete": 0,
+    "provenance_missing": {
+     "venue": 438,
+     "market_session": 438,
+     "feature_version": 438,
+     "routing_decision": 438,
+     "calibration_version": 438,
+     "model_hash": 378,
+     "data_as_of": 378,
+     "regime_at": 108,
+     "regime_basis": 108,
+     "probability_type": 30,
+     "probability": 30,
+     "model_version": 30,
+     "provider_symbol": 1
+    }
+   }
+  },
+  "fields_checked": [
+   "prediction_id",
+   "symbol",
+   "provider_symbol",
+   "timestamp",
+   "horizon",
+   "direction",
+   "probability",
+   "probability_kind",
+   "model",
+   "model_version",
+   "model_hash",
+   "data_timestamp",
+   "market_session",
+   "venue",
+   "regime",
+   "regime_basis",
+   "feature_version",
+   "routing_decision",
+   "calibration_version",
+   "grading_timestamp",
+   "grading_status"
+  ]
+ },
+ "regrade": {
+  "needed": 511,
+  "remeasured": 510,
+  "not_remeasurable": 1,
+  "outcome_changed": 24
+ },
+ "dataset": {
+  "as_of": null,
+  "built_at": "2026-10-08T18:39:52",
+  "dataset_hash": "3d83acd8ce59f812",
+  "regrade": {
+   "regraded": 510,
+   "outcome_changed": 24
+  },
+  "by_model": {
+   "desk": {
+    "recorded": 65,
+    "graded": 61,
+    "pending": 4,
+    "included": 61,
+    "included_via_regrade": 0,
+    "defects_cured_by_regrade": {},
+    "excluded": 0,
+    "exclusions_by_reason": {},
+    "probability_scored": 0,
+    "probability_not_scored": {
+     "NUMBER_IS_NOT_A_PROBABILITY": 61
+    }
+   },
+   "technical": {
+    "recorded": 578,
+    "graded": 489,
+    "pending": 89,
+    "included": 488,
+    "included_via_regrade": 470,
+    "defects_cured_by_regrade": {
+     "MIXED_PRICE_BASIS": 398,
+     "GRADED_BEFORE_HORIZON": 318
+    },
+    "excluded": 1,
+    "exclusions_by_reason": {
+     "MIXED_PRICE_BASIS": 1
+    },
+    "probability_scored": 0,
+    "probability_not_scored": {
+     "NO_PROBABILITY_STATED": 488
+    }
+   },
+   "v5": {
+    "recorded": 438,
+    "graded": 40,
+    "pending": 398,
+    "included": 39,
+    "included_via_regrade": 39,
+    "defects_cured_by_regrade": {
+     "GRADED_BEFORE_HORIZON": 8,
+     "MIXED_PRICE_BASIS": 39
+    },
+    "excluded": 1,
+    "exclusions_by_reason": {
+     "DUPLICATE_EVENT": 1
+    },
+    "probability_scored": 16,
+    "probability_not_scored": {
+     "NO_PROBABILITY_STATED": 24
+    }
+   }
+  },
+  "reasons": {
+   "UNRESOLVABLE": "graded as undecidable \u2014 identity unresolved, no reference price, or the price source disagreed with the record",
+   "NO_SOURCE": "the row names no model",
+   "NO_DIRECTION": "the row states no bull / bear / neutral direction",
+   "CREATED_AFTER_RESOLUTION": "the grade is timestamped before the call",
+   "GRADED_BEFORE_HORIZON": "graded on or before the date its horizon elapsed",
+   "HORIZON_INCONSISTENT": "resolve_after does not follow from created_at and horizon_days",
+   "DATA_AFTER_CREATION": "data_as_of is later than the call \u2014 future information",
+   "MIXED_PRICE_BASIS": "return measured from a raw recorded price to an adjusted close, on an instrument that can pay distributions, with no same-series regrade available",
+   "DUPLICATE_EVENT": "a repeat assertion of an event already counted"
+  }
+ },
+ "evaluations": {
+  "desk": {
+   "sample": {
+    "graded_events": 61,
+    "directional": 61,
+    "neutral": 0,
+    "information_dates": 12,
+    "first_call": "2026-07-18T14:03:47",
+    "last_call": "2026-08-01T17:32:11"
+   },
+   "probability_types": {
+    "CONFIDENCE": 61
+   },
+   "model_versions": {
+    "UNRECORDED": 61
+   },
+   "hit_rate_all": {
+    "status": "MEASURED",
+    "n": 61,
+    "hits": 28,
+    "rate": 0.459,
+    "n_clusters": 12,
+    "ci95_wilson": [
+     0.3401,
+     0.5828
+    ],
+    "ci95_cluster": [
+     0.303,
+     0.615
+    ],
+    "cluster_df": 11,
+    "p_value_vs_coin": 0.57481,
+    "verdict": "indistinguishable from chance"
+   },
+   "directional_accuracy": {
+    "status": "MEASURED",
+    "n": 61,
+    "hits": 28,
+    "rate": 0.459,
+    "n_clusters": 12,
+    "ci95_wilson": [
+     0.3401,
+     0.5828
+    ],
+    "ci95_cluster": [
+     0.303,
+     0.615
+    ],
+    "cluster_df": 11,
+    "p_value_vs_coin": 0.57481,
+    "verdict": "indistinguishable from chance"
+   },
+   "neutral_band_hit_rate": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 0,
+    "n_required": 30,
+    "why": "0 graded calls",
+    "n_clusters": 0
+   },
+   "vs_always_long": {
+    "n": 61,
+    "base_rate_up": 0.4098,
+    "always_long_hit_rate": 0.4098,
+    "model_right_long_wrong": 17,
+    "model_wrong_long_right": 14,
+    "status": "MEASURED",
+    "n_discordant": 31,
+    "p_value": 0.7201,
+    "verdict": "no detectable difference from always-long"
+   },
+   "probability": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 0,
+    "n_required": 30,
+    "why": "calls carrying a stated or calibrated probability"
+   },
+   "by_horizon": {
+    "1D": {
+     "status": "MEASURED",
+     "n": 61,
+     "hits": 28,
+     "rate": 0.459,
+     "n_clusters": 12,
+     "ci95_wilson": [
+      0.3401,
+      0.5828
+     ],
+     "ci95_cluster": [
+      0.303,
+      0.615
+     ],
+     "cluster_df": 11,
+     "p_value_vs_coin": 0.57481,
+     "verdict": "indistinguishable from chance after the slice correction",
+     "holm_p": 1.0,
+     "verdict_raw": "indistinguishable from chance"
+    }
+   },
+   "by_asset_class": {
+    "crypto": {
+     "status": "MEASURED",
+     "n": 35,
+     "hits": 16,
+     "rate": 0.4571,
+     "n_clusters": 12,
+     "ci95_wilson": [
+      0.3047,
+      0.6181
+     ],
+     "ci95_cluster": [
+      0.2526,
+      0.6617
+     ],
+     "cluster_df": 11,
+     "p_value_vs_coin": 0.65366,
+     "verdict": "indistinguishable from chance after the slice correction",
+     "holm_p": 1.0,
+     "verdict_raw": "indistinguishable from chance"
+    },
+    "equity": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 26,
+     "n_required": 30,
+     "why": "26 graded calls",
+     "n_clusters": 9
+    }
+   },
+   "by_model_version": {
+    "UNKNOWN": {
+     "status": "MEASURED",
+     "n": 61,
+     "hits": 28,
+     "rate": 0.459,
+     "n_clusters": 12,
+     "ci95_wilson": [
+      0.3401,
+      0.5828
+     ],
+     "ci95_cluster": [
+      0.303,
+      0.615
+     ],
+     "cluster_df": 11,
+     "p_value_vs_coin": 0.57481,
+     "verdict": "indistinguishable from chance after the slice correction",
+     "holm_p": 1.0,
+     "verdict_raw": "indistinguishable from chance"
+    }
+   },
+   "by_regime_macro": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 61,
+    "n_required": 30,
+    "why": "1 regime label(s) in the record (Expansion (Goldilocks)): a comparison needs at least two",
+    "labels": {
+     "Expansion (Goldilocks)": 61
+    },
+    "unlabelled": 0
+   },
+   "by_regime_market": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 61,
+    "n_required": 30,
+    "why": "1 regime label(s) in the record (BULL/NORMAL_VOL): a comparison needs at least two",
+    "labels": {
+     "BULL/NORMAL_VOL": 61
+    },
+    "unlabelled": 0
+   },
+   "slice_tests": 3
+  },
+  "technical": {
+   "sample": {
+    "graded_events": 488,
+    "directional": 488,
+    "neutral": 0,
+    "information_dates": 17,
+    "first_call": "2026-07-27T21:30:06",
+    "last_call": "2026-09-23T21:30:15"
+   },
+   "probability_types": {
+    "NONE": 488
+   },
+   "model_versions": {
+    "UNRECORDED": 488
+   },
+   "hit_rate_all": {
+    "status": "MEASURED",
+    "n": 488,
+    "hits": 217,
+    "rate": 0.4447,
+    "n_clusters": 17,
+    "ci95_wilson": [
+     0.4012,
+     0.489
+    ],
+    "ci95_cluster": [
+     0.376,
+     0.5134
+    ],
+    "cluster_df": 16,
+    "p_value_vs_coin": 0.10705,
+    "verdict": "indistinguishable from chance"
+   },
+   "directional_accuracy": {
+    "status": "MEASURED",
+    "n": 488,
+    "hits": 217,
+    "rate": 0.4447,
+    "n_clusters": 17,
+    "ci95_wilson": [
+     0.4012,
+     0.489
+    ],
+    "ci95_cluster": [
+     0.376,
+     0.5134
+    ],
+    "cluster_df": 16,
+    "p_value_vs_coin": 0.10705,
+    "verdict": "indistinguishable from chance"
+   },
+   "neutral_band_hit_rate": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 0,
+    "n_required": 30,
+    "why": "0 graded calls",
+    "n_clusters": 0
+   },
+   "vs_always_long": {
+    "n": 488,
+    "base_rate_up": 0.498,
+    "always_long_hit_rate": 0.498,
+    "model_right_long_wrong": 65,
+    "model_wrong_long_right": 91,
+    "status": "MEASURED",
+    "n_discordant": 156,
+    "p_value": 0.045,
+    "verdict": "worse than always-long"
+   },
+   "probability": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 0,
+    "n_required": 30,
+    "why": "calls carrying a stated or calibrated probability"
+   },
+   "by_horizon": {
+    "1M": {
+     "status": "MEASURED",
+     "n": 488,
+     "hits": 217,
+     "rate": 0.4447,
+     "n_clusters": 17,
+     "ci95_wilson": [
+      0.4012,
+      0.489
+     ],
+     "ci95_cluster": [
+      0.376,
+      0.5134
+     ],
+     "cluster_df": 16,
+     "p_value_vs_coin": 0.10705,
+     "verdict": "indistinguishable from chance after the slice correction",
+     "holm_p": 0.32115,
+     "verdict_raw": "indistinguishable from chance"
+    }
+   },
+   "by_asset_class": {
+    "equity": {
+     "status": "MEASURED",
+     "n": 398,
+     "hits": 158,
+     "rate": 0.397,
+     "n_clusters": 17,
+     "ci95_wilson": [
+      0.3501,
+      0.4458
+     ],
+     "ci95_cluster": [
+      0.329,
+      0.465
+     ],
+     "cluster_df": 16,
+     "p_value_vs_coin": 0.00544,
+     "verdict": "worse than chance",
+     "holm_p": 0.03264,
+     "verdict_raw": "worse than chance"
+    },
+    "crypto": {
+     "status": "MEASURED",
+     "n": 90,
+     "hits": 59,
+     "rate": 0.6556,
+     "n_clusters": 17,
+     "ci95_wilson": [
+      0.5528,
+      0.7455
+     ],
+     "ci95_cluster": [
+      0.5192,
+      0.7919
+     ],
+     "cluster_df": 16,
+     "p_value_vs_coin": 0.02783,
+     "verdict": "indistinguishable from chance after the slice correction",
+     "holm_p": 0.11132,
+     "verdict_raw": "better than chance"
+    }
+   },
+   "by_model_version": {
+    "UNKNOWN": {
+     "status": "MEASURED",
+     "n": 488,
+     "hits": 217,
+     "rate": 0.4447,
+     "n_clusters": 17,
+     "ci95_wilson": [
+      0.4012,
+      0.489
+     ],
+     "ci95_cluster": [
+      0.376,
+      0.5134
+     ],
+     "cluster_df": 16,
+     "p_value_vs_coin": 0.10705,
+     "verdict": "indistinguishable from chance after the slice correction",
+     "holm_p": 0.32115,
+     "verdict_raw": "indistinguishable from chance"
+    }
+   },
+   "by_regime_macro": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 349,
+    "n_required": 30,
+    "why": "1 regime label(s) in the record (Expansion (Goldilocks)): a comparison needs at least two",
+    "labels": {
+     "Expansion (Goldilocks)": 349
+    },
+    "unlabelled": 139
+   },
+   "by_regime_market": {
+    "status": "MEASURED",
+    "labels": {
+     "BULL/NORMAL_VOL": 229,
+     "BULL/LOW_VOL": 259
+    },
+    "slices": {
+     "BULL/NORMAL_VOL": {
+      "status": "MEASURED",
+      "n": 229,
+      "hits": 118,
+      "rate": 0.5153,
+      "n_clusters": 8,
+      "ci95_wilson": [
+       0.4508,
+       0.5792
+      ],
+      "ci95_cluster": [
+       0.4155,
+       0.615
+      ],
+      "cluster_df": 7,
+      "p_value_vs_coin": 0.72778,
+      "verdict": "indistinguishable from chance after the slice correction",
+      "holm_p": 0.72778,
+      "verdict_raw": "indistinguishable from chance"
+     },
+     "BULL/LOW_VOL": {
+      "status": "MEASURED",
+      "n": 259,
+      "hits": 99,
+      "rate": 0.3822,
+      "n_clusters": 9,
+      "ci95_wilson": [
+       0.3252,
+       0.4427
+      ],
+      "ci95_cluster": [
+       0.2918,
+       0.4727
+      ],
+      "cluster_df": 8,
+      "p_value_vs_coin": 0.01704,
+      "verdict": "indistinguishable from chance after the slice correction",
+      "holm_p": 0.0852,
+      "verdict_raw": "worse than chance"
+     }
+    }
+   },
+   "slice_tests": 6
+  },
+  "v5": {
+   "sample": {
+    "graded_events": 39,
+    "directional": 16,
+    "neutral": 23,
+    "information_dates": 4,
+    "first_call": "2026-08-01T16:57:56",
+    "last_call": "2026-08-31T22:51:30"
+   },
+   "probability_types": {
+    "STATED_PROBABILITY": 16,
+    "NONE": 23
+   },
+   "model_versions": {
+    "v5|weights=1": 39
+   },
+   "hit_rate_all": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 39,
+    "n_required": 30,
+    "why": "39 calls but only 4 distinct information dates (need 5) \u2014 they share one market path",
+    "n_clusters": 4,
+    "n_clusters_required": 5
+   },
+   "directional_accuracy": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 16,
+    "n_required": 30,
+    "why": "16 graded calls",
+    "n_clusters": 4
+   },
+   "neutral_band_hit_rate": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 23,
+    "n_required": 30,
+    "why": "23 graded calls",
+    "n_clusters": 3
+   },
+   "vs_always_long": {
+    "n": 16,
+    "base_rate_up": 0.5,
+    "always_long_hit_rate": 0.5,
+    "model_right_long_wrong": 0,
+    "model_wrong_long_right": 0,
+    "status": "INSUFFICIENT_DATA",
+    "n_discordant": 0,
+    "n_discordant_required": 20,
+    "why": "too few calls where the model and always-long disagree"
+   },
+   "probability": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 16,
+    "n_required": 30,
+    "why": "calls carrying a stated or calibrated probability"
+   },
+   "by_horizon": {
+    "3M": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 16,
+     "n_required": 30,
+     "why": "16 graded calls",
+     "n_clusters": 4
+    }
+   },
+   "by_asset_class": {
+    "equity": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 16,
+     "n_required": 30,
+     "why": "16 graded calls",
+     "n_clusters": 4
+    }
+   },
+   "by_model_version": {
+    "v5|weights=1": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 16,
+     "n_required": 30,
+     "why": "16 graded calls",
+     "n_clusters": 4
+    }
+   },
+   "by_regime_macro": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 9,
+    "n_required": 30,
+    "why": "1 regime label(s) in the record (Expansion (Goldilocks)): a comparison needs at least two",
+    "labels": {
+     "Expansion (Goldilocks)": 9
+    },
+    "unlabelled": 7
+   },
+   "by_regime_market": {
+    "status": "INSUFFICIENT_DATA",
+    "n": 16,
+    "n_required": 30,
+    "why": "fewer than two regimes have enough graded calls and dates to measure",
+    "labels": {
+     "BULL/NORMAL_VOL": 7,
+     "BULL/LOW_VOL": 9
+    },
+    "unlabelled": 0
+   },
+   "slice_tests": 0
+  }
+ },
+ "calibration": {
+  "desk": {
+   "model_id": "desk",
+   "calibration_version": "none",
+   "n_probability_observations": 0,
+   "methods_not_implemented": [
+    "beta"
+   ],
+   "status": "CALIBRATION_NOT_APPLICABLE",
+   "why": "this model states no probability: its numbers are confidence, score or nothing, and cannot be calibrated as probabilities"
+  },
+  "technical": {
+   "model_id": "technical",
+   "calibration_version": "none",
+   "n_probability_observations": 0,
+   "methods_not_implemented": [
+    "beta"
+   ],
+   "status": "CALIBRATION_NOT_APPLICABLE",
+   "why": "this model states no probability: its numbers are confidence, score or nothing, and cannot be calibrated as probabilities"
+  },
+  "v5": {
+   "model_id": "v5",
+   "calibration_version": "none",
+   "n_probability_observations": 16,
+   "methods_not_implemented": [
+    "beta"
+   ],
+   "n_train": 0,
+   "n_validation": 0,
+   "n_test": 4,
+   "purged": 12,
+   "windows": {
+    "train": null,
+    "validation": null,
+    "test": [
+     "2026-08-31T22:51:18",
+     "2026-08-31T22:51:30"
+    ]
+   },
+   "status": "CALIBRATION_INSUFFICIENT_DATA",
+   "why": "0 train / 0 validation / 4 test probability observations; at least 100 / 50 / 50 are needed before any map can be fitted and judged out of sample",
+   "candidate_methods": []
+  }
+ },
+ "registry": {
+  "desk": {
+   "model_id": "desk",
+   "name": "desk-debate",
+   "kind": "deterministic weighted vote of the technical / fundamental / sentiment analysts, conditioned by macro; a language model writes the debate prose and the judge's explanation and decides NOTHING",
+   "ledger_source": "desk",
+   "status": "EXPERIMENTAL",
+   "evidence_status": "EXPERIMENTAL",
+   "owner_status": null,
+   "owner_status_lapsed": false,
+   "model_version": "desk-debate|code=9db8ca392a0d|llm=qwen2.5:7b-instruct-q4_K_M",
+   "versions_in_record": {
+    "UNRECORDED": 61,
+    "desk-debate|code=9db8ca392a0d|llm=qwen2.5:7b-instruct-q4_K_M": 4
+   },
+   "code_hash_now": "9db8ca392a0d",
+   "package": "src/desk",
+   "probability_type": "CONFIDENCE",
+   "declared_probability": false,
+   "calibration": {
+    "model_id": "desk",
+    "calibration_version": "none",
+    "n_probability_observations": 0,
+    "methods_not_implemented": [
+     "beta"
+    ],
+    "status": "CALIBRATION_NOT_APPLICABLE",
+    "why": "this model states no probability: its numbers are confidence, score or nothing, and cannot be calibrated as probabilities"
+   },
+   "supported": {
+    "asset_classes_declared": [
+     "crypto",
+     "equity"
+    ],
+    "asset_classes_observed": [
+     "crypto",
+     "equity"
+    ],
+    "horizons_days": [
+     1
+    ],
+    "regimes_observed": [
+     "Expansion (Goldilocks)"
+    ]
+   },
+   "feature_set": [
+    "technical agent: data/signals.json composite, trend, momentum, realised vol, heuristic bullish_prob; data/ml_predictions.json horizons (only while unexpired)",
+    "fundamental agent",
+    "sentiment agent (news)",
+    "macro conditioner: regime, VIX, conviction bar"
+   ],
+   "training": "none \u2014 judge weights are src/desk/scorecard defaults; they tilt after 20 closed trades on raw hit rates WITHOUT a significance test (flagged, unchanged)",
+   "performance_sample": {
+    "graded_events": 61,
+    "directional": 61,
+    "information_dates": 12,
+    "window": [
+     "2026-07-18T14:03:47",
+     "2026-08-01T17:32:11"
+    ]
+   },
+   "validation_window": [
+    "2026-07-27T12:42:36",
+    "2026-08-01T17:32:11"
+   ],
+   "promotion_check": {
+    "model_id": "desk",
+    "eligible": false,
+    "criteria": {
+     "sufficient_sample": {
+      "passed": false,
+      "detail": "61 directional graded calls on 12 dates (need 200 on 20)"
+     },
+     "temporal_holdout": {
+      "passed": false,
+      "detail": "holdout: 19 graded calls",
+      "holdout_window": [
+       "2026-07-27T12:42:36",
+       "2026-08-01T17:32:11"
+      ],
+      "n_holdout": 19,
+      "family_size": 1
+     },
+     "no_pit_violation": {
+      "passed": true,
+      "detail": "0 rows excluded for a point-in-time reason, 0 regime labels from after the call"
+     },
+     "stable_performance": {
+      "passed": false,
+      "detail": "fewer than three measurable chronological blocks"
+     },
+     "known_probability_semantics": {
+      "passed": true,
+      "detail": "0 ledger rows with an UNRECORDED probability kind"
+     },
+     "reproducible_model_version": {
+      "passed": false,
+      "detail": "61 evaluated calls carry no code hash; 0 distinct versions"
+     }
+    },
+    "dataset_hash": "3d83acd8ce59f812",
+    "note": "the gate takes no text input: no argument, from a person or a language model, can satisfy a criterion"
+   },
+   "notes": [
+    "ledger holds 61 graded events 2026-07-18..2026-08-01 (imported from data/desk/backfilled_outcomes.jsonl); debates since then were never graded into the ledger \u2014 see the debate evaluation"
+   ]
+  },
+  "technical": {
+   "model_id": "technical",
+   "name": "technical-composite",
+   "kind": "indicator vote count (moving averages + oscillators) on daily bars",
+   "ledger_source": "technical",
+   "status": "EXPERIMENTAL",
+   "evidence_status": "EXPERIMENTAL",
+   "owner_status": null,
+   "owner_status_lapsed": false,
+   "model_version": "technical-composite|code=ba9422d8fff2|timeframe=1d",
+   "versions_in_record": {
+    "UNRECORDED": 519,
+    "technical-composite|code=ba9422d8fff2|timeframe=1d": 59
+   },
+   "code_hash_now": "ba9422d8fff2",
+   "package": "src/data/technical_summary.py",
+   "probability_type": "NONE",
+   "declared_probability": false,
+   "calibration": {
+    "model_id": "technical",
+    "calibration_version": "none",
+    "n_probability_observations": 0,
+    "methods_not_implemented": [
+     "beta"
+    ],
+    "status": "CALIBRATION_NOT_APPLICABLE",
+    "why": "this model states no probability: its numbers are confidence, score or nothing, and cannot be calibrated as probabilities"
+   },
+   "supported": {
+    "asset_classes_declared": [
+     "equity",
+     "crypto",
+     "forex",
+     "index"
+    ],
+    "asset_classes_observed": [
+     "crypto",
+     "equity"
+    ],
+    "horizons_days": [
+     10
+    ],
+    "regimes_observed": [
+     "Expansion (Goldilocks)"
+    ]
+   },
+   "feature_set": [
+    "SMA/EMA 10-200 crosses",
+    "RSI",
+    "stochastic",
+    "CCI",
+    "ADX",
+    "MACD",
+    "momentum",
+    "Williams %R",
+    "ultimate oscillator"
+   ],
+   "training": "none \u2014 fixed rules",
+   "performance_sample": {
+    "graded_events": 488,
+    "directional": 488,
+    "information_dates": 17,
+    "window": [
+     "2026-07-27T21:30:06",
+     "2026-09-23T21:30:15"
+    ]
+   },
+   "validation_window": [
+    "2026-09-10T21:30:05",
+    "2026-09-23T21:30:15"
+   ],
+   "promotion_check": {
+    "model_id": "technical",
+    "eligible": false,
+    "criteria": {
+     "sufficient_sample": {
+      "passed": false,
+      "detail": "488 directional graded calls on 17 dates (need 200 on 20)"
+     },
+     "temporal_holdout": {
+      "passed": false,
+      "detail": "holdout 0.4558 over 147 calls (indistinguishable from chance); vs always-long Holm-adjusted p=1.0",
+      "holdout_window": [
+       "2026-09-10T21:30:05",
+       "2026-09-23T21:30:15"
+      ],
+      "n_holdout": 147,
+      "family_size": 1
+     },
+     "no_pit_violation": {
+      "passed": true,
+      "detail": "0 rows excluded for a point-in-time reason, 0 regime labels from after the call"
+     },
+     "stable_performance": {
+      "passed": false,
+      "detail": "block rates 0.537, 0.3519, 0.4451"
+     },
+     "known_probability_semantics": {
+      "passed": true,
+      "detail": "0 ledger rows with an UNRECORDED probability kind"
+     },
+     "reproducible_model_version": {
+      "passed": false,
+      "detail": "488 evaluated calls carry no code hash; 0 distinct versions"
+     }
+    },
+    "dataset_hash": "3d83acd8ce59f812",
+    "note": "the gate takes no text input: no argument, from a person or a language model, can satisfy a criterion"
+   },
+   "notes": []
+  },
+  "v5": {
+   "model_id": "v5",
+   "name": "v5-ensemble",
+   "kind": "41 research modules -> family-weighted ensemble -> meta-review; confidence is the stated P(direction right) on bull/bear calls",
+   "ledger_source": "v5",
+   "status": "INSUFFICIENT_DATA",
+   "evidence_status": "INSUFFICIENT_DATA",
+   "owner_status": null,
+   "owner_status_lapsed": false,
+   "model_version": "v5|code=f26380b95bfc|weights=1",
+   "versions_in_record": {
+    "v5|weights=1": 348,
+    "UNRECORDED": 30,
+    "v5|code=f26380b95bfc|weights=1": 60
+   },
+   "code_hash_now": "ba691de4be3e",
+   "package": "src/v5",
+   "probability_type": "STATED_PROBABILITY",
+   "declared_probability": true,
+   "calibration": {
+    "model_id": "v5",
+    "calibration_version": "none",
+    "n_probability_observations": 16,
+    "methods_not_implemented": [
+     "beta"
+    ],
+    "n_train": 0,
+    "n_validation": 0,
+    "n_test": 4,
+    "purged": 12,
+    "windows": {
+     "train": null,
+     "validation": null,
+     "test": [
+      "2026-08-31T22:51:18",
+      "2026-08-31T22:51:30"
+     ]
+    },
+    "status": "CALIBRATION_INSUFFICIENT_DATA",
+    "why": "0 train / 0 validation / 4 test probability observations; at least 100 / 50 / 50 are needed before any map can be fitted and judged out of sample",
+    "candidate_methods": []
+   },
+   "supported": {
+    "asset_classes_declared": [
+     "equity"
+    ],
+    "asset_classes_observed": [
+     "equity"
+    ],
+    "horizons_days": [
+     22,
+     48
+    ],
+    "regimes_observed": [
+     "Expansion (Goldilocks)"
+    ]
+   },
+   "feature_set": [
+    "price, fundamental, quant, macro, volatility, machine and behavioural module families (src/v5/modules)"
+   ],
+   "training": "not fitted \u2014 family weights hand-set (src/v5/ensemble.FAMILY_WEIGHTS); module multipliers versioned by src/v5/learning behind a binomial test",
+   "performance_sample": {
+    "graded_events": 39,
+    "directional": 16,
+    "information_dates": 4,
+    "window": [
+     "2026-08-01T16:57:56",
+     "2026-08-31T22:51:30"
+    ]
+   },
+   "validation_window": [
+    "2026-08-31T22:51:16",
+    "2026-08-31T22:51:30"
+   ],
+   "promotion_check": {
+    "model_id": "v5",
+    "eligible": false,
+    "criteria": {
+     "sufficient_sample": {
+      "passed": false,
+      "detail": "16 directional graded calls on 4 dates (need 200 on 20)"
+     },
+     "temporal_holdout": {
+      "passed": false,
+      "detail": "holdout: 5 graded calls",
+      "holdout_window": [
+       "2026-08-31T22:51:16",
+       "2026-08-31T22:51:30"
+      ],
+      "n_holdout": 5,
+      "family_size": 1
+     },
+     "no_pit_violation": {
+      "passed": true,
+      "detail": "0 rows excluded for a point-in-time reason, 0 regime labels from after the call"
+     },
+     "stable_performance": {
+      "passed": false,
+      "detail": "fewer than three measurable chronological blocks"
+     },
+     "known_probability_semantics": {
+      "passed": false,
+      "detail": "30 ledger rows with an UNRECORDED probability kind"
+     },
+     "reproducible_model_version": {
+      "passed": false,
+      "detail": "39 evaluated calls carry no code hash; 0 distinct versions"
+     }
+    },
+    "dataset_hash": "3d83acd8ce59f812",
+    "note": "the gate takes no text input: no argument, from a person or a language model, can satisfy a criterion"
+   },
+   "notes": [
+    "not point in time for fundamentals/news modules: historical replay is not possible, only the live record counts"
+   ]
+  },
+  "ml-ensemble": {
+   "model_id": "ml-ensemble",
+   "name": "ml-stacked-ensemble",
+   "kind": "per-ticker stacked classifiers (logistic, random forest, gradient boosting, xgboost) + meta-learner, purged walk-forward CV",
+   "ledger_source": "ml-ensemble",
+   "status": "INSUFFICIENT_DATA",
+   "evidence_status": "INSUFFICIENT_DATA",
+   "owner_status": null,
+   "owner_status_lapsed": false,
+   "model_version": null,
+   "versions_in_record": {},
+   "code_hash_now": "f28aa3f46f9e",
+   "package": "src/models",
+   "probability_type": "SCORE",
+   "declared_probability": false,
+   "calibration": {
+    "status": "CALIBRATION_NOT_APPLICABLE",
+    "calibration_version": "none",
+    "why": "no graded calls in the record"
+   },
+   "supported": {
+    "asset_classes_declared": [
+     "equity"
+    ],
+    "asset_classes_observed": [],
+    "horizons_days": [
+     1,
+     5,
+     20
+    ],
+    "regimes_observed": []
+   },
+   "feature_set": [
+    "src/models/feature_engine (104 features: returns, trend, momentum, volatility, regime flags, volume)"
+   ],
+   "training": "per ticker and horizon; metadata in data/models/*.json",
+   "performance_sample": {
+    "graded_events": 0,
+    "directional": 0,
+    "information_dates": 0,
+    "window": [
+     null,
+     null
+    ]
+   },
+   "validation_window": null,
+   "promotion_check": {
+    "model_id": "ml-ensemble",
+    "eligible": false,
+    "criteria": {
+     "sufficient_sample": {
+      "passed": false,
+      "detail": "0 directional graded calls on 0 dates (need 200 on 20)"
+     },
+     "temporal_holdout": {
+      "passed": false,
+      "detail": "holdout: 0 graded calls",
+      "holdout_window": null,
+      "n_holdout": 0,
+      "family_size": 1
+     },
+     "no_pit_violation": {
+      "passed": false,
+      "detail": "no evaluated rows"
+     },
+     "stable_performance": {
+      "passed": false,
+      "detail": "fewer than three measurable chronological blocks"
+     },
+     "known_probability_semantics": {
+      "passed": false,
+      "detail": "0 ledger rows with an UNRECORDED probability kind"
+     },
+     "reproducible_model_version": {
+      "passed": false,
+      "detail": "0 evaluated calls carry no code hash; 0 distinct versions"
+     }
+    },
+    "dataset_hash": "3d83acd8ce59f812",
+    "note": "the gate takes no text input: no argument, from a person or a language model, can satisfy a criterion"
+   },
+   "notes": [
+    "its predict_proba is shifted +-0.03 by a hard-coded regime rule (ensemble_model._regime_adjust): a SCORE, not a probability",
+    "had never been written to the ledger, so it has no graded record; recorded at creation from 2026-10-08 (src/intelligence/recorders), forward only",
+    "training labels: the last `horizon` rows had an unknown future but were labelled 'not up' (fixed 2026-10-08 in src/models/targets.py)"
+   ],
+   "training_data": {
+    "checkpoints": 4623,
+    "trained_from": "2026-07-02T12:52:39.605374",
+    "trained_to": "2026-10-07T09:29:58.594638",
+    "rows_per_model": [
+     244,
+     510
+    ],
+    "versions": [
+     "v6.0"
+    ],
+    "horizons": [
+     1,
+     5,
+     20
+    ],
+    "in_sample_cv_accuracy": [
+     0.0,
+     0.7932
+    ],
+    "cv_note": "purged walk-forward CV during training: in-sample selection, not a ledger holdout"
+   },
+   "predictions_file": {
+    "exists": true,
+    "modified": "2026-05-31T01:18:09",
+    "age_days": 130.7
+   }
+  },
+  "signal-engine": {
+   "model_id": "signal-engine",
+   "name": "signal-engine-composite",
+   "kind": "composite technical/momentum/regime score with a heuristic bullish_prob",
+   "ledger_source": null,
+   "status": "NOT_RECORDED",
+   "evidence_status": "NOT_RECORDED",
+   "owner_status": null,
+   "owner_status_lapsed": false,
+   "model_version": null,
+   "versions_in_record": {},
+   "code_hash_now": "9604952fa29e",
+   "package": "src/signals",
+   "probability_type": "SCORE",
+   "declared_probability": false,
+   "calibration": {
+    "status": "CALIBRATION_NOT_APPLICABLE",
+    "calibration_version": "none",
+    "why": "no graded calls in the record"
+   },
+   "supported": {
+    "asset_classes_declared": [
+     "equity",
+     "crypto",
+     "forex",
+     "futures"
+    ],
+    "asset_classes_observed": [],
+    "horizons_days": [],
+    "regimes_observed": []
+   },
+   "feature_set": [
+    "data/signals.json composite_score, trend, momentum, realised vol, regime"
+   ],
+   "training": "none \u2014 fixed rules",
+   "performance_sample": {
+    "graded_events": 0,
+    "directional": 0,
+    "information_dates": 0,
+    "window": [
+     null,
+     null
+    ]
+   },
+   "validation_window": null,
+   "promotion_check": null,
+   "notes": [
+    "feeds the desk's technical analyst and the reflex lane; never written to the ledger as a falsifiable claim"
+   ],
+   "signals_file": {
+    "exists": true,
+    "modified": "2026-10-07T07:39:40",
+    "age_days": 1.5
+   }
+  }
+ },
+ "routing_table": {
+  "crypto|1D": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 1,
+    "asset_class": "crypto",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "crypto",
+    "horizon_bucket": "1D",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION"
+     ],
+     "slice_rate": 0.4571,
+     "slice_n": 35,
+     "regime_conditioned": false,
+     "holm_p": 0.8238
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice crypto/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover crypto",
+      "slice crypto/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover crypto",
+      "slice crypto/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 1,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  },
+  "crypto|1M": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 21,
+    "asset_class": "crypto",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "crypto",
+    "horizon_bucket": "1M",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice crypto/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION"
+     ],
+     "slice_rate": 0.6556,
+     "slice_n": 90,
+     "regime_conditioned": false,
+     "holm_p": 1.0
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover crypto",
+      "slice crypto/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover crypto",
+      "slice crypto/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 1,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  },
+  "equity|1D": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 1,
+    "asset_class": "equity",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "equity",
+    "horizon_bucket": "1D",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice equity/1D: 26 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 26,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice equity/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "slice equity/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "slice equity/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 0,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  },
+  "equity|1M": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 21,
+    "asset_class": "equity",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "equity",
+    "horizon_bucket": "1M",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice equity/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION"
+     ],
+     "slice_rate": 0.397,
+     "slice_n": 398,
+     "regime_conditioned": false,
+     "holm_p": 1.0
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "slice equity/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "slice equity/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 1,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  },
+  "equity|1W": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 5,
+    "asset_class": "equity",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "equity",
+    "horizon_bucket": "1W",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice equity/1W: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice equity/1W: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "slice equity/1W: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "slice equity/1W: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 0,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  },
+  "equity|3M": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 63,
+    "asset_class": "equity",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "equity",
+    "horizon_bucket": "3M",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice equity/3M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice equity/3M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "slice equity/3M: 16 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 16,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "slice equity/3M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 0,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  },
+  "forex|1D": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 1,
+    "asset_class": "forex",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "forex",
+    "horizon_bucket": "1D",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "does not cover forex",
+      "slice forex/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice forex/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover forex",
+      "slice forex/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover forex",
+      "slice forex/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 0,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  },
+  "forex|1M": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 21,
+    "asset_class": "forex",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "forex",
+    "horizon_bucket": "1M",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "does not cover forex",
+      "slice forex/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice forex/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover forex",
+      "slice forex/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover forex",
+      "slice forex/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 0,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  },
+  "futures|1D": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 1,
+    "asset_class": "futures",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "futures",
+    "horizon_bucket": "1D",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "does not cover futures",
+      "slice futures/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "does not cover futures",
+      "slice futures/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover futures",
+      "slice futures/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover futures",
+      "slice futures/1D: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 0,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  },
+  "index|1M": {
+   "reason_code": "ROUTING_INSUFFICIENT_EVIDENCE",
+   "route": "DEFAULT",
+   "request": {
+    "symbol": "",
+    "horizon_days": 21,
+    "asset_class": "index",
+    "venue": "any",
+    "regime": null,
+    "data_quality": null
+   },
+   "slice": {
+    "asset_class": "index",
+    "horizon_bucket": "1M",
+    "regime": null
+   },
+   "candidates": [
+    {
+     "model_id": "desk",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "does not cover index",
+      "slice index/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "technical",
+     "eligible": false,
+     "why": [
+      "status EXPERIMENTAL: not VALIDATED or PRODUCTION",
+      "slice index/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "v5",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover index",
+      "slice index/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "ml-ensemble",
+     "eligible": false,
+     "why": [
+      "status INSUFFICIENT_DATA: not VALIDATED or PRODUCTION",
+      "does not cover index",
+      "slice index/1M: 0 graded calls"
+     ],
+     "slice_rate": null,
+     "slice_n": 0,
+     "regime_conditioned": false
+    },
+    {
+     "model_id": "signal-engine",
+     "eligible": false,
+     "why": [
+      "status NOT_RECORDED: not VALIDATED or PRODUCTION",
+      "does not cover index",
+      "writes no graded record"
+     ]
+    }
+   ],
+   "family_size": 0,
+   "as_of": "2026-10-08T18:39:56",
+   "default_route": "the source that produced the idea keeps its existing role; no model is up-weighted; model reliability is UNKNOWN; nothing on this route may increase a position",
+   "routed": false,
+   "summary": "ROUTING_INSUFFICIENT_EVIDENCE: DEFAULT"
+  }
+ },
+ "ensemble": {
+  "pairs": [
+   {
+    "pair": [
+     "desk",
+     "technical"
+    ],
+    "overlap": 5,
+    "both_directional": 5,
+    "agreement": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 5,
+     "n_required": 30
+    },
+    "errors": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 4,
+     "n_required": 30
+    },
+    "incremental": {
+     "status": "NOT_TESTABLE",
+     "why": "the two sources grade different horizons, so their outcomes answer different questions"
+    },
+    "verdict": "insufficient overlap to say whether these add independent information"
+   },
+   {
+    "pair": [
+     "desk",
+     "v5"
+    ],
+    "overlap": 0,
+    "both_directional": 0,
+    "agreement": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 0,
+     "n_required": 30
+    },
+    "errors": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 0,
+     "n_required": 30
+    },
+    "incremental": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 0,
+     "n_required": 50
+    },
+    "verdict": "insufficient overlap to say whether these add independent information"
+   },
+   {
+    "pair": [
+     "technical",
+     "v5"
+    ],
+    "overlap": 22,
+    "both_directional": 7,
+    "agreement": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 7,
+     "n_required": 30
+    },
+    "errors": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 0,
+     "n_required": 30
+    },
+    "incremental": {
+     "status": "INSUFFICIENT_DATA",
+     "n": 0,
+     "n_required": 50
+    },
+    "verdict": "insufficient overlap to say whether these add independent information"
+   }
+  ],
+  "method": "pairs aligned on (instrument, information date); first call per key; incremental test only on a common horizon bucket",
+  "floors": {
+   "agreement": 30,
+   "errors": 30,
+   "incremental": 50
+  }
+ },
+ "debate_desk": {
+  "computed_at": "2026-10-08T18:39:57",
+  "operations": {
+   "debates": 2276,
+   "period": [
+    "2026-07-18T14:03:47.692331",
+    "2026-10-08T18:27:26.091412"
+   ],
+   "by_month": {
+    "2026-07": 298,
+    "2026-08": 798,
+    "2026-09": 900,
+    "2026-10": 280
+   },
+   "llm_models": {
+    "qwen2.5:7b-instruct-q4_K_M": 1594,
+    "qwen2.5-coder:7b": 682
+   },
+   "verdicts": {
+    "NO_TRADE": 1690,
+    "BUY": 508,
+    "SELL": 78
+   },
+   "llm_failure_rate": {
+    "debates_with_llm_requested": 2276,
+    "debates_with_a_composed_fallback_round": 28,
+    "rate": 0.0123
+   },
+   "latency_ms": {
+    "status": "MEASURED",
+    "n": 8,
+    "median": 14469.7,
+    "p95": 29512.8
+   },
+   "cost": {
+    "local_llm_api_cost_usd": 0.0,
+    "frontier_judge_prose_consults": 0,
+    "note": "local Ollama model: no per-call API charge; compute time is the cost, and is in latency_ms once recorded"
+   },
+   "judge_agrees_with_technical_analyst": {
+    "n": 2226,
+    "rate": 0.8553
+   },
+   "decided_by": "deterministic weighted analyst vote (src/desk/debate._judge); the LLM writes prose only"
+  },
+  "evaluation": {
+   "events": 322,
+   "horizon_bars": 1,
+   "judge_standalone": {
+    "status": "MEASURED",
+    "n": 322,
+    "hits": 163,
+    "rate": 0.5062,
+    "n_clusters": 53,
+    "ci95_wilson": [
+     0.4519,
+     0.5604
+    ],
+    "ci95_cluster": [
+     0.4445,
+     0.568
+    ],
+    "cluster_df": 52,
+    "p_value_vs_coin": 0.84084,
+    "verdict": "indistinguishable from chance"
+   },
+   "technical_analyst_standalone_same_events": {
+    "status": "MEASURED",
+    "n": 306,
+    "hits": 144,
+    "rate": 0.4706,
+    "n_clusters": 53,
+    "ci95_wilson": [
+     0.4154,
+     0.5265
+    ],
+    "ci95_cluster": [
+     0.4011,
+     0.54
+    ],
+    "cluster_df": 52,
+    "p_value_vs_coin": 0.39936,
+    "verdict": "indistinguishable from chance"
+   },
+   "judge_vs_technical_analyst": {
+    "paired_events": 306,
+    "disagreements": 42,
+    "judge_right_other_wrong": 27,
+    "judge_wrong_other_right": 15,
+    "status": "MEASURED",
+    "p_value": 0.0884,
+    "verdict": "no measurable difference"
+   },
+   "judge_vs_always_long": {
+    "n": 322,
+    "base_rate_up": 0.472,
+    "always_long_hit_rate": 0.472,
+    "model_right_long_wrong": 60,
+    "model_wrong_long_right": 49,
+    "status": "MEASURED",
+    "n_discordant": 109,
+    "p_value": 0.3382,
+    "verdict": "no detectable difference from always-long"
+   },
+   "by_population": {
+    "NO_TRADE": {
+     "status": "MEASURED",
+     "n": 217,
+     "hits": 107,
+     "rate": 0.4931,
+     "n_clusters": 53,
+     "ci95_wilson": [
+      0.4273,
+      0.5591
+     ],
+     "ci95_cluster": [
+      0.434,
+      0.5522
+     ],
+     "cluster_df": 52,
+     "p_value_vs_coin": 0.8394,
+     "verdict": "indistinguishable from chance"
+    },
+    "traded (BUY/SELL)": {
+     "status": "MEASURED",
+     "n": 105,
+     "hits": 56,
+     "rate": 0.5333,
+     "n_clusters": 36,
+     "ci95_wilson": [
+      0.4384,
+      0.6259
+     ],
+     "ci95_cluster": [
+      0.4129,
+      0.6538
+     ],
+     "cluster_df": 35,
+     "p_value_vs_coin": 0.57778,
+     "verdict": "indistinguishable from chance"
+    }
+   },
+   "conviction_ordering": {
+    "status": "MEASURED",
+    "lower_half": {
+     "status": "MEASURED",
+     "n": 161,
+     "hits": 86,
+     "rate": 0.5342,
+     "n_clusters": 50,
+     "ci95_wilson": [
+      0.4572,
+      0.6095
+     ],
+     "ci95_cluster": [
+      0.4702,
+      0.5981
+     ],
+     "cluster_df": 49,
+     "p_value_vs_coin": 0.38911,
+     "verdict": "indistinguishable from chance"
+    },
+    "upper_half": {
+     "status": "MEASURED",
+     "n": 161,
+     "hits": 77,
+     "rate": 0.4783,
+     "n_clusters": 45,
+     "ci95_wilson": [
+      0.4025,
+      0.555
+     ],
+     "ci95_cluster": [
+      0.3713,
+      0.5853
+     ],
+     "cluster_df": 44,
+     "p_value_vs_coin": 0.68419,
+     "verdict": "indistinguishable from chance"
+    },
+    "reading": "undetermined \u2014 the halves' intervals overlap"
+   },
+   "llm_incremental_value": {
+    "status": "ZERO_BY_CONSTRUCTION",
+    "why": "the LLM writes prose; the judge's view, conviction and verdict are computed without it (src/desk/debate._judge)"
+   },
+   "conclusion": "No measurable incremental value: the language model decides nothing by construction, and the judge's aggregation is not distinguishable from its technical input on the graded events."
+  }
+ },
+ "macro_regime_audit": {
+  "classifier": "src.macro.regime.classify (CPI / 10Y-2Y / VIX / unemployment quadrant)",
+  "thresholds": {
+   "high_inflation_above": 3.5,
+   "inverted_below": 0.0,
+   "vix_stress_above": 25.0,
+   "unemployment_stress_above": 5.5
+  },
+  "labels": {
+   "Expansion (Goldilocks)": 833
+  },
+  "graded_labels": {
+   "Expansion (Goldilocks)": 440
+  },
+  "validity": {
+   "ABSENT": 248,
+   "SOURCE_RECORDED": 65,
+   "VERIFIED_PIT": 768
+  },
+  "stale_input_rows": 0,
+  "transitions_in_creation_order": 0,
+  "lookahead_rows": 0,
+  "verdict": "per-macro-regime performance is NOT measurable: every labelled graded call carries the same label",
+  "why": "stamped at creation from the snapshot then held (or from a world snapshot taken before the call): point in time. The quadrant is monthly-slow and did not cross a threshold in the record, so it is constant, not contaminated."
+ },
+ "timings": {
+  "read_ledger_s": 0.048,
+  "audit_s": 0.05,
+  "regrade_s": 6.378,
+  "evidence_s": 3.519,
+  "ensemble_s": 0.007,
+  "debate_s": 6.718
+ }
+}

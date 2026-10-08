@@ -191,6 +191,12 @@ Tiers are computed from resolved outcomes and nothing else. There is no list to 
 
 `src/v5/tiers.py` · `GET /api/v5/tiers`
 
+### 4. Which model may be trusted, and how much? — *model intelligence*
+
+Every number travels with its type — `STATED_PROBABILITY`, `CALIBRATED_PROBABILITY`, `SCORE`, `CONFIDENCE`, `NONE` or `UNKNOWN` — and only the first two may enter a Brier score. Each model (desk, technical, V5, ML ensemble, signal engine) is evaluated on one canonical dataset where every excluded call carries a reason, with intervals clustered by information date and compared against always-long, not only a coin. Evidence alone can make a model `EXPERIMENTAL` at most: `VALIDATED` and `PRODUCTION` are owner decisions a promotion gate must allow. Routing is evidence-based or `ROUTING_INSUFFICIENT_EVIDENCE` with a conservative default — today it is the default everywhere. A prediction reaches the risk layer as a decomposed conviction that can veto or defer a trade, never enlarge one.
+
+`src/intelligence/` · `GET /api/intelligence/models` · `docs/MODEL_INTELLIGENCE.md`
+
 ---
 
 ## The eight destinations
@@ -302,6 +308,9 @@ The surfaces the interface actually reads:
 | `GET /api/daily-report/history` | Every stored report, newest first |
 | `POST /api/daily-report/generate` | Build and store a report; refuses to overwrite |
 | `GET /api/ledger/investigate` | Calibration over distinct events, with intervals |
+| `GET /api/intelligence/models` | Per-model evaluation, calibration status, registry card and routing |
+| `GET /api/intelligence/conviction?symbol=` | The latest call from each model, decomposed and labelled |
+| `GET /api/intelligence/baseline` | The prediction ledger's data-integrity audit |
 | `GET /api/system/health` | Worker health from the registry |
 | `GET /api/consult/status` | Whether a second opinion is currently possible |
 | `POST /api/consult` | Ask SENTINEL for an independent view |

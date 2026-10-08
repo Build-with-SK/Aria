@@ -93,15 +93,18 @@ def _prepare_features(df: pd.DataFrame, horizon: int) -> Tuple[pd.DataFrame, pd.
 
     df = df.copy()
     # shift(-horizon) computes future return — this is the label only,
-    # never a feature input, so there is no lookahead in X.
-    df["_target"] = (df["Close"].shift(-horizon) > df["Close"]).astype(int)
+    # never a feature input, so there is no lookahead in X. Where the future
+    # close does not exist yet the label is NaN and dropna() removes the row;
+    # `(NaN > x).astype(int)` would have made it a confident "down".
+    fwd = df["Close"].shift(-horizon)
+    df["_target"] = (fwd > df["Close"]).astype(float).where(fwd.notna())
 
     data = df[available + ["_target"]].dropna()
 
     if len(data) < 60:
         return pd.DataFrame(), pd.Series(dtype=int)
 
-    return data[available], data["_target"]
+    return data[available], data["_target"].astype(int)
 
 
 # ===========================================================================

@@ -12,6 +12,10 @@ it sits in the execution paths. Sessions are in `docs/MARKET_SESSIONS.md`.
 ## The decision path
 
 ```
+PREDICTION
+  -> CONVICTION          decomposed context (src/intelligence/conviction): direction,
+                         probability AND its type, calibration, reliability,
+                         disagreement, data quality, regime fit, routing
 SIGNAL
   -> PORTFOLIO CONTEXT   the book (AccountState), valued in the base currency with cited FX
   -> RISK                RiskEngine sizing (src/trading/risk.py)
@@ -19,6 +23,23 @@ SIGNAL
   -> SESSION             the instrument's own session, at the send boundary
   -> EXECUTION CHECK     validator, permission (kill switch), mode gate, broker
 ```
+
+A prediction never authorises a trade. Since 2026-10-08 `ProposedOrder`
+carries an optional `conviction` (a plain dict; `pretrade` imports nothing
+that could reach a model). It is recorded with the decision and has exactly
+two possible effects on an ENTRY, both restrictive:
+
+| conviction | effect |
+|---|---|
+| does not support the side (FLAT, or the opposite direction) | REJECT — `prediction_supports_side` |
+| `data_quality` POOR (its horizon has elapsed, inputs unreadable) | DEFER — `prediction_data_usable` |
+| anything else, however strong it looks | none: verdict and size are exactly what they would be without it |
+
+Exits (reducing orders) are accepted before the conviction is read, so a
+prediction can never block one. `OrderManager` attaches the conviction of the
+debate a desk trade came from; a manual proposal, or any failure to build one,
+attaches none and the gate decides alone, as before. `TradingPipeline.run`
+takes it as an optional argument. See docs/MODEL_INTELLIGENCE.md.
 
 Every gate must pass, and none can be skipped. The pipeline runs the cheap
 session check first, before reading the account, and checks it again at the

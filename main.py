@@ -461,6 +461,24 @@ def run_ml(featured_data: Dict[str, pd.DataFrame], config: dict) -> dict:
                                 encoding="utf-8")
                 logger.info(f"TIS: ML predictions written — {len(payload)} "
                             f"tickers -> data/ml_predictions.json")
+                # ...and into the prediction ledger, so they can be graded at
+                # all (src/intelligence/recorders). Forward only; a SCORE, never
+                # a probability.
+                try:
+                    from src.intelligence.recorders import record_ml_predictions
+                    from src.models.model_trainer import _MODEL_VERSION
+                    asof, last = {}, {}
+                    for t, df in (featured_data or {}).items():
+                        try:
+                            asof[t] = str(df.index[-1].date())
+                            last[t] = float(df["Close"].iloc[-1])
+                        except Exception:
+                            continue
+                    rec = record_ml_predictions(payload, data_as_of=asof, last_close=last,
+                                                trainer_version=_MODEL_VERSION)
+                    logger.info(f"TIS: ML predictions recorded in the ledger: {rec}")
+                except Exception as e:
+                    logger.warning(f"TIS: ML predictions not recorded in the ledger: {e}")
             else:
                 # Do NOT overwrite a good file with an empty one. A run that
                 # produced nothing must leave the last real predictions alone

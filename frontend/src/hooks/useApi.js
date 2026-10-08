@@ -96,6 +96,10 @@ export const useCalibration  = () => useApiData('/api/ledger/calibration',  300_
 // "confidence is inverted, skill -0.222"; on independent events the honest
 // answer is that the sample cannot yet tell.
 export const useInvestigation = () => useApiData('/api/ledger/investigate', 300_000)
+// Model intelligence (src/intelligence): per-model evaluation, registry,
+// calibration status and routing, from the last evidence snapshot.
+export const useModelIntelligence = () => useApiData('/api/intelligence/models', 600_000)
+export const useDebateValue = () => useApiData('/api/intelligence/debate', 900_000)
 
 // The consultation bridge to SENTINEL — a SEPARATE general intelligence in its
 // own process, not a part of ARIA. This reports whether a second opinion is

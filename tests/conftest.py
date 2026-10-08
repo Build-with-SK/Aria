@@ -56,6 +56,9 @@ METERED_HOSTS = ("api.bls.gov", "home.treasury.gov", "markets.newyorkfed.org",
 
 _TMP_DATA: Path | None = None
 _patched_modules: set[str] = set()
+#: Every module name `_sweep` needs never look at again: ARIA modules fully
+#: redirected, and every non-ARIA module.
+_examined_modules: set[str] = set()
 
 # ── the audit log ────────────────────────────────────────────────────────────
 # Set at IMPORT, not in a fixture: pytest imports this file before it collects
@@ -142,10 +145,24 @@ def _sweep(tmp_data: Path) -> int:
     enough. The autouse fixture below re-sweeps only modules it has not seen.
     """
     moved = 0
-    for name, mod in list(sys.modules.items()):
-        if mod is None or name in _patched_modules:
-            continue
-        if not (name == "src" or name.startswith("src.") or name.startswith("backend")):
+    # Only names not examined before. The set difference runs in C, so a sweep
+    # costs time in proportion to what is NEW, not to everything ever imported.
+    # The import hook below runs this on every executed `from src... import`,
+    # including those inside hot functions (src/markets/sessions.resolve);
+    # once scipy and sklearn are loaded sys.modules holds ~3,400 entries, and
+    # looping over all of them in Python made a ~50 us session() cost ~1.4 ms
+    # under pytest — failing test_global_calendars' latency check on harness
+    # overhead, not on the code it measures. Semantics are unchanged: a
+    # non-ARIA name can never become an ARIA name, a patched name was already
+    # skipped, and a module still initializing is not marked, so it is looked
+    # at again exactly as before.
+    for name in list(sys.modules.keys() - _examined_modules):
+        mod = sys.modules.get(name)
+        if mod is None:
+            continue                     # a failed-import placeholder: look again later
+        if name in _patched_modules or not (
+                name == "src" or name.startswith("src.") or name.startswith("backend")):
+            _examined_modules.add(name)
             continue
         moved += _redirect_module(mod, tmp_data)
         # A module still executing its own body is swept for what exists so
@@ -156,6 +173,7 @@ def _sweep(tmp_data: Path) -> int:
         # and tests wrote into the owner's data directory.
         if not getattr(getattr(mod, "__spec__", None), "_initializing", False):
             _patched_modules.add(name)
+            _examined_modules.add(name)
     return moved
 
 

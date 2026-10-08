@@ -103,7 +103,16 @@ CREATE TABLE IF NOT EXISTS predictions (
     model_version       TEXT,
     data_as_of          TEXT,
     information_session TEXT,
-    regime_basis        TEXT
+    regime_basis        TEXT,
+    -- Provenance (2026-10-08, src/intelligence/provenance.py).
+    probability_type    TEXT,
+    venue               TEXT,
+    market_session      TEXT,
+    feature_version     TEXT,
+    routing_decision    TEXT,
+    calibration_version TEXT,
+    reference_basis     TEXT,
+    model_hash          TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_pred_resolve ON predictions(resolved, resolve_after);
 CREATE INDEX IF NOT EXISTS idx_pred_subject ON predictions(subject, created_at DESC);
@@ -162,8 +171,33 @@ _PROVENANCE_COLUMNS = {
     "data_as_of": "TEXT",
     "information_session": "TEXT",
     "regime_basis": "TEXT",
+    # 2026-10-08 — see src/intelligence/provenance.REQUIRED.
+    #   probability_type     the explicit type (src/intelligence/semantics):
+    #                        STATED_PROBABILITY | CALIBRATED_PROBABILITY |
+    #                        SCORE | CONFIDENCE | NONE | UNKNOWN
+    #   venue, market_session  where the instrument trades, and the session
+    #                        state at creation (src/markets/sessions)
+    #   feature_version      the feature set / snapshot the call was built on
+    #   routing_decision     how this model came to be consulted
+    #   calibration_version  the calibration that produced the number ("none")
+    #   reference_basis      NULL: graded from price_at (the original rule);
+    #                        "next_close": no reference was recorded, the return
+    #                        runs from the close of the first bar strictly after
+    #                        the call's day (a look-ahead-free entry)
+    #   model_hash           the code fingerprint inside model_version
+    "probability_type": "TEXT",
+    "venue": "TEXT",
+    "market_session": "TEXT",
+    "feature_version": "TEXT",
+    "routing_decision": "TEXT",
+    "calibration_version": "TEXT",
+    "reference_basis": "TEXT",
+    "model_hash": "TEXT",
 }
-PROBABILITY_KINDS = ("stated", "mapped", "none")
+#: stated / calibrated carry a p_correct; mapped (a squashed conviction),
+#: score (an uncalibrated model output) and none never do.
+PROBABILITY_KINDS = ("stated", "mapped", "none", "calibrated", "score")
+REFERENCE_BASES = (None, "next_close")
 
 
 def _migrate(conn) -> None:
@@ -220,12 +254,26 @@ def record_prediction(*, subject: str, claim: str, source: str = "aria",
                       model_version: Optional[str] = None,
                       data_as_of: Optional[str] = None,
                       information_session: Optional[str] = None,
-                      regime_basis: Optional[str] = None) -> Optional[str]:
+                      regime_basis: Optional[str] = None,
+                      probability_type: Optional[str] = None,
+                      venue: Optional[str] = None,
+                      market_session: Optional[str] = None,
+                      feature_version: Optional[str] = None,
+                      routing_decision: Optional[str] = None,
+                      calibration_version: Optional[str] = None,
+                      reference_basis: Optional[str] = None) -> Optional[str]:
     """Write one falsifiable claim into the record.
 
     `external_ref` is the dedupe key. Ingesting the same source file twice must
     not double the record, and a source that re-emits the same call on the same
     day is one claim, not two.
+
+    Provenance (2026-10-08): `probability_type` is stored explicitly. An
+    explicit type wins over `probability_kind`; a CALIBRATED probability with
+    no `calibration_version` is not stored as a probability at all. `venue`
+    and `market_session` are derived from the session engine when not given;
+    `model_hash` is read out of `model_version`. Nothing unknown is filled
+    with a plausible value: it stays NULL, and the provenance audit says so.
     """
     created = created_at or datetime.now().isoformat(timespec="seconds")
     # Horizon in trading days → calendar days. Five trading days is a week.
@@ -233,6 +281,17 @@ def record_prediction(*, subject: str, claim: str, source: str = "aria",
                      + timedelta(days=int(horizon_days) * 7 / 5)).date().isoformat()
     ref = external_ref or _uid(source, subject, created, direction, horizon_days)
     pid = _uid("pred", ref)
+    if reference_basis not in REFERENCE_BASES:
+        logger.warning("ledger: unknown reference_basis %r for %s — not recorded",
+                       reference_basis, subject)
+        return None
+    try:
+        with connect() as conn:
+            if conn.execute("SELECT 1 FROM predictions WHERE external_ref=?",
+                            (ref,)).fetchone():
+                return pid                  # already recorded: nothing to stamp
+    except Exception:
+        pass                                # the insert below reports the failure
 
     # ── identity, stamped AT WRITE TIME ────────────────────────────────────
     #
@@ -286,8 +345,31 @@ def record_prediction(*, subject: str, claim: str, source: str = "aria",
         probability_kind = None
     if probability_kind is None and p_correct is not None:
         probability_kind = "stated"
-    if probability_kind != "stated":
+    from src.intelligence import semantics as _sem
+    if probability_type is not None:
+        ptype = _sem.parse(probability_type)
+        probability_kind = _sem.TYPE_TO_KIND.get(ptype)
+    else:
+        ptype = (_sem.KIND_TO_TYPE.get(probability_kind) if probability_kind
+                 else _sem.ProbabilityType.UNKNOWN)
+    if ptype is _sem.ProbabilityType.CALIBRATED_PROBABILITY and not calibration_version:
+        logger.warning("ledger: a calibrated probability for %s names no calibration "
+                       "version — stored as UNKNOWN, never scored", subject)
+        ptype, probability_kind = _sem.ProbabilityType.UNKNOWN, None
+    if ptype not in _sem.SCORABLE:
         p_correct = None
+
+    if venue is None or market_session is None:
+        from src.intelligence.provenance import derive_market_context
+        try:
+            at = datetime.fromisoformat(created)
+        except ValueError:
+            at = None
+        v_, s_ = derive_market_context(provider_symbol or subject, at)
+        venue = venue or v_
+        market_session = market_session or s_
+    from src.intelligence.dataset import model_hash as _hash_of
+    model_hash = _hash_of(model_version)
 
     values = {
         "id": pid, "created_at": created, "source": source,
@@ -302,6 +384,11 @@ def record_prediction(*, subject: str, claim: str, source: str = "aria",
         "probability_kind": probability_kind, "p_correct": p_correct,
         "model_version": model_version, "data_as_of": data_as_of,
         "information_session": information_session, "regime_basis": regime_basis,
+        "probability_type": ptype.value, "venue": venue,
+        "market_session": market_session, "feature_version": feature_version,
+        "routing_decision": routing_decision,
+        "calibration_version": calibration_version,
+        "reference_basis": reference_basis, "model_hash": model_hash,
     }
     try:
         with connect() as conn:
@@ -607,6 +694,14 @@ def resolve_due(*, now: Optional[datetime] = None, limit: int = 80) -> dict:
 
     resolved = unresolvable = 0
     for r in due:
+        if ("reference_basis" in r.keys() and r["reference_basis"] == "next_close"
+                and not r["price_at"]):
+            out = _grade_next_close(r, now)
+            if out == "resolved":
+                resolved += 1
+            elif out == "unresolvable":
+                unresolvable += 1
+            continue
         if not r["price_at"]:
             grade(r["id"], correct=None,
                   note="no reference price was recorded, so the claim cannot be scored")
@@ -677,6 +772,60 @@ def resolve_due(*, now: Optional[datetime] = None, limit: int = 80) -> dict:
     if resolved:
         logger.info("ledger: graded %d predictions (%d unresolvable)", resolved, unresolvable)
     return {"checked": len(due), "resolved": resolved, "unresolvable": unresolvable}
+
+
+def _grade_next_close(r, now: datetime) -> Optional[str]:
+    """Grade a call recorded with no reference price ("next_close").
+
+    The entry is the close of the first bar STRICTLY after the call's calendar
+    day, the exit the close `horizon_days` bars later, both on one adjusted
+    series — the rule scripts/backfill_outcomes.py used for the imported desk
+    rows. A call is never credited with a move it could have seen. Returns
+    "resolved", "unresolvable", or None (not yet: try again next tick).
+    """
+    provider, why_not = _resolved_price_symbol(r["subject"])
+    if provider is None:
+        grade(r["id"], correct=None, announce=False,
+              note=f"GRADING_SKIPPED / IDENTITY_UNRESOLVED — {why_not}")
+        return "unresolvable"
+    try:
+        import pandas as pd
+        from src.v5 import marketdata as md
+        c = md.provider_closes(provider)
+        if c is None or c.empty:
+            return None
+        created = datetime.fromisoformat(str(r["created_at"]))
+        idx = c.index
+        ts = pd.Timestamp(created.date())
+        if getattr(idx, "tz", None) is not None:
+            ts = ts.tz_localize(idx.tz)
+        pos = int(idx.searchsorted(ts, side="right"))
+        h = max(1, int(r["horizon_days"] or 1))
+        if pos + h >= len(c):
+            return None
+        exit_day = idx[pos + h].date()
+        if exit_day >= now.date():
+            return None                     # today's bar is not final
+        entry, exit_ = float(c.iloc[pos]), float(c.iloc[pos + h])
+    except Exception as e:
+        logger.debug("next-close grade failed for %s: %s", r["id"], e)
+        return None
+    if not (entry > 0 and exit_ > 0):
+        return None
+    ret = (exit_ - entry) / entry
+    direction = (r["direction"] or "").lower()
+    if direction == "bull":
+        correct: Optional[bool] = ret > 0
+    elif direction == "bear":
+        correct = ret < 0
+    else:
+        band = 0.02 * max(1.0, (r["horizon_days"] or 21) / 21) ** 0.5
+        correct = abs(ret) <= band
+    grade(r["id"], correct=correct, price_end=exit_, actual_return=round(ret, 5),
+          note=(f"next-close basis on one adjusted series: entry close "
+                f"{idx[pos].date()} (first bar after the call's day) -> close "
+                f"{exit_day} ({h} bar(s)); entry {entry:.6g}"))
+    return "resolved"
 
 
 # ── reading ─────────────────────────────────────────────────────────────────
