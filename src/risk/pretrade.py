@@ -278,7 +278,8 @@ def assess(order: ProposedOrder, account, *, at: datetime, limits: PortfolioRisk
         v.data["conviction"] = {k: c.get(k) for k in
                                 ("model_id", "model_version", "prediction_ref", "direction",
                                  "probability_type", "labels", "routing", "data_quality",
-                                 "model_reliability", "disagreement", "calibration_quality")}
+                                 "model_reliability", "disagreement", "calibration_quality",
+                                 "research_context")}
         want = {"LONG": "buy", "SHORT": "sell"}.get(c.get("direction"))
         if not check("prediction_supports_side", want == side,
                      (f"{c.get('direction')} supports a {side} entry" if want == side else

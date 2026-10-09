@@ -246,7 +246,10 @@ MARKET DATA -> FEATURES -> MODELS -> PREDICTIONS -> CALIBRATION -> ROUTING
 
 A conviction keeps every component (direction, edge, probability and type,
 calibrated probability, calibration quality, reliability, disagreement, data
-quality, regime fit, routing) and has no single score: there is no evidence to
+quality, regime fit, routing, and — from 2026-10-09 — `research_context`: how
+the cached research thesis relates to it, AGREES / CONTRADICTS / NEUTRAL /
+UNKNOWN, recorded and labelled but read by no verdict or size; see
+docs/RESEARCH_ENGINE.md) and has no single score: there is no evidence to
 weigh them against each other. `labels()` states what must not be assumed —
 `UNCALIBRATED`, `NOT A PROBABILITY (CONFIDENCE)`, `RELIABILITY INSUFFICIENT
 DATA`, `NO DEMONSTRATED EDGE`, `INPUTS DISAGREE`, `DATA POOR`,

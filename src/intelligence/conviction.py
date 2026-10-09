@@ -97,6 +97,10 @@ class Conviction:
     data_quality: Component
     regime_fit: Component
     routing: dict
+    #: The research thesis for the instrument, if one was built at or before
+    #: as_of (src/intelligence/research). CONTEXT ONLY: recorded with the risk
+    #: decision, never a verdict input, never a size input.
+    research_context: dict = field(default_factory=lambda: dict(NO_RESEARCH))
     may_increase_size: bool = False
 
     def labels(self) -> list[str]:
@@ -117,6 +121,8 @@ class Conviction:
             out.append(f"DATA {self.data_quality.value}")
         if self.regime_fit.status != KNOWN:
             out.append("REGIME FIT UNKNOWN")
+        if (self.research_context or {}).get("state") == "CONTRADICTS":
+            out.append("RESEARCH CONTRADICTS")
         if not (self.routing or {}).get("routed"):
             out.append((self.routing or {}).get("reason_code", "ROUTING_INSUFFICIENT_EVIDENCE"))
         return out
@@ -236,8 +242,44 @@ def _worst(*qualities: tuple[str, str]) -> Component:
                      "; ".join(reasons) or "inputs fresh, horizon not elapsed")
 
 
+NO_RESEARCH = {"state": "UNKNOWN", "basis": "no research thesis for this instrument"}
+RESEARCH_MAX_AGE_HOURS = 24
+
+
+def research_context(direction: str, thesis: Optional[dict], at: datetime) -> dict:
+    """How a cached research thesis relates to a prediction's direction.
+
+    AGREES / CONTRADICTS / NEUTRAL, or UNKNOWN when there is no thesis, it was
+    built after `at` (it could not have been known), or it is older than
+    RESEARCH_MAX_AGE_HOURS. Context for a reader and the decision record —
+    nothing reads it to decide or size.
+    """
+    if not thesis:
+        return dict(NO_RESEARCH)
+    try:
+        built = _aware(thesis.get("built_at"))
+    except (TypeError, ValueError):
+        return {"state": "UNKNOWN", "basis": "thesis has no readable build time"}
+    if built > at:
+        return {"state": "UNKNOWN", "basis": "the thesis was built after this instant"}
+    age_h = (at - built).total_seconds() / 3600
+    if age_h > RESEARCH_MAX_AGE_HOURS:
+        return {"state": "UNKNOWN", "basis": f"the thesis is {age_h:.0f} h old "
+                                             f"(limit {RESEARCH_MAX_AGE_HOURS} h)"}
+    td = thesis.get("direction")
+    want = {"LONG": "BULLISH", "SHORT": "BEARISH"}.get(direction)
+    state = ("NEUTRAL" if td == "NEUTRAL" or want is None else
+             "AGREES" if td == want else "CONTRADICTS")
+    return {"state": state, "thesis_direction": td, "thesis_basis": thesis.get("basis"),
+            "built_at": thesis.get("built_at"), "age_hours": round(age_h, 2),
+            "scorecard": thesis.get("scorecard"), "summary": thesis.get("summary"),
+            "effect": "context only: recorded with the decision; no verdict or size "
+                      "reads it"}
+
+
 def from_debate(transcript: dict, *, as_of=None, snapshot: Optional[dict] = None,
-                signals_age_hours: Optional[float] = None) -> Conviction:
+                signals_age_hours: Optional[float] = None,
+                research: Optional[dict] = None) -> Conviction:
     """The conviction behind a desk trade, from its debate transcript."""
     from src.intelligence.dataset import instrument_of
     now = _aware(as_of or datetime.now(timezone.utc))
@@ -291,6 +333,7 @@ def from_debate(transcript: dict, *, as_of=None, snapshot: Optional[dict] = None
         data_quality=_worst(*q),
         regime_fit=_regime_fit(snapshot, "desk", judge.get("regime")),
         routing=_routing(snapshot, asset_class, horizon),
+        research_context=research_context(_DIRECTION_OF.get(view, "FLAT"), research, now),
     )
 
 
@@ -318,7 +361,12 @@ def for_queued_trade(trade, *, as_of=None, snapshot: Optional[dict] = None) -> O
     if snapshot is None:
         from src.intelligence import evidence
         snapshot = evidence.load()
-    return from_debate(transcript, as_of=as_of, snapshot=snapshot,
+    try:
+        from src.intelligence.research.engine import load_latest
+        research = load_latest(transcript.get("ticker") or "")
+    except Exception:
+        research = None
+    return from_debate(transcript, as_of=as_of, snapshot=snapshot, research=research,
                        signals_age_hours=age).to_dict()
 
 

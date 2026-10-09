@@ -20,6 +20,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import axios from 'axios'
 import { useCurrency } from '../currency/CurrencyContext'
 import Term from './Term'
+import ResearchThesis from './ResearchThesis'
 
 const MONO = 'var(--mono)'
 const LABEL_COLOR = {
@@ -424,6 +425,9 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
           <RatioGrid dossier={dossier} currencyOf={currency} />
         </div>
       )}
+
+      {/* ── RESEARCH THESIS: independent evidence, no confidence number ── */}
+      <ResearchThesis symbol={symbol} />
     </>
   )
 }

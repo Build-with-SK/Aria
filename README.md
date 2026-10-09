@@ -197,6 +197,12 @@ Every number travels with its type — `STATED_PROBABILITY`, `CALIBRATED_PROBABI
 
 `src/intelligence/` · `GET /api/intelligence/models` · `docs/MODEL_INTELLIGENCE.md`
 
+### 5. Why does the view exist, and what contradicts it? — *research*
+
+A point-in-time research snapshot for one instrument (price, volume, volatility, factors, fundamentals, macro, events, news stories, cross-asset), each part with its own timestamp, freshness and provenance. Evidence is grouped by what it is derived from, so five price indicators are one group, not five confirmations, and the dependence among them is measured. The move is split into market / sector / factor contributions and an `UNEXPLAINED_RESIDUAL` that is never called alpha. The thesis names supporting and contradicting evidence and its invalidators, with a scorecard of explicit states instead of a confidence number, and it cannot authorise or size a trade.
+
+`src/intelligence/research/` · `GET /api/intelligence/research/{symbol}` · `docs/RESEARCH_ENGINE.md`
+
 ---
 
 ## The eight destinations
@@ -311,6 +317,8 @@ The surfaces the interface actually reads:
 | `GET /api/intelligence/models` | Per-model evaluation, calibration status, registry card and routing |
 | `GET /api/intelligence/conviction?symbol=` | The latest call from each model, decomposed and labelled |
 | `GET /api/intelligence/baseline` | The prediction ledger's data-integrity audit |
+| `GET /api/intelligence/research/{symbol}` | The point-in-time research thesis: evidence groups, attribution, events, news stories, analogues |
+| `GET /api/intelligence/research/sources` | The audit of every evidence source: timestamps, PIT status, what it duplicates |
 | `GET /api/system/health` | Worker health from the registry |
 | `GET /api/consult/status` | Whether a second opinion is currently possible |
 | `POST /api/consult` | Ask SENTINEL for an independent view |

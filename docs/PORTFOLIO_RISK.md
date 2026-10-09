@@ -34,6 +34,7 @@ two possible effects on an ENTRY, both restrictive:
 | does not support the side (FLAT, or the opposite direction) | REJECT — `prediction_supports_side` |
 | `data_quality` POOR (its horizon has elapsed, inputs unreadable) | DEFER — `prediction_data_usable` |
 | anything else, however strong it looks | none: verdict and size are exactly what they would be without it |
+| `research_context` CONTRADICTS (the cached research thesis points the other way) | none: recorded with the decision and labelled, never read by a verdict or a size (an owner decision, not made) |
 
 Exits (reducing orders) are accepted before the conviction is read, so a
 prediction can never block one. `OrderManager` attaches the conviction of the

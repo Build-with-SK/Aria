@@ -313,14 +313,24 @@ def forbid_production_writes(isolate_production_state):
     read committed fixtures and the repository's own source.
     """
     import builtins
+    import os
+    import shutil
     import sqlite3
 
     real_open, real_wt, real_wb = builtins.open, Path.write_text, Path.write_bytes
     real_connect = sqlite3.connect
+    real_os = {n: getattr(os, n) for n in ("replace", "rename", "remove", "unlink")}
+    real_path = {n: getattr(Path, n) for n in ("unlink", "rename", "replace", "touch")}
+    real_shutil = {n: getattr(shutil, n) for n in ("move", "rmtree")}
 
     def _offending(target) -> Path | None:
+        if isinstance(target, int):
+            return None                               # a file descriptor
+        s = os.fspath(target) if isinstance(target, os.PathLike) else target
+        if isinstance(s, str) and s.startswith("file:"):
+            s = s[5:].split("?", 1)[0]               # sqlite URI: the path part
         try:
-            p = Path(target).resolve()
+            p = Path(s).resolve()
         except (TypeError, ValueError, OSError):
             return None
         try:
@@ -330,6 +340,12 @@ def forbid_production_writes(isolate_production_state):
         return p
 
     def _boom(p: Path, how: str):
+        # Recorded BEFORE raising: production code with a broad `except
+        # Exception` would otherwise swallow the AssertionError, the write
+        # would be blocked but the leak would go unnoticed. The session fails
+        # on any recorded attempt (pytest_sessionfinish, below).
+        if not _EXPECTED_BLOCKS:
+            BLOCKED_PRODUCTION_WRITES.append(f"{how}: {p}")
         raise AssertionError(
             f"test wrote PRODUCTION state via {how}: {p}\n"
             f"Everything under {REAL_DATA} is the owner's live record. Use the "
@@ -364,15 +380,91 @@ def forbid_production_writes(isolate_production_state):
                 _boom(p, "sqlite3.connect")
         return real_connect(database, *a, **k)
 
+    def _guard_os(name):
+        real = real_os[name]
+
+        def guarded(*a, **k):
+            for target in a[:2]:
+                p = _offending(target)
+                if p:
+                    _boom(p, f"os.{name}")
+            return real(*a, **k)
+        return guarded
+
+    def _guard_path(name):
+        real = real_path[name]
+
+        def guarded(self, *a, **k):
+            for target in (self, *a[:1]):
+                p = _offending(target)
+                if p:
+                    _boom(p, f"Path.{name}")
+            return real(self, *a, **k)
+        return guarded
+
+    def _guard_shutil(name):
+        real = real_shutil[name]
+
+        def guarded(*a, **k):
+            for target in a[:2]:
+                p = _offending(target)
+                if p:
+                    _boom(p, f"shutil.{name}")
+            return real(*a, **k)
+        return guarded
+
     builtins.open = guarded_open
     Path.write_text, Path.write_bytes = guarded_wt, guarded_wb
     sqlite3.connect = guarded_connect
+    for n in real_os:
+        setattr(os, n, _guard_os(n))
+    for n in real_path:
+        setattr(Path, n, _guard_path(n))
+    for n in real_shutil:
+        setattr(shutil, n, _guard_shutil(n))
     try:
         yield
     finally:
         builtins.open = real_open
         Path.write_text, Path.write_bytes = real_wt, real_wb
         sqlite3.connect = real_connect
+        for n, f in real_os.items():
+            setattr(os, n, f)
+        for n, f in real_path.items():
+            setattr(Path, n, f)
+        for n, f in real_shutil.items():
+            setattr(shutil, n, f)
+
+
+#: Every write into the real data directory the guard blocked. Non-empty at the
+#: end of a run means a leak existed — even one production code swallowed.
+BLOCKED_PRODUCTION_WRITES: list[str] = []
+#: Set by `expect_production_write_blocked` for tests that probe the guard on
+#: purpose, so their deliberate attempts are not reported as leaks.
+_EXPECTED_BLOCKS: list[bool] = []
+
+
+@pytest.fixture
+def expect_production_write_blocked():
+    """For tests that deliberately attempt a production write to prove the
+    guard stops it. Attempts made inside are not counted as leaks."""
+    _EXPECTED_BLOCKS.append(True)
+    try:
+        yield
+    finally:
+        _EXPECTED_BLOCKS.pop()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if BLOCKED_PRODUCTION_WRITES:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    if BLOCKED_PRODUCTION_WRITES:
+        terminalreporter.section("PRODUCTION WRITES BLOCKED — the run FAILS", red=True)
+        for line in sorted(set(BLOCKED_PRODUCTION_WRITES)):
+            terminalreporter.write_line(line, red=True)
 
 
 @pytest.fixture

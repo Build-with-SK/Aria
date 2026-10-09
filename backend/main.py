@@ -4764,6 +4764,66 @@ def intelligence_exclusions(model: str = "", reason: str = "", limit: int = 200)
             "reasons": dataset.EXCLUSION_REASONS}
 
 
+# ── research engine (src/intelligence/research) ─────────────────────────────
+# Owner-only. Research explains a view and reports what supports it, what
+# contradicts it and how far each piece can be trusted; it cannot authorise,
+# size or send anything. Network happens here (vendors), never on the order
+# path, which only ever reads the compact thesis saved by a live request.
+
+import re as _re  # noqa: E402
+
+_RESEARCH_SYMBOL = _re.compile(r"^[A-Za-z0-9.\-=^]{1,20}$")
+
+
+def _research_at(at: str):
+    if not at:
+        return None
+    from src.intelligence.research.pit_data import aware
+    from datetime import datetime as _dt
+    try:
+        parsed = _dt.fromisoformat(at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="`at` must be an ISO instant")
+    if parsed.tzinfo is None:
+        raise HTTPException(status_code=400, detail="`at` must carry a timezone: a "
+                                                    "point-in-time query needs an instant")
+    return aware(parsed)
+
+
+@app.get("/api/intelligence/research/sources", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_research_sources():
+    """The audited catalogue of every evidence source: input, timestamp
+    semantics, point-in-time status, evidence group, and what it duplicates."""
+    from src.intelligence.research import sources
+    return {"sources": sources.table(), "duplicates": sources.duplicates(),
+            "groups": sources.GROUP_MEANING}
+
+
+@app.get("/api/intelligence/research/{symbol}", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_research(symbol: str, horizon_days: int = 21, at: str = "",
+                          analogues: bool = True, dispersion: bool = False):
+    """The research report for `symbol`: the point-in-time snapshot, every
+    evidence item with its group and root, independent-group agreement, factor
+    attribution (UNEXPLAINED_RESIDUAL, never alpha), cross-asset states, events,
+    news stories, historical analogues, recorded model predictions and their
+    routing, and the thesis with its quality scorecard. No confidence number.
+
+    `at` (ISO, with a timezone) asks for the view as it could have been formed
+    then; without it, now."""
+    if not _RESEARCH_SYMBOL.match(symbol or ""):
+        raise HTTPException(status_code=400, detail="not an instrument symbol")
+    from src.intelligence.research import engine
+    when = _research_at(at)
+    report = engine.research(symbol.upper(), at=when,
+                             horizon_days=max(1, min(int(horizon_days), 126)),
+                             analogues=analogues, dispersion=dispersion)
+    if when is None:
+        engine.save_latest(report)
+    return _sanitize(report)
+
+
 # ===========================================================================
 # THE CANONICAL SURFACE
 #
