@@ -18,6 +18,23 @@ PY=/scratch/$USER/venv/bin/python
 None of these names collide with the existing `train_v0*.py`, `eval_v0.py`,
 `infer.py` or `collect_all.py`.
 
+## Shortcut: the unattended run
+
+`overnight.sh` runs labelling, the review sheet, training (with one automatic
+retry at a smaller batch if the GPU runs out of memory) and evaluation in one
+go. Every step resumes or is skipped once it's done, so rerunning it is
+always safe.
+
+```bash
+ssh otter65
+tmux new -s overnight
+read -s -p "API key: " ANTHROPIC_API_KEY && export ANTHROPIC_API_KEY && echo
+bash /scratch/$USER/aria/scripts/headline_v1/overnight.sh
+```
+
+Then press Ctrl+B D to detach. The log goes to `~/overnight_<date>.log` and
+the results to `~/RESULTS.md`.
+
 ## Task 1: collect (unchanged; uses the existing script)
 
 ```bash

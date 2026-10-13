@@ -82,31 +82,37 @@ def main() -> None:
     warmup = max(1, round(0.05 * total))
     print(f"{len(ds)} rows, longest {longest} tokens, {total} steps, warmup {warmup}")
 
-    trainer = SFTTrainer(
-        model=model,
-        processing_class=tok,
-        train_dataset=ds,
-        args=SFTConfig(
-            dataset_text_field="text",
-            max_length=MAX_SEQ,
-            per_device_train_batch_size=args.batch,
-            gradient_accumulation_steps=args.accum,
-            num_train_epochs=EPOCHS,
-            warmup_steps=warmup,
-            learning_rate=LR,
-            lr_scheduler_type="cosine",   # as v0b
-            bf16=True,                    # as v0b; the A4000 supports it
-            optim="adamw_8bit",
-            weight_decay=0.01,
-            logging_steps=10,
-            save_strategy="steps",
-            save_steps=100,
-            save_total_limit=2,
-            output_dir=str(args.out),
-            seed=SEED,
-            report_to="none",
-        ),
+    # TRL has renamed arguments across versions (max_seq_length -> max_length,
+    # tokenizer -> processing_class). This runs unattended overnight, so ask
+    # the installed version which spelling it takes instead of guessing.
+    import inspect
+    cfg = dict(
+        dataset_text_field="text",
+        max_length=MAX_SEQ,
+        per_device_train_batch_size=args.batch,
+        gradient_accumulation_steps=args.accum,
+        num_train_epochs=EPOCHS,
+        warmup_steps=warmup,
+        learning_rate=LR,
+        lr_scheduler_type="cosine",   # as v0b
+        bf16=True,                    # as v0b; the A4000 supports it
+        optim="adamw_8bit",
+        weight_decay=0.01,
+        logging_steps=10,
+        save_strategy="steps",
+        save_steps=100,
+        save_total_limit=2,
+        output_dir=str(args.out),
+        seed=SEED,
+        report_to="none",
     )
+    cfg_params = set(inspect.signature(SFTConfig).parameters)
+    if "max_length" not in cfg_params and "max_seq_length" in cfg_params:
+        cfg["max_seq_length"] = cfg.pop("max_length")
+    trainer_params = set(inspect.signature(SFTTrainer).parameters)
+    tok_arg = "processing_class" if "processing_class" in trainer_params else "tokenizer"
+    trainer = SFTTrainer(model=model, train_dataset=ds, args=SFTConfig(**cfg),
+                         **{tok_arg: tok})
     trainer = train_on_responses_only(
         trainer,
         instruction_part="<|start_header_id|>user<|end_header_id|>\n\n",
