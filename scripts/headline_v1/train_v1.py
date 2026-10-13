@@ -94,13 +94,14 @@ def main() -> None:
             num_train_epochs=EPOCHS,
             warmup_steps=warmup,
             learning_rate=LR,
-            lr_scheduler_type="linear",
+            lr_scheduler_type="cosine",   # as v0b
+            bf16=True,                    # as v0b; the A4000 supports it
             optim="adamw_8bit",
             weight_decay=0.01,
             logging_steps=10,
             save_strategy="steps",
             save_steps=100,
-            save_total_limit=3,
+            save_total_limit=2,
             output_dir=str(args.out),
             seed=SEED,
             report_to="none",
@@ -125,7 +126,7 @@ def main() -> None:
     md = (f"## Task 3 — train {args.out.name}\n"
           f"- data: `{args.data}` ({len(ds)} rows), base `{BASE}`, LoRA r=16 α=16 "
           f"all attn+MLP, responses-only loss\n"
-          f"- {EPOCHS} epochs, batch {args.batch}×{args.accum}, lr {LR}, "
+          f"- {EPOCHS} epochs, batch {args.batch}×{args.accum}, lr {LR} cosine, "
           f"warmup {warmup}/{total} steps, max_seq {MAX_SEQ}\n"
           f"- final train loss: {loss:.4f}" + (" (resumed)" if resume else "") + "\n"
           f"- adapter: `{args.out}` → backed up to `{args.backup}`")
