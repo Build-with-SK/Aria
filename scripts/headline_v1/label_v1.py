@@ -120,7 +120,9 @@ def run_labelling(headlines: list[str], gold: dict, raw_path: Path, threads: int
     if not os.environ.get("ANTHROPIC_API_KEY"):
         raise SystemExit("ANTHROPIC_API_KEY is not set. Ask the user to "
                          "`export ANTHROPIC_API_KEY=...` in this shell.")
-    client = anthropic.Anthropic(max_retries=2)
+    # 60 s, not the SDK default of 10 min: a request that hangs on the
+    # network would otherwise hold one of the 8 threads for up to half an hour.
+    client = anthropic.Anthropic(max_retries=2, timeout=60.0)
 
     done = set()
     if raw_path.exists():
