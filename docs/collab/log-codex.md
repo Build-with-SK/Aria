@@ -2,6 +2,9 @@
 
 Only Codex edits this file. Newest entry at the top.
 
+## 2026-10-15 — TECH-05 — GitHub CI dependency correction
+Files: own log; requirements-ci.txt correction requested from Claude (owner). Release deployed and pushed successfully: a80ae6b, remote branch aria/integrity-upgrade. Actions run 38813015922 passed protected-paths and security-regression; full-suite failed collection because tests/test_ml_persistence.py imports main.py and CI lacks yaml. Production requirements already declare PyYAML; no runtime failure. Actual Claude tasked with a minimal CI dependency addition in its isolated branch, targeted tests and integration preserving backlog. No workflow/test weakening or runtime restart. Follow-up Actions result must be checked before reporting CI green.
+
 ## 2026-10-15 — TECH-04 — deployed; GitHub publication
 Files: docs/TECHNICAL_RECOMMENDATIONS.md, own log. Actual Claude Code authenticated through claude.ai after removing invalid inherited API-key overrides in its child environment. Claude reviewed/integrated c03acfd, d40442f, bcdce55/8d2057f, and final UI 29154ef; no simulated collaboration.
 Measured: final primary full suite 3,164 passed, 1 expected failure, actual exit 0 in 211.93 s; no blocked production writes. UI route/dashboard render and production build passed; 27 UI/API contract tests exit 0; protected-path fence passed. All 79 captured non-data backlog paths other than Claude's authorized own-log insertion match original hashes; all 90 dirty paths remain unstaged. Existing local backlog is not part of the GitHub release snapshot.
