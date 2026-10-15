@@ -1,16 +1,9 @@
-"""
-src/data/technical_summary.py
-=============================
-Investing.com-style Technical Summary — a deterministic consensus of moving
-averages + oscillators, per timeframe, mapped to Strong Buy / Buy / Neutral /
-Sell / Strong Sell. Replicates their published methodology from price data
-(no scraping): 12 moving averages (SMA & EMA, periods 5-200; Buy if price is
-above) and ~10 oscillators (RSI, Stochastic, StochRSI, MACD, ADX, Williams %R,
-CCI, Ultimate Oscillator, ROC, Bull/Bear Power) each classified buy/sell/
-neutral, then tallied.
+"""Independent technical recommendation API and compatibility helpers.
 
-Works for any yfinance symbol (US, .NS/.BO India, crypto -USD). Timeframes map
-to yfinance intervals; each fetch pulls enough history to seed a 200-period MA.
+Public summary/multi_timeframe use aria-technical-1 in technical_engine.py.
+Legacy score_frame/tally/ATR level helpers are retained unchanged for existing
+point-in-time snapshot consumers, not used by the new dashboard. No claim is
+made to reproduce Investing.com's proprietary formula.
 """
 from __future__ import annotations
 
@@ -18,16 +11,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# timeframe → (yfinance interval, yfinance period with enough bars for MA200)
-TIMEFRAMES = {
-    "5m":  ("5m", "5d"),
-    "15m": ("15m", "1mo"),
-    "30m": ("30m", "2mo"),
-    "1h":  ("60m", "3mo"),
-    "1d":  ("1d", "2y"),
-    "1wk": ("1wk", "10y"),
-}
-DEFAULT_TFS = ["15m", "1h", "1d", "1wk"]
+from .technical_engine import TIMEFRAMES as ENGINE_TIMEFRAMES
+TIMEFRAMES = {**ENGINE_TIMEFRAMES, "1wk": ENGINE_TIMEFRAMES["1w"]}
+DEFAULT_TFS = list(ENGINE_TIMEFRAMES)
 MA_PERIODS = [5, 10, 20, 50, 100, 200]
 
 
@@ -212,50 +198,15 @@ def _resolve_yahoo(symbol: str) -> str:
 
 
 def summary(symbol: str, timeframe: str = "1d") -> dict:
-    """Technical summary for one symbol + timeframe."""
-    yahoo = _resolve_yahoo(symbol)
-    interval, period = TIMEFRAMES.get(timeframe, TIMEFRAMES["1d"])
-    data_block = {}
-    if interval == "1d":
-        # Daily bars come through the central market-data layer (2026-10-06):
-        # the same resolution, vendor failover, cache, provenance and quality
-        # checks as V5, so a technical call and a V5 call on one name are
-        # built on one series. Intraday and weekly bars are not served there.
-        from src.v5 import marketdata as md
-        df = md.history(symbol, period=period)
-        if df is None:
-            return {"error": f"fetch failed for {yahoo} @ {timeframe}: no vendor data"}
-        prov = md.provenance(symbol)
-        data_block = {"data_as_of": prov.get("last_bar"),
-                      "data_stale": prov.get("stale"),
-                      "adjustment": prov.get("adjustment"),
-                      "data_quality": (prov.get("quality") or {}).get("status")}
-    else:
-        import yfinance as yf
-        try:
-            df = yf.Ticker(yahoo).history(period=period, interval=interval,
-                                          auto_adjust=True)
-        except Exception as e:
-            return {"error": f"fetch failed for {yahoo} @ {timeframe}: {e}"}
-    scored = score_frame(df)
-    if not scored:
-        return {"error": f"not enough {timeframe} data for {yahoo}"}
-    return {"symbol": symbol, "yahoo": yahoo, "timeframe": timeframe, **scored,
-            **data_block}
+    """Versioned independent analysis; unsupported timeframes never fall back."""
+    from .technical_recommendations import analyze
+    return analyze(symbol, timeframe)
 
 
 def multi_timeframe(symbol: str, timeframes: list | None = None) -> dict:
-    """Consensus across several timeframes — the investing.com summary table."""
-    tfs = timeframes or DEFAULT_TFS
-    yahoo = _resolve_yahoo(symbol)
-    out = {"symbol": symbol, "yahoo": yahoo, "timeframes": {}}
-    for tf in tfs:
-        s = summary(symbol, tf)
-        out["timeframes"][tf] = ({"summary": s["summary"], "counts": s["counts"]}
-                                 if "error" not in s else {"error": s["error"]})
-    labels = [v["summary"] for v in out["timeframes"].values() if "summary" in v]
-    out["consensus"] = _consensus(labels)
-    return out
+    """Full evidence for all nine horizons, with explicit opposing signals."""
+    from .technical_recommendations import analyze_all
+    return analyze_all(symbol, timeframes)
 
 
 _SCORE = {"Strong Buy": 2, "Buy": 1, "Neutral": 0, "Sell": -1, "Strong Sell": -2}
@@ -280,7 +231,7 @@ def recommendations(symbols: list, timeframe: str = "1d",
             r = summary(s, timeframe)
         except Exception:
             continue
-        if "error" in r or r["summary"] not in want:
+        if "error" in r or not r.get("summary") or r["summary"] not in want:
             continue
         out.append({"symbol": s, "summary": r["summary"], "counts": r["counts"],
                     "price": r.get("price"), "score": _SCORE.get(r["summary"], 0),

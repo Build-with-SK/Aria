@@ -224,15 +224,15 @@ def technical(ticker: str) -> ModuleReport:
         for r in (sig.get("risks") or [])[:2]:
             evidence.append(Evidence(str(r), None, "data/signals.json", "bear"))
 
-    if summary and "counts" in summary:
+    if summary.get("summary") and not summary.get("data_stale") and "counts" in summary:
         cnt = summary["counts"]
-        tot = max(1, cnt.get("buy", 0) + cnt.get("sell", 0))
-        votes.append(cnt.get("buy", 0) / tot)
+        tot = max(1, cnt.get("buy", 0) + cnt.get("sell", 0) + cnt.get("neutral", 0))
+        votes.append((cnt.get("buy", 0) + .5 * cnt.get("neutral", 0)) / tot)
         evidence.append(Evidence(
             f"Indicator tally on the daily: {cnt.get('buy', 0)} buy / {cnt.get('sell', 0)} sell / "
             f"{cnt.get('neutral', 0)} neutral → {summary.get('summary')}",
-            cnt.get("buy", 0), "src/data/technical_summary.py (yfinance daily)",
-            "bull" if cnt.get("buy", 0) > cnt.get("sell", 0) else "bear"))
+            cnt.get("buy", 0), "src/data/technical_summary.py (closed daily candles)",
+            "bull" if cnt.get("buy", 0) > cnt.get("sell", 0) else "bear" if cnt.get("buy", 0) < cnt.get("sell", 0) else "neutral"))
 
     if not votes:
         return insufficient("technical", "price", ticker, "no usable indicator readings")
