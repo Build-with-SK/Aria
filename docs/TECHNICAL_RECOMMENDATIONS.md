@@ -227,3 +227,15 @@ SENTINEL was reachable and AVAILABLE through the existing owner consultation bri
 ARIA remained PAPER, live gate closed, live broker inaccessible. No orders were placed.
 The browser's authenticated analysis click/pixel review has not been performed;
 API checks and offline React route/dashboard rendering were verified instead.
+
+
+Clean-checkout verification after CI exposed environment gaps: actual Claude Code
+added the production ML dependency floors to the test requirements, an explicit
+16-instrument public reference fixture for CI, scoped conversion-rate mocks, and
+request-shape stand-ins for already-mocked broker tests. Identity/risk assertions
+remain in force. The audit retains >20,000 rows for the real reference and asserts
+exactly 16 for the named fixture; it also proves it does not mutate the reference.
+With no local universe.db and a clean dependency environment: **3,011 passed,
+9 skipped, actual exit 0** in 277.63 seconds. Prior failing GitHub runs are historical;
+remote CI status must be checked on the final pushed integration commit.
+The optional Chroma startup error recovered on the next scheduled brain cycle.
