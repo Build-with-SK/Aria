@@ -17,8 +17,33 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import pytest
+
 from src.desk import reflex
 from src.execution import alpaca_broker as AB
+
+
+@pytest.fixture(autouse=True)
+def _alpaca_request_shapes(monkeypatch):
+    """`get_quote` builds a `StockLatestQuoteRequest`/`CryptoLatestQuoteRequest`
+    before it ever reaches the (faked) Data client below. alpaca-py is
+    intentionally absent from CI — the broker SDK is import-guarded in
+    production code specifically so the suite does not depend on a vendor
+    package being installed — so those two names do not exist on `AB` at all,
+    and building one raised NameError before the fake Data object's method
+    was ever called. That NameError was being caught by `get_quote`'s own
+    broad `except Exception`, which is why the mocked path never ran: not a
+    broker failure, a missing request SHAPE.
+
+    Stood in here rather than by adding alpaca-py to CI: these tests mock the
+    Data client already and never touch a real request's fields.
+    """
+    class _Request:
+        def __init__(self, *, symbol_or_symbols):
+            self.symbol_or_symbols = symbol_or_symbols
+
+    monkeypatch.setattr(AB, "StockLatestQuoteRequest", _Request, raising=False)
+    monkeypatch.setattr(AB, "CryptoLatestQuoteRequest", _Request, raising=False)
 
 
 # ── classification ──────────────────────────────────────────────────────────

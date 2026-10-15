@@ -48,6 +48,25 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REAL_DATA = (REPO_ROOT / "data").resolve()
 
+
+def _load_universe_fixture_builder():
+    """Load tests/fixtures/universe_fixture.py by PATH, not by `tests.fixtures`
+    dotted import.
+
+    `tests/` has no `__init__.py` — pytest's rootdir import mode adds it to
+    sys.path directly rather than treating it as a package — and at least one
+    CI environment had an unrelated third-party `tests` package (with its own
+    `__init__.py`) earlier on sys.path, which wins package resolution outright
+    and makes `tests.fixtures` unreachable regardless of path order. Loading
+    the file directly sidesteps the name collision entirely.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "aria_universe_fixture", REPO_ROOT / "tests" / "fixtures" / "universe_fixture.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.build
+
 #: Hosts a test must never reach. These are metered: the BLS keyless API allows
 #: roughly 25 requests per IP per day, and a single unguarded suite run
 #: exhausted it, which is what made CPI and unemployment go None in production.
@@ -55,6 +74,11 @@ METERED_HOSTS = ("api.bls.gov", "home.treasury.gov", "markets.newyorkfed.org",
                  "stlouisfed.org")
 
 _TMP_DATA: Path | None = None
+#: What `isolate_production_state` actually put at <tmp_data>/universe.db
+#: this session — the owner's real master copied verbatim, or the small
+#: named-instrument fallback. Tests that assert a row COUNT read this
+#: instead of guessing which one is under test; see `universe_reference`.
+_UNIVERSE_SOURCE: dict = {}
 _patched_modules: set[str] = set()
 #: Every module name `_sweep` needs never look at again: ARIA modules fully
 #: redirected, and every non-ARIA module.
@@ -200,10 +224,27 @@ def isolate_production_state():
     # would make every symbol IDENTITY_UNRESOLVED and the grading tests would
     # pass for the wrong reason. Copy it so tests get the real mappings while
     # remaining unable to corrupt the original.
+    #
+    # CI has no such file — it is the owner's ~22k-row live dataset and is
+    # never committed — so fall back to a small, real-instrument fixture
+    # (tests/fixtures/universe_fixture.py) covering exactly the symbols the
+    # identity/currency/migration tests name. It cannot stand in for the few
+    # tests that assert a fact about the PRODUCTION master's size; those stay
+    # failing, honestly, rather than padded out with invented rows.
     real_universe = REAL_DATA / "universe.db"
+    _UNIVERSE_SOURCE.clear()
     if real_universe.exists():
         try:
             shutil.copy2(real_universe, tmp_data / "universe.db")
+            _UNIVERSE_SOURCE["kind"] = "production"
+        except OSError:                      # pragma: no cover - best effort
+            pass
+    else:
+        try:
+            _build_universe_fixture = _load_universe_fixture_builder()
+            rows = _build_universe_fixture(tmp_data / "universe.db")
+            _UNIVERSE_SOURCE["kind"] = "fallback_fixture"
+            _UNIVERSE_SOURCE["rows"] = rows
         except OSError:                      # pragma: no cover - best effort
             pass
 
@@ -296,6 +337,42 @@ def _block_metered_hosts(monkeypatch):
         monkeypatch.setattr(requests, "get", guarded_get)
     except ImportError:
         pass
+    yield
+
+
+@pytest.fixture
+def _deterministic_fx_rates(monkeypatch):
+    """Currency conversion must not depend on a live Yahoo FX fetch.
+
+    `src.data.currency.rates()` falls back to a network pull of spot FX pairs
+    on a cache miss. A sandboxed CI run has no network at all, so GBP never
+    entered the rate table and every GBp<->USD round trip returned None
+    instead of a number — not a wrong answer, but an untestable one. Every
+    assertion that depends on this fixes a RATIO (100 GBp is always 1/100 of
+    its GBP reading, whatever the rate actually is — see
+    tests/test_identity_safety.py's pence tests), so a fixed, realistic rate
+    table makes the arithmetic deterministic without weakening what is
+    checked. A test that wants its own rates (tests/test_currency.py's
+    `fixed_rates`) still overrides this one, same as it would the real
+    function.
+
+    Requested explicitly by the handful of tests whose own assertions go
+    through `cur.to_base`/`cur.convert` — not autouse. `to_base` calls
+    `rates(base)` even on a pure GBp->GBP pence ratio where the table is
+    never read, so every OTHER test in the suite (identity resolution,
+    execution, the brain) must keep running against the real function, not a
+    fixed table nobody asked for.
+    """
+    from src.data import currency as cur
+
+    fixed = {
+        "base": "USD", "as_of": "fixture (tests/conftest.py)", "unavailable": [],
+        "rates": {"USD": 1.0, "GBP": 0.79, "INR": 87.0, "EUR": 0.92,
+                  "JPY": 149.0, "AUD": 1.52, "CAD": 1.37, "CHF": 0.80,
+                  "SGD": 1.30, "HKD": 7.80, "AED": 3.67, "CNY": 7.10,
+                  "ZAR": 17.60, "BRL": 5.60},
+    }
+    monkeypatch.setattr(cur, "rates", lambda base="USD": fixed)
     yield
 
 
@@ -465,6 +542,17 @@ def tmp_data_dir() -> Path:
     """The session's throwaway data root, for tests that want to seed it."""
     assert _TMP_DATA is not None, "isolation fixture did not run"
     return _TMP_DATA
+
+
+@pytest.fixture
+def universe_reference(isolate_production_state) -> dict:
+    """What `idt.UNIVERSE_DB` actually holds this session: the owner's real
+    master copied in verbatim (`kind: "production"`), or the small
+    named-instrument fallback (`kind: "fallback_fixture"`, `rows: 16`) built
+    because CI never has `data/universe.db`. A test asserting a row COUNT
+    needs to know which one it is reading rather than guessing."""
+    assert _UNIVERSE_SOURCE, "isolation fixture did not run"
+    return dict(_UNIVERSE_SOURCE)
 
 
 @pytest.fixture

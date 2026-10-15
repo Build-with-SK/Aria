@@ -279,18 +279,61 @@ def test_grading_is_skipped_when_identity_cannot_be_established(tmp_path, monkey
     assert why, "a refusal must carry its reason"
 
 
-def test_the_universe_audit_reports_without_repairing():
+def test_the_universe_audit_reports_without_repairing(universe_reference):
     """The audit is read-only by construction — the source-of-truth decision
     belongs to the owner, and guessing at 21,067 rows would be a larger version
-    of the mistake being fixed."""
+    of the mistake being fixed.
+
+    This session's `data/universe.db` is either the owner's real master
+    (copied in verbatim by `tests/conftest.py`) or the small named-instrument
+    fallback built because CI never has one — `universe_reference` says
+    which, so the size assertion matches the data actually under test rather
+    than a guess. Everything else about the contract — no repairs, no
+    duplicates, the known-bad-name tripwire — holds for both.
+    """
+    before = idt.UNIVERSE_DB.read_bytes()
     report = idt.audit()
-    assert report["symbols"] > 20000
+    assert idt.UNIVERSE_DB.read_bytes() == before, (
+        "audit() must not repair/mutate the reference it reads")
+
+    if universe_reference["kind"] == "production":
+        assert report["symbols"] > 20000
+    else:
+        assert report["symbols"] == 16 == universe_reference["rows"]
     assert report["duplicate_display_symbols"] == 0
     assert report["venue_mismatches"] == 0
     assert report["currency_mismatches"] == 0
     assert report["ambiguous_roots"] > 0
     assert report["known_bad_names"]
     assert "not verified" in report["known_bad_names_note"].lower()
+
+
+def test_the_audit_is_correct_against_the_fallback_fixture_with_no_real_db(
+        tmp_path, monkeypatch):
+    """CI never has `data/universe.db`. Build the fallback fixture directly —
+    independent of whatever this session's `isolate_production_state`
+    happened to copy on this particular machine — and prove `audit()` reports
+    its real, known row count rather than silently reading through to a
+    developer machine's production file.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "aria_universe_fixture_regression",
+        Path(__file__).parent / "fixtures" / "universe_fixture.py")
+    fixture_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture_mod)
+
+    db_path = tmp_path / "universe.db"
+    written = fixture_mod.build(db_path)
+    assert written == 16, "the fixture's own row count has drifted from what this test expects"
+    monkeypatch.setattr(idt, "UNIVERSE_DB", db_path)
+
+    before = db_path.read_bytes()
+    report = idt.audit()
+    assert db_path.read_bytes() == before, (
+        "audit() must not repair/mutate the reference it reads")
+    assert report["symbols"] == 16
+    assert report["duplicate_display_symbols"] == 0
 
 
 # ── I / J: regime-aware learning stays blocked until it genuinely is not ────

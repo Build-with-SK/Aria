@@ -1,9 +1,13 @@
-# Just enough to run the security regression suite in CI.
+# Just enough to run the full test suite in CI.
 #
 # Deliberately NOT requirements.txt: the security tests must not be able to
-# fail (or pass) because a data vendor's SDK moved. Everything heavy — the
-# broker SDKs, ChromaDB, the ML stack — is import-guarded in the modules under
-# test, so the suite runs without them and exercises the same code paths.
+# fail (or pass) because a data vendor's SDK moved. The broker SDKs and
+# ChromaDB are import-guarded in the modules under test, so the suite runs
+# without them. The ML stack (scikit-learn, joblib) is the one exception:
+# recalibration and the ML tail are ALSO import-guarded, but their fallback
+# path (e.g. "keep raw" instead of choosing isotonic/Platt) is a materially
+# different decision than the one production makes with sklearn installed, so
+# leaving them out would test the fallback rather than the real behaviour.
 pytest>=8.0
 fastapi>=0.110
 httpx>=0.27
@@ -30,3 +34,7 @@ ta>=0.11          # technical-summary tests compute real indicators
 # financial facts, and a library upgrade can change them — bump deliberately
 # and re-run tests/test_calendar_provider.py. Local data, no network access.
 exchange_calendars==4.13.2
+# Recalibration (isotonic/Platt) and the ML tail (feature prep, persistence).
+# Floors match requirements.txt — bump both together.
+scikit-learn>=1.4.0
+joblib>=1.3.0

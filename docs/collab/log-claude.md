@@ -2,6 +2,56 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-15 — CI fixture: full suite deps, hermetic test isolation, FX fixture narrowed, universe-audit split — candidate, not merged
+Files: `requirements-ci.txt`, `tests/conftest.py`, `tests/fixtures/universe_fixture.py`,
+`tests/test_quote_capabilities.py`, `tests/test_identity_namespaces.py`,
+`tests/test_identity_safety.py`, `tests/test_price_unit_audit.py`,
+`tests/test_stabilization.py`, own log.
+Changed: in the isolated worktree `.claude/worktrees/deploy-fixture` (branch
+`claude/work` at 993bec8), continued a prior CLI run that had drafted but not
+committed: `requirements-ci.txt` gains scikit-learn/joblib (recalibration's
+fallback path is a materially different decision than production's, so
+leaving the ML stack out of CI would test the wrong behaviour);
+`tests/conftest.py` redirects every writable store under `data/` to a
+throwaway tree for the whole session (closes a lazy-import race and an
+instance-attribute leak that signed the owner out of his own session store)
+and falls back to a small, named-instrument `universe.db`
+(`tests/fixtures/universe_fixture.py`, 16 real rows) when CI has none;
+`tests/test_quote_capabilities.py` stands in `StockLatestQuoteRequest`/
+`CryptoLatestQuoteRequest` so the reflex-lane quote tests exercise the real
+mocked path instead of silently no-opping on a `NameError` alpaca-py's
+absence from CI was causing.
+Addressed Codex's review (`ci-fixture-review.md`) on that draft, three fixes:
+(1) `_deterministic_fx_rates` was autouse for the whole suite; it is now
+opt-in, requested by exactly the 9 tests across `test_identity_namespaces.py`,
+`test_price_unit_audit.py` and `test_identity_safety.py` whose own assertions
+go through `cur.to_base`/`cur.convert` — every other test keeps running
+against the real `src.data.currency.rates`. (2) Split the universe-audit
+test: `test_the_universe_audit_reports_without_repairing` now reads a new
+`universe_reference` fixture to assert `>20000` only when a real
+`universe.db` was actually copied in, and `== 16` against the named-instrument
+fallback otherwise — same contract, honest counts either way — plus a
+no-mutation byte-for-byte check, and a new
+`test_the_audit_is_correct_against_the_fallback_fixture_with_no_real_db`
+regression that builds the fixture directly with no real DB in play at all.
+(3) Corrected `universe_fixture.py`'s docstring, which previously said the
+production-size assertion would be "left failing" — it no longer is.
+Measured with the clean CI venv Codex pointed at (sklearn/joblib present, no
+broker/Chroma SDK): `tests/test_currency.py tests/test_identity_safety.py
+tests/test_identity_namespaces.py tests/test_price_unit_audit.py
+tests/test_stabilization.py tests/test_quote_capabilities.py
+tests/test_portfolio_risk.py` — 201 passed, 2 skipped (pre-existing, no
+production ledger in this checkout), 0 failed. Also ran `idt.audit()` by hand
+against Codex's retained 22,023-row production-size reference to confirm the
+`>20000` branch (`ambiguous_roots=177`, `known_bad_names` non-empty) — that
+branch is untested by the focused suite in this checkout, since this worktree
+has no real `data/universe.db`.
+Open: not merged to `aria/integrity-upgrade`. Per the task, Codex reviews this
+candidate and runs the full clean suite next, then integration follows.
+For Codex: candidate at this commit on `claude/work`; nothing else in the
+worktree was touched (primary dirty files, keys/vault/data untouched, no
+push, no restart).
+
 ## 2026-10-15 — CI fix: pyyaml missing from requirements-ci.txt (run 38813015922) — done, isolated worktree
 Files: `requirements-ci.txt`.
 Changed: in the isolated worktree `.claude/worktrees/deploy-fixture` (branch

@@ -85,21 +85,21 @@ def test_the_display_row_still_answers_for_the_symbol_master():
 
 # ── the 100x, both directions ───────────────────────────────────────────────
 
-def test_a_us_price_cannot_be_converted_with_london_pence_rules():
+def test_a_us_price_cannot_be_converted_with_london_pence_rules(_deterministic_fx_rates):
     price = 214.20                       # Boeing, USD
     ccy = cur.provider_currency("BA")
     assert ccy == "USD"
     assert cur.to_base(price, ccy, "USD") == pytest.approx(price)
 
 
-def test_a_london_pence_price_is_not_read_as_pounds():
+def test_a_london_pence_price_is_not_read_as_pounds(_deterministic_fx_rates):
     """The mirror-image error, which a careless fix would introduce."""
     assert cur.provider_currency("BA.L") == "GBp"
     assert cur.to_base(2200.0, "GBp", "GBP") == pytest.approx(22.0)
     assert cur.to_base(2200.0, "GBP", "GBP") == pytest.approx(2200.0)
 
 
-def test_the_pence_model_itself_is_untouched():
+def test_the_pence_model_itself_is_untouched(_deterministic_fx_rates):
     """`GBp` was NOT replaced with `GBP`. Doing that would INTRODUCE the 100x
     error this fix removes, because every reader that already divides by 100
     would then do it twice."""
