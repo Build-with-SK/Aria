@@ -16,11 +16,12 @@
  * Nothing here is cached server-side beyond the data layer's own TTLs: both
  * panels are computed when you open the symbol.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import { useCurrency } from '../currency/CurrencyContext'
 import Term from './Term'
 import ResearchThesis from './ResearchThesis'
+import TechnicalDashboard from './TechnicalDashboard'
 
 const MONO = 'var(--mono)'
 const LABEL_COLOR = {
@@ -125,74 +126,6 @@ function FamilyVerdict({ modules, title }) {
         </div>
       </div>
       <Meter counts={{ buy: bulls, sell: bears, neutral: voting.length - bulls - bears }} width={110} />
-    </div>
-  )
-}
-
-/* ── multi-timeframe indicator consensus ── */
-function TimeframeConsensus({ tech }) {
-  if (!tech) return <Mono size={11}>loading indicator consensus…</Mono>
-  const tfs = tech.timeframes || {}
-  const order = ['5m', '15m', '1h', '1d', '1wk']
-  const rows = order.filter(t => tfs[t])
-  if (!rows.length) return <Mono size={11}>No timeframe data available for this instrument.</Mono>
-  return (
-    <div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 8, flexWrap: 'wrap' }}>
-        <Mono size={9}>CONSENSUS ACROSS TIMEFRAMES</Mono>
-        <Mono size={13} color={LABEL_COLOR[tech.consensus] || 'var(--muted)'} weight={800}>
-          {tech.consensus || '—'}
-        </Mono>
-      </div>
-      <table>
-        <thead><tr><th>TIMEFRAME</th><th>SIGNAL</th><th>BUY / NEU / SELL</th><th></th></tr></thead>
-        <tbody>
-          {rows.map(t => {
-            const d = tfs[t]
-            if (d.error) return (
-              <tr key={t}><td><Mono size={10} color="var(--text)">{t}</Mono></td>
-                <td colSpan={3}><Mono size={9}>{d.error}</Mono></td></tr>
-            )
-            return (
-              <tr key={t}>
-                <td><Mono size={10} color="var(--text)" weight={700}>{t}</Mono></td>
-                <td><Mono size={10} color={LABEL_COLOR[d.summary] || 'var(--muted)'} weight={800}>{d.summary}</Mono></td>
-                <td><Meter counts={d.counts} /></td>
-                <td><Mono size={9}>{d.counts?.buy}/{d.counts?.neutral}/{d.counts?.sell}</Mono></td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-/* ── indicator-by-indicator, for the daily ── */
-function IndicatorGrid({ detail }) {
-  if (!detail || detail.error) return null
-  const groups = [['MOVING AVERAGES', detail.moving_averages], ['OSCILLATORS', detail.oscillators]]
-  const sig = v => v === 'buy' ? 'var(--green)' : v === 'sell' ? 'var(--red)' : 'var(--muted)'
-  return (
-    <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginTop: 12 }}>
-      {groups.map(([title, g]) => {
-        if (!g) return null
-        const items = Object.entries(g).filter(([k]) => k !== 'label')
-        return (
-          <div key={title} style={{ minWidth: 210 }}>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', marginBottom: 5 }}>
-              <Mono size={9} color="var(--orange)" weight={800}>{title}</Mono>
-              <Mono size={10} color={LABEL_COLOR[g.label] || 'var(--muted)'} weight={800}>{g.label}</Mono>
-            </div>
-            {items.map(([k, v]) => (
-              <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '1.5px 0' }}>
-                <Mono size={10} color="var(--text)">{k}</Mono>
-                <Mono size={10} color={sig(v)} weight={700}>{String(v).toUpperCase()}</Mono>
-              </div>
-            ))}
-          </div>
-        )
-      })}
     </div>
   )
 }
@@ -346,33 +279,28 @@ function AnalysisProgress() {
 
 export default function ResearchAnalysis({ symbol, dossier, currency }) {
   const [tech, setTech] = useState(null)
-  const [detail, setDetail] = useState(null)
+  const requestGeneration = useRef(0)
   const [v5, setV5] = useState(null)
   const [state, setState] = useState('idle')   // idle | loading | ready | error
   const [err, setErr] = useState('')
 
   const run = useCallback(() => {
     if (!symbol) return
-    setState('loading'); setErr(''); setTech(null); setV5(null); setDetail(null)
+    setState('loading'); setErr(''); setTech(null); setV5(null)
 
-    axios.get('/api/technical/summary', { params: { symbol, timeframes: '5m,15m,1h,1d,1wk' } })
-      .then(r => setTech(r.data)).catch(() => setTech({ error: 'timeframe scan unavailable' }))
-
-    axios.get('/api/technical/summary', { params: { symbol, timeframes: '1d' } })
-      .then(r => {
-        // multi_timeframe returns per-timeframe summaries; the per-indicator
-        // detail comes from the single-timeframe shape.
-        const d = r.data?.timeframes?.['1d']
-        setDetail(d && !d.error ? { ...d } : null)
-      }).catch(() => {})
+    const current = ++requestGeneration.current
+    axios.get('/api/technical/summary', { params: { symbol, timeframes: '1m,5m,15m,30m,1h,5h,1d,1w,1M' } })
+      .then(r => { if (requestGeneration.current === current) setTech(r.data) })
+      .catch(() => { if (requestGeneration.current === current) setTech({ error: 'Technical evidence unavailable' }) })
+    if (/^GCZ(?:6|26|2026)(?:\.CMX)?$/i.test(symbol)) { setState('ready'); return }
 
     // One V5 pass gives every family plus the risk gate's levels.
     axios.get(`/api/v5/analyze/${encodeURIComponent(symbol)}`, { params: { log: false } })
-      .then(r => { setV5(r.data); setState('ready') })
-      .catch(e => { setErr(e?.response?.data?.detail || 'analysis failed'); setState('error') })
+      .then(r => { if (requestGeneration.current === current) { setV5(r.data); setState('ready') } })
+      .catch(e => { if (requestGeneration.current === current) { setErr(e?.response?.data?.detail || 'analysis failed'); setState('error') } })
   }, [symbol])
 
-  useEffect(() => { setState('idle'); setTech(null); setV5(null); setDetail(null) }, [symbol])
+  useEffect(() => { requestGeneration.current += 1; setState('idle'); setTech(null); setV5(null); return () => { requestGeneration.current += 1 } }, [symbol])
 
   const modules = v5?.modules || []
   const technical = modules.filter(m => ['price', 'volatility'].includes(m.family))
@@ -392,7 +320,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
             <div style={{ marginTop: 7 }}>
               <Mono size={10}>
                 Runs the multi-timeframe indicator scan and ARIA&apos;s price, volatility and
-                fundamental engines against live data. Takes a few seconds.
+                fundamental engines against available provider data. Each timeframe reports its own freshness.
               </Mono>
             </div>
           </div>
@@ -400,11 +328,11 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
         {state === 'loading' && <AnalysisProgress />}
         {state === 'error' && <div style={{ color: 'var(--red)', fontFamily: MONO, fontSize: 11 }}>{err}</div>}
 
+        {tech && <TechnicalDashboard symbol={symbol} tech={tech} onRefresh={run} />}
         {state === 'ready' && <>
           <FamilyVerdict modules={technical} title="Technical" />
           <TradeLevels v5={v5} symbol={symbol} />
-          <TimeframeConsensus tech={tech} />
-          <IndicatorGrid detail={detail} />
+
           <div style={{ marginTop: 14 }}>
             <Mono size={9} color="var(--orange)" weight={800}>ENGINE-BY-ENGINE — CLICK ANY FOR ITS EVIDENCE</Mono>
             <div style={{ marginTop: 7 }}>
