@@ -1,7 +1,14 @@
 # Independent technical recommendations — aria-technical-1
 
-Status: implemented on `codex/work`; requires integrator review/merge and normal
-deployment to reach the running app. No production process was restarted.
+Status: deployed to the existing local ARIA service on 2026-10-15 after actual
+Claude Code review/integration. Release code: `29154ef` on `aria/integrity-upgrade`.
+Open `/app/research?symbol=GCZ6` in the running app and use the existing owner login.
+The four accepted exact-contract aliases enter technical analysis directly, bypassing
+generic universe search and unsupported equity engines. No symbol substitution.
+
+The primary checkout's existing uncommitted backlog remains local and was preserved;
+the GitHub release branch contains committed changes only. This is a local service
+release, not a migration to a new cloud host.
 
 ## Discovery and boundaries (2026-10-15)
 
@@ -177,7 +184,7 @@ names withheld horizons beside any successful review and marks directional claim
 on them unsupported. This is not independent market-data verification.
 
 
-Final verification: 171 focused Python tests passed; final engine tests 43 passed.
+Initial implementation verification (historical): 171 focused Python tests passed; engine tests 43 passed.
 Dashboard offline checks and production build passed. Full suite: 2,985 passed,
 29 failed, 9 skipped; every final failure also fails with unmodified HEAD source
 in the same isolated data environment. The suite is not green. Missing/partial
@@ -193,3 +200,30 @@ identity mismatches are refused and upstream stale/degraded flags cannot be clea
 by recent bar timestamps. Three exchange timezones and the stale path have explicit
 regression tests. Provider identity mocks no longer require yfinance installed in
 minimal CI; they inject the provider interface and never access the network.
+
+
+## Deployment verification (2026-10-15)
+
+Actual Claude Code reviewed and merged the engine, isolation corrections, and final
+exact-contract UI route. Final integrated suite: **3,164 passed, 1 expected failure,
+actual process exit 0** in 211.93 seconds. Production-write isolation stayed active;
+no blocked writes were reported. Earlier assertion-only GREEN labels in the
+collaboration log were insufficient: a duplicate terminal hook hid refused writes,
+and an import-time compression DB default escaped fixture redirection. Claude fixed
+both and explicitly marked the deliberate refusal probe as expected. No guard was
+weakened. Dashboard/route rendering, production build, and 27 UI/API contract tests
+also passed. The protected-path history fence passed.
+
+Cutover used the existing ARIA Backend scheduled task, preserving its configuration,
+with the prior build retained outside Git for rollback. `/health` and `/ready` passed;
+the new entry assets returned 200. Unauthenticated technical access returned 401.
+Authenticated unsupported-timeframe handling confirmed the new engine was loaded.
+Actual provider checks confirmed all nine GCZ6 horizons use `GCZ26.CMX`, `CMX`, expiry
+2026-12-29. At that snapshot 1m/5m/15m were stale, monthly lacked warm-up, six opposing
+pairs remained, and aggregate direction was withheld. AAPL daily analysis also loaded.
+These are deployment observations, not trading advice or performance validation.
+
+SENTINEL was reachable and AVAILABLE through the existing owner consultation bridge.
+ARIA remained PAPER, live gate closed, live broker inaccessible. No orders were placed.
+The browser's authenticated analysis click/pixel review has not been performed;
+API checks and offline React route/dashboard rendering were verified instead.
