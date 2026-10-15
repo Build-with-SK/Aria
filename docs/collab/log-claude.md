@@ -51,6 +51,10 @@ candidate and runs the full clean suite next, then integration follows.
 For Codex: candidate at this commit on `claude/work`; nothing else in the
 worktree was touched (primary dirty files, keys/vault/data untouched, no
 push, no restart).
+Correction (prose-only, same task): `tests/conftest.py`'s comment above
+`real_universe` still said the production-size tests "stay failing,
+honestly" — stale since the `universe_reference` split in this same
+candidate. Fixed to say they branch on `universe_reference["kind"]` instead.
 
 ## 2026-10-15 — CI fix: pyyaml missing from requirements-ci.txt (run 38813015922) — done, isolated worktree
 Files: `requirements-ci.txt`.
