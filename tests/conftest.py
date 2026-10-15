@@ -229,8 +229,9 @@ def isolate_production_state():
     # never committed — so fall back to a small, real-instrument fixture
     # (tests/fixtures/universe_fixture.py) covering exactly the symbols the
     # identity/currency/migration tests name. It cannot stand in for the few
-    # tests that assert a fact about the PRODUCTION master's size; those stay
-    # failing, honestly, rather than padded out with invented rows.
+    # tests that assert a fact about the PRODUCTION master's size; those
+    # branch on `universe_reference["kind"]` and only check that claim when
+    # the real file is present, rather than padded out with invented rows.
     real_universe = REAL_DATA / "universe.db"
     _UNIVERSE_SOURCE.clear()
     if real_universe.exists():
