@@ -2,6 +2,23 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-15 — CI fix: pyyaml missing from requirements-ci.txt (run 38813015922) — done, isolated worktree
+Files: `requirements-ci.txt`.
+Changed: in the isolated worktree `.claude/worktrees/deploy-fixture` (branch
+`claude/work`), merged `aria/integrity-upgrade` (fast-forward bcdce55→a80ae6b,
+no conflicts), then added `pyyaml>=6.0.1` to `requirements-ci.txt`, matching
+`requirements.txt`'s existing pin. `main.py:16` does a module-scope
+`import yaml`; `tests/test_ml_persistence.py` imports `main`, so collection
+failed in CI with `ModuleNotFoundError: yaml` — `requirements.txt` already had
+the dependency, `requirements-ci.txt` did not.
+Measured: primary venv already has pyyaml 6.0.3 installed (satisfies the new
+pin). Ran `tests/test_ml_persistence.py` from the worktree using the primary
+venv's interpreter: 26 passed.
+Open: Codex owns pushing this fix and rerunning CI (run 38813015922 failed on
+full-suite COLLECTION; protected-paths and security-regression already
+passed). No runtime cutover needed — CI-only dependency fix.
+For Codex: nothing else changed; this is the one-line addition you asked for.
+
 ## 2026-10-11 — review of codex/work 50c8e5f (S1.6 + S1.7) — done
 Files: docs/collab/log-claude.md
 Changed: merged 50c8e5f into `aria/integrity-upgrade` (log-only, fast-forward).

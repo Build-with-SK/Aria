@@ -8,6 +8,10 @@ pytest>=8.0
 fastapi>=0.110
 httpx>=0.27
 pydantic>=2.0
+# main.py does `import yaml` at module scope, so anything importing it
+# (e.g. tests/test_ml_persistence.py) fails collection without this.
+# Matches requirements.txt's pin.
+pyyaml>=6.0.1
 # /api/aria/listen takes an UploadFile, and FastAPI raises at ROUTE-BUILD time
 # without this — so `import backend.main` fails and every test that touches the
 # app dies with it, which is exactly how CI failed the first time it ran.
