@@ -2,6 +2,9 @@
 
 Only Codex edits this file. Newest entry at the top.
 
+## 2026-10-15 — TECH-06 — clean CI fixture/dependency audit
+Files: own log; shared test fixture/dependency fixes delegated to actual Claude, who owns those areas. Reviewed 56d3907 (PyYAML plus own log), pushed follow-up integration993bec8. Actions38813911355: protected-paths/security-regression PASS; full-suite 2,961 passed/47 failed/11 skipped, actual exit1. Failures expose absent sklearn/joblib and public symbol-master identity/sector fixtures, plus mocked broker tests that still import unavailable request SDKs. No technical-engine failures in this run. Actual Claude tasked with hermetic public reference fixtures, necessary test deps, mocked SDK interface and unchanged assertions/guards. Codex preparing a clean dependency venv and no-reference worktree test run; no production database copied or modified. Runtime technical/auth/SENTINEL/PAPER smoke passed. Post-restart monitoring observed one optional Chroma memory initialization KeyError; no memory/vault contents were read or changed, and this is not claimed resolved.
+
 ## 2026-10-15 — TECH-05 — GitHub CI dependency correction
 Files: own log; requirements-ci.txt correction requested from Claude (owner). Release deployed and pushed successfully: a80ae6b, remote branch aria/integrity-upgrade. Actions run 38813015922 passed protected-paths and security-regression; full-suite failed collection because tests/test_ml_persistence.py imports main.py and CI lacks yaml. Production requirements already declare PyYAML; no runtime failure. Actual Claude tasked with a minimal CI dependency addition in its isolated branch, targeted tests and integration preserving backlog. No workflow/test weakening or runtime restart. Follow-up Actions result must be checked before reporting CI green.
 
