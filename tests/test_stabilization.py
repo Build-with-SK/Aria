@@ -49,7 +49,7 @@ def test_the_event_log_under_test_is_not_the_real_one(tmp_data_dir):
     assert not str(used).startswith(str(real.parent))
 
 
-def test_writing_into_production_data_is_refused():
+def test_writing_into_production_data_is_refused(expect_production_write_blocked):
     """The guard itself. If this stops raising, every other isolation claim in
     this file becomes unverifiable."""
     real_data = (Path(__file__).resolve().parent.parent / "data").resolve()

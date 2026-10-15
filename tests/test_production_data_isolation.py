@@ -139,6 +139,37 @@ def test_a_refused_write_that_code_swallows_is_still_recorded():
     del conftest.BLOCKED_PRODUCTION_WRITES[n:]   # this one was deliberate
 
 
+def test_blocked_writes_are_reported_and_still_fail_the_session(monkeypatch):
+    """The two terminal-summary hooks were once defined twice, so the second
+    definition silently replaced the first and the blocked-write section never
+    printed. Drives both hooks directly with a fake blocked write, via
+    monkeypatch so the real BLOCKED_PRODUCTION_WRITES list — and this test's
+    own session — is untouched once the test ends."""
+    import types
+
+    import conftest
+
+    monkeypatch.setattr(conftest, "BLOCKED_PRODUCTION_WRITES",
+                         ["PRODUCTION WRITE BLOCKED: fake/probe.json"])
+
+    session = types.SimpleNamespace(exitstatus=pytest.ExitCode.OK)
+    conftest.pytest_sessionfinish(session, pytest.ExitCode.OK)
+    assert session.exitstatus == pytest.ExitCode.TESTS_FAILED
+
+    calls = []
+    reporter = types.SimpleNamespace(
+        write_sep=lambda *a, **k: calls.append(("write_sep", a, k)),
+        section=lambda *a, **k: calls.append(("section", a, k)),
+        write_line=lambda *a, **k: calls.append(("write_line", a, k)),
+    )
+    conftest.pytest_terminal_summary(reporter, pytest.ExitCode.TESTS_FAILED, None)
+
+    assert any(kind == "write_sep" and "isolation" in str(args) for kind, args, _ in calls), \
+        "isolation summary line went missing when the blocked-write section was added"
+    assert any(kind == "section" and "PRODUCTION WRITES BLOCKED" in args[0] for kind, args, _ in calls)
+    assert any(kind == "write_line" and "fake/probe.json" in args[0] for kind, args, _ in calls)
+
+
 def test_research_archives_are_redirected_away_from_production():
     from src.intelligence.research import engine, pit_data
     for p in (pit_data.ARCHIVE_DIR, pit_data.OBSERVATIONS, engine.LATEST_DIR):
