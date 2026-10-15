@@ -1,3 +1,6 @@
+// Keep the exact contract out of generic equity/universe resolution.
+export const isExactGoldContract = symbol => ['GCZ6', 'GCZ26', 'GCZ2026', 'GCZ26.CMX'].includes(String(symbol || '').toUpperCase())
+
 // Compact evidence for the existing owner consultation API's query parameters.
 // Numeric values, no aggregate directional hypothesis or model confidence.
 export function technicalEvidence(symbol, rows) {

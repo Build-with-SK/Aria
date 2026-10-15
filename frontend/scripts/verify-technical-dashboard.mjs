@@ -6,7 +6,8 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { technicalEvidence } from '../src/components/technicalEvidence.js'
+import { MemoryRouter } from 'react-router-dom'
+import { technicalEvidence, isExactGoldContract } from '../src/components/technicalEvidence.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const temporary = mkdtempSync(join(root, 'node_modules', '.technical-smoke-'))
@@ -14,6 +15,17 @@ try {
   await build({ input: join(root, 'src/components/TechnicalDashboard.jsx'), platform: 'node',
     external: ['react', 'react/jsx-runtime', 'axios'], output: { file: join(temporary, 'dashboard.mjs'), format: 'esm' } })
   const { default: Dashboard } = await import(pathToFileURL(join(temporary, 'dashboard.mjs')).href)
+  await build({ input: join(root, 'src/pages/Research.jsx'), platform: 'node',
+    external: ['react', 'react/jsx-runtime', 'react-dom', 'react-router-dom', 'axios', 'recharts', 'lucide-react'],
+    output: { file: join(temporary, 'research.mjs'), format: 'esm' } })
+  const { default: Research } = await import(pathToFileURL(join(temporary, 'research.mjs')).href)
+  for (const alias of ['GCZ6', 'gcz26', 'GCZ2026', 'GCZ26.CMX']) {
+    assert.ok(isExactGoldContract(alias))
+    const research = renderToStaticMarkup(React.createElement(MemoryRouter, { initialEntries: [`/research?symbol=${alias}`] }, React.createElement(Research)))
+    assert.ok(research.includes(`RUN FULL ANALYSIS ON ${alias.toUpperCase()}`), 'exact contract must reach technical analysis directly')
+    assert.ok(!research.includes('FULL ENSEMBLE') && !research.includes('RESEARCH THESIS'), 'equity paths must not substitute the contract')
+  }
+  for (const other of ['GC=F', 'AAPL', 'GCZ6.CMX', 'GCZ27']) assert.ok(!isExactGoldContract(other))
   const frames = ['1m','5m','15m','30m','1h','5h','1d','1w','1M']
   const report = { assessment: 'Timeframe conflict — inspect both horizons.', consensus: null,
     conflicts: [{ warning: '1h Strong Buy conflicts with 1d Strong Sell; no unconditional direction.' }],

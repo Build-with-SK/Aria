@@ -22,6 +22,7 @@ import { useCurrency } from '../currency/CurrencyContext'
 import Term from './Term'
 import ResearchThesis from './ResearchThesis'
 import TechnicalDashboard from './TechnicalDashboard'
+import { isExactGoldContract } from './technicalEvidence'
 
 const MONO = 'var(--mono)'
 const LABEL_COLOR = {
@@ -278,6 +279,7 @@ function AnalysisProgress() {
 /* ══════════════════════════════════════════════════════════════════════════ */
 
 export default function ResearchAnalysis({ symbol, dossier, currency }) {
+  const exactContract = isExactGoldContract(symbol)
   const [tech, setTech] = useState(null)
   const requestGeneration = useRef(0)
   const [v5, setV5] = useState(null)
@@ -292,7 +294,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
     axios.get('/api/technical/summary', { params: { symbol, timeframes: '1m,5m,15m,30m,1h,5h,1d,1w,1M' } })
       .then(r => { if (requestGeneration.current === current) setTech(r.data) })
       .catch(() => { if (requestGeneration.current === current) setTech({ error: 'Technical evidence unavailable' }) })
-    if (/^GCZ(?:6|26|2026)(?:\.CMX)?$/i.test(symbol)) { setState('ready'); return }
+    if (isExactGoldContract(symbol)) { setState('ready'); return }
 
     // One V5 pass gives every family plus the risk gate's levels.
     axios.get(`/api/v5/analyze/${encodeURIComponent(symbol)}`, { params: { log: false } })
@@ -319,8 +321,9 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
             }}>RUN FULL ANALYSIS ON {symbol}</button>
             <div style={{ marginTop: 7 }}>
               <Mono size={10}>
-                Runs the multi-timeframe indicator scan and ARIA&apos;s price, volatility and
-                fundamental engines against available provider data. Each timeframe reports its own freshness.
+                {exactContract
+                  ? 'Scans nine timeframes for this exact contract; unavailable or stale evidence is withheld. Request an independent SENTINEL review after the scan.'
+                  : 'Runs the multi-timeframe indicator scan and ARIA’s price, volatility and fundamental engines against available provider data. Each timeframe reports its own freshness.'}
               </Mono>
             </div>
           </div>
@@ -329,7 +332,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
         {state === 'error' && <div style={{ color: 'var(--red)', fontFamily: MONO, fontSize: 11 }}>{err}</div>}
 
         {tech && <TechnicalDashboard symbol={symbol} tech={tech} onRefresh={run} />}
-        {state === 'ready' && <>
+        {state === 'ready' && !exactContract && <>
           <FamilyVerdict modules={technical} title="Technical" />
           <TradeLevels v5={v5} symbol={symbol} />
 
@@ -343,7 +346,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
       </div>
 
       {/* ── FUNDAMENTAL ── */}
-      {state === 'ready' && (
+      {state === 'ready' && !exactContract && (
         <div className="bb-card">
           <div className="bb-card-header">FUNDAMENTAL ANALYSIS</div>
           <FamilyVerdict modules={fundamental} title="Fundamental" />
@@ -355,7 +358,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
       )}
 
       {/* ── RESEARCH THESIS: independent evidence, no confidence number ── */}
-      <ResearchThesis symbol={symbol} />
+      {!exactContract && <ResearchThesis symbol={symbol} />}
     </>
   )
 }

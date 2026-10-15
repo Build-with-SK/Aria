@@ -20,6 +20,8 @@ import { SectionHeader } from '../components/UI'
 import Explorer from './Explorer'
 import Nexus from './Nexus'
 import V5 from './V5'
+import ResearchAnalysis from '../components/ResearchAnalysis'
+import { isExactGoldContract } from '../components/technicalEvidence'
 
 const MONO = 'var(--mono)'
 const CCY_SYMBOL = { INR: '₹', GBP: '£', USD: '$', EUR: '€', JPY: '¥' }
@@ -149,7 +151,9 @@ export default function Research() {
           Each layer mounts only once the one above it has a symbol, so opening
           a ticker does not fire forty modules before you have decided to
           look. */}
-      {symbol && (
+      {symbol && (isExactGoldContract(symbol) ? (
+        <ResearchAnalysis key={symbol} symbol={symbol} currency="USD" />
+      ) : (
         <>
           <SectionHeader>OVERVIEW · {symbol}</SectionHeader>
           <Explorer symbol={symbol} embedded />
@@ -178,7 +182,7 @@ export default function Research() {
             )}
           </div>
         </>
-      )}
+      ))}
     </div>
   )
 }
