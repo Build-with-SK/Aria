@@ -460,13 +460,6 @@ def pytest_sessionfinish(session, exitstatus):
         session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
-def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    if BLOCKED_PRODUCTION_WRITES:
-        terminalreporter.section("PRODUCTION WRITES BLOCKED — the run FAILS", red=True)
-        for line in sorted(set(BLOCKED_PRODUCTION_WRITES)):
-            terminalreporter.write_line(line, red=True)
-
-
 @pytest.fixture
 def tmp_data_dir() -> Path:
     """The session's throwaway data root, for tests that want to seed it."""
@@ -501,7 +494,13 @@ def clean_trading_state(isolate_production_state, monkeypatch):
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """State the isolation result, so a regression is visible in the output."""
+    """State the isolation result, so a regression is visible in the output,
+    and — if any leaked — report the blocked production writes that make the
+    session fail. One hook, so neither report can mask the other."""
     terminalreporter.write_sep(
         "-", f"isolation: {len(_patched_modules)} ARIA modules redirected away "
              f"from {REAL_DATA}")
+    if BLOCKED_PRODUCTION_WRITES:
+        terminalreporter.section("PRODUCTION WRITES BLOCKED — the run FAILS", red=True)
+        for line in sorted(set(BLOCKED_PRODUCTION_WRITES)):
+            terminalreporter.write_line(line, red=True)
