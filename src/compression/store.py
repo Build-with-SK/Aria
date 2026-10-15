@@ -35,8 +35,8 @@ def ulid() -> str:
 
 
 class CompressionStore:
-    def __init__(self, db_path: Path | str = DEFAULT_DB):
-        self.db_path = Path(db_path)
+    def __init__(self, db_path: Path | str | None = None):
+        self.db_path = Path(db_path) if db_path is not None else DEFAULT_DB
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as c:
             c.execute("""CREATE TABLE IF NOT EXISTS stubs (
