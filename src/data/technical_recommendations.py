@@ -34,9 +34,29 @@ def load_frame(identity, timeframe, *, now=None):
         from src.v5 import marketdata as md
         df = md.history(identity["requested"], period=period)
         meta = md.provenance(identity["requested"]) or {}
-        return df, {"provider": meta.get("provider") or meta.get("source") or "central marketdata",
-                    "adjustment": meta.get("adjustment"), "identity_verified": False,
-                    "identity_note": "central universe resolution; exchange metadata unavailable"}
+        details = {"provider": meta.get("vendor") or meta.get("served_from") or "central marketdata",
+                   "provider_symbol": meta.get("provider_symbol"),
+                   "adjustment": meta.get("adjustment"), "identity_verified": False,
+                   "upstream_stale": bool(meta.get("stale", True)),
+                   "upstream_stale_reason": meta.get("stale_reason"),
+                   "identity_note": "central universe resolution; exchange session calendar unverified"}
+        if meta.get("provider_symbol") and meta["provider_symbol"].upper() != symbol.upper():
+            raise ValueError("central loader returned a different provider instrument")
+        if df is not None and isinstance(df.index, pd.DatetimeIndex) and df.index.tz is None:
+            # Central daily bars are intentionally date-only; this is its documented
+            # format, not permission to guess a timezone for arbitrary naive bars.
+            if not df.index.equals(df.index.normalize()):
+                raise ValueError("ambiguous daily timestamps; expected date-only central bars")
+            from src.markets.sessions import resolve
+            from src.markets.venues import VENUES
+            venue = resolve(symbol).venue
+            if venue not in VENUES:
+                raise ValueError("exchange timezone unavailable for central daily bars")
+            df = df.copy()
+            df.index = df.index.tz_localize(VENUES[venue].tz, ambiguous="raise", nonexistent="raise")
+            details.update(exchange=venue, exchange_timezone=VENUES[venue].tz,
+                           timestamp_basis="central date-only bars localized through exact provider symbol venue")
+        return df, details
     import yfinance as yf
     ticker = yf.Ticker(symbol)
     df = ticker.history(period=period, interval=interval, auto_adjust=False, raise_errors=True)
@@ -77,6 +97,7 @@ def analyze(symbol, timeframe="1d", *, loader=None, now=None):
             df = aggregate_five_hours(df, now)
             provenance["alignment"] = "UTC epoch-anchored 5h; five consecutive hourly candles, no partial bins"
         df, freshness = closed_candles(df, tf, now)
+        freshness["data_stale"] = freshness["data_stale"] or bool(provenance.get("upstream_stale"))
         result = score_candles(df)
         quality = "complete" if result["evidence"]["warmup_complete"] else "insufficient_warmup"
         if result["evidence"]["indicator_votes"] < 9 and quality == "complete":

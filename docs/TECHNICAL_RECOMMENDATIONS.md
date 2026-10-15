@@ -183,3 +183,13 @@ Dashboard offline checks and production build passed. Full suite: 2,985 passed,
 in the same isolated data environment. The suite is not green. Missing/partial
 symbol-master and sector fixtures are required before integrator acceptance.
 No claim of improved predictive performance is made.
+
+
+Deployment preflight correction: the central daily loader's documented output is
+intentionally timezone-naive, date-only bars. The technical adapter now restores
+the exact provider symbol's resolved venue timezone for those bars only. Arbitrary
+naive timestamps and non-midnight ambiguous timestamps remain refused. Provider
+identity mismatches are refused and upstream stale/degraded flags cannot be cleared
+by recent bar timestamps. Three exchange timezones and the stale path have explicit
+regression tests. Provider identity mocks no longer require yfinance installed in
+minimal CI; they inject the provider interface and never access the network.

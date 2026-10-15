@@ -107,12 +107,13 @@ def test_exact_contract_and_alias():
 
 
 def test_provider_cannot_substitute_future(monkeypatch):
-    import yfinance
+    import sys
+    from types import SimpleNamespace
     from src.data.technical_recommendations import load_frame
     class Fake:
         history_metadata={'symbol':'GC=F','exchangeName':'CMX'}
         def history(self,**kwargs): return candles()
-    monkeypatch.setattr(yfinance,'Ticker',lambda _:Fake())
+    monkeypatch.setitem(sys.modules,'yfinance',SimpleNamespace(Ticker=lambda _:Fake()))
     with pytest.raises(ValueError,match='not confirmed'): load_frame(instrument('GCZ6'),'1h')
 
 
@@ -122,12 +123,13 @@ def test_provider_cannot_substitute_future(monkeypatch):
     {'symbol':'GCZ26.CMX','exchangeName':'CMX','expireDate':1700000000},
 ])
 def test_missing_expiry_exchange_or_wrong_month(monkeypatch,meta):
-    import yfinance
+    import sys
+    from types import SimpleNamespace
     from src.data.technical_recommendations import load_frame
     class Fake:
         history_metadata=meta
         def history(self,**kwargs): return candles()
-    monkeypatch.setattr(yfinance,'Ticker',lambda _:Fake())
+    monkeypatch.setitem(sys.modules,'yfinance',SimpleNamespace(Ticker=lambda _:Fake()))
     with pytest.raises(ValueError): load_frame(instrument('GCZ6'),'1h')
 
 
@@ -260,13 +262,14 @@ def test_macd_histogram_matches_exponential_definition():
 
 
 def test_contract_expiration_fallback_is_exact_and_time_checked(monkeypatch):
-    import yfinance
+    import sys
+    from types import SimpleNamespace
     from src.data.technical_recommendations import load_frame
     class Fake:
         history_metadata={"symbol":"GCZ26.CMX","exchangeName":"CMX"}
         def history(self,**kwargs): return candles()
         def get_info(self): return {"symbol":"GCZ26.CMX","exchange":"CMX","expireDate":int(pd.Timestamp("2026-12-29T00:00:00Z").timestamp())}
-    monkeypatch.setattr(yfinance,"Ticker",lambda _:Fake())
+    monkeypatch.setitem(sys.modules,"yfinance",SimpleNamespace(Ticker=lambda _:Fake()))
     identity=instrument("GCZ6")
     load_frame(identity,"1h",now="2026-10-15T12:00:00Z")
     assert identity["expiration"]=="2026-12-29T00:00:00+00:00"
@@ -293,3 +296,35 @@ def test_existing_http_endpoint_preserves_evidence_and_owner_boundary(monkeypatc
     monkeypatch.setenv("ARIA_SERVICE_TOKEN","technical-test-peer")
     denied=client.get("/api/technical/summary",params={"symbol":"AAPL"},headers={"Authorization":"Bearer technical-test-peer"})
     assert denied.status_code==403
+
+
+@pytest.mark.parametrize("symbol,tz", [("AAPL","America/New_York"),("BA.L","Europe/London"),("RELIANCE.NS","Asia/Kolkata")])
+def test_central_daily_date_only_adapter_uses_resolved_venue(monkeypatch,symbol,tz):
+    from src.v5 import marketdata as md
+    from src.data.technical_recommendations import load_frame
+    df=candles(freq="D"); df.index=df.index.tz_localize(None)
+    monkeypatch.setattr(md,"history",lambda *a,**k:df)
+    monkeypatch.setattr(md,"provenance",lambda *_:{"provider_symbol":symbol,"stale":False,"vendor":"fixture"})
+    loaded, provenance=load_frame({"provider_symbol":symbol,"requested":symbol,"kind":"provider_instrument"},"1d")
+    assert str(loaded.index.tz)==tz
+    assert df.index.tz is None  # never mutate the shared central frame
+    assert provenance["exchange_timezone"]==tz
+    closed_candles(loaded,"1d",pd.Timestamp("2026-10-15T00:00:00Z"))
+
+
+def test_central_daily_adapter_refuses_ambiguous_clock_and_wrong_instrument(monkeypatch):
+    from src.v5 import marketdata as md
+    from src.data.technical_recommendations import load_frame
+    df=candles(freq="D"); df.index=df.index.tz_localize(None)+pd.Timedelta(hours=5)
+    monkeypatch.setattr(md,"history",lambda *a,**k:df)
+    monkeypatch.setattr(md,"provenance",lambda *_:{"provider_symbol":"AAPL","stale":False})
+    identity={"provider_symbol":"AAPL","requested":"AAPL","kind":"provider_instrument"}
+    with pytest.raises(ValueError,match="ambiguous daily"):load_frame(identity,"1d")
+    monkeypatch.setattr(md,"provenance",lambda *_:{"provider_symbol":"BA.L","stale":False})
+    with pytest.raises(ValueError,match="different provider"):load_frame(identity,"1d")
+
+
+def test_upstream_stale_flag_cannot_be_overridden_by_fresh_bar_timestamp():
+    df=candles()
+    result=analyze("AAPL","1h",loader=lambda *_:(df,{"upstream_stale":True}),now=df.index[-1]+pd.Timedelta(hours=1))
+    assert result["data_stale"] and result["summary"] is None
