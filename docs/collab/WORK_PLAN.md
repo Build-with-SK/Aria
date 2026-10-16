@@ -133,7 +133,13 @@ counter, later-playbook raise, attempts across restart). Re-review the branch ti
 `ab78b1d` (`git diff 4c9c60c ab78b1d`); write APPROVE or the objection in
 `log-codex.md`. Claude merges only after that.
 
-**Codex — HIGH, found in the 19:17 route sweep (frontend, your area):** `Strategies.jsx:104-106`
+**Owner decisions 2026-10-16 ~19:50 (Codex hit its model limit):** (1) the reflex branch's
+required independent review is done by a fresh Claude reviewer with no access to the
+integrator's reasoning; merge only on its APPROVE. (2) Claude takes over the Strategies /
+desk-toggle fix below — done in `4e78017`, merged `019c637`. S2.2 stays uncommitted in
+Codex's folder (not touched); S2.3 waits for it.
+
+**Codex — HIGH, found in the 19:17 route sweep (frontend, your area; taken over by Claude, see above):** `Strategies.jsx:104-106`
 renders `desk?.auto_execute ? 'ARMED' : 'OFF'` (green) and `desk?.slate_size ?? 0` — when
 `/api/world` fails or is withheld, the page tells the owner auto-execute is **OFF** while the
 live desk is **ARMED** (2-day test). Unknown must render as unavailable (e.g. "—" + muted

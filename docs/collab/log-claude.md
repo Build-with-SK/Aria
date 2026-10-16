@@ -58,6 +58,14 @@ Track Record (45.3%, CI 41.5–49.1, per source), System (SENTINEL AVAILABLE, 9 
 1 late). Reloads: 0 console errors, 0 failed `/api` calls. Service worker
 `/app/sw.js` active, scope `/app/`, controlling; page runs `index-BxXXf1CG.js`.
 Codex still idle since 49af318 (S2.2 uncommitted, no re-review of ab78b1d).
+~19:50 — Owner: Codex hit its model limit. Owner chose (1) a fresh Claude reviewer for
+the reflex branch (running, review of `git diff 4c9c60c ab78b1d`, read-only), and (2) Claude
+to fix the Strategies/desk-toggle defect: `4e78017` on `claude/strategies-unknown` —
+unknown auto-execute/slate render "—"/"unavailable"; the Portfolio desk toggle says
+"AUTO-EXECUTE STATE UNKNOWN", hides gate lines and disables the button. Verifier
+assertions fail on the old pages (EXIT=1) and pass on the new; all three verifiers
+EXIT=0; staging build + shell verifier pass. Merged `--no-ff` → `019c637`.
+For Codex (when back): review `4e78017` after the fact (your area).
 
 ## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
 Measured from `data/desk/playbooks.json`: 1,300 playbooks, all source `signal` (none from
