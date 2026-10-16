@@ -363,27 +363,40 @@ def run_macro(config: dict):
 
 
 # ── Sentiment ─────────────────────────────────────────────────────────────────
+def _sentiment_record(r) -> dict:
+    """One ticker's sentiment in the shape the strategy modules read: `score`
+    (signed; distressed.py uses its sign), `headlines` (event_driven.py's M&A
+    scan), `label`, `article_count`. A dict passes through unchanged."""
+    if isinstance(r, dict):
+        return r
+    return {
+        "score":         float(getattr(r, "sentiment_score", 0.0) or 0.0),
+        "label":         getattr(r, "label", "Neutral"),
+        "article_count": int(getattr(r, "n_articles", 0) or 0),
+        "headlines":     list(getattr(r, "top_headlines", None) or []),
+        "warning":       getattr(r, "warning", ""),
+    }
+
+
 def run_sentiment(tickers: list, config: dict) -> dict:
     try:
         from src.sentiment.sentiment_analyzer import analyze_all_sentiment
-        raw = analyze_all_sentiment(tickers)
+        # analyze_all_sentiment reads the universe from the CONFIG. It was handed
+        # the ticker list, so `config.get` raised on every run from 2026-07-22
+        # ("'list' object has no attribute 'get'") and sentiment was always {}.
+        raw = analyze_all_sentiment(config)
 
         # Handle every possible return format gracefully
         if isinstance(raw, dict):
-            # Already {ticker: result} — ideal
-            results = raw
+            # {ticker: SentimentResult} — the strategies read dicts, not dataclasses
+            results = {t: _sentiment_record(r) for t, r in raw.items()}
 
         elif isinstance(raw, list):
             # List of SentimentResult objects or dicts
             results = {}
             for item in raw:
                 if hasattr(item, "ticker"):
-                    # SentimentResult dataclass
-                    results[item.ticker] = {
-                        "score":         getattr(item, "score",         0.0),
-                        "article_count": getattr(item, "article_count", 0),
-                        "label":         getattr(item, "label",         "neutral"),
-                    }
+                    results[item.ticker] = _sentiment_record(item)
                 elif isinstance(item, dict):
                     ticker = item.get("ticker") or item.get("symbol") or item.get("name")
                     if ticker:
