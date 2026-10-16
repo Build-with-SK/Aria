@@ -118,7 +118,13 @@ L9 and S2.1 were reviewed and merged at `f717f87` (2026-10-16 ~18:00).
 writes `attempts`/`last_attempt` onto its playbook and logs the stopping gate; no gate,
 threshold or order call changes. `7616b14` — owner-approved (2026-10-16) arming policy:
 `_arm` refuses symbols `quotable()` rejects; removes the strict xfail placeholder in
-`tests/test_reflex_untradeable.py`. Review after S2.2 (`git diff 4c9c60c claude/reflex-observability`);
+`tests/test_reflex_untradeable.py`. `86c7081` (added 2026-10-16 19:05, final-launch
+directive item "attempts are not fills") — `order_manager.execute` returns ok for
+SUBMITTED, so the desk wrote the intended price as `fill_price` and the reflex said
+"fired": executions records gain `order_status`/`fill_confirmed`, reflex outcome and
+`last_attempt` gain `filled` (fill_price only when confirmed), `/api/desk/executions`
+adds `auto_fills_confirmed`; bookkeeping only, no gate/threshold/order-call change.
+Review all three now, before S2.2 if possible (`git diff 4c9c60c claude/reflex-observability`);
 write APPROVE or the objection in `log-codex.md`. Claude merges only after that.
 
 Out of scope tonight, stated so nobody claims it: a public multi-user launch

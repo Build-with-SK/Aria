@@ -2,6 +2,16 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-16 — FINAL LAUNCH (owner directive, deadline 22:00) — started 18:58
+Files expected: `src/desk/{reflex,auto_executor}.py`, `backend/main.py`, reflex tests,
+this log, WORK_PLAN. Pipeline: the nightly `TradingIntelligenceSystem` task has not
+completed since 2026-10-07 (`tis_run.log` ends 09:29 that day; `signals.json` mtime
+2026-10-07 07:39; no `data/pipeline_run.json` ever written); today's 10:06 run returned
+0x800710E0 and wrote nothing. On AC power, started the installed task at 19:00:32
+(pid 39608) — signals step reached 19:03. Reflex: third commit `86c7081` on
+`claude/reflex-observability` (accepted order ≠ fill); review request in WORK_PLAN
+updated. Paper test untouched.
+
 ## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
 Measured from `data/desk/playbooks.json`: 1,300 playbooks, all source `signal` (none from
 debates), armed 2026-07-24..2026-10-08; 1,073 expired, 227 rejected, 0 fired. Rejections:
