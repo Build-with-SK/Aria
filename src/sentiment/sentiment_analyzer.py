@@ -267,8 +267,50 @@ def _is_relevant(title: str, ticker: str) -> bool:
     return clean in title.upper()
 
 
+def _fetch_yfinance_search_news(ticker: str, limit: int = 15) -> List[ArticleSentiment]:
+    """Fetch and score news from yfinance's search endpoint.
+
+    `Ticker.news` returns nothing in yfinance 1.3.0 (AAPL included, measured
+    2026-10-16) while `yf.Search(...).news` still answers. Search returns news
+    for the QUERY, so an item is kept only when Yahoo tags it with this ticker
+    in `relatedTickers` — "HSBC adjusts Nike price target" is tagged NKE, not
+    HSBC, and is dropped. An untagged item is dropped too: unknown relevance
+    is not relevance."""
+    articles: List[ArticleSentiment] = []
+    want = (ticker or "").upper()
+    try:
+        news = yf.Search(ticker, news_count=limit).news or []
+    except Exception as e:
+        logger.debug(f"yfinance search news failed for {ticker}: {e}")
+        return articles
+    for item in news:
+        try:
+            related = {str(t).upper() for t in (item.get("relatedTickers") or [])}
+            title = item.get("title", "")
+            if not title or want not in related:
+                continue
+            ts = item.get("providerPublishTime")
+            pub = (datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
+                   if ts else "")
+            score, kws = _score_headline_v2(title)
+            articles.append(ArticleSentiment(
+                title=title, source=item.get("publisher") or "Unknown", published=pub,
+                score=score, recency_weight=_recency_weight(pub), keywords=kws,
+            ))
+        except Exception:
+            continue
+    return articles
+
+
 def _fetch_yfinance_news(ticker: str, limit: int = 15) -> List[ArticleSentiment]:
-    """Fetch and score news from yfinance."""
+    """Fetch and score news from yfinance: `Ticker.news`, then the search
+    endpoint when that returns nothing."""
+    articles = _fetch_yfinance_ticker_news(ticker, limit)
+    return articles or _fetch_yfinance_search_news(ticker, limit)
+
+
+def _fetch_yfinance_ticker_news(ticker: str, limit: int = 15) -> List[ArticleSentiment]:
+    """Fetch and score news from yfinance's `Ticker.news`."""
     articles: List[ArticleSentiment] = []
     try:
         news = yf.Ticker(ticker).news or []

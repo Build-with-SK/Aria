@@ -58,6 +58,54 @@ def test_event_driven_finds_an_ma_headline_and_distressed_reads_the_sign():
     assert record["score"] < 0          # distressed.py reads the sign of `score`
 
 
+# ── the news source: Ticker.news is empty in yfinance 1.3.0 ──────────────────
+
+class _FakeYF:
+    """Stands in for the yfinance module: Ticker(...).news and Search(...).news."""
+
+    def __init__(self, ticker_news, search_news):
+        self._t, self._s, self.searched = ticker_news, search_news, []
+
+    def Ticker(self, sym):
+        return type("T", (), {"news": self._t})()
+
+    def Search(self, query, news_count=8):
+        self.searched.append(query)
+        return type("S", (), {"news": self._s})()
+
+
+def test_search_news_is_used_when_ticker_news_is_empty_and_kept_only_if_tagged(monkeypatch):
+    fake = _FakeYF([], [
+        {"title": "HSBC beats on profit, raises buyback", "publisher": "Wire",
+         "providerPublishTime": 1792057976, "relatedTickers": ["HSBC"]},
+        {"title": "HSBC adjusts Nike price target", "publisher": "Wire",
+         "providerPublishTime": 1792057976, "relatedTickers": ["NKE"]},
+        {"title": "HSBC India commits funds to literacy", "publisher": "PR",
+         "providerPublishTime": 1792057976, "relatedTickers": []},
+    ])
+    monkeypatch.setattr(sa, "yf", fake)
+    arts = sa._fetch_yfinance_news("HSBC")
+    assert fake.searched == ["HSBC"]
+    assert [a.title for a in arts] == ["HSBC beats on profit, raises buyback"]
+    assert arts[0].published.startswith("2026-") and arts[0].source == "Wire"
+
+
+def test_ticker_news_when_present_is_used_without_searching(monkeypatch):
+    fake = _FakeYF([{"content": {"title": "Acme wins contract", "pubDate": "2026-10-16T12:00:00Z",
+                                 "provider": {"displayName": "Wire"}}}], [])
+    monkeypatch.setattr(sa, "yf", fake)
+    arts = sa._fetch_yfinance_news("ACME")
+    assert [a.title for a in arts] == ["Acme wins contract"] and fake.searched == []
+
+
+def test_no_tagged_news_anywhere_is_unavailable_end_to_end(monkeypatch):
+    monkeypatch.setattr(sa, "yf", _FakeYF([], [
+        {"title": "Markets wobble", "relatedTickers": ["^GSPC"], "providerPublishTime": 1792057976}]))
+    monkeypatch.setattr(sa, "FEEDPARSER_AVAILABLE", False)
+    rec = main._sentiment_record(sa.analyze_sentiment("QUIET", "Quiet Co"))
+    assert rec["available"] is False and rec["score"] is None
+
+
 # ── missing news is unavailable, not neutral (2026-10-16 launch sprint) ──────
 # The analyzer reports a ticker with no articles — or whose fetch raised — as
 # label "Neutral", score 0.0, the same as news that genuinely nets to zero.
