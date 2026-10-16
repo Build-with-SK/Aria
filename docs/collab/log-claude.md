@@ -73,6 +73,25 @@ Cache-Control, so browsers cache index.html heuristically. Fixed `579ad64`
 (`_SPAStatics` sets `Cache-Control: no-cache` on the shell and SPA fallbacks; assets
 untouched; 304 keeps it) + `tests/test_app_shell_cache.py`; merged `cbc0206`; live at the
 next restart. Loopback scratch copy deleted, its server stopped.
+19:57 — full suite on `cbc0206`: **5 failed, 3280 passed, EXIT=1**. 21:02 resumed (owner):
+(1) `test_no_shell_is_ever_used_for_a_subprocess` was MY defect — the shell-page flag in
+`_SPAStatics` was named `shell`, so `shell = True` matched the no-shell=True scan; renamed
+`shell_page` (`b03eb3f`, merged `923a095`). (2) The other four (`probability_semantics`,
+`research_leads`, `security_live_gate`, `sentinel_bridge`) were `PermissionError` reading
+`src/*.py` mid-run — transient Windows file locks, cause not pinned down; not reproduced:
+the five files rerun **195 passed**. `.claude/worktrees/` is NOT scanned by these tests.
+S2.2: Codex's uncommitted `evaluate_ledger_sources` fails 3 of its own 26 tests in its
+folder — work in progress, not taken over; S2.2/S2.3 BLOCKED. Sentiment defect fixed:
+`73e6e09` (`run_sentiment` passes the config; `_sentiment_record` gives strategies the dict
+shape they read; 3 regression tests fail on old code, pass on new), merged `a029d90`.
+Reflex `ab78b1d`: Codex still idle; a fresh independent Claude reviewer relaunched
+21:04 (owner's earlier choice while Codex is unavailable). Full suite on `a029d90`: **3288 passed, 1 skipped,
+1 xfailed, EXIT=0, 373.08 s** (21:12). Independent reviewer on `ab78b1d`: **REQUEST CHANGES** —
+HIGH: scan_once now saves after every attempt and is unlocked; an overlapping loop scan +
+POST /api/desk/reflex-scan can save a stale copy that reverts a fired playbook to armed
+(reviewer's probe: 2 sends at ab78b1d vs 1 at 4c9c60c). MEDIUM: uncertain fire stored as
+executed False. LOW: fill_confirmed treats Alpaca's 0.0 price as present. Reflex NOT merged.
+
 
 ## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
 Measured from `data/desk/playbooks.json`: 1,300 playbooks, all source `signal` (none from
