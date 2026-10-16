@@ -279,7 +279,7 @@ def test_grading_is_skipped_when_identity_cannot_be_established(tmp_path, monkey
     assert why, "a refusal must carry its reason"
 
 
-def test_the_universe_audit_reports_without_repairing(universe_reference):
+def test_the_universe_audit_reports_without_repairing(universe_reference, tmp_path, monkeypatch):
     """The audit is read-only by construction — the source-of-truth decision
     belongs to the owner, and guessing at 21,067 rows would be a larger version
     of the mistake being fixed.
@@ -290,7 +290,16 @@ def test_the_universe_audit_reports_without_repairing(universe_reference):
     which, so the size assertion matches the data actually under test rather
     than a guess. Everything else about the contract — no repairs, no
     duplicates, the known-bad-name tripwire — holds for both.
+
+    The fallback is audited from a pristine build of the declared fixture: the
+    session copy is shared, and by this point in a full run tests that refresh
+    the universe index have added rows to it (16 → 29 measured 2026-10-16).
+    Reading that copy made this test pass alone and fail in the suite.
     """
+    if universe_reference["kind"] != "production":
+        pristine = tmp_path / "universe.db"
+        assert universe_reference["build"](pristine) == universe_reference["rows"]
+        monkeypatch.setattr(idt, "UNIVERSE_DB", pristine)
     before = idt.UNIVERSE_DB.read_bytes()
     report = idt.audit()
     assert idt.UNIVERSE_DB.read_bytes() == before, (
