@@ -230,11 +230,18 @@ class OrderManager:
                 req.qty = risk.approved_qty
 
         # The send. Claim the row first: from here it is "submitting", with its
-        # client id on disk, and cannot be cancelled as never sent.
-        if self._queue.claim_for_submit(trade_id, req.client_order_id) is None:
-            return {"ok": False,
-                    "error": f"Trade {trade_id} was cancelled or claimed before it was sent. "
-                             f"Nothing was sent."}
+        # client id on disk, and cannot be cancelled as never sent. The claim
+        # re-checks, under the queue lock, that no other order for this
+        # instrument is in flight — the guard above cannot see one claimed a
+        # moment ago by another lane.
+        claimed, why = self._queue.claim_for_submit(trade_id, req.client_order_id,
+                                                    exclusive=not req.reduce_only)
+        if claimed is None:
+            blocked = "unresolved" in why
+            if blocked:
+                self._queue.reject(trade_id, f"{why}. Nothing was sent.")
+            return {"ok": False, "blocked": blocked,
+                    "error": f"Trade {trade_id} not sent: {why}. Nothing was sent."}
         result = broker.submit_order(req)
         settled = None
         if result.status == OrderStatus.UNKNOWN:

@@ -220,21 +220,37 @@ class ApprovalQueue:
                     return PendingTrade(**d)
         return None
 
-    def claim_for_submit(self, trade_id: str, client_order_id: str) -> Optional[PendingTrade]:
+    def claim_for_submit(self, trade_id: str, client_order_id: str, *,
+                         exclusive: bool = True) -> tuple[Optional[PendingTrade], str]:
         """Atomically move an approved (or pending) row to "submitting" with its
-        client id recorded — BEFORE anything is sent. None when the row is not
-        sendable any more (cancelled, already claimed): then nothing may be sent.
-        From here the row cannot be cancelled as "never reached the broker"."""
+        client id recorded — BEFORE anything is sent. From here the row cannot
+        be cancelled as "never reached the broker".
+
+        `exclusive`: refuse while ANOTHER row for the same instrument and broker
+        is unresolved (submitting / unknown). Checked under the same lock as the
+        claim, so two lanes sending at the same instant cannot both pass — the
+        second sees the first in flight. Exits pass exclusive=False.
+
+        (trade, "") on success; (None, why) when nothing may be sent."""
         with _QUEUE_LOCK:
             items = _load_queue()
-            for d in items:
-                if d["id"] == trade_id and d["status"] in ("pending", "approved"):
-                    d["status"] = "submitting"
-                    d["client_order_id"] = client_order_id
-                    d["submitting_at"] = datetime.utcnow().isoformat()
-                    _save_queue(items)
-                    return PendingTrade(**d)
-        return None
+            row = next((d for d in items if d["id"] == trade_id), None)
+            if row is None or row["status"] not in ("pending", "approved"):
+                return None, (f"trade {trade_id} is "
+                              f"{'missing' if row is None else row['status']}, not sendable")
+            if exclusive:
+                sym = (row.get("ticker") or "").upper()
+                busy = [d for d in items if d["id"] != trade_id and d.get("status") in UNRESOLVED
+                        and (d.get("ticker") or "").upper() == sym
+                        and d.get("broker") == row.get("broker")]
+                if busy:
+                    return None, (f"another order for {row.get('ticker')} is unresolved: "
+                                  + ", ".join(f"{d['id']} ({d['status']})" for d in busy))
+            row["status"] = "submitting"
+            row["client_order_id"] = client_order_id
+            row["submitting_at"] = datetime.utcnow().isoformat()
+            _save_queue(items)
+            return PendingTrade(**row), ""
 
     def mark_executed(self, trade_id: str, broker_order_id: str, fill_price: float = 0.0,
                       *, client_order_id: str = "", order_status: str = "",
