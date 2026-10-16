@@ -96,6 +96,13 @@ its branch), commits per gate, and logs each in `log-codex.md`. Claude reviews
 every Codex commit before merging; disagreements go to the owner. Only Claude
 restarts the runtime (rule 7), once, at cutover, after both halves pass.
 
+**Codex next (assigned 2026-10-16 evening, after L2/L7/L8/S1.5 merged at `7b9b3a3`):**
+
+| Id | Task | Evidence it is done |
+| --- | --- | --- |
+| L9 | `scripts/paper_test_report.py`: READ-ONLY report for the owner's 2-day aggressive paper test. Inputs: `data/desk/two_day_test.json` (baseline: start time/equity, counts before start), `closed_trades.jsonl`, `executions.jsonl`, `equity_curve.jsonl`, `positions.json`. Output (stdout, optional `--json PATH` outside `data/`): start/end equity and P&L ($ and %), realised vs unrealised, trades closed after start with per-trade symbol/side/entry/exit/P&L/hold time, win rate, average win/loss, max drawdown from the equity curve, crypto vs equity split, and a plain caveat that two days cannot separate skill from luck. Counts ONLY records after `started_at`. Works mid-test (reports "in progress"). Never writes `data/`, never calls the broker or the API. | Tests with fixture files (no production data): before-start records excluded, open position = unrealised, empty test, drawdown math. |
+| S2.1 | Diagnosis only (no tuning): why V5 logged 0 bear calls in 498. Thresholds, module coverage, data gaps. | Note in `log-codex.md` with measured counts. |
+
 Out of scope tonight, stated so nobody claims it: a public multi-user launch
 (accounts, legal/financial-advice review, hosting), any measured trading edge,
 live-money trading. ARIA stays owner-only and PAPER.
