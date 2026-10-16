@@ -4,6 +4,8 @@ from __future__ import annotations
 from .technical_engine import (ALIASES, TIMEFRAMES, aggregate_five_hours,
                                closed_candles, score_candles, timeframe_conflicts)
 
+MIN_CONSENSUS_HORIZONS = 3
+
 
 def instrument(symbol):
     """Never resolve a dated future to a continuous or spot instrument."""
@@ -218,14 +220,27 @@ def analyze_all(symbol, timeframes=None, *, loader=None, now=None):
     cache = {}
     rows = {tf: analyze(symbol, tf, loader=loader, now=now, _cache=cache) for tf in requested}
     conflicts = timeframe_conflicts(rows)
-    valid = [r["summary"] for r in rows.values() if r.get("summary") and not r.get("data_stale")]
+    used = [tf for tf, r in rows.items() if r.get("summary") and not r.get("data_stale")]
     from .technical_summary import _consensus
-    missing = [tf for tf, r in rows.items() if not r.get("summary")]
+    excluded = {tf: (r.get("error") or ("stale" if r.get("data_stale") else r.get("data_quality") or "withheld"))
+                for tf, r in rows.items() if tf not in used}
+    # A consensus may rest on the horizons that are valid now, as long as it
+    # names the ones left out. It never averages a conflict, and it needs at
+    # least three valid horizons including one of 1d/1w/1M, so a closed
+    # market's stale intraday rows cannot hide it and intraday noise alone
+    # cannot make one.
+    higher = {"1d", "1w", "1wk", "1M"}
+    eligible = not conflicts and len(used) >= MIN_CONSENSUS_HORIZONS and bool(higher & set(used))
+    consensus = _consensus([rows[tf]["summary"] for tf in used]) if eligible else None
+    coverage = f"{len(used)} of {len(rows)} horizons"
     return {"symbol": symbol, "timeframes": rows, "conflicts": conflicts,
             "yahoo": next((r.get("yahoo") for r in rows.values() if r.get("yahoo")), None),
-            "consensus": None if conflicts or missing or not valid else _consensus(valid),
+            "consensus": consensus,
+            "consensus_basis": {"used": used, "excluded": excluded, "coverage": coverage,
+                                "rule": f"no conflicts; at least {MIN_CONSENSUS_HORIZONS} valid horizons including 1d, 1w or 1M"},
             "assessment": "Timeframe conflict — inspect both horizons." if conflicts else
-                          "Incomplete evidence — inspect unavailable/stale timeframes." if missing else
+                          f"Partial multi-timeframe agreement across {coverage}; excluded: {', '.join(excluded)}. No validated trade recommendation." if consensus and excluded else
+                          "Incomplete evidence — inspect unavailable/stale timeframes." if excluded else
                           "Descriptive multi-timeframe agreement; no validated trade recommendation.",
             "sentinel": {"status": "NOT_CONSULTED", "position": "NONE",
                          "note": "No independent review obtained. Silence is not agreement."}}

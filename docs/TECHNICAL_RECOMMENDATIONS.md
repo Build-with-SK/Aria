@@ -136,9 +136,18 @@ history, so long-period MAs can legitimately remain unavailable for that contrac
 
 Stale/short-history rows retain diagnostic calculations but have `summary=null`.
 Evidence quality describes coverage, freshness and calendar limitations, not a
-probability of profit. Missing rows withhold aggregate direction. Opposing usable
-timeframes produce explicit pairwise warnings and `consensus=null`; higher and
-lower horizon conclusions remain intact. There is no unconditional aggregate Buy.
+probability of profit. Opposing usable timeframes produce explicit pairwise
+warnings and `consensus=null`; higher and lower horizon conclusions remain
+intact. There is no unconditional aggregate Buy.
+
+Without a conflict, the aggregate rests on the horizons that are valid now
+(non-null, non-stale summary), provided there are at least three of them and
+one is 1d, 1w or 1M. `consensus_basis` names the horizons used, every excluded
+horizon with its reason, and the coverage ("6 of 9 horizons"); the assessment
+says "Partial multi-timeframe agreement" whenever any horizon was excluded. A
+closed market's stale intraday rows therefore no longer hide an agreeing daily
+picture, and intraday rows alone can never form an aggregate. Excluded rows are
+never counted as Neutral votes.
 
 ## Verification and research replay
 
@@ -275,7 +284,15 @@ The public recovery paths are deliberately narrow:
 - FX daily: when native daily OHLC is malformed, reconstruct UTC-day OHLC from
   closed hourly candles of the EXACT same Yahoo pair. Every scheduled hourly slot
   must be present. Incomplete days are excluded and counted; UNKNOWN windows are
-  refused. This is an explicitly labelled reconstruction, not independent pricing.
+  refused. Days are 00:00 UTC, Yahoo's own daily convention: a New York 17:00
+  boundary would lose every Monday, because Yahoo's Sunday hourly bars start one
+  to two hours after the 17:00 open. A day is built only when the market is open
+  from 00:00 UTC, so the Sunday week-open stub is never a daily candle. Provider
+  bars outside the verified window (Yahoo's Friday 17:00-18:00 New York hour) are
+  left out of the candle and counted (`out_of_session_bars_excluded`), not a
+  reason to drop the day. Daily gap counts for these candles use the same rule,
+  so weekends are not gaps. This is an explicitly labelled reconstruction, not
+  independent pricing.
 - Central daily caches: the technical adapter opts into provider-bound metadata.
   Legacy caches without matching response identity are refetched. Even the
   last-resort stale-cache branch must match that binding. Stale flags remain in

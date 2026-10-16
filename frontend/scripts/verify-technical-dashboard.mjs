@@ -59,6 +59,10 @@ try {
   assert.ok(html.includes('Strong Buy') && html.includes('Strong Sell'))
   assert.ok(html.includes('No independent review obtained. Silence is not agreement.'))
   assert.ok(!html.includes('NaN'))
+  const partial = renderToStaticMarkup(React.createElement(Dashboard, { symbol: 'SYNTHETIC', tech: { ...report, conflicts: [],
+    consensus: 'Buy', consensus_basis: { used: ['15m', '1d', '1w'], excluded: { '1h': 'stale' }, coverage: '3 of 4 horizons' } } }))
+  assert.ok(partial.includes('Consensus: Buy') && partial.includes('Based on 3 of 4 horizons: 15m, 1d, 1w'))
+  assert.ok(partial.includes('excluded 1h'))
   const feed = renderToStaticMarkup(React.createElement(Dashboard, { symbol: 'SYNTHETIC', tech: { timeframes: { '1d': {
     ...report.timeframes['1d'], summary: null, calculated_summary: 'Strong Buy', history_prefix_excluded: 21,
     verification: { identity: 'verified', history: 'insufficient_warmup', ohlc: 'valid', independent_price_validation: 'not performed' },

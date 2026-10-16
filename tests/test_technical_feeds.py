@@ -319,3 +319,25 @@ def test_identity_error_never_triggers_public_recovery(monkeypatch):
     monkeypatch.setattr(technical, '_recover_history', recovery)
     result = technical.analyze('SAIL.BO', '1d')
     assert result['summary'] is None and 'different provider instrument' in result['error']
+
+
+def test_fx_week_open_stub_is_never_a_daily_candle():
+    # Schedule-perfect fixture includes the Sunday-evening opening hours; a
+    # few hours after the week opens are not a day of trading.
+    daily, details = fx_daily_from_hourly(fx_source(), "EURUSD=X", now=pd.Timestamp("2026-02-10T00:00Z"))
+    assert set(daily.index.dayofweek) == {0, 1, 2, 3, 4}
+    assert details["week_open_partial_days_excluded"] >= 5
+
+
+def test_fx_daily_weekends_are_not_gaps_but_missing_weekdays_are():
+    from src.data.technical_engine import _fx_daily_gaps
+    daily, _ = fx_daily_from_hourly(fx_source(), "EURUSD=X", now=pd.Timestamp("2026-02-10T00:00Z"))
+    gaps, status = _fx_daily_gaps(daily, "EURUSD=X", fallback=-1)
+    assert (gaps, status.startswith("verified")) == (0, True)
+    holed = daily.drop(pd.Timestamp("2026-01-14", tz="UTC"))
+    assert _fx_daily_gaps(holed, "EURUSD=X", fallback=-1)[0] == 1
+    # Provider dailies stamped at another zone's midnight are not this
+    # convention; they keep the unverified fallback rather than a guess.
+    shifted = daily.copy()
+    shifted.index = shifted.index - pd.Timedelta(hours=1)
+    assert _fx_daily_gaps(shifted, "EURUSD=X", fallback=-1) == (-1, "unverified; FX daily stamps are not 00:00 UTC days")
