@@ -24,7 +24,7 @@ class DistressedName:
     fcf_positive: bool          # is FCF currently positive?
     fcf_improving: bool         # turning positive from negative?
     price_vs_52w_high_pct: float  # e.g. -45 means 45% below 52w high
-    sentiment_score: float
+    sentiment_score: Optional[float]   # None = no news for this name, not neutral
     distress_flags: List[str]
     recommended_direction: str  # "short" | "long" | "watch" | "skip"
     conviction: float
@@ -147,10 +147,12 @@ def _screen_ticker(
     fcf_pos = _is_fcf_positive(info)
     price_vs_52w = _price_vs_52w_high(df)
 
-    sent_val = (sentiment_scores or {}).get(ticker, {})
+    # None when there is no sentiment for this name (no record, or a record
+    # the pipeline marked unavailable): missing news is not a neutral 0.
+    sent_val = (sentiment_scores or {}).get(ticker)
     if isinstance(sent_val, dict):
-        sent_val = sent_val.get("score", 0)
-    sent_score = float(sent_val or 0)
+        sent_val = sent_val.get("score")
+    sent_score = None if sent_val is None else float(sent_val)
 
     flags: List[str] = []
     distress_thresh_z = float(cfg.get("altman_z_distress", 1.81))
@@ -174,10 +176,10 @@ def _screen_ticker(
     is_oversold_opportunity = (
         price_vs_52w < -40
         and (z_score > 1.0 or fcf_pos)
-        and sent_score > 0
+        and sent_score is not None and sent_score > 0
     )
 
-    if is_severely_distressed and sent_score < 0:
+    if is_severely_distressed and sent_score is not None and sent_score < 0:
         direction = "short"
         conviction = min(80, len(flags) * 20)
         rationale = f"Severely distressed: Z={z_score:.1f}, negative sentiment"
@@ -201,7 +203,7 @@ def _screen_ticker(
         fcf_positive=fcf_pos,
         fcf_improving=False,   # would need multi-period FCF to assess
         price_vs_52w_high_pct=round(price_vs_52w, 2),
-        sentiment_score=round(sent_score, 2),
+        sentiment_score=None if sent_score is None else round(sent_score, 2),
         distress_flags=flags,
         recommended_direction=direction,
         conviction=float(conviction),
