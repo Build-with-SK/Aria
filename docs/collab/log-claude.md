@@ -2,6 +2,22 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-16 — FINAL LAUNCH — deployed 21:27, report
+Deployed `afde34e` (HEAD `05a938c` adds logs only): `ARIA Backend` restarted, pid 51284 →
+42692 (21:27:58), `/ready` 200 in 1 s, one listener; desk daemon + reflex engine started
+21:28:16, heartbeat tick 1, no errors. PAPER, live gate false, kill switch not engaged,
+Alpaca PAPER $10,008.38, 0 positions; SENTINEL AVAILABLE; `/api/desk/executions` carries
+`auto_fills_confirmed` (new code live); shell `Cache-Control: no-cache`. Owner's Chrome
+(signed in, localhost:8000): all 8 pages render on `index-BfVBrMwS.js`, 0 console errors.
+Pushed `7065eb2..05a938c`. Final suite on `afde34e`: **3305 passed, 1 skipped, EXIT=0**.
+Paper test 21:31: IN PROGRESS, $10,008.38, 0 executions/closed trades, 44 playbooks armed.
+Pipeline still in `ml` since 19:04 (ml_predictions.json STALE until it finishes).
+Open: S2.2 (Codex's uncommitted work fails 3 of its 26 tests) and S2.3 (drafted on
+`claude/s2.3`) BLOCKED; Codex to review `4e78017`, `19155ed`, `73e6e09` after the fact;
+`TradingIntelligenceSystem` task still DisallowStartIfOnBatteries/StopIfGoingOnBatteries
+(owner decision); per-process reflex lock does not cover two backend processes; submit
+timeout without client_order_id (S1.3) still records REJECTED.
+
 ## 2026-10-16 — FINAL LAUNCH (owner directive, deadline 22:00) — started 18:58
 Files expected: `src/desk/{reflex,auto_executor}.py`, `backend/main.py`, reflex tests,
 this log, WORK_PLAN. Pipeline: the nightly `TradingIntelligenceSystem` task has not
