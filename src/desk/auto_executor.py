@@ -238,6 +238,13 @@ class AutoExecutor:
             record["action"] = "entry"
             record["fill_price"] = fill
             record["broker_order_id"] = result.get("broker_order_id", "")
+            # "auto" means the broker accepted the order, not that it filled:
+            # Alpaca acks market orders as accepted, and when the fill is not
+            # confirmed in the poll window fill_price above is the intended
+            # entry. These two fields say which one this record is.
+            record["order_status"] = str(result.get("status") or "")
+            record["fill_confirmed"] = (record["order_status"] == "filled"
+                                        and result.get("fill_price") is not None)
             record_trade(entry.get("notional", 0.0))
             # Hand lifecycle ownership to the exit engine
             try:

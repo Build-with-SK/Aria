@@ -357,7 +357,8 @@ class ReflexEngine:
             pb["last_attempt"] = {"at": datetime.now().isoformat(timespec="seconds"),
                                   "price": price, "stage": outcome.get("stage"),
                                   "reason": str(outcome.get("reason") or "")[:200],
-                                  "executed": bool(outcome.get("executed"))}
+                                  "executed": bool(outcome.get("executed")),
+                                  "filled": bool(outcome.get("filled"))}
             changed = True
             if outcome.get("stage") != "execute":
                 logger.info("REFLEX %s %s crossed %s but stopped at %s: %s", pb["side"].upper(),
@@ -430,14 +431,20 @@ class ReflexEngine:
         record = AutoExecutor(self.cfg)._handle(entry, transcript)
         lat["submit"] = _ms(t3)
         lat["total"] = _ms(t0)
+        # executed = the broker accepted the order; filled = it confirmed a fill.
+        # An accepted order whose fill is unconfirmed is not a fill.
         executed = record.get("mode") == "auto"
+        filled = executed and bool(record.get("fill_confirmed"))
         out = {**self._base(pb, price), "stage": "execute",
                "reason": record.get("reason", record.get("mode")),
-               "executed": executed, "mode": record.get("mode"),
-               "fill_price": record.get("fill_price"), "latency_ms": lat}
+               "executed": executed, "filled": filled,
+               "order_status": record.get("order_status"), "mode": record.get("mode"),
+               "fill_price": record.get("fill_price") if filled else None,
+               "latency_ms": lat}
         logger.info(f"REFLEX {'FIRED' if executed else 'stopped at exec'} "
                     f"{pb['side'].upper()} {ticker} — total {lat['total']}ms "
-                    f"({record.get('mode')})")
+                    f"({record.get('mode')}, order {record.get('order_status') or 'n/a'}, "
+                    f"fill {'confirmed' if filled else 'unconfirmed'})")
         return out
 
     # ── stage helpers ────────────────────────────────────────────────────
