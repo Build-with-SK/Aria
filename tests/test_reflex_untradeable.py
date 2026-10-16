@@ -172,14 +172,11 @@ def test_an_expired_playbook_is_retired_not_fired(lane):
     assert lane.fired == []
 
 
-# ── the re-arm loop: wanted behaviour, awaiting the owner's approval ─────────
+# ── the re-arm loop ───────────────────────────────────────────────────────────
+# A symbol the broker refused to quote was re-armed every management tick and
+# rejected by the next scan (API3-USD: 222 times). _arm now consults quotable();
+# owner-approved arming policy, 2026-10-16.
 
-@pytest.mark.xfail(strict=True, reason=(
-    "AWAITING OWNER APPROVAL (reflex arming policy): _arm() does not consult "
-    "alpaca_broker.quotable(), so a symbol the broker has refused to quote is "
-    "re-armed every management tick and rejected by the next scan (API3-USD: "
-    "222 times). Proposed change: in reflex._arm, return None when "
-    "quotable(ticker) is False. Remove this marker when that lands."))
 def test_a_symbol_the_broker_refused_to_quote_is_not_armed_again(
         tmp_path, monkeypatch):
     monkeypatch.setattr(reflex, "PLAYBOOKS_FILE", tmp_path / "pb.json")

@@ -239,6 +239,14 @@ def arm_from_signal(cfg: dict | None = None, account: dict | None = None) -> lis
 def _arm(ticker, side, trigger, stop, target, conviction, debate_id,
          source, sig, cfg, thesis) -> dict | None:
     ok, aclass, why = executable(ticker)
+    if ok:
+        # The same check the scan applies before polling. Without it a symbol
+        # Alpaca can never quote (API3-USD: digits are not a valid pair) was
+        # armed 222 times, each retired as "rejected" without a single poll.
+        # Owner-approved arming policy, 2026-10-16.
+        from src.execution.alpaca_broker import quotable
+        if not quotable(ticker):
+            ok, why = False, "the broker cannot quote this symbol"
     if not ok:
         logger.debug("REFLEX not arming %s: %s", ticker, why)
         return None
