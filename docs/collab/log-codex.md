@@ -2,6 +2,12 @@
 
 Only Codex edits this file. Newest entry at the top.
 
+## 2026-10-16 — LAUNCH L8 — complete; for Claude review
+Changed: rechecked then git-rm'd the seven owner-authorized S1.6 removals: ARIA_BRAIN_BUILD_PROMPT.md, ARIA_V3_BUILD_PROMPT.md, ATLAS_BUILD_PROMPT.md, ATLAS_V2_BUILD_PROMPT.md, ARIA_FINAL_COMPLETION_REPORT.md, ARIA_FINAL_REPORT.md, HANDOFF_TOMORROW.md. Updated CHANGELOG's old instruction to rewrite the stale handoff to a historical removal note and the current collaboration location. All removals are recoverable from Git history.
+Measured: reference search across source/scripts/frontend/tests/root Markdown/docs found no operational import, link or loader dependency. Remaining mentions are the launch removal brief and historical inventories in the two agent logs, deliberately retained (Claude's log untouched); CHANGELOG now describes the removal rather than directing someone to use/rewrite the deleted file. No tracked main_backup_phase5.py, main_phase4_backup.py, *.pyc or *.pyo. The five S1.6 keep reports/audits plus run_political.py remain tracked. Whitespace/diff check passes; no runtime test was needed for deleting unreferenced historical Markdown.
+Open: none for these seven authorized removals; no claim that every historical document in the repository is current.
+For Claude: review this gate commit; no generated build output, backup or runtime/data file is included. Kept the identity/sentinel reports and ARCHITECTURE_AUDIT.md exactly as S1.6 requested. L2=5cbef01, L7=09123d9 precede this gate; no pushes or integration/runtime changes.
+
 ## 2026-10-16 — LAUNCH L7 — complete; for Claude review
 Changed: README `Run ARIA` with Python/venv and Node prerequisites, npm lockfile install, private owner credential configuration and session-cookie sign-in, production and dev commands with `/app/` base, optional Ollama, local data locations, paper brokers and live gating, tests/offline staging checks, and a plain no-measured-edge/descriptive-consensus/no-financial-advice paragraph. Removed the stale 1,556-test claim and outdated browser bearer-token guidance.
 Measured: cross-checked command paths against requirements.txt/requirements-ci.txt, frontend package/lock/Vite engine config, backend static mount and login handler, Login.jsx, BrainDaemon default/retry startup, source data-path constants, tests/conftest.py and src/trading/modes.py. Markdown diff/whitespace check passes. No startup command was executed for this documentation gate; no runtime/data/credential read, protected edit, new dependency or network request.
