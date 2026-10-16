@@ -28,6 +28,19 @@ checks to a script under `frontend/scripts/` so they are repeatable. Then
 `npm run build` into a STAGING outDir (not `frontend/dist`, which is served)
 and report its size and warnings. Inline styles only, no new npm packages.
 
+Real-browser findings from Claude (scratch copy, all 8 routes, 2026-10-16 ~17:30):
+every page renders, no thrown error, no `NaN`/`undefined`/`[object Object]` on
+screen. Two defects on EVERY page, both yours to fix:
+- `frontend/src/main.jsx:38` registers the service worker at `/sw.js`; the app is
+  served under `/app/`, so it 404s ("bad HTTP response code (404) … fetching the
+  script") and the PWA never installs. Use `import.meta.env.BASE_URL + 'sw.js'`
+  (the file is built to `/app/sw.js`); check the worker's scope still covers `/app/`.
+- The Google Fonts stylesheet (JetBrains Mono + Inter) is blocked by the app's CSP
+  (`style-src 'self' 'unsafe-inline'`), so fonts silently fall back. Prefer dropping
+  the external request and using a local fallback stack (no new packages); if you
+  want the fonts, write the exact origins in "For Claude" — Claude owns the CSP.
+(The 403s in that run are expected: the scratch copy has no owner session.)
+
 **L7 — someone new can run it.** Add a "Run ARIA" section to `README.md`:
 prerequisites (Python venv, Node, optional Ollama), start commands, the
 `/app/` base path, owner sign-in (token from `.env`, never printed), PAPER is
