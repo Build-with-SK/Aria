@@ -2,6 +2,207 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-16 — S0.1 backlog committed in groups — done, suite green, pushed
+Owner's explicit yes ("commit the S0.1 backlog in the proposed groups, leave the
+runtime data files uncommitted, run the full suite, push"). On
+`aria/integrity-upgrade` after pushing 96b437c, seven commits by explicit pathspec:
+`10e0fc8` remove 40 dead legacy modules · `c52905f` unused imports + holdings doc ·
+`66969d8` calibration distinct/directional + V5 stated probability · `d3868f6` desk
+and trading fixes (orphan cancel retry, P&L total, journal scope) · `261a6de`
+pipeline run marker, dataset clocks, 8h task generator, healthy-backend launcher,
+.bat CRLF · `ac93635` SENTINEL-transcript answer checks · `eb093cc` backend/main.py
+wiring (hunks span every group, so the series is tested at its tip, not per commit).
+Left uncommitted on purpose: `data/alerts.json`, `data/macro_data.json`,
+`data/signals.json` (live runtime state) and untracked `data/chat_stream_metrics.jsonl`.
+Measured: full primary suite on eb093cc **3251 passed, 1 xfailed, exit 0, 256.83s**,
+263 modules redirected from production `data/`. `scripts/check_protected_paths.py
+--require-git` clean; none of the seven commits touches a fenced path. No file content
+changed — only git state — so the deploy process's original-work hashes still match.
+Open: S0.2 (fast-forward `claude/work` and `codex/work`) not done — `codex/work` is
+checked out in Codex's worktree, so Codex moves it. Owner action still open: re-register
+the installed `TradingIntelligenceSystem` task (the generator has the 8h fix; the
+installed task still kills runs at 2h). `data/chat_stream_metrics.jsonl` probably
+belongs in `.gitignore`. Runtime not restarted.
+
+## 2026-10-16 — TECH-10 consensus from valid horizons + FX daily calendar — merged
+Owner asked to make the two follow-ups and move on. Files (Codex's area, owner
+direction): `src/data/technical_recommendations.py`, `technical_engine.py`,
+`technical_feeds.py`, `frontend/src/components/TechnicalDashboard.jsx`,
+`frontend/scripts/verify-technical-dashboard.mjs`, `docs/TECHNICAL_RECOMMENDATIONS.md`,
+tests. Branch `claude/fx-friday-session` `b3c200b`, merged `--no-ff` → **`96b437c`**
+(8 files +137/-10, no overlap with the 90-path dirty set).
+Changed: (1) consensus no longer withheld because one row lacks a summary; it
+rests on the horizons valid now when there is no conflict and ≥3 are valid incl.
+1d/1w/1M; `consensus_basis` lists used/excluded(with reason)/coverage; assessment
+says "Partial multi-timeframe agreement"; dashboard shows the basis. (2) FX daily
+stays 00:00 UTC — a NY 17:00 boundary would drop every Monday (Yahoo's Sunday hourly
+bars start after the 17:00 open); a day is built only when open from 00:00 UTC, so the
+Sunday stub is never a candle; `_fx_daily_gaps` counts gaps on the same verified FX
+calendar, so weekends are not gaps.
+Measured: focused technical/calendar/audit/summary tests 219 passed; dashboard offline
+verifier passed (run from the worktree through a temporary node_modules junction,
+removed after). Live from the primary checkout, caches redirected to scratch,
+`data/universe.db` mtime unchanged: AAPL earlier partial consensus "Strong Buy" 7/9
+(1h, 5h excluded), later withheld on a real intraday/daily conflict; EURUSD 1d 509
+bars, 106 weekend "gaps" → 12 missing weekdays, verified FX calendar; SAIL.BO 1d 247
+BSE bars complete, consensus withheld (1 valid horizon).
+Trap: running ARIA code from a worktree builds a fresh `data/universe.db` there and
+fills it from Yahoo — SAIL.BO then resolved to a no-ISIN row and BSE recovery failed.
+Live checks must run from the primary folder.
+Full primary suite on 96b437c: **3251 passed, 1 xfailed, exit 0, 271.85s**, 263 ARIA
+modules redirected away from production `data/`. Not pushed (awaits owner), not
+deployed. S0.1 prep (read-only): 40 deleted modules have no remaining imports,
+relative imports or string loaders anywhere outside venv/node_modules/mnt/data
+(a slower non-gitignore-aware grep also flagged `src.backtesting.backtester` /
+`src.models.ml_model` imports — different, existing modules — docstring mentions of
+`macro_data.py`, and the gitignored untracked `main_phase4_backup.py`; none is a real
+dependency);
+grouping proposed to the owner, nothing committed.
+
+## 2026-10-16 — TECH-09 FX Friday fix — merged, suite green
+Owner approved the merge. `git merge --no-ff claude/fx-friday-session` in the primary
+folder → **`b7447b0`** on `aria/integrity-upgrade` (2 files, +33/-3, no conflicts;
+dirty set stayed at 90 paths, neither file in it). Full primary suite on `b7447b0`:
+**3245 passed, 1 xfailed, exit 0, 270.38s**, 263 ARIA modules redirected away from
+production `data/`. Pushed on the owner's instruction: origin
+`aria/integrity-upgrade` 6249cd9..b7447b0 (fast-forward, origin had not moved;
+`main` untouched). Not deployed and runtime not restarted by me: the running
+backend serves the pre-fix code until the deploying process does its cutover.
+
+## 2026-10-16 — TECH-09 review of Codex 398afd8 + FX Friday fix — done, NOT merged
+Files: `src/data/technical_feeds.py`, `tests/test_technical_feeds.py` (Codex's
+area; owner asked me to act on the review) on branch `claude/fx-friday-session`
+(worktree `.claude/worktrees/fx-friday`), commit `8ba0b59` on top of `6249cd9`.
+Reviewed: 398afd8 addresses the read-only coverage review's P1 (session-anchored
+5h), P2 (contiguous valid suffix instead of whole-history rejection), P3
+(calendar checks after open-bar removal, BSE public history) and P5 (market
+session, verified-calendar gap counts). Live in-process check with md/feeds caches
+redirected to scratch (no production `data/` writes): AAPL 5h 494 bars, HSBA 5h
+499, SAIL.BO 1d 247 BSE bars complete, EURUSD 1d reconstructed. Remaining refusals
+are honest (BSE 1w/1M one year only; EURUSD 1w/1M provider malformed OHLC).
+Defect found and fixed: `fx_daily_from_hourly` demanded exact equality with the
+verified FX hours; Yahoo prints Friday's 17:00-18:00 NY bar past the modelled close,
+so all 105 Fridays were dropped (series was Mon-Thu). Now every scheduled hour is
+required, out-of-window bars are excluded from the candle and counted
+(`out_of_session_bars_excluded`). EURUSD 1d 407 -> 509 bars.
+Measured: focused technical/calendar/audit tests 206 passed; new test fails on
+6249cd9 source. Full suite NOT run (integrator owns it).
+Open: (1) Latent: a UTC-day FX candle from a Sunday-evening stub (2-3 h) would be
+accepted if a feed supplied every scheduled Sunday hour; Yahoo currently starts at
+23:00 UTC so live data excludes it. Needs Codex's choice of daily boundary (UTC vs
+NY 17:00). (2) FX 1d still reads `limited_calendar_unverified` because weekends are
+counted as gaps for non-exchange venues. Neither fixed here.
+For Codex/integrator: review and merge `claude/fx-friday-session` into
+`aria/integrity-upgrade`; no restart, push or merge done by me.
+
+## 2026-10-16 — TECH-09 integration bookkeeping: BSE/FX history recovery — merged, suite green
+Files: `docs/collab/log-claude.md` (this entry only); no source changed.
+Changed: nothing — source is already merged at `6249cd9d38564f097f047667b71246fecc80f950`
+("TECH-09: merge codex/work — public BSE/FX history recovery with
+verification", merge of `398afd8` into `aria/integrity-upgrade`). The merge
+adds public BSE daily-history recovery (walking the official 31-record-capped
+report backwards) and FX daily-from-hourly reconstruction, both gated by
+strict identity binding, full session-calendar verification, and no NS
+fallback; plus `session_windows()` and daily-vs-window gap counting. This
+session's own prior full-suite run was backgrounded and interrupted — JSONL
+systemevents mark `testtaskbicwgruoi` stopped/killed at 84%, so that run is
+NOT counted as passing.
+Measured: root reran the exact full primary suite through a persistent
+runner. Read directly from
+`STAGE/technical-feed-primary-suite-final.exit.json` and the last 12 lines of
+`STAGE/technical-feed-primary-suite-final.txt`: actual exit 0, HEAD
+`6249cd9d38564f097f047667b71246fecc80f950`, **3244 passed, 1 expected xfail**,
+399.09s test time / 401.84s wall. Global isolation held: 263 ARIA modules
+redirected away from production `data/`, no blocked writes.
+Ran the protected-path history fence (`scripts/check_protected_paths.py
+--require-git`) against primary HEAD: clean — all history reachable from HEAD
+checked, no ARIA-authored change behind the fence (`src/auth/`,
+`src/execution/live_guard.py`, `src/execution/approval_queue.py`,
+`.github/workflows/`, `src/selfmod/protected.py`,
+`tests/test_protected_paths.py`, `scripts/check_protected_paths.py`). Also ran
+`STAGE/check-original-work.py`: preserved 79 original non-data paths
+(this log excluded for its own authorized append); all hashes match.
+Open: root is doing existing-runtime cutover/API/UI publication next, now
+that this is an actual passing gate. This entry is intentionally left
+unstaged/uncommitted; no backlog staged, no source edited, no test
+launch/background monitor/sleep/push/restart in this task.
+
+## 2026-10-16 — integration of codex/work 31eb3f0 (copy-only fix for embedded engine description) — merged, suite green
+Files: `docs/collab/log-claude.md` (this entry only); merge touches only
+Codex's area (`frontend/src/components/ResearchAnalysis.jsx`,
+`frontend/scripts/verify-technical-dashboard.mjs`, `docs/collab/log-codex.md`).
+Changed: reviewed `31eb3f0` in the `aria-codex` worktree — a 3-file, +9/-1 diff
+on top of the already-integrated `5960a7b`. Confirmed the fix is real, not
+cosmetic: `ResearchAnalysis.jsx`'s embedded-engine description now branches on
+`includeTechnical` — true keeps the old "Runs the multi-timeframe indicator
+scan and ARIA's price, volatility and fundamental engines..." text, false
+switches to "Runs ARIA's price, volatility and fundamental engines... Use the
+technical panel above for the nine-timeframe scan," matching the
+`includeTechnical=false` header ("ARIA ENGINE ANALYSIS") it sits under.
+`verify-technical-dashboard.mjs` asserts the new string is present and the old
+"Runs the multi-timeframe indicator scan" string is absent for that case —
+confirmed against the rendered markup, not just the source. No request or
+behavior change: `plan.technical`/`plan.engine` and the API calls in `run()`
+are untouched. From the primary folder (`aria/integrity-upgrade` at `724aeae`,
+dirty set at 90 paths), `git merge --no-ff codex/work` →
+**`ba81a3ee6718eb2928606f45d17f020a52f2ac53`**. No conflicts; diffstat matched the
+reviewed range exactly (3 files, +9/-1).
+Measured: before merging, hashed the 80 paths in
+`deploy-claude-working-state.json` (`DELETED` sentinel checked as
+non-existence, all others as sha256) against the primary worktree — 79/80
+matched, the sole difference being `docs/collab/log-claude.md` (expected, I
+own it and it has moved since the snapshot). After merging, re-hashed: same
+79/80 result, same one expected difference. `git status --porcelain` stayed
+at 90 entries before and after — the merge's 3 files do not overlap the
+preexisting dirty set. Ran `venv\Scripts\python.exe -m pytest tests -q` from
+the primary venv: **3185 passed, 1 xfailed, 0 failed, exit 0, 226.27s**,
+isolation banner confirms 261 ARIA modules redirected away from production
+`data/` — full output at the run's STAGE `all-assets-final-primary-tests.txt`.
+No production-write guard failures, no weakened assertions/guards/skips found
+in the diff.
+Open: nothing blocking from this review. Did not restart/stop any runtime,
+push, merge to `main`, run other agents, or touch files outside the areas
+above; did not read vault/env/ledger/account contents.
+For Codex: your copy fix is in at `ba81a3e` on `aria/integrity-upgrade`; final
+frontend rebuild and publication are yours per the task split.
+
+## 2026-10-16 — integration of codex/work 5960a7b (all-assets technical analysis exposure) — merged, suite green
+Files: `docs/collab/log-claude.md` (this entry only); merge touches only
+Codex's area (`frontend/`, `src/data/provider_audit.py`, `src/data/universe.py`,
+`scripts/audit_asset_coverage.py`, `tests/test_provider_audit.py`,
+`docs/ASSET_COVERAGE.md`, `docs/collab/log-codex.md`).
+Changed: reviewed both commits ahead of `aria/integrity-upgrade`
+(`57f8ad1`, `5960a7b`) in the `aria-codex` worktree, then from the primary
+folder `git merge --no-ff codex/work` into `aria/integrity-upgrade` →
+**`724aeaef65301c3308a453128550d4c7c9843c50`**. No conflicts; diffstat matched
+the reviewed range exactly (11 files, +489/-40).
+Confirmed the UI blocker: `ResearchAnalysis.jsx` with `includeTechnical=false`
+now renders header "ARIA ENGINE ANALYSIS" / button "RUN ENGINE ANALYSIS ON
+{symbol}", not "TECHNICAL ANALYSIS"; `verify-technical-dashboard.mjs` direct
+render test asserts `!engine.includes('TECHNICAL ANALYSIS')` for that case —
+confirmed resolved, not just asserted. Also confirmed in `universe.py`:
+`_load_bse_equities`'s second `SELECT` (`existing = ... if proof else None`)
+only runs when a `provider_repair` proof row exists, so proof-less BSE rows
+skip it as claimed.
+Measured: before merging, hashed the 80 non-data paths in
+`deploy-claude-working-state.json` against the primary worktree — 79/80
+matched byte-for-byte, the sole difference being `docs/collab/log-claude.md`
+(expected, I own it and it has moved since the snapshot). After merging,
+re-hashed the same 80 paths: identical result, 79/80 unchanged, same one
+expected difference. `git status --porcelain` stayed at 90 entries
+before and after — the merge's 11 files do not overlap the preexisting dirty
+set. Ran `venv\Scripts\python.exe -m pytest tests -q` from the primary venv:
+**3185 passed, 1 xfailed, 0 failed, exit 0, 272.54s**, isolation banner
+confirms 261 ARIA modules redirected away from production `data/` — full
+output at the run's STAGE `all-assets-primary-tests.txt`. No production-write
+guard failures, no weakened assertions/guards/skips found in the diff.
+Open: nothing blocking from this review. Did not restart/stop any runtime,
+push, merge to `main`, or touch files outside the areas above; did not read
+vault/env/ledger/account contents.
+For Codex: your merge is in at `724aeae` on `aria/integrity-upgrade`; cutover,
+the four maintenance repairs, API smoke and GitHub steps are yours per the
+task split.
+
 ## 2026-10-15 — CI fixture: full suite deps, hermetic test isolation, FX fixture narrowed, universe-audit split — candidate, not merged
 Files: `requirements-ci.txt`, `tests/conftest.py`, `tests/fixtures/universe_fixture.py`,
 `tests/test_quote_capabilities.py`, `tests/test_identity_namespaces.py`,
@@ -114,3 +315,54 @@ imports resolve to the Codex copy.
 Open: S0.1 (commit the 2026-10-09 backlog) waits for the owner's yes. Stage 5
 is not written down yet.
 For Codex: start with S1.6 and S1.7; they do not depend on S0.
+
+## 2026-10-11 — SENTINEL pack, Prompt 1 (read-only audit of `Documents\atlas`) — done
+Files: none in this repository except this entry. Nothing was changed in
+`Documents\atlas`: its 20 modified and 8 untracked paths hash the same before
+and after, HEAD is still `sentinel` @ fa18b3b, live `data/` is untouched.
+Measured: SENTINEL suite 1,473 passed, 3 skipped, 0 failed in 206 s.
+Open: the owner reviews the Prompt 1 report before Prompt 3 starts. Prompt 2's
+audit-trail work in atlas is still uncommitted.
+For Codex: no ARIA file was touched; nothing to merge.
+
+## 2026-10-15 — TECH-02 integration of codex/work 2b220c0 — merged, suite pending
+Files: `docs/collab/log-claude.md` (this entry only).
+Changed: reviewed codex/work at 2b220c0 and merged it into
+`aria/integrity-upgrade` as c03acfd; no conflicts, git status byte-identical
+to pre-merge aside from the merge itself.
+Measured: source review found no confirmed blocker; the `ta` declaration
+condition is satisfied — `requirements.txt` declares `ta>=0.11.0`,
+`requirements-ci.txt` declares `ta>=0.11`, installed production version is
+0.11.0. Main preflight: 3113 passed, 1 expected failure. Candidate: 3022
+passed, 6 skipped. Focused: 176 passed. Build/render checks on the integrated
+source passed; new frontend assets are staged pending a backend restart.
+SENTINEL was offline and was started via its existing, unchanged uvicorn
+entry point; ARIA's bridge now reports it AVAILABLE. Actual mode PAPER, live
+gate false.
+Open: full integrated-suite run is still in progress — results not yet in
+hand. Nothing pushed. Two follow-ups for later: query-string length behind
+proxies, and provider monthly anchoring.
+For Codex: you own the final deployment and test-result record in
+`log-codex.md`; this entry only covers my review/integration/dependency
+verification.
+
+## 2026-10-15 — SENTINEL confidently-wrong transcript (2026-10-14): six causes — built, UNCOMMITTED
+Files (ARIA): `backend/main.py` (`_detect_query_ticker`, new `_caps_runs_to_skip`,
+`_specialist_ticker`; `/api/specialist/analysis` prompt and checks),
+new `src/intelligence/answer_checks.py`, new
+`tests/test_sentinel_transcript_2026_10_14.py`. Files (atlas, branch `sentinel`):
+`sentinel/kernel.py`, `sentinel/voice.py`, `sentinel/aria.py`, new
+`sentinel/answer_checks.py` (a copy of ARIA's — the repos may not import each
+other), `tests/test_routing.py` (stubs accept `context=`), new
+`tests/test_transcript_2026_10_14.py` + fixture `tests/transcript_2026_10_14.py`.
+Built on `aria/integrity-upgrade` over the uncommitted S0 backlog, not on
+`claude/work`; nothing committed in either repo, at the owner's instruction.
+Changed: ticker detector no longer turns English into companies (match→MTCH,
+earn→EARN, step→STEP, TRAINING/FEEDBACK headings, "nse" inside "response");
+specialist finds a follow-up's company in SENTINEL's context, states today's
+date, answers the question asked, and flags wrong arithmetic, invented years and
+unanswered numbered parts in `verification_reasons`.
+Measured: transcript probes before/after in the session; ARIA and SENTINEL
+suites — see the session report for counts.
+Open: owner review; ARIA backend and SENTINEL need restarts to pick this up.
+For Codex: nothing in your area changed.
