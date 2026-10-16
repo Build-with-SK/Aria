@@ -48,6 +48,16 @@ Rollback: tag `rollback/pre-final-launch-2026-10-16` → 1404232; deployed `fron
 (index-BxXXf1CG.js) copied to this session's scratch `rollback/`. Waiting on Codex:
 re-review of `ab78b1d`, S2.2 commit, Strategies fix. S2.3 endpoint drafted on
 `claude/s2.3` (worktree `.claude/worktrees/s23`), untested until S2.2 lands.
+19:42 — LIVE signed-in browser check (owner's own Chrome session on localhost:8000, via
+Claude in Chrome; the built-in pane could not hold a session): all 8 routes render live
+owner data — Brain (cycle 935, regime, memory 3511), Research, Market (716/716 book,
+regime why), Portfolio (equity $10,008.38, 0 positions, "empty account, not a failed
+lookup"), Strategies (AUTO-EXECUTE **ARMED**, min conviction 58, budget 20,000),
+Daily Report (2026-10-16, states signals were 8.7 d stale at 00:20 generation),
+Track Record (45.3%, CI 41.5–49.1, per source), System (SENTINEL AVAILABLE, 9 ok /
+1 late). Reloads: 0 console errors, 0 failed `/api` calls. Service worker
+`/app/sw.js` active, scope `/app/`, controlling; page runs `index-BxXXf1CG.js`.
+Codex still idle since 49af318 (S2.2 uncommitted, no re-review of ab78b1d).
 
 ## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
 Measured from `data/desk/playbooks.json`: 1,300 playbooks, all source `signal` (none from
