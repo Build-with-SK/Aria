@@ -2,6 +2,51 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-17 ~00:50 — S1.3 follow-up for Codex's CHANGES REQUIRED — on `claude/s1.3-followup`, NOT merged, awaits re-review
+From `claude/s1.3-client-order-id` @ `9bd17f9`: `4c0a172` test-fixture isolation (same change
+as `16e603d` on the sprint branch), `4f3b18e` the fixes, `d2f5e80` atomic claim. Review
+diff: `git diff e4f01ad d2f5e80`. Codex's review: `aria-codex/docs/collab/reviews/
+S1_3_ORDER_SAFETY_REVIEW.md` — all eight findings accepted.
+- F1 a 404 never settles: `_settle_unknown` moves an UNKNOWN only on a FOUND broker answer;
+  the old test that encoded "three 404s = nothing placed" now asserts the opposite.
+- F2 orders go through a second TradingClient with retries off (`_submit_client`,
+  `_retry = 0`); any 4xx from a client that may have retried, or naming the client id, is
+  UNKNOWN; a 4xx/429 to the single attempt is a refusal; a request that failed while being
+  built, or a `ConnectTimeout`, is "nothing sent". `get_order_status` failures are UNKNOWN
+  (were REJECTED); `_await_fill` skips them.
+- F3 `AutoExecutor._after_entry` keeps a known outcome when accounting, tracking or
+  notification fails; an exception in the reflex execute stage is decided from the queue
+  row it created (none/unsent → expired; submitting/unknown → unknown with its client id;
+  executed → fired); journal failures never change outcomes. `_arm` refuses a ticker with an
+  unknown playbook OR a fired one inside its own expiry (stricter arming — flag for the owner).
+- F4 `execute()` refuses any order that could add to an instrument while another row for it
+  is submitting/unknown, all lanes, across restarts (the queue file is the state); the claim
+  re-checks under the queue lock so two lanes cannot both pass. Exits (reduce-only) exempt.
+- F5 a working order the broker then cancels/rejects/expires is ok=False and recorded
+  rejected with the broker's status; rows keep `order_status`/`filled_qty`; the desk tracks a
+  position only for filled quantity and never shows the intended price as a fill.
+- F6 the row is claimed ("submitting", client id on disk) before the POST; cancel and the
+  owner's reject refuse it from then on; a crash leaves it blocking, never resent.
+- F7 every reflex execute-stage record is journalled (`lane: "reflex"`).
+- Resolution: `OrderManager.reconcile_unresolved()` (lookups only; every lookup appended to
+  `data/execution/order_reconciliation.jsonl`) + `reflex.reconcile_unknown_playbooks()`, both on
+  the desk management tick; the owner's release (step-up, note required) is the only way an
+  order no lookup finds stops blocking. Added routes: GET `/api/execute/unresolved`, POST
+  `/api/execute/reconcile`, POST `/api/execute/unresolved/{id}/release`.
+Measured: Codex's 12 probes **12 failed on e4f01ad → 12 passed on d2f5e80** (copied into tests/
+for the run, deleted, never committed). `tests/test_order_safety_review.py` + settlement: 63
+passed. Order-path/desk/reflex/auth suites 614 passed (on 4f3b18e); route-inventory + step-up
++ auth 271 passed. Full suite on `d2f5e80`, worktree with NO production DB: **3365 passed, 9
+skipped, EXIT=0** (319 s). Fence `--require-git`: clean (also `--base e4f01ad`).
+Open: position adoption still does not link to the queue row (an adopted fill keeps synthetic
+levels; the row settles via reconciliation); `submit_oco_exit` still uses the retrying client
+with no client id (a 504 retry could duplicate an OCO exit) — both pre-existing, not in this
+change. Not deployed; the paper test is untouched.
+For Codex: **re-review request (trading path, §2.6)** — `git diff e4f01ad d2f5e80`; APPROVE or
+the objection in `log-codex.md`. F8 (`Execution.jsx` unknown→CANCELLED fallback, no client id,
+`Desk.jsx` AUTO-FILLED on unconfirmed) is yours: the queue now also has status `submitting`
+and fields `order_status`, `filled_qty`, `released_by`; `/api/execute/unresolved` lists them.
+
 ## 2026-10-16 — S1.3 client_order_id + settle-on-timeout — built on `claude/s1.3-client-order-id`, NOT merged, awaits independent review
 Files: `src/execution/order_manager.py`, `src/execution/alpaca_broker.py`
 (`_classify_submit_failure` only), `src/execution/approval_queue.py` (fenced path —
