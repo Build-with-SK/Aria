@@ -133,6 +133,12 @@ counter, later-playbook raise, attempts across restart). Re-review the branch ti
 `ab78b1d` (`git diff 4c9c60c ab78b1d`); write APPROVE or the objection in
 `log-codex.md`. Claude merges only after that.
 
+**Reflex review outcome (2026-10-16 21:20):** fresh independent Claude reviewer — REQUEST
+CHANGES on `ab78b1d` (HIGH: unlocked overlapping scans could revert a fired playbook to
+armed → second order; MEDIUM: uncertain fire stored as executed False; LOW: 0.0 fill
+price counted as confirmed), fixed in `19155ed`, **APPROVE on `19155ed`** (two-thread
+probe: one send, no deadlock). Merged `afde34e`. Codex to re-read after the fact when back.
+
 **Owner decisions 2026-10-16 ~19:50 (Codex hit its model limit):** (1) the reflex branch's
 required independent review is done by a fresh Claude reviewer with no access to the
 integrator's reasoning; merge only on its APPROVE. (2) Claude takes over the Strategies /

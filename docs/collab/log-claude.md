@@ -91,6 +91,17 @@ HIGH: scan_once now saves after every attempt and is unlocked; an overlapping lo
 POST /api/desk/reflex-scan can save a stale copy that reverts a fired playbook to armed
 (reviewer's probe: 2 sends at ab78b1d vs 1 at 4c9c60c). MEDIUM: uncertain fire stored as
 executed False. LOW: fill_confirmed treats Alpaca's 0.0 price as present. Reflex NOT merged.
+21:13 — DEPLOYED `7065eb2` (= a029d90 + log): `ARIA Backend` task stopped/started, pid
+49972 → 51284 (started 21:13:12), `/ready` 200 in 3 s, one listener; PAPER, live gate
+false, kill switch not engaged, Alpaca PAPER $10,008.38, 0 positions, SENTINEL AVAILABLE,
+desk ticking; shell `Cache-Control: no-cache` live; owner's Chrome picked up
+`index-BfVBrMwS.js` with no cache clearing; all 8 pages render, 0 console errors.
+Pushed `c74248e..7065eb2`. 21:17 — `19155ed`: `_PLAYBOOKS_LOCK` (RLock) around scan_once
+and _arm's load-modify-save; uncertain fire → executed/filled None + uncertain; fill
+confirmed only with a positive price; threaded overlapping-scan test fails on ab78b1d.
+Reviewer: **APPROVE on 19155ed**. Focused groups on 7065eb2: trading+risk 556, reflex+quotes
+49 (+1 xfail), market-data 342, technical 93, SENTINEL 93, auth 184, paper accounting 53 —
+all passed. Merged reflex `afde34e`; final suite on afde34e: **3305 passed, 1 skipped, EXIT=0, 364.53 s** (21:27).
 
 
 ## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
