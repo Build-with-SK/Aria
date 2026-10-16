@@ -2,6 +2,67 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-16 23:00–00:00 — parallel completion sprint (owner directive) — on `claude/launch-sprint`, NOT merged
+Branch from `aria/integrity-upgrade` @ `b5b47f2`; S1.3 files untouched while Codex reviewed.
+Nothing merged, pushed, deployed or restarted; the paper test was not touched (all
+measurements below are reads).
+**A — sentiment.** The `main.py:369` argument defect was already fixed (`73e6e09`, merged
+`a029d90`, deployed 21:13); the 19:00 run predates it, so no pipeline run has used the fix.
+Two more defects found and fixed:
+- `70f7727` — a ticker with no articles (or a failed fetch) reached the strategies as
+  `label "Neutral", score 0.0`. Now `{available: False, score: None, label: "Unavailable"}`;
+  `distressed` keeps None (short/contrarian still need a real sign), `event_driven` skips;
+  `run_sentiment` logs "N with news, M unavailable" and warns when none had news.
+- `9579f31` — the source was dead: yfinance 1.3.0 `Ticker.news` returns 0 items (AAPL
+  included) and `feedparser` is not installed. Falls back to `yf.Search(...).news`, keeping
+  only items Yahoo tags with the ticker in `relatedTickers`. Live read-only probe: AAPL 13
+  tagged articles, HSBC 5, BTC-USD 10; an unknown symbol stays unavailable.
+Tests: `tests/test_pipeline_sentiment.py` 10 passed; the 4 unavailable-tests fail on the
+old code. `src/data/data_downloader.py:178` reads the same dead `Ticker.news` (Codex's area).
+**B — source scans.** None of the five walks `.claude/worktrees/` (all rooted at this repo's
+`src/`, `backend/`, `main.py`); the shell one was the flag-name defect (`b03eb3f`), the other
+four were transient `PermissionError`s that do not reproduce (five files: 190 passed). Real
+defect found: `test_path_traversal`/`test_sentinel_bridge` walked `Path("src")` relative to
+the working directory — from any other directory the shell scan **read 0 files and passed**.
+`fa32fde` anchors both to the repo, fails on a scan of ≤ 100 files, and runs each from
+`tmp_path`. Also `16e603d`: the universe-audit test failed in full runs without the owner's
+`universe.db` because `test_technical_engine`/`test_v5` add rows (16 → 29) to the shared
+fallback fixture; it now audits a pristine build of the declared fixture (assertions
+unchanged). This is the isolation Codex asked for instead of copying a production DB.
+**C — pipeline (diagnosis only; nothing restarted, task settings untouched).** `tis_run.log`:
+only **10 runs since 2026-07-22**, **1 reached RUN COMPLETE** (2026-09-06, before ML
+persistence `94730eb` existed). Three runs died at exactly 1:59:5x after a 07:30 start
+(08-22, 09-24, 10-07: the former 2 h task limit, inside ML); 09-29 hung 18:44 on yfinance;
+tonight's 19:00 run (pid 39608) stopped at 21:33:55 mid-ML with task result `0xC000013A`
+(STATUS_CONTROL_C_EXIT — console closed / Ctrl+C / logoff; no power events logged; the task
+was last re-registered 16:51, so not that). The task runs `InteractiveToken` (visible
+console, needs a logged-on user), `DisallowStartIfOnBatteries`/`StopIfGoingOnBatteries`
+true, no `WakeToRun`, `ExecutionTimeLimit PT8H`. ML trains ~2.2 tickers/min (~4 h for ~500)
+and writes `ml_predictions.json` only after ALL tickers, so any interruption loses the step:
+`ml_predictions.json` is still 2026-05-31. Verdict: **not durable** — a manual run succeeding
+proves nothing about unattended runs. Signals: 716 rows, 712 at 2026-10-16, 3 Asian indices
+at 10-15, **LBRDA at 2026-08-21** (a two-month-old row in today's book; the desk gate ages the
+file, not rows). Warm-up: signal engine needs ≥ 60 bars. Owner decisions: task logon type /
+battery / wake settings; whether ML should checkpoint per batch; per-row stale rejection.
+**D — S2.3.** `8c234de` on `claude/s2.3-prep`: the launch-night draft (`.claude/worktrees/s23`,
+left untouched) committed on its own branch. Integration check in a throwaway worktree with
+Codex's UNCOMMITTED S2.2 copied in (never committed): S2.3 endpoint + its 2 tests pass;
+S2.2's own suite fails the same 3 as at launch — `exclusions_by_reason` lacks
+`MALFORMED_OUTCOME`, `MISSING_RESOLUTION_TIME`, `MALFORMED_RESOLVED_FLAG` (KeyError). Blocked
+on S2.2 being committed and reviewed.
+**E — launch verification.** `dc5b40c` `src/core/launch_check.py` (16 tests): read-only,
+reports NOT_MEASURED rather than PASS for what it cannot see. Live run 23:37 (exit 1):
+PASS runtime (`/health` 2.1 s), frontend (index-BfVBrMwS.js, 8/8 route shells), owner
+endpoints refuse (6× 401), SENTINEL, desk + broker (equity mark 23:29 $10,008.38), PAPER,
+kill switch off / AGGRESSIVE, reflex (44 armed, 0 attempts since 21:28), orders (0 desk
+executions since the test began, engine not halted). WARN signals (LBRDA), paper test
+(equity-mark gap 20:52→22:00 across the restarts). **FAIL ML (May 31), sentiment (last run
+pre-fix), pipeline run (pid dead)**. NOT_MEASURED: owner-session page content, test suite.
+Suites: sprint branch with no production DB present **3322 passed, 9 skipped, EXIT=0**.
+S1.3: Codex **CHANGES REQUIRED** (8 findings) — fixes on `claude/s1.3-followup`, see its entry.
+For Codex: F8 of your review (Execution.jsx/Desk.jsx labels) is your area — please take it;
+`src/data/data_downloader.py:178` uses the dead `Ticker.news`; S2.2's 3 failures above.
+
 ## 2026-10-16 — FINAL LAUNCH — deployed 21:27, report
 Deployed `afde34e` (HEAD `05a938c` adds logs only): `ARIA Backend` restarted, pid 51284 →
 42692 (21:27:58), `/ready` 200 in 1 s, one listener; desk daemon + reflex engine started
