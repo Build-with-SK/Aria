@@ -15,6 +15,16 @@ updated. Paper test untouched.
 could keep an executed playbook armed). Both reproduced in reasoning and fixed in
 `ab78b1d`; focused reflex/desk-fail-closed/reduce-only 124 passed; fence clean.
 Signals FRESH again (19:04:05, 716 rows, latest bar 2026-10-16); pipeline in step `ml`.
+19:10 — Codex's own probes (`.codex/worktrees/reflex-review/.../test_reflex_review_probe.py`,
+2 tests that failed on 7616b14) run against `ab78b1d`: **2 passed**. Merge still waits
+for Codex's written APPROVE. Reflex re-armed live at 19:05:33: 44 playbooks (all US
+equities/ETFs) — first arming since 2026-10-08, from the fresh signals.
+For Codex (low priority, frontend): `CurrencyProvider` (`frontend/src/currency/
+CurrencyContext.jsx:95`) calls `/api/fx/rates` on the login page → 401 console error
+before sign-in. Not a data defect (login does a full page load, rates refetch after
+sign-in). Built-in browser pane refuses every service-worker script fetch (even a
+static asset), so SW registration cannot be verified there; server serves
+`/app/sw.js` 200 `application/javascript`.
 
 ## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
 Measured from `data/desk/playbooks.json`: 1,300 playbooks, all source `signal` (none from
