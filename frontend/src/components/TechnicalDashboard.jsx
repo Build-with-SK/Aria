@@ -83,7 +83,7 @@ export default function TechnicalDashboard({ symbol, tech, onRefresh }) {
       </div>)}</div>
     </div>}
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 16 }}>
-      <div style={{ flex: '1 1 300px', border: '1px solid var(--border)', padding: 10 }}><strong>ARIA · CALCULATED ASSESSMENT</strong><p>{tech.assessment}</p>Consensus: {tech.consensus || 'Withheld'}<div>Descriptive evidence; no calibrated win probability or validated trade setup.</div></div>
+      <div style={{ flex: '1 1 300px', border: '1px solid var(--border)', padding: 10 }}><strong>ARIA · CALCULATED ASSESSMENT</strong><p>{tech.assessment}</p>Consensus: {tech.consensus || 'Withheld'}{tech.consensus && tech.consensus_basis && <div style={{ color: 'var(--muted)' }}>Based on {tech.consensus_basis.coverage}: {tech.consensus_basis.used.join(', ')}{Object.keys(tech.consensus_basis.excluded || {}).length ? ` · excluded ${Object.keys(tech.consensus_basis.excluded).join(', ')}` : ''}</div>}<div>Descriptive evidence; no calibrated win probability or validated trade setup.</div></div>
       <div style={{ flex: '1 1 300px', border: `1px solid ${disagreements ? 'var(--orange)' : 'var(--border)'}`, padding: 10 }}>
         <strong>SENTINEL · ADVISORY MODEL INTERPRETATION</strong>
         <div>Separate reasoning over supplied evidence. Independent market-data validation is unverified.</div>

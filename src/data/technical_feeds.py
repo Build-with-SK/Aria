@@ -191,7 +191,7 @@ def fx_daily_from_hourly(hourly, provider, *, now=None, session_loader=None):
     source = source.tz_convert("UTC")
     loader = session_loader or session_windows
     reports = {}
-    rows, starts, excluded, outside_bars = [], [], 0, 0
+    rows, starts, excluded, outside_bars, week_open_days = [], [], 0, 0, 0
     for start, group in source.resample("D", closed="left", label="left"):
         end = start + pd.Timedelta(days=1)
         if end > current:
@@ -207,6 +207,12 @@ def fx_daily_from_hourly(hourly, provider, *, now=None, session_loader=None):
         if not expected:
             if len(group):
                 raise ValueError("FX provider returned candles outside its verified trading windows")
+            continue
+        # A UTC day whose session only opens partway through (the Sunday
+        # evening week open) is a few hours of trading, not a daily candle.
+        # Days are built only when the market is open from 00:00 UTC.
+        if expected[0] != start:
+            week_open_days += 1
             continue
         # Every scheduled hour must be present. A provider bar after the
         # verified close (Yahoo prints Friday's 17:00-18:00 New York hour) is
@@ -226,6 +232,8 @@ def fx_daily_from_hourly(hourly, provider, *, now=None, session_loader=None):
     result = pd.DataFrame(rows, index=pd.DatetimeIndex(starts, tz="UTC"), columns=source.columns.intersection(["Open", "High", "Low", "Close", "Volume"]))
     return result, {"alignment": "UTC-day OHLC reconstructed from complete scheduled closed hourly candles of the exact same Yahoo pair",
                     "incomplete_days_excluded": excluded, "out_of_session_bars_excluded": outside_bars,
+                    "week_open_partial_days_excluded": week_open_days,
+                    "daily_boundary": "00:00 UTC; a day is built only when the market is open from its start",
                     "hourly_source_validation": validation,
                     "reconstructed": True, "reconstruction_calendar_verified": True,
                     "independent_price_validation": "not performed"}

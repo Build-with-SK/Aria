@@ -332,3 +332,38 @@ def test_upstream_stale_flag_cannot_be_overridden_by_fresh_bar_timestamp():
     df=candles()
     result=analyze("AAPL","1h",loader=lambda *_:(df,{"upstream_stale":True}),now=df.index[-1]+pd.Timedelta(hours=1))
     assert result["data_stale"] and result["summary"] is None
+
+
+def _rows(**summaries):
+    out = {}
+    for tf, value in summaries.items():
+        if value == "stale":
+            out[tf] = {"summary": None, "data_stale": True, "data_quality": "stale"}
+        elif value is None:
+            out[tf] = {"summary": None, "error": "missing OHLC data", "data_quality": "unavailable"}
+        else:
+            out[tf] = {"summary": value, "data_stale": False}
+    return out
+
+
+@pytest.mark.parametrize("rows,expected", [
+    # Closed market: stale intraday rows no longer hide an agreeing consensus.
+    (_rows(**{"1m": "stale", "5m": "stale", "1h": "stale", "1d": "Buy", "1w": "Strong Buy", "1M": "Buy"}), "Buy"),
+    # Two valid horizons are not enough.
+    (_rows(**{"1h": "stale", "1d": "Buy", "1w": "Buy"}), None),
+    # Intraday alone cannot make a consensus.
+    (_rows(**{"1m": "Buy", "5m": "Buy", "15m": "Buy", "1d": None}), None),
+    # A conflict is never averaged, however many horizons agree.
+    (_rows(**{"15m": "Strong Sell", "1h": "Buy", "1d": "Buy", "1w": "Buy"}), None),
+])
+def test_consensus_rests_on_valid_horizons_and_names_exclusions(monkeypatch, rows, expected):
+    import src.data.technical_recommendations as adapter
+    monkeypatch.setattr(adapter, "analyze", lambda symbol, tf, **_: rows[tf])
+    report = adapter.analyze_all("AAPL", list(rows))
+    assert report["consensus"] == expected
+    basis = report["consensus_basis"]
+    assert set(basis["used"]) | set(basis["excluded"]) == set(rows)
+    assert all(not rows[tf].get("summary") for tf in basis["excluded"])
+    if expected and basis["excluded"]:
+        assert "Partial multi-timeframe agreement" in report["assessment"]
+        assert all(tf in report["assessment"] for tf in basis["excluded"])

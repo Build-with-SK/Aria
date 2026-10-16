@@ -214,6 +214,30 @@ def closed_candles(df, timeframe, now=None, *, provider_symbol=None):
                  "latency": "provider delay unknown; never labelled real-time"}
 
 
+def _fx_daily_gaps(df, symbol, fallback):
+    """FX days are 00:00 UTC candles built only when the market is open from
+    their start (src/data/technical_feeds.fx_daily_from_hourly), so a weekend
+    is not a gap. Any other daily stamping keeps the unverified fallback."""
+    import pandas as pd
+    from src.markets.candle_sessions import session_windows
+    utc = df.index.tz_convert("UTC")
+    if not utc.equals(utc.normalize()):
+        return fallback, "unverified; FX daily stamps are not 00:00 UTC days"
+    reports, expected = {}, set()
+    for start in pd.date_range(utc[0], utc[-1], freq="D"):
+        local_day = start.tz_convert("America/New_York").date()
+        if local_day not in reports:
+            reports[local_day] = session_windows(symbol, local_day)
+        report = reports[local_day]
+        if report["status"] == "unknown":
+            return fallback, "unverified; one or more FX dates have unknown calendars"
+        if any(pd.Timestamp(w["open"]) <= start < pd.Timestamp(w["close"]) for w in report["windows"]):
+            expected.add(start)
+    if set(utc) - expected:
+        return fallback, "unverified; FX daily candles fall outside the verified session"
+    return len(expected - set(utc)), "verified FX session calendar (00:00 UTC days open at their start)"
+
+
 def _calendar_gaps(df, timeframe, symbol, fallback):
     """Count missing scheduled candles rather than counting weekends as gaps."""
     import pandas as pd
@@ -223,6 +247,8 @@ def _calendar_gaps(df, timeframe, symbol, fallback):
     venue = resolve(symbol).venue
     if venue not in VENUES:
         return fallback, "unverified; venue calendar unavailable"
+    if VENUES[venue].kind == "fx" and timeframe == "1d":
+        return _fx_daily_gaps(df, symbol, fallback)
     if VENUES[venue].kind not in ("exchange", "options"):
         return fallback, "unverified; continuous/OTC daily boundary is provider-specific"
     zone = VENUES[venue].tz
