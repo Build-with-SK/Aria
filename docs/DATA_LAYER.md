@@ -79,16 +79,12 @@ approval queue, and the reflex lane neither arms nor fires.
 
 Daily OHLCV still fetched with yfinance directly: `src/macro/macro_data.py`
 (regime inputs; the 6 h cache would make them staler than its own fetch),
-`src/cognitive/outcome_tracker.py`, `src/brain/cognitive/learner.py`,
-`src/derivatives/futures_analyzer.py`, `src/dashboard/dashboard.py`
+`src/brain/cognitive/learner.py`, `src/dashboard/dashboard.py`
 (Streamlit, legacy), and batch downloaders with their own caches
 (`src/data/universe.py`, `src/brain/quant_lab.py`, `src/data/data_downloader.py`,
 `src/data/technical_tracker._current_prices`).
 
 These are different data types and correctly bypass the layer: live quotes
-(`live_quote.py`), option chains (`options/chain.py`, `options_analyzer.py`,
+(`live_quote.py`), option chains (`options/chain.py`,
 `strategies/options_engine.py`), news and fundamentals (`.news`, `.info`,
 `.calendar`).
-
-`src/derivatives/futures_analyzer (1).py` is a tracked duplicate of
-`futures_analyzer.py` that nothing imports (its name cannot be imported).

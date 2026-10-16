@@ -129,18 +129,32 @@ def sense_data() -> Sense:
     except ValueError:      # a data directory outside the repo is legitimate
         s.facts["signals_path"] = str(path)
     try:
-        s.facts["tickers"] = len(json.loads(path.read_text(encoding="utf-8")))
+        body = json.loads(path.read_text(encoding="utf-8"))
+        s.facts["tickers"] = len(body)
     except (ValueError, OSError):
         s.state = DEGRADED
         s.detail = "the signals file is present but unreadable"
         return s
+    # `age` is the FILE's age. It was reported as "my market state is N hours
+    # old", which reads as an observation time — and the rows recorded none.
+    # State which clock this is, and the bar date only when the rows carry one.
+    s.facts["age_basis"] = "file_mtime"
+    bars = []
+    if isinstance(body, dict):
+        bars = sorted(str(v["data_as_of"])[:10] for v in body.values()
+                      if isinstance(v, dict) and v.get("data_as_of"))
+    s.facts["latest_bar"] = bars[-1] if bars else None
+    through = (f"bars through {bars[-1]}" if bars
+               else "its rows record no bar date, so that is the only age I can state")
     if age > SIGNALS_STALE_HOURS:
         s.state = DEGRADED
-        s.detail = (f"my market state is {age:.0f} hours old — anything I say "
-                    f"about live prices is that old too")
+        s.detail = (f"my daily signal file is {age:.0f} hours old by the time it "
+                    f"was written ({through}) — anything I say from it is at "
+                    f"least that old")
         return s
     s.state = OK
-    s.detail = f"market state {age:.1f}h old across {s.facts['tickers']} names"
+    s.detail = (f"signal file written {age:.1f}h ago across "
+                f"{s.facts['tickers']} names ({through})")
     return s
 
 
@@ -277,9 +291,14 @@ def learning_state() -> dict:
         from src.v5 import learning
         preds = learning.load_predictions()
         resolved = [p for p in preds if p.get("resolved")]
-        out["track_record"] = {"logged": len(preds), "resolved": len(resolved)}
+        directional = [p for p in resolved if p.get("direction") in ("bull", "bear")]
+        out["track_record"] = {"logged": len(preds), "resolved": len(resolved),
+                               "resolved_directional": len(directional),
+                               "resolved_neutral": len(resolved) - len(directional),
+                               "sample": "V5 prediction log only"}
     except Exception:
         out["track_record"] = {"logged": None, "resolved": None}
+    out["brain_cycle"] = brain_cycle()
 
     lessons = None
     try:
@@ -289,6 +308,41 @@ def learning_state() -> dict:
         lessons = None
     out["memory"] = {"lessons": lessons, "accumulating": True}
     return out
+
+
+def brain_cycle() -> dict:
+    """When the cognitive cycle last completed, from the worker registry.
+
+    "Every 15 minutes" is the brain daemon's configured interval. It was being
+    stated as something that happens: on 2026-10-10 the last completed cycle
+    was 43 hours old, because the daemon had never started on that boot, while
+    the prompt still said the cycle "exists and runs". The registry records
+    each tick; this reads it and says nothing it cannot see.
+    """
+    try:
+        from src.core import workers
+        row = next((w for w in (workers.status().get("workers") or [])
+                    if w.get("name") == "brain"), None)
+    except Exception as e:
+        return {"state": UNKNOWN, "last_ok": None,
+                "detail": f"the worker registry could not be read ({e})"}
+    if not row:
+        return {"state": UNKNOWN, "last_ok": None,
+                "detail": "no brain worker is registered on this machine, so "
+                          "whether a cycle has ever run is unknown"}
+    state, last = row.get("state") or UNKNOWN, row.get("last_ok")
+    hours = _age_hours(last)
+    when = (f"last completed {last[:16].replace('T', ' ')} ({hours:.1f}h ago)"
+            if last and hours is not None
+            else "it has never completed a cycle on this machine")
+    if state == "ok":
+        detail = f"running — {when}"
+    elif state == "disabled":
+        detail = "disabled on this deployment (ARIA_RUN_BRAIN=false)"
+    else:
+        detail = (f"NOT running on schedule (registry state: {state}) — {when}. "
+                  f"Do not say it runs every 15 minutes")
+    return {"state": state, "last_ok": last, "age_hours": hours, "detail": detail}
 
 
 def for_prompt(max_age_s: float = CACHE_SECONDS) -> str:
@@ -311,12 +365,20 @@ def for_prompt(max_age_s: float = CACHE_SECONDS) -> str:
 
     resolved, logged = record.get("resolved"), record.get("logged")
     if resolved is not None:
+        split = ""
+        if resolved:
+            split = (f" ({record.get('resolved_directional', 0)} directional, "
+                     f"{record.get('resolved_neutral', 0)} neutral)")
         lines.append(
-            f"- Track record: {logged} predictions logged, {resolved} resolved. "
+            f"- Track record (V5 prediction log ONLY): {logged} predictions "
+            f"logged, {resolved} resolved{split}. "
             + ("You have NO measured track record and cannot claim any skill, "
                "accuracy or improvement over time."
                if not resolved else
-               "Quote these numbers rather than an impression of them."))
+               "Quote these numbers rather than an impression of them. Any "
+               "accuracy figure or interval elsewhere in your context (the "
+               "'Record' line) is a DIFFERENT, pooled sample of ledger calls: "
+               "never attach it to these counts."))
 
     if weights.get("fine_tuned"):
         lines.append(f"- Your weights: fine-tuned adapter '{weights.get('serving')}' "
@@ -329,18 +391,26 @@ def for_prompt(max_age_s: float = CACHE_SECONDS) -> str:
             "false — it is the specific false claim you have made before.")
 
     lesson_count = (learning.get("memory") or {}).get("lessons")
+    cycle = learning.get("brain_cycle") or {}
+    running = cycle.get("state") == "ok"
     lines.append(
         "- What you DO have, and should say so rather than denying it: a "
-        "cognitive cycle every 15 minutes writing into long-term memory"
+        "cognitive cycle (configured for every 15 minutes) writing into "
+        "long-term memory"
         + (f", {lesson_count} lessons graded from closed trades" if lesson_count
            else ", a teacher that grades closed trades into lessons")
         + ", an eye reading sources, a novelty sense building a history of "
         "normal days, and a gate that will adopt a fine-tuned adapter once one "
-        "beats the base model on held-out data. These MECHANISMS exist and run; "
-        "they have simply not produced a result yet. Saying you have no way to "
-        "improve is as wrong as saying you are already improving — the true "
-        "answer is that the machinery is running and the evidence is still "
-        "empty.")
+        "beats the base model on held-out data. "
+        + ("These MECHANISMS exist and run; they have simply not produced a "
+           "result yet. " if running else
+           "These MECHANISMS exist. Whether each is running is a measured "
+           "fact, not an assumption: see the cognitive-cycle line below. ")
+        + "Saying you have no way to improve is as wrong as saying you are "
+        "already improving — the true answer is that the machinery exists and "
+        "the evidence is still empty.")
+    lines.append("- Cognitive cycle, measured: "
+                 + str(cycle.get("detail") or "unknown") + ".")
 
     for name in ("brain", "data", "loop"):
         sense = senses.get(name) or {}

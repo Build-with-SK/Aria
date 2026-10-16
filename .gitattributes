@@ -3,3 +3,8 @@
 *.sh        text eol=lf
 *.plist     text eol=lf
 scripts/**  text eol=lf
+
+# Windows launchers are the mirror case: cmd.exe mis-parses an LF-only .bat with
+# non-ASCII bytes in it (it ran fragments of AUTORUN_ARIA.bat's comment header as
+# commands, 2026-10-10), so batch files are always checked out CRLF.
+*.bat       text eol=crlf

@@ -73,6 +73,7 @@ STALE_AFTER_HOURS = {
     "backtest": 24 * 7,
     "model_portfolio": 24 * 7,
     "report": 30,
+    "signal_history": 30,
 }
 
 #: Every generated dataset an endpoint, the chat or the brain reads as if it
@@ -80,14 +81,18 @@ STALE_AFTER_HOURS = {
 #: refreshes it: it is not deleted (endpoints still serve it) but it is never
 #: allowed to look current. Established 2026-10-06 by tracing every writer.
 DATASETS: dict[str, dict] = {
-    "signals.json":            {"kind": "signals", "writer": "main.py (full pipeline, manual)", "legacy": False},
+    "signals.json":            {"kind": "signals", "writer": "main.py step 4b (daily task from install_scheduler.ps1, or by hand)", "legacy": False},
     "macro_data.json":         {"kind": "macro", "writer": "backend _macro_loop", "legacy": False},
     "brain_state.json":        {"kind": "brain", "writer": "brain daemon (needs Ollama)", "legacy": False},
-    "ml_predictions.json":     {"kind": "ml", "writer": "main.py run_ml (full pipeline, manual)", "legacy": False},
+    "ml_predictions.json":     {"kind": "ml", "writer": "main.py step 7 run_ml — hours of training; written only if the run gets that far (see pipeline_run)", "legacy": False},
     "options_data.json":       {"kind": "options", "writer": "main_phase4_backup.py only", "legacy": True},
     "backtest_results.json":   {"kind": "backtest", "writer": "main_phase4_backup.py only", "legacy": True},
     "portfolio_analysis.json": {"kind": "model_portfolio", "writer": "main_phase4_backup.py only", "legacy": True},
     "daily_report.json":       {"kind": "report", "writer": "main_phase4_backup.py only — superseded by src/report/daily.py", "legacy": True},
+    # SQLite, not JSON: aged by mtime. Read by /api/history, /api/stats and
+    # /api/performance; its save_* writers in src/database/database.py have no
+    # caller, so it has not changed since 2026-05-31.
+    "trading_intelligence.db": {"kind": "signal_history", "writer": "nothing — src/database/database.py save_* are never called", "legacy": True},
 }
 
 
@@ -101,19 +106,77 @@ def dataset_freshness(name: str) -> dict:
     spec = DATASETS.get(name, {"kind": "unknown", "writer": "unregistered",
                                "legacy": None})
     stated = None
-    body = _read_json(name)
+    body = _read_json(name) if name.endswith(".json") else None
     if isinstance(body, dict):
         stated = body.get("data_date") or body.get("date") or body.get("timestamp")
     block = _age_block(name, spec["kind"], stated)
     status = ("UNKNOWN" if block["as_of"] is None else
               "STALE" if block["stale"] else "FRESH")
-    return {"dataset": name, "status": status,
-            "stale_threshold_hours": STALE_AFTER_HOURS.get(spec["kind"], 24),
-            "writer": spec["writer"], "legacy": spec["legacy"], **block}
+    out = {"dataset": name, "status": status,
+           "stale_threshold_hours": STALE_AFTER_HOURS.get(spec["kind"], 24),
+           "writer": spec["writer"], "legacy": spec["legacy"], **block}
+    if spec["kind"] in ("signals", "ml"):
+        out["observation"] = _observation_dates(body)
+    return out
+
+
+def _observation_dates(body) -> dict:
+    """What a ticker-keyed file's own rows say about when their data was observed.
+
+    Separate from `as_of` / `age_hours` / `status`, which keep their meaning
+    (the auto-execution gate reads those and must not move). A file's write
+    time is not a market observation time, and until 2026-10-10 signals.json
+    recorded nothing else — so "market state 56 hours old" really meant "the
+    file was written 56 hours ago". Never inferred: rows without `data_as_of`
+    report `recorded: False`, they are not given a date.
+    """
+    if not isinstance(body, dict):
+        return {"recorded": False, "rows": 0, "why": "file missing or unreadable"}
+    rows = [v for v in body.values() if isinstance(v, dict)]
+    dates = sorted(str(v["data_as_of"])[:10] for v in rows if v.get("data_as_of"))
+    if not dates:
+        return {"recorded": False, "rows": len(rows),
+                "why": "rows carry no data_as_of (last bar date); only the "
+                       "file's write time is known"}
+    generated = sorted(str(v["generated_at"]) for v in rows if v.get("generated_at"))
+    return {"recorded": True, "rows": len(rows), "rows_dated": len(dates),
+            "earliest_bar": dates[0], "latest_bar": dates[-1],
+            "generated_at": generated[-1] if generated else None}
 
 
 def all_dataset_freshness() -> list[dict]:
     return [dataset_freshness(n) for n in DATASETS]
+
+
+#: Longer than any measured full run (6 h on 2026-09-06, the only one that
+#: finished); an unfinished run older than this is not still going.
+PIPELINE_MAX_HOURS = 8
+
+
+def pipeline_run() -> dict:
+    """How far the last main.py run got, from the marker it writes per step.
+
+    COMPLETED, IN_PROGRESS (unfinished, younger than PIPELINE_MAX_HOURS),
+    DID_NOT_FINISH (unfinished and older — killed or crashed at `step`), or
+    UNKNOWN when no marker exists (no run since the marker was added).
+    """
+    body = _read_json("pipeline_run.json")
+    if not isinstance(body, dict) or not body.get("started_at"):
+        return {"state": "UNKNOWN", "why": "no pipeline_run.json — main.py has not "
+                                           "run since run markers were added"}
+    out = {k: body.get(k) for k in ("started_at", "step", "step_at", "finished_at")}
+    if body.get("completed"):
+        return {"state": "COMPLETED", **out, "why": None}
+    try:
+        age = (datetime.now() - datetime.fromisoformat(str(body["started_at"]))
+               ).total_seconds() / 3600
+    except Exception:
+        return {"state": "UNKNOWN", **out, "why": "unreadable started_at"}
+    if age < PIPELINE_MAX_HOURS:
+        return {"state": "IN_PROGRESS", **out, "why": None}
+    return {"state": "DID_NOT_FINISH", **out,
+            "why": (f"started {round(age, 1)}h ago and stopped at step "
+                    f"'{body.get('step')}' — killed or crashed; later steps did not run")}
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS world_snapshots (
@@ -175,6 +238,7 @@ def _age_block(name: str, kind: str, stated_date: Optional[str] = None) -> dict:
     and the contents are the thing that matters.
     """
     when = None
+    basis = "stated_date"
     if stated_date:
         try:
             when = datetime.fromisoformat(str(stated_date)[:19])
@@ -182,16 +246,20 @@ def _age_block(name: str, kind: str, stated_date: Optional[str] = None) -> dict:
             when = None
     if when is None:
         when = _mtime(name)
+        basis = "file_mtime"
     if when is None:
         return {"as_of": None, "age_hours": None, "stale": True,
-                "why": f"{name} is missing"}
+                "why": f"{name} is missing", "basis": None}
     age = (datetime.now() - when).total_seconds() / 3600
     limit = STALE_AFTER_HOURS.get(kind, 24)
+    # `basis` says what `as_of` IS: a date the contents state, or only the time
+    # the file was last written. The second is not when the data was observed.
     return {"as_of": when.isoformat(timespec="seconds"),
             "age_hours": round(age, 1),
             "stale": age > limit,
             "why": (f"{name} is {round(age / 24, 1)} days old (fresh under "
-                    f"{limit}h)" if age > limit else None)}
+                    f"{limit}h)" if age > limit else None),
+            "basis": basis}
 
 
 # ── the blocks ──────────────────────────────────────────────────────────────

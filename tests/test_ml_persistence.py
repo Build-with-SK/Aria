@@ -348,3 +348,118 @@ def test_the_freshness_budget_is_not_duplicated(tmp_path, monkeypatch):
     when = _time.time() - 2 * 3600
     os.utime(f, (when, when))
     assert B._source_age("ml_predictions.json", "ml")[1] is True
+
+
+# ── the run marker: a killed run is visible ────────────────────────────────
+#
+# Every scheduled run from 2026-08-22 on was killed by the task's 2-hour limit
+# during ML training; tis_run.log simply stops. The marker is how a run that
+# never finished says so.
+
+def test_the_run_marker_records_progress_and_completion(tmp_path, monkeypatch):
+    marker = tmp_path / "pipeline_run.json"
+    monkeypatch.setattr(pipeline, "RUN_STATUS", marker)
+    monkeypatch.setattr(pipeline, "_run", {})
+
+    pipeline._mark_run("config")
+    first = json.loads(marker.read_text(encoding="utf-8"))
+    assert first["step"] == "config" and first["completed"] is False
+    assert first["finished_at"] is None
+
+    pipeline._mark_run("ml")
+    mid = json.loads(marker.read_text(encoding="utf-8"))
+    assert mid["step"] == "ml" and mid["started_at"] == first["started_at"], \
+        "a step must not restart the run's clock"
+
+    pipeline._mark_run("complete", completed=True)
+    done = json.loads(marker.read_text(encoding="utf-8"))
+    assert done["completed"] is True and done["finished_at"]
+
+
+def test_an_unwritable_marker_never_stops_the_run(tmp_path, monkeypatch):
+    blocker = tmp_path / "file-not-dir"
+    blocker.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(pipeline, "RUN_STATUS", blocker / "pipeline_run.json")
+    monkeypatch.setattr(pipeline, "_run", {})
+    pipeline._mark_run("config")            # must not raise
+
+
+def test_main_marks_every_numbered_step_and_the_finish():
+    import inspect
+    src = inspect.getsource(pipeline.main)
+    assert src.count("_mark_run(") >= 16
+    assert '_mark_run("ml")' in src
+    assert src.rstrip().endswith('_mark_run("complete", completed=True)'), \
+        "completion must be the last thing main() records"
+
+
+# ── the outputs record WHEN their data is from ─────────────────────────────
+#
+# Neither file's rows carried a date, so every reader aged the file and called
+# it the market's age. The pipeline knows each ticker's last bar when it
+# writes; it now says so, and says nothing when it cannot.
+
+def _frame(last: str):
+    import pandas as pd
+    idx = pd.date_range(end=last, periods=5, freq="B")
+    return pd.DataFrame({"Close": [1.0, 2.0, 3.0, 4.0, 5.0]}, index=idx)
+
+
+def test_last_bar_date_reads_the_frame_or_declines():
+    assert pipeline._last_bar_date(_frame("2026-10-07")) == "2026-10-07"
+    assert pipeline._last_bar_date(None) is None
+    import pandas as pd
+    assert pipeline._last_bar_date(pd.DataFrame()) is None
+
+
+def test_ml_predictions_are_stamped_with_their_data_date(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data").mkdir()
+
+    class _Trainer:
+        def __init__(self, cfg): pass
+        def train_and_predict_all(self, featured):
+            return {"AAPL": {5: _Result()}, "MSFT": {5: _Result(ticker="MSFT")}}
+
+    import src.models.model_trainer as mt
+    monkeypatch.setattr(mt, "ModelTrainer", _Trainer)
+    monkeypatch.setattr("src.intelligence.recorders.record_ml_predictions",
+                        lambda *a, **k: {"recorded": 0})
+
+    pipeline.run_ml({"AAPL": _frame("2026-10-07")}, {})          # MSFT has no frame
+    written = json.loads(
+        (tmp_path / "data" / "ml_predictions.json").read_text(encoding="utf-8"))
+    assert written["AAPL"]["data_as_of"] == "2026-10-07"
+    assert written["MSFT"]["data_as_of"] is None, "a missing bar date was invented"
+    assert written["AAPL"]["generated_at"] == written["MSFT"]["generated_at"]
+    for key in ("ticker", "horizons", "overall_bullish", "overall_signal",
+                "models_trained", "warning"):
+        assert key in written["AAPL"], f"the existing contract lost {key}"
+
+
+def test_signals_are_stamped_with_their_data_date(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data").mkdir()
+
+    class _Anything:
+        """A signal / identity stand-in: every attribute exists."""
+        def __init__(self, **kw): self.__dict__.update(kw)
+        def __getattr__(self, name): return None
+
+    monkeypatch.setattr("src.data.data_downloader.build_ticker_metadata", lambda cfg: {})
+    monkeypatch.setattr("src.features.indicators.build_all_features",
+                        lambda raw, cfg, benchmark_ticker=None: raw)
+    monkeypatch.setattr("src.signals.signal_engine.build_all_signals",
+                        lambda featured, meta: {t: _Anything(ticker=t, composite_score=1.0)
+                                                for t in featured})
+    monkeypatch.setattr("src.core.identity.signal_identity",
+                        lambda t: _Anything(provider_symbol=t, exchange="X",
+                                            currency="USD", reason="test"))
+
+    pipeline.export_rich_signals({"AAPL": _frame("2026-10-07"),
+                                  "TSCO.L": _frame("2026-10-06")}, {})
+    out = json.loads((tmp_path / "data" / "signals.json").read_text(encoding="utf-8"))
+    assert out["AAPL"]["data_as_of"] == "2026-10-07"
+    assert out["TSCO.L"]["data_as_of"] == "2026-10-06"
+    assert out["AAPL"]["generated_at"] == out["TSCO.L"]["generated_at"]
+    assert out["AAPL"]["composite_score"] == 1.0 and out["AAPL"]["price_unit"] == "USD"
