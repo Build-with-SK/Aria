@@ -165,6 +165,26 @@ def test_fx_daily_uses_all_scheduled_hourly_prices_and_drops_incomplete_days():
     assert details["independent_price_validation"] == "not performed"
 
 
+def test_fx_friday_kept_when_provider_prints_an_hour_after_the_close():
+    # Yahoo's EURUSD=X hourly feed carries Friday's 17:00-18:00 New York bar,
+    # one hour past the verified FX week close. Requiring an exact match
+    # dropped every Friday; the extra bar must be left out, not the day.
+    source = fx_source()
+    friday = pd.Timestamp("2026-01-09", tz="UTC")
+    scheduled = source.loc[friday:friday + pd.Timedelta(hours=23)]
+    late = scheduled.index[-1] + pd.Timedelta(hours=1)
+    extra = scheduled.iloc[[-1]].copy()
+    extra.index = pd.DatetimeIndex([late])
+    extra[["Open", "High", "Low", "Close"]] = [500., 900., 1., 2.]
+    daily, details = fx_daily_from_hourly(pd.concat([source, extra]).sort_index(), "EURUSD=X",
+                                          now=pd.Timestamp("2026-02-10T00:00Z"))
+    assert friday in daily.index
+    assert daily.loc[friday, "High"] == scheduled.High.max()
+    assert daily.loc[friday, "Close"] == scheduled.Close.iloc[-1]
+    assert details["out_of_session_bars_excluded"] == 1
+    assert {0, 1, 2, 3, 4} <= set(daily.index.dayofweek)
+
+
 def test_fx_unknown_hours_are_refused():
     with pytest.raises(ValueError, match="calendar is unverified"):
         fx_daily_from_hourly(fx_source(), "EURUSD=X", now=pd.Timestamp("2026-02-10T00:00Z"),
