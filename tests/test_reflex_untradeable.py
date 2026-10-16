@@ -172,14 +172,11 @@ def test_an_expired_playbook_is_retired_not_fired(lane):
     assert lane.fired == []
 
 
-# ── the re-arm loop: wanted behaviour, awaiting the owner's approval ─────────
+# ── the re-arm loop ───────────────────────────────────────────────────────────
+# A symbol the broker refused to quote was re-armed every management tick and
+# rejected by the next scan (API3-USD: 222 times). _arm now consults quotable();
+# owner-approved arming policy, 2026-10-16.
 
-@pytest.mark.xfail(strict=True, reason=(
-    "AWAITING OWNER APPROVAL (reflex arming policy): _arm() does not consult "
-    "alpaca_broker.quotable(), so a symbol the broker has refused to quote is "
-    "re-armed every management tick and rejected by the next scan (API3-USD: "
-    "222 times). Proposed change: in reflex._arm, return None when "
-    "quotable(ticker) is False. Remove this marker when that lands."))
 def test_a_symbol_the_broker_refused_to_quote_is_not_armed_again(
         tmp_path, monkeypatch):
     monkeypatch.setattr(reflex, "PLAYBOOKS_FILE", tmp_path / "pb.json")
@@ -191,3 +188,32 @@ def test_a_symbol_the_broker_refused_to_quote_is_not_armed_again(
                         lambda t, now=None: False)
     cfg = {"reflex_signal_spike": 40.0, "reflex_playbook_expiry_days": 2}
     assert reflex.arm_from_signal(cfg, account={"positions": []}) == []
+
+
+def _arm_one(tmp_path, monkeypatch, ticker, price):
+    """arm_from_signal on one spiking name, with the REAL quotable() shape check."""
+    from src.execution import alpaca_broker
+    monkeypatch.setattr(reflex, "PLAYBOOKS_FILE", tmp_path / "pb.json")
+    monkeypatch.setattr(reflex, "signals_freshness",
+                        lambda: {"fresh": True, "age_hours": 1.0, "why": ""})
+    monkeypatch.setattr(reflex, "load_data_json", lambda f: {
+        ticker: {"current_price": price, "composite_score": 60.0, "atr_pct": 0.04}})
+    monkeypatch.setattr(alpaca_broker, "_unquotable", {})
+    cfg = {"reflex_signal_spike": 40.0, "reflex_playbook_expiry_days": 2}
+    return reflex.arm_from_signal(cfg, account={"positions": []})
+
+
+def test_api3_is_refused_by_the_real_shape_check(tmp_path, monkeypatch):
+    from src.execution.alpaca_broker import quotable
+    assert quotable("API3-USD") is False
+    assert _arm_one(tmp_path, monkeypatch, "API3-USD", 0.33) == []
+    assert reflex.load_playbooks() == []
+
+
+@pytest.mark.parametrize("ticker,price", [("BTC-USD", 60000.0), ("ETH-USD", 2500.0)])
+def test_a_quotable_crypto_major_still_arms(tmp_path, monkeypatch, ticker, price):
+    from src.execution.alpaca_broker import quotable
+    assert quotable(ticker) is True
+    armed = _arm_one(tmp_path, monkeypatch, ticker, price)
+    assert [p["ticker"] for p in armed] == [ticker]
+    assert [p["status"] for p in reflex.load_playbooks()] == ["armed"]

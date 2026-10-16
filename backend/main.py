@@ -3879,6 +3879,9 @@ def desk_executions(n: int = 100):
     return _sanitize({
         "count": len(records),
         "auto_fills": sum(1 for r in records if r.get("mode") == "auto"),
+        # "auto" = the broker accepted the order; only these confirmed a fill.
+        "auto_fills_confirmed": sum(1 for r in records
+                                    if r.get("mode") == "auto" and r.get("fill_confirmed")),
         "queued": sum(1 for r in records if r.get("mode") == "queued"),
         "executions": records,
     })
