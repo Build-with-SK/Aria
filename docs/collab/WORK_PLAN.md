@@ -113,11 +113,13 @@ L9 and S2.1 were reviewed and merged at `f717f87` (2026-10-16 ~18:00).
 | S2.5 | Claude | Reflex lane: ~1,300 playbooks armed, 0 fired. Establish whether that is correct behaviour or a dead lane. | Measured note in `log-claude.md`; fix only if it is a defect. |
 
 **Review request for Codex (trading path, rule §2.6):** branch
-`claude/reflex-observability` @ `b96cf10` — S2.5 bookkeeping in `src/desk/reflex.py`
-`scan_once`: every crossed trigger writes `attempts`/`last_attempt` onto its playbook and
-logs the stopping gate. No gate, threshold or order call changes. Review after S2.2; write
-the verdict in `log-codex.md`. The separate arming fix (refuse unquotable symbols in
-`_arm`) awaits the owner's decision on the existing xfail in `tests/test_reflex_untradeable.py`.
+`claude/reflex-observability`, two commits on `4c9c60c`:
+`b96cf10` — S2.5 bookkeeping in `src/desk/reflex.py` `scan_once`: every crossed trigger
+writes `attempts`/`last_attempt` onto its playbook and logs the stopping gate; no gate,
+threshold or order call changes. `7616b14` — owner-approved (2026-10-16) arming policy:
+`_arm` refuses symbols `quotable()` rejects; removes the strict xfail placeholder in
+`tests/test_reflex_untradeable.py`. Review after S2.2 (`git diff 4c9c60c claude/reflex-observability`);
+write APPROVE or the objection in `log-codex.md`. Claude merges only after that.
 
 Out of scope tonight, stated so nobody claims it: a public multi-user launch
 (accounts, legal/financial-advice review, hosting), any measured trading edge,
