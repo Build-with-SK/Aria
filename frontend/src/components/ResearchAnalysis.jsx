@@ -330,7 +330,9 @@ export default function ResearchAnalysis({ symbol, dossier, currency, technicalO
               <Mono size={10}>
                 {standalone
                   ? 'Scans nine timeframes for this listing; unavailable or stale evidence is withheld. Request an independent SENTINEL review after the scan.'
-                  : 'Runs the multi-timeframe indicator scan and ARIA’s price, volatility and fundamental engines against available provider data. Each timeframe reports its own freshness.'}
+                  : includeTechnical
+                    ? 'Runs the multi-timeframe indicator scan and ARIA’s price, volatility and fundamental engines against available provider data. Each timeframe reports its own freshness.'
+                    : 'Runs ARIA’s price, volatility and fundamental engines against available provider data. Use the technical panel above for the nine-timeframe scan.'}
               </Mono>
             </div>
           </div>

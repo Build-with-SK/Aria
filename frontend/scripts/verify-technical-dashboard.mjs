@@ -24,6 +24,7 @@ try {
   const engine = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(ResearchAnalysis, { symbol: 'AAPL', includeTechnical: false })))
   assert.ok(engine.includes('ARIA ENGINE ANALYSIS') && engine.includes('RUN ENGINE ANALYSIS ON AAPL'))
   assert.ok(!engine.includes('TECHNICAL ANALYSIS'), 'embedded engine must not duplicate the shared technical panel')
+  assert.ok(engine.includes('Use the technical panel above') && !engine.includes('Runs the multi-timeframe indicator scan'), 'engine description must match the requests it makes')
   for (const alias of ['GCZ6', 'gcz26', 'GCZ2026', 'GCZ26.CMX']) {
     assert.ok(isExactGoldContract(alias))
     const research = renderToStaticMarkup(React.createElement(MemoryRouter, { initialEntries: [`/research?symbol=${alias}`] }, React.createElement(Research)))
