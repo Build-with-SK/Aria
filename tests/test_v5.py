@@ -638,6 +638,44 @@ def test_a_thin_bucket_is_shown_but_not_scored(learning_env):
     assert thin[0]["realised_frequency"] is None, "a 2-sample bucket must not report a frequency"
 
 
+def test_a_call_without_a_stated_probability_is_excluded_not_scored_as_50(learning_env):
+    """`confidence or 0.5` used to invent a 50% claim for a call that stated
+    none, and on a correct call that is a Brier contribution of 0.25 for a
+    probability nobody asserted. The ledger excludes such rows; so must this."""
+    from src.v5 import track_record as tr
+    rows = [(0.60, True, "bull")] * 12 + [(0.60, False, "bull")] * 8 \
+        + [(None, True, "bull")] * 5 + [(1.7, True, "bull")] * 3
+    _seed_calibration(learning_env, rows)
+    cal = tr.calibration()
+    assert cal["measurable"] is True
+    assert cal["n_resolved"] == 20, "only calls with a usable stated probability count"
+    assert cal["n_excluded"] == 8, "missing and out-of-range probabilities are counted, not hidden"
+    assert cal["brier"] == pytest.approx(0.24, abs=0.005), \
+        "an invented 50% or a clamped 1.7 entered the score"
+
+
+def test_exclusions_keep_a_thin_sample_below_the_threshold(learning_env):
+    from src.v5 import track_record as tr
+    _seed_calibration(learning_env, [(0.6, True, "bull")] * 18 + [(None, True, "bull")] * 4)
+    cal = tr.calibration()
+    assert cal["measurable"] is False, "unscorable calls opened the 20-call gate"
+    assert cal["n_resolved"] == 18 and cal["n_excluded"] == 4
+
+
+def test_track_record_and_ledger_read_v5_probability_the_same_way(learning_env):
+    """Two calibration surfaces over the same calls must agree on what each
+    call claimed."""
+    from src.core.ingest import v5_stated_probability
+    from src.v5 import track_record as tr
+    from src.v5.learning import load_predictions
+    rows = [(0.55, True, "bull"), (0.8, False, "bear"), (None, True, "bull"),
+            (-0.2, False, "bull")] * 6
+    _seed_calibration(learning_env, rows)
+    scorable = [e for e in load_predictions() if v5_stated_probability(e) is not None]
+    cal = tr.calibration()
+    assert cal["n_resolved"] == len(scorable) == 12
+
+
 def test_the_flywheel_reports_a_stalled_stage_with_its_reason(learning_env):
     from src.v5 import track_record as tr
     learning_env.log_prediction(ticker="T", direction="bull", p_bull=0.7, confidence=0.6,
@@ -679,3 +717,34 @@ def test_build_survives_every_loop_being_unavailable(learning_env, monkeypatch):
     payload = tr.build()
     assert len(payload["sources"]) == 4
     assert payload["flywheel"] and payload["headline"]["text"]
+
+
+def test_a_score_is_never_promoted_to_a_probability(learning_env):
+    """`p_bull` is the ensemble's raw P(bull) — a SCORE in ARIA's own typing
+    (src/intelligence/semantics.py). A call that carries only that, and no
+    stated confidence, must not be scored: there is no probability to score."""
+    from src.intelligence.semantics import NotAProbability, ProbabilityType, brier_score
+    from src.v5 import track_record as tr
+    rows = [(0.60, True, "bull")] * 12 + [(0.60, False, "bull")] * 8 \
+        + [(None, True, "bull")] * 10          # p_bull=0.6 is present on every row
+    _seed_calibration(learning_env, rows)
+    cal = tr.calibration()
+    assert cal["n_resolved"] == 20 and cal["n_excluded"] == 10, \
+        "rows with only a SCORE were scored as if it were a probability"
+    assert cal["brier"] == pytest.approx(0.24, abs=0.005)
+    # ...and the scoring rule itself refuses every non-probability type.
+    for t in (ProbabilityType.SCORE, ProbabilityType.CONFIDENCE,
+              ProbabilityType.NONE, ProbabilityType.UNKNOWN, "nonsense"):
+        with pytest.raises(NotAProbability):
+            brier_score([(0.6, True, t)])
+    assert brier_score([(0.6, True, ProbabilityType.STATED_PROBABILITY)]) == pytest.approx(0.16)
+    assert brier_score([(0.6, True, ProbabilityType.CALIBRATED_PROBABILITY)]) == pytest.approx(0.16)
+
+
+def test_weightfit_keeps_its_own_out_of_sample_brier():
+    """weightfit scores the ensemble's P(correct) as a fitting loss on a
+    walk-forward split; that is a legitimate use and is deliberately untouched."""
+    from src.v5 import weightfit
+    import inspect
+    src = inspect.getsource(weightfit.brier)
+    assert "_p_correct(c, weights)" in src and "** 2" in src
