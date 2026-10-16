@@ -7,14 +7,16 @@ submit that timed out after Alpaca accepted the order was recorded REJECTED.
 The desk then said "failed", which is not terminal for a reflex playbook: it
 stayed armed, and the next crossing could send a second order.
 
-Every order now carries a deterministic client_order_id, and an unknown
-submit is settled by looking the order up by it:
+Every order now carries a deterministic client_order_id, written to the queue
+row ("submitting") before the POST, and an unknown submit is looked up by it:
 
-    found       → continues as what the broker says (filled, working, …)
-    not found   → rejected: nothing was placed
-    can't ask   → UNKNOWN: the queue trade is terminal, the desk records
-                  "unknown", the reflex playbook retires as "unknown" and its
-                  ticker is not armed again while it stands
+    found              → continues as what the broker says (filled, working, …)
+    not found / can't ask → UNKNOWN: absence is not proof (Codex review of
+                  e4f01ad: three 404s, then the order visible on the fourth
+                  look). The queue row stays unknown, the desk records
+                  "unknown", the reflex playbook retires as "unknown", and no
+                  lane sends another order for the instrument until the
+                  broker's answer is found (reconcile) or the owner releases it
 
 The broker here is the real AlpacaBroker adapter over a fake alpaca-py client,
 so the timeout classification and the 404 handling are the adapter's own.
@@ -67,8 +69,10 @@ def _order(oid="b-1", status="filled", qty=1.0, price=10.0):
 class FakeClient:
     """Submits always time out unless `accept` is set; lookups follow `lookups`,
     one entry per call (an Exception instance is raised, None is "no such
-    order", anything else is returned)."""
+    order", anything else is returned). `_retry = 0`: like the adapter's own
+    order client, it makes one attempt per request."""
     _base_url = "https://paper-api.alpaca.markets"
+    _retry = 0
 
     def __init__(self, lookups=(), submit_error=ReadTimeout("read timed out"), accept=None):
         self.sent, self.asked = [], []
@@ -195,17 +199,18 @@ def test_a_timeout_then_the_broker_refused_it_after_all_is_a_rejection(queue, al
     assert t.status == "rejected" and f"found by client id as {ours}" in t.rejection_reason
 
 
-def test_a_timeout_then_not_found_is_rejected_and_nothing_was_placed(queue):
+def test_a_timeout_then_not_found_stays_unknown_because_absence_is_not_proof(queue):
+    """Codex review of e4f01ad: this case used to be recorded REJECTED with
+    "nothing was placed" — and the order then appeared on the next look."""
     q = queue()
     mgr = manager(FakeAlpaca(client := FakeClient(lookups=[None, None, None])))
     res = mgr.execute(q.id, now=OPEN_NY)
-    assert res["ok"] is False and not res.get("unknown")
-    assert res["status"] == "rejected"
-    assert "no order with client id" in res["error"]
+    assert res["ok"] is False and res["unknown"] is True and res["status"] == "unknown"
+    assert "absence is not proof" in res["error"]
     assert len(client.sent) == 1
-    assert len(client.asked) == mgr.SETTLE_LOOKUPS, "asked more than once before concluding"
+    assert len(client.asked) == mgr.SETTLE_LOOKUPS
     t = queue.get(q.id)
-    assert t.status == "rejected" and t.client_order_id == queue_client_order_id(q)
+    assert t.status == "unknown" and t.client_order_id == queue_client_order_id(q)
 
 
 def test_a_timeout_and_a_failed_lookup_is_unknown_and_never_resent(queue):
@@ -228,11 +233,12 @@ def test_a_timeout_and_a_failed_lookup_is_unknown_and_never_resent(queue):
 
 
 @pytest.mark.parametrize("answers,expect", [
-    ([None, None, ReadTimeout("x")], "unknown"),     # last answer unasked: unknown
-    ([ReadTimeout("x"), None, None], "rejected"),    # last answer "no such order"
+    ([None, None, ReadTimeout("x")], "unknown"),
+    ([ReadTimeout("x"), None, None], "unknown"),
     ([ReadTimeout("x"), _order("b-3", "filled")], "filled"),
-], ids=["not-found-then-error", "error-then-not-found", "error-then-found"])
-def test_not_found_counts_only_when_the_last_lookup_answered_it(queue, answers, expect):
+    ([None, _order("b-4", "new")], "submitted"),
+], ids=["not-found-then-error", "error-then-not-found", "error-then-found", "late-found"])
+def test_only_a_found_answer_settles_a_timeout(queue, answers, expect):
     q = queue()
     res = manager(FakeAlpaca(FakeClient(lookups=answers))).execute(q.id, now=OPEN_NY)
     assert res["status"] == expect, res
@@ -449,8 +455,8 @@ def _reflex_world(tmp_path, monkeypatch, client):
 
 @pytest.mark.parametrize("lookups,status,mode", [
     ([_order("b-5", "filled", qty=0.01, price=101.0)], "fired", "auto"),
-    # Nothing was placed, so the playbook may legitimately try again.
-    ([None, None, None], "armed", "failed"),
+    # Not found is not "nothing was placed": the playbook retires as unknown.
+    ([None, None, None], "unknown", "unknown"),
     ([ReadTimeout("lookup timed out")] * 3, "unknown", "unknown"),
 ], ids=["found-filled", "not-found", "lookup-fails"])
 def test_a_reflex_fire_that_times_out_is_settled_on_the_playbook(tmp_path, monkeypatch,

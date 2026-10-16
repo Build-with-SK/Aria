@@ -304,6 +304,23 @@ class DeskDaemon:
         try:
             from src.desk.position_manager import PositionManager
             summary = PositionManager().tick()
+            # Unresolved orders (submitting / unknown): look each up by its
+            # client id — reads only, never a submit or cancel — and settle the
+            # reflex playbooks that waited on them. A lookup that finds nothing
+            # changes nothing; only the broker's answer or the owner does.
+            try:
+                from src.desk.auto_executor import get_order_manager
+                from src.desk.reflex import reconcile_unknown_playbooks
+                mgr = get_order_manager()
+                if mgr is not None:
+                    rec = mgr.reconcile_unresolved()
+                    if rec.get("checked"):
+                        summary["order_reconciliation"] = rec
+                moved = reconcile_unknown_playbooks()
+                if moved:
+                    summary["playbooks_settled"] = moved
+            except Exception as e:
+                summary.setdefault("errors", []).append(f"order reconciliation: {e}")
             # Arm signal-spike playbooks for the reflex lane (cheap: cached
             # signals + a held-set read; no LLM, no broker orders).
             try:

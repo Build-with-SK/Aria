@@ -171,7 +171,10 @@ class AutoExecutor:
                 logger.exception(f"desk execution failed for {entry.get('ticker')}")
                 results.append({**self._base_record(entry), "mode": "error", "reason": str(e)})
         for r in results:
-            self._log(r)
+            try:
+                self._log(r)
+            except Exception as e:      # the journal must never break the cycle
+                logger.error(f"executions journal write failed: {e} — {r.get('ticker')}")
         return results
 
     def _handle(self, entry: dict, transcript: dict) -> dict:
@@ -237,30 +240,35 @@ class AutoExecutor:
         if result.get("client_order_id"):
             record["client_order_id"] = result["client_order_id"]
         if result.get("ok"):
-            fill = result.get("fill_price") or entry.get("price", 0.0)
+            # "auto" means the broker accepted the order, not that it filled:
+            # Alpaca acks market orders as accepted. fill_price and filled_qty
+            # are the broker's, or absent — the intended price is recorded
+            # apart and is never presented as a fill.
+            status = str(result.get("status") or "")
+            price = float(result.get("fill_price") or 0)    # Alpaca: 0.0 when none
+            filled_qty = result.get("filled_qty")
+            filled_qty = (float(filled_qty) if filled_qty is not None
+                          else (float(entry["qty"]) if status == "filled" else 0.0))
+            got_fill = price > 0 and filled_qty > 0 and status in ("filled", "partial")
             record["mode"] = "auto"
             record["action"] = "entry"
-            record["fill_price"] = fill
+            record["order_status"] = status
             record["broker_order_id"] = result.get("broker_order_id", "")
-            # "auto" means the broker accepted the order, not that it filled:
-            # Alpaca acks market orders as accepted, and when the fill is not
-            # confirmed in the poll window fill_price above is the intended
-            # entry. These two fields say which one this record is.
-            record["order_status"] = str(result.get("status") or "")
-            # Alpaca reports a missing average price as 0.0, never None.
-            record["fill_confirmed"] = (record["order_status"] == "filled"
-                                        and float(result.get("fill_price") or 0) > 0)
-            record_trade(entry.get("notional", 0.0))
-            # Hand lifecycle ownership to the exit engine
-            try:
-                from src.desk.position_manager import PositionManager
-                PositionManager(self.cfg).track_entry(entry, fill, queued.id)
-            except Exception as e:
-                logger.warning(f"could not track entry for {entry['ticker']}: {e}")
-            from src.desk.notify import fmt_entry, push
-            push(fmt_entry(entry["side"], entry["qty"], entry["ticker"], fill,
-                           entry.get("stop"), entry.get("target")), self.cfg)
-            self._alert_feed(entry, fill)
+            record["intended_price"] = entry.get("price")
+            record["fill_price"] = price if got_fill else None
+            record["filled_qty"] = filled_qty if got_fill else 0.0
+            record["fill_confirmed"] = got_fill and status == "filled"
+            # From here on the outcome is KNOWN and recorded above. Accounting,
+            # tracking and notification can fail without changing it: an
+            # exception here used to escape to the reflex lane, which retired a
+            # filled playbook as "expired" and let the ticker re-arm.
+            self._after_entry(record, entry, queued.id, got_fill, price, filled_qty)
+        elif result.get("blocked"):
+            # An earlier order for this instrument is unresolved: nothing sent.
+            record["mode"] = "blocked"
+            record["reason"] = result.get("error", "an earlier order is unresolved")
+            self._notify(f"⏸ BLOCKED {entry['side'].upper()} {entry['qty']:g} {entry['ticker']}",
+                         record["reason"])
         elif result.get("session_closed"):
             # The market closed (or became unknown) between the cycle's check
             # and the send. Not a failure: the trade waits in the queue for
@@ -280,16 +288,56 @@ class AutoExecutor:
             record["order_status"] = "unknown"
             record["fill_confirmed"] = False
             record["reason"] = result.get("error", "order state unknown")
-            record_trade(entry.get("notional", 0.0))
+            try:
+                record_trade(entry.get("notional", 0.0))
+            except Exception as e:
+                logger.error(f"day-state count failed for unknown {entry['ticker']}: {e}")
             self._notify(f"⚠ ORDER STATE UNKNOWN {entry['side'].upper()} "
                          f"{entry['qty']:g} {entry['ticker']}",
                          f"{record['reason']}")
         else:
             record["mode"] = "failed"
+            record["order_status"] = str(result.get("status") or "")
             record["reason"] = result.get("error", "broker rejected")
             self._notify(f"✕ ORDER FAILED {entry['ticker']}",
                          f"{record['reason']} — nothing was executed.")
         return record
+
+    def _after_entry(self, record: dict, entry: dict, trade_id: str,
+                     got_fill: bool, price: float, filled_qty: float) -> None:
+        """Accounting, position tracking and notification for an accepted
+        entry. Each step is independent and none may raise: the order's
+        outcome is already decided and recorded. A position is tracked only
+        for quantity the broker reports FILLED — a working order with nothing
+        filled is not a position (if it fills later, the management tick
+        adopts it)."""
+        errors = []
+        try:
+            record_trade(entry.get("notional", 0.0))
+        except Exception as e:
+            errors.append(f"day-state count: {e}")
+        if got_fill:
+            try:
+                from src.desk.position_manager import PositionManager
+                PositionManager(self.cfg).track_entry({**entry, "qty": filled_qty}, price, trade_id)
+            except Exception as e:
+                errors.append(f"track entry: {e}")
+        try:
+            if got_fill:
+                from src.desk.notify import fmt_entry, push
+                push(fmt_entry(entry["side"], filled_qty, entry["ticker"], price,
+                               entry.get("stop"), entry.get("target")), self.cfg)
+                self._alert_feed(entry, price)
+            else:
+                self._notify(f"→ SUBMITTED {entry['side'].upper()} {entry['qty']:g} "
+                             f"{entry['ticker']}",
+                             f"Accepted by the broker ({record.get('order_status')}); fill not "
+                             f"confirmed yet. Intended price {entry.get('price')}.")
+        except Exception as e:
+            errors.append(f"notify: {e}")
+        if errors:
+            record["after_entry_errors"] = errors
+            logger.error(f"entry {entry['ticker']} recorded; follow-ups failed: {errors}")
 
     # ── helpers ───────────────────────────────────────────────────────────
 

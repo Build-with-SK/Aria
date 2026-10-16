@@ -34,8 +34,9 @@ class OrderStatus(str, Enum):
     EXPIRED   = "expired"
     # The broker may or may not have the order — a timeout after sending, a
     # connection drop before the reply. NOT the same as rejected: retrying an
-    # UNKNOWN order is how one trade becomes two. Only reported when the caller
-    # supplied a client_order_id, so the order can be looked up to settle it.
+    # UNKNOWN order is how one trade becomes two. From submit_order, only
+    # reported when the caller supplied a client_order_id, so the order can be
+    # looked up to settle it; from get_order_status, it means the read failed.
     UNKNOWN   = "unknown"
 
 
