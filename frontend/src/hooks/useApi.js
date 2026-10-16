@@ -14,7 +14,7 @@ async function fetchJson(url) {
   return res.json()
 }
 
-function useApiData(url, interval = null) {
+export function useApiData(url, interval = null) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)

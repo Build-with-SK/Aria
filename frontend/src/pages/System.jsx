@@ -14,6 +14,7 @@ import React, { useState } from 'react'
 import axios from 'axios'
 import { useWorkers, useWorld, useConsultStatus } from '../hooks/useApi'
 import { Empty, SectionHeader, Spinner } from '../components/UI'
+import { DataUnavailable, hasRecord } from '../components/DataState'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -34,8 +35,8 @@ const CONSULT_STATE = {
 }
 
 function SentinelPanel() {
-  const { data } = useConsultStatus()
-  if (!data) return null
+  const { data, error } = useConsultStatus()
+  if (!hasRecord(data)) return <DataUnavailable name="SENTINEL status" error={error} />
   return <SentinelPanelView data={data} />
 }
 
@@ -323,10 +324,11 @@ function WorkerRow({ w }) {
 }
 
 export default function System() {
-  const { data, loading } = useWorkers()
+  const { data, loading, error } = useWorkers()
   const { data: world } = useWorld()
 
   if (loading && !data) return <Spinner />
+  if (error || !hasRecord(data)) return <DataUnavailable name="System worker status" error={error} />
 
   const workers = data?.workers || []
   const counts = data?.counts || {}
@@ -353,8 +355,8 @@ export default function System() {
       }}>
         <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ ...mono, fontSize: 15, fontWeight: 800,
-                        color: data?.healthy === false ? 'var(--red)' : 'var(--green)' }}>
-            {data?.healthy === false ? '✕ DEGRADED' : '● ALL WORKERS REPORTING'}
+                        color: data?.healthy === false ? 'var(--red)' : data?.healthy === true ? 'var(--green)' : 'var(--muted)' }}>
+            {data?.healthy === false ? '✕ DEGRADED' : data?.healthy === true ? '● ALL WORKERS REPORTING' : 'WORKER HEALTH UNAVAILABLE'}
           </div>
           {Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => (
             <div key={k} style={{ ...mono, fontSize: 10, color: (STATE_STYLE[k] || [])[0] || 'var(--muted)' }}>
@@ -362,7 +364,7 @@ export default function System() {
             </div>
           ))}
           <div style={{ ...mono, fontSize: 10, color: 'var(--muted)', marginLeft: 'auto' }}>
-            {world?.system?.activity_24h?.total ?? 0} events in 24h
+            {world?.system?.activity_24h?.total ?? '—'} events in 24h
           </div>
         </div>
         {!!(data?.degraded || []).length && (
@@ -396,8 +398,8 @@ export default function System() {
       <SectionHeader>DATA FRESHNESS</SectionHeader>
       <div className="bb-card" style={{ marginBottom: 14 }}>
         {!world?.unknowns?.length && (
-          <div style={{ ...mono, fontSize: 10, color: 'var(--green)' }}>
-            Every source ARIA reads is inside its freshness window.
+          <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
+            {Array.isArray(world?.unknowns) ? 'No freshness warnings in the world snapshot. Per-dataset freshness is a separate measurement.' : 'Freshness unavailable: no world snapshot was received.'}
           </div>
         )}
         {(world?.unknowns || []).map((u, i) => (
@@ -419,7 +421,7 @@ export default function System() {
                 <span style={{ ...mono, fontSize: 10, fontWeight: 700, minWidth: 62,
                                color: s.state === 'ok' ? 'var(--green)'
                                     : s.state === 'unknown' ? 'var(--muted)' : 'var(--yellow)' }}>
-                  {s.name.toUpperCase()}
+                  {(s.name || 'unnamed').toUpperCase()}
                 </span>
                 <span style={{ ...mono, fontSize: 10, color: 'var(--text-dim)', flex: 1 }}>
                   {s.detail}

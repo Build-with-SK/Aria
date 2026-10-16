@@ -135,7 +135,7 @@ export default function PortfolioWorkspace() {
           {(world?.portfolio?.open_positions ?? 0) === 0 ? (
             <>
               <span style={{ color: 'var(--yellow)' }}>⚠ These shocks are not applied to your account.</span>
-              {' '}You hold nothing right now, so there is no book to stress. The
+              {' '}{world?.portfolio?.open_positions === 0 ? 'The snapshot reports no open positions.' : 'Account position count is unavailable.'} The
               figures below shock a hypothetical portfolio built from the current
               signal scores — read them as “which exposures are fragile
               to which shock”, never as your P&amp;L.
