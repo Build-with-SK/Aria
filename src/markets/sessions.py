@@ -332,11 +332,23 @@ def _day(spec: VenueSpec, d: date, contract: Optional[str] = None):
         if not week:
             return week, "weekend"
         return None, f"owner calendar for {code} is invalid — {override.invalid}"
-    if override is not None and d.year in override.years:
+    if override is not None:
         label = override.source or "owner calendar"
         if getattr(override, "verification", "") == "provisional":
             label += " — PROVISIONALLY verified: not yet read from the issuer directly"
-        return _static_day(spec, override, d, week, label)
+        # A verified special session or an announced-unknown day applies on
+        # its own date regardless of whether this file claims the whole
+        # year's holidays (calendars.py: `years` vs. a narrow file). Checked
+        # ahead of the calendar provider either way, same as a full-year
+        # override always has been.
+        if d in override.unknown_days:
+            return None, (f"{override.unknown_days[d]} ({label}) — the whole day is UNKNOWN "
+                          f"until the source gives its hours")
+        if d in override.special_sessions:
+            return tuple(Phase.of(*p) for p in override.special_sessions[d]), \
+                f"special session ({label})"
+        if d.year in override.years:
+            return _static_day(spec, override, d, week, label)
     provider_code = override.alias_of if (override is not None and override.alias_of) else code
     try:
         zone_ok = bool(ZoneInfo(spec.tz))

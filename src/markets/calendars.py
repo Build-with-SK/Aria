@@ -36,6 +36,18 @@ never a guessed session. `regular_days` (contract calendars only) confirms a
 date trades its regular schedule although it is, or precedes, a US holiday.
 Nothing in this file is inferred from a rule of thumb.
 
+`special_sessions` and `unknown_days` dates do NOT have to fall inside
+`years`. `years` claims FULL holiday authority for the whole year — every
+weekday it doesn't list as a holiday/early-close reads as a plain trading
+day, so claiming a year you have only transcribed one confirmed date for
+would silently turn every OTHER holiday that year into a false "open". A
+file can instead carry only `special_sessions`/`unknown_days` with `years`
+left empty (or omitted): `_day()` checks those two dicts for the exact date
+ahead of anything else, and for every other date defers to the calendar
+provider or built-in calendar exactly as if this file did not exist. This is
+how data/calendars/XBOM.json states two verified BSE Muhurat sessions without
+claiming to be BSE's holiday calendar.
+
 A file that exists but does not validate — no source, a malformed date or
 time, a date outside the years it claims, an unknown key — is INVALID, and an
 invalid owner calendar makes its venue UNKNOWN. It never falls through to the
@@ -208,7 +220,8 @@ def parse(code: str, raw) -> CalendarData:
             isinstance(y, int) and not isinstance(y, bool) and 1990 <= y <= 2100 for y in years_raw):
         raise CalendarError(f"years {years_raw!r} must be a list of four-digit years")
     years = frozenset(years_raw)
-    if not years and not alias:
+    narrow = bool(raw.get("special_sessions") or raw.get("unknown_days"))
+    if not years and not alias and not narrow:
         raise CalendarError("no `years`: a calendar must say which years it covers")
 
     def in_years(d: date, where: str) -> date:
@@ -244,13 +257,16 @@ def parse(code: str, raw) -> CalendarData:
         early[d] = t
     special = {}
     for d_s, phases in (raw.get("special_sessions") or {}).items():
-        d = in_years(_strict_date(d_s, "special_sessions"), "special_sessions")
+        # Not gated by in_years(): a special session is a narrow, self-dated
+        # fact and claims nothing about the rest of its year (see module
+        # docstring).
+        d = _strict_date(d_s, "special_sessions")
         special[d] = _phases(phases, f"special_sessions[{d_s}]")
         if isinstance(phases, dict) and phases.get("name"):
             names.setdefault(d, str(phases["name"]).strip())
     unknown_days = {}
     for d_s, why in (raw.get("unknown_days") or {}).items():
-        d = in_years(_strict_date(d_s, "unknown_days"), "unknown_days")
+        d = _strict_date(d_s, "unknown_days")
         reason = why.get("reason") if isinstance(why, dict) else why
         if not isinstance(reason, str) or not reason.strip():
             raise CalendarError(f"unknown_days[{d_s}]: say why the day cannot be modelled")

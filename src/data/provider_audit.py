@@ -67,7 +67,7 @@ def verify_bse_candidate(row: dict, ticker_factory=None) -> dict:
         ticker_factory = yf.Ticker
     try:
         ticker = ticker_factory(candidate)
-        bars = ticker.history(period="1mo", interval="1d", auto_adjust=False)
+        bars = ticker.history(period="2y", interval="1d", auto_adjust=False)
         if bars is None or bars.empty or not {"Open", "High", "Low", "Close"}.issubset(bars.columns):
             return {**result, "reason": "candidate has no OHLC history"}
         usable = bars[["Open", "High", "Low", "Close"]].dropna()
@@ -83,7 +83,11 @@ def verify_bse_candidate(row: dict, ticker_factory=None) -> dict:
             metadata = {**info, **metadata}
         result.update(provider_symbol=metadata.get("symbol"), exchange=metadata.get("exchangeName") or metadata.get("exchange"),
                       currency=metadata.get("currency"), name=name, bars=len(usable),
-                      data_as_of=str(usable.index[-1]), isin=row.get("isin"))
+                      data_as_of=str(usable.index[-1]), isin=row.get("isin"),
+                      history_sufficient=len(usable) >= 200,
+                      history_check={"interval": "1d", "requested_period": "2y", "bars_observed": len(usable),
+                                     "minimum_diagnostic_bars": 30, "full_warmup_bars": 200,
+                                     "scope": "this response only; not a complete history or multi-timeframe verification"})
         if str(result["provider_symbol"] or "").upper() != candidate:
             return {**result, "reason": "provider ticker mismatch"}
         if str(result["exchange"] or "").upper() != "BSE" or result["currency"] != "INR":
