@@ -38,6 +38,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -293,6 +294,32 @@ async def _startup():
     threading.Thread(target=_daily_report_loop, daemon=True).start()
 
 
+def _sleep_wallclock(seconds: float, *, step: float = 30.0,
+                     _now=None, _sleep=None) -> None:
+    """Sleep until `seconds` of WALL-CLOCK time have passed.
+
+    `time.sleep(n)` counts only the time the machine is awake: Windows does not
+    advance a relative wait across suspend. On a host that sleeps, a six-hour
+    refresh therefore needed six AWAKE hours — the macro snapshot went from
+    2026-10-08 23:27 to the process's death 35 hours later without one refresh,
+    because the laptop was awake for fewer than six of them.
+
+    Waiting in short steps against the wall clock means an overdue tick runs
+    within `step` seconds of the host waking, and changes nothing on a host
+    that never sleeps. It does not make a sleeping machine reliable: nothing
+    runs while it is asleep.
+    """
+    import time
+    now = _now or time.time
+    sleep = _sleep or time.sleep
+    deadline = now() + seconds
+    while True:
+        remaining = deadline - now()
+        if remaining <= 0:
+            return
+        sleep(min(step, remaining))
+
+
 def _register_workers():
     """Declare every continuous process to the registry, once, at boot."""
     try:
@@ -346,7 +373,7 @@ def _research_eye_loop():
         except Exception as e:
             # Non-fatal by construction: a throttled feed must not end the loop.
             logger.warning(f"research eye tick failed: {e}")
-        time.sleep(1200)
+        _sleep_wallclock(1200)
 
 
 def _macro_loop():
@@ -383,7 +410,7 @@ def _macro_loop():
                             f"score={snap.macro_score}")
         except Exception as e:
             logger.warning(f"macro loop tick failed: {e}")
-        time.sleep(21600)
+        _sleep_wallclock(21600)
 
 
 def _daily_report_loop():
@@ -427,7 +454,7 @@ def _daily_report_loop():
             pass                      # another tick won the race; both are right
         except Exception as e:
             logger.warning(f"daily report loop tick failed: {e}")
-        time.sleep(1800)
+        _sleep_wallclock(1800)
 
 
 def _world_loop():
@@ -446,7 +473,7 @@ def _world_loop():
                 world.save_snapshot()
         except Exception as e:
             logger.debug(f"world loop tick failed: {e}")
-        time.sleep(600)
+        _sleep_wallclock(600)
 
 
 def _ledger_loop():
@@ -486,7 +513,7 @@ def _ledger_loop():
             workers.sweep()
         except Exception as e:
             logger.debug(f"ledger loop tick failed: {e}")
-        time.sleep(1800)
+        _sleep_wallclock(1800)
 
 
 def _outcome_resolver_loop():
@@ -524,7 +551,7 @@ def _outcome_resolver_loop():
             # A vendor outage must not kill the resolver thread — the calls it
             # could not grade today are still pending tomorrow.
             logger.warning(f"outcome resolver tick failed: {e}")
-        time.sleep(3600)
+        _sleep_wallclock(3600)
 
 
 def _fx_monitor_loop():
@@ -539,7 +566,7 @@ def _fx_monitor_loop():
                 check()
         except Exception as e:
             logger.debug(f"FX monitor tick failed: {e}")
-        time.sleep(1800)
+        _sleep_wallclock(1800)
 
 
 def _discover_models():
@@ -589,15 +616,67 @@ def _start_brain_if_ollama():
     if os.environ.get("ARIA_RUN_BRAIN", "true").lower() == "false":
         logger.info("ARIA_RUN_BRAIN=false — brain daemon disabled (desk only).")
         return
-    try:
-        if _ollama_available():
-            from src.brain.brain_daemon import get_brain
-            get_brain().start()
-            logger.info("ARIA cognitive brain daemon started.")
-        else:
-            logger.info("Ollama offline — brain daemon not started.")
-    except Exception as e:
-        logger.warning(f"Brain daemon startup failed: {e}")
+
+    def _start():
+        from src.brain.brain_daemon import get_brain
+        get_brain().start()
+
+    _wait_for_ollama_then_start_brain(_ollama_available, _start, _sleep_wallclock)
+
+
+#: Seconds between looks for Ollama while the brain has not started; the last
+#: value repeats. One localhost request every five minutes is the steady cost.
+_BRAIN_RETRY_S = (10, 20, 30, 60, 120, 300)
+#: The brain raising on start is a fault, not "not ready yet": stop after this many.
+_BRAIN_MAX_START_FAILURES = 3
+#: Set by POST /api/brain/stop, so a brain the owner stopped is not started by
+#: a boot-time wait that was still running.
+_brain_boot_cancelled = threading.Event()
+
+
+def _wait_for_ollama_then_start_brain(available, start, sleep,
+                                      max_checks: int | None = None) -> bool:
+    """Start the brain when Ollama answers, however long that takes.
+
+    This used to be one look, five seconds after boot. Ollama starts from the
+    same login as the backend and is often not answering yet, and a brain that
+    missed that single look never started for the life of the process — the
+    backend that came up on 2026-10-08 23:27 ran 35 hours without one cognitive
+    cycle. The brain is research-only (it proposes; nothing here executes), so
+    starting it late changes no trading authority.
+
+    Returns True once started; False if cancelled, out of checks, or the brain
+    itself failed to start `_BRAIN_MAX_START_FAILURES` times.
+    """
+    failures = checks = 0
+    told = False
+    while not _brain_boot_cancelled.is_set():
+        try:
+            up = bool(available())
+        except Exception:
+            up = False
+        if up:
+            try:
+                start()
+                logger.info("ARIA cognitive brain daemon started.")
+                return True
+            except Exception as e:
+                failures += 1
+                logger.warning(f"Brain daemon startup failed "
+                               f"({failures}/{_BRAIN_MAX_START_FAILURES}): {e}")
+                if failures >= _BRAIN_MAX_START_FAILURES:
+                    logger.error("Brain daemon not started: it failed to start "
+                                 "repeatedly with Ollama up.")
+                    return False
+        elif not told:
+            logger.info("Ollama offline — brain daemon not started yet; will "
+                        "keep checking.")
+            told = True
+        checks += 1
+        if max_checks is not None and checks >= max_checks:
+            return False
+        sleep(_BRAIN_RETRY_S[min(checks - 1, len(_BRAIN_RETRY_S) - 1)])
+    return False
 
 # CORS — allows the React frontend to call this API. Exact origins ONLY:
 # a "*" here lets any webpage in the same browser fire requests at the
@@ -1389,10 +1468,11 @@ def markets_plan(body: dict = Body(...)):
 def data_freshness():
     """Every generated dataset ARIA reads as if current: age, budget, status
     (FRESH / STALE / UNKNOWN), its writer and whether anything still runs it."""
-    from src.core.world import all_dataset_freshness
+    from src.core.world import all_dataset_freshness, pipeline_run
     rows = all_dataset_freshness()
     return {"datasets": rows,
             "stale": [r["dataset"] for r in rows if r["status"] != "FRESH"],
+            "pipeline_run": pipeline_run(),
             "as_of": datetime.now().isoformat(timespec="seconds")}
 
 
@@ -1401,45 +1481,57 @@ def data_freshness():
 # ===========================================================================
 
 @app.get("/api/history/{ticker}", tags=["Database"])
-def get_signal_history(ticker: str, days: int = 30):
+def get_signal_history(ticker: str, response: Response, days: int = 30):
     """
     Get historical signals for one ticker from the database.
     Returns signal score, action, confidence, and price for last N days.
+
+    Legacy: nothing has written this database since 2026-05-31, so `days` is
+    counted back from today and usually finds nothing — see `freshness`.
     """
     try:
         sys.path.insert(0, str(ROOT))
         from src.database.database import get_signal_history as _get_hist
+        fresh = _mark_freshness(response, "trading_intelligence.db")
         df = _get_hist(ticker, days=days)
         if df.empty:
-            return {"ticker": ticker, "days": days, "records": []}
+            return {"ticker": ticker, "days": days, "records": [], "freshness": fresh}
         return {
             "ticker":  ticker,
             "days":    days,
             "records": df.to_dict(orient="records"),
+            "freshness": fresh,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/stats", tags=["Database"])
-def get_database_stats():
-    """Get statistics about what's stored in the SQLite database."""
+def get_database_stats(response: Response):
+    """Get statistics about what's stored in the SQLite database (legacy —
+    frozen since 2026-05-31; see `freshness`)."""
     try:
         from src.database.database import get_database_stats as _stats
-        return _stats()
+        fresh = _mark_freshness(response, "trading_intelligence.db")
+        out = _stats()
+        return {**out, "freshness": fresh} if isinstance(out, dict) else out
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/performance/{ticker}", tags=["Database"])
-def get_signal_performance(ticker: str):
+def get_signal_performance(ticker: str, response: Response):
     """
     Get historical signal performance for one ticker.
     Shows whether past Buy/Sell signals were correct.
+
+    Legacy: the table was last written 2026-05-30 and nothing refreshes it;
+    graded calls live in the prediction ledger (/api/ledger/*).
     """
     try:
         from src.database.database import get_connection
         import pandas as pd
+        fresh = _mark_freshness(response, "trading_intelligence.db")
         with get_connection() as conn:
             df = pd.read_sql_query("""
                 SELECT signal_date, action, composite_score, entry_price,
@@ -1451,7 +1543,10 @@ def get_signal_performance(ticker: str):
                 LIMIT 50
             """, conn, params=(ticker,))
         if df.empty:
-            return {"ticker": ticker, "message": "No performance data yet. Run main.py daily for a week.", "records": []}
+            return {"ticker": ticker,
+                    "message": ("No performance data. Nothing writes this table any more "
+                                "(main.py does not); graded calls are in /api/ledger."),
+                    "records": [], "freshness": fresh}
         accuracy_1d  = df["signal_correct_1d"].mean()  if "signal_correct_1d"  in df else None
         accuracy_5d  = df["signal_correct_5d"].mean()  if "signal_correct_5d"  in df else None
         accuracy_20d = df["signal_correct_20d"].mean() if "signal_correct_20d" in df else None
@@ -1461,6 +1556,7 @@ def get_signal_performance(ticker: str):
             "accuracy_5d":  round(accuracy_5d,  3) if accuracy_5d  is not None else None,
             "accuracy_20d": round(accuracy_20d, 3) if accuracy_20d is not None else None,
             "records": df.to_dict(orient="records"),
+            "freshness": fresh,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2064,33 +2160,154 @@ _TICKER_STOPWORDS = {
 }
 
 
+#: Names of systems that share a symbol with a listed fund. "ARIA" is the ARIA
+#: Opportunities ETF and "S" is SentinelOne; a question about this system is
+#: not a question about either.
+_TICKER_STOPWORDS |= {"ARIA", "SENTINEL", "ATLAS", "CLAUDE", "API", "JSON",
+                      "CSV", "SQL", "LLM", "PDF", "URL", "ID", "VS", "FAQ"}
+
+#: Ordinary English words that are also the FIRST word of a listed company's
+#: name. A lowercase "match" is a cricket match, not Match Group. They resolve
+#: only when the message is plainly about a company (`_STOCK_CUE`).
+_COMMON_NAME_WORDS = frozenset("""
+    match gold target block square best general first international american
+    united global national energy health digital power home bank capital trust
+    life real smart open solar green west east north south central pacific
+    royal great new star sun rock river ocean union liberty summit peak alpha
+    beta delta gamma sigma world park city main simple live fast every
+    progressive principal community heritage pioneer frontier insight
+    """.split())
+_STOCK_CUE = None   # compiled on first use; `re` is imported inside
+
+
+def _caps_runs_to_skip(text: str, is_symbol) -> list:
+    """Spans of all-caps runs that read as a heading ("TRAINING LESSON 1:
+    EVIDENCE DISCIPLINE", "USE PROPORTIONATE CONCLUSIONS") rather than a list
+    of tickers ("AAPL MSFT NVDA"): three or more capitalised words, fewer than
+    two thirds of them symbols. Every capitalised word counts toward the run, however
+    long or common, so a short ticker-shaped word inside a heading is seen as
+    part of it."""
+    import re
+    spans, run = [], []
+
+    def close():
+        if len(run) >= 3:
+            words = [w for _, _, w in run]
+            known = sum(1 for w in words
+                        if len(w) <= 10 and w not in _TICKER_STOPWORDS
+                        and is_symbol(w) is True)
+            # A ticker list is mostly tickers. Two in four is a heading that
+            # happens to contain ALL (Allstate) and FIVE (Five Below).
+            if known * 3 < len(words) * 2:
+                spans.append((run[0][0], run[-1][1]))
+        run.clear()
+
+    prev_end = None
+    for m in re.finditer(r"\b[A-Z][A-Z0-9&]*[A-Z]\b|\b[A-Z]\b", text):
+        gap = text[prev_end:m.start()] if prev_end is not None else ""
+        if prev_end is not None and not re.fullmatch(r"[\s:,;.\-\u2013\u2014\d]*", gap):
+            close()
+        run.append((m.start(), m.end(), m.group(0)))
+        prev_end = m.end()
+    close()
+    return spans
+
+
 def _detect_query_ticker(message: str):
     """Best-effort (ticker, market_hint) from a chat message. Returns (None, None)
-    when nothing looks like a specific stock, so normal chat is untouched."""
+    when nothing looks like a specific stock, so normal chat is untouched.
+
+    2026-10-14, measured on one SENTINEL conversation: "match" resolved to MTCH,
+    "earn" to EARN (Ellington Credit), "step" to STEP, and the capitalised
+    headings TRAINING and FEEDBACK were taken as tickers. Each pulled a live
+    dossier for an unrelated company into the prompt, and the model talked about
+    it. So a word now has to BE a ticker, not merely look like one:
+
+    * an all-caps token counts when it carries an exchange suffix, or is a
+      symbol in the universe; failing both, only beside an NSE/BSE hint (long
+      Indian symbols are often missing from the index). When the universe
+      cannot be read, a short token is still accepted, as before;
+    * a run of capitalised words that are mostly not symbols is a heading;
+    * a company NAME matches on its first word ("tesla" -> Tesla), never on a
+      symbol that happens to contain the word, and a common English word does
+      so only when the message is about a company.
+    """
     import re
+    global _STOCK_CUE
+    if _STOCK_CUE is None:
+        _STOCK_CUE = re.compile(
+            r"\b(?:stocks?|shares?|ticker|share\s+price|company|companies|invest"
+            r"(?:ing|ment|ed)?|earnings|valuation|market\s+cap|listed)\b", re.I)
     text = message or ""
-    low = text.lower()
-    market = ("NSE" if any(w in low for w in ("nse", "nifty", " india", "indian", "sensex", "bse")) else
-              "LSE" if any(w in low for w in ("lse", "ftse", "london")) else None)
-    if "bse" in low:
+    # Whole words: "nse" is inside "response" and "license", which made every
+    # long English message look like an NSE question.
+    def said(*words):
+        return any(re.search(rf"\b{w}\b", text, re.I) for w in words)
+    market = ("NSE" if said("nse", "nifty", "india", "indian", "sensex", "bse") else
+              "LSE" if said("lse", "ftse", "london") else None)
+    if said("bse"):
         market = "BSE"
+
+    cache: dict = {}
+
+    def is_symbol(tok: str):
+        """True/False from the universe; None when it cannot be read."""
+        if tok not in cache:
+            try:
+                hits = _get_universe().search(tok, n=5)
+                cache[tok] = any(tok.upper() in {(h.get("symbol") or "").upper(),
+                                                 (h.get("yahoo") or "").upper()}
+                                 for h in hits)
+            except Exception:
+                cache[tok] = None
+        return cache[tok]
+
     # explicit yahoo-style tickers first (SAIL.NS, BRK.B, BTC-USD)
-    m = re.search(r"\b([A-Z][A-Z0-9&]{0,9}(?:\.(?:NS|BO|L))?(?:-USD)?)\b", text)
-    for tok in re.findall(r"\b([A-Z][A-Z0-9&]{0,9}(?:\.(?:NS|BO|L))?(?:-USD)?)\b", text):
-        base = tok.split(".")[0].replace("-USD", "")
-        if tok in _TICKER_STOPWORDS or base in _TICKER_STOPWORDS or len(base) < 2:
+    tokens = list(re.finditer(r"\b([A-Z][A-Z0-9&]{0,9}(?:\.(?:NS|BO|L))?(?:-USD)?)\b", text))
+    tokens = [m for m in tokens
+              if m.group(1) not in _TICKER_STOPWORDS
+              and m.group(1).split(".")[0].replace("-USD", "") not in _TICKER_STOPWORDS
+              and len(m.group(1).split(".")[0].replace("-USD", "")) >= 2]
+    heading = _caps_runs_to_skip(text, is_symbol) if tokens else []
+    for m in tokens:
+        if any(a <= m.start() < b for a, b in heading):
             continue
-        return tok, market
-    # company-name fallback: match individual proper-noun words against the
-    # known index by name (so "Tesla" → TSLA). Capitalised words first.
+        tok = m.group(1)
+        base = tok.split(".")[0].replace("-USD", "")
+        if tok != base:                       # carries its own exchange
+            return tok, market
+        known = is_symbol(tok)
+        if known is True:
+            return tok, market
+        if known is None and len(base) <= 5:
+            return tok, market
+        if known is False and market in ("NSE", "BSE"):
+            return tok, market
+
+    # company-name fallback: a word that is the first word of a company's name
+    # (so "tesla" -> TSLA). The universe holds tens of thousands of names, and
+    # almost any English word starts one — "tomorrow", "yes", "available",
+    # "work" and "ask" each did. So a match counts only for a company ARIA
+    # actually tracks (its signal book), or for a capitalised word in the
+    # middle of a sentence, where capitals mean a proper noun.
     try:
+        about_a_company = bool(_STOCK_CUE.search(text))
+        tracked = set((_load_optional("signals.json") or {}).keys())
+        mid_sentence = {m.group(0) for m in re.finditer(
+            r"(?<![.!?\n]\s)(?<!^)(?<=\s)[A-Z][a-z][A-Za-z&]+", text)}
         words = re.findall(r"[A-Za-z][A-Za-z&]{2,}", text)
         cands = [w for w in words if w[:1].isupper() and w.upper() not in _TICKER_STOPWORDS]
         cands += [w for w in words if w.upper() not in _TICKER_STOPWORDS and w not in cands]
-        for w in cands[:5]:
+        cands = [w for w in cands
+                 if about_a_company or w.lower() not in _COMMON_NAME_WORDS]
+        for w in cands[:8]:
             hits = _get_universe().search(w, n=1)
-            if hits and (w.upper() in hits[0]["symbol"].upper()
-                         or w.lower() in (hits[0].get("name") or "").lower()):
+            if not hits:
+                continue
+            first = re.split(r"[^A-Za-z&]+", (hits[0].get("name") or "").strip())[0]
+            if first.lower() != w.lower():
+                continue
+            if hits[0]["symbol"] in tracked or w in mid_sentence:
                 return hits[0]["symbol"], market
     except Exception:
         pass
@@ -2505,6 +2722,33 @@ def _source_age(filename: str, kind: str) -> tuple:
     return (f"{age}, STALE" if stale else age, stale)
 
 
+def _age_basis_note() -> str:
+    """One line saying what each section's age actually measures.
+
+    The ages above are computed from file modification times unless the file
+    states a date. That is not when the market was observed, and a model handed
+    "SIGNALS (2 days old)" will repeat it as the market's age. So the basis is
+    stated, and a bar date is quoted only when the rows record one.
+    """
+    parts = []
+    for label, filename in (("MACRO", "macro_data.json"), ("SIGNALS", "signals.json"),
+                            ("ML", "ml_predictions.json")):
+        f = _freshness(filename)
+        obs = f.get("observation") or {}
+        if f.get("basis") == "stated_date":
+            how = f"dated by the file's own data_date ({str(f.get('as_of'))[:10]})"
+        elif f.get("basis") == "file_mtime":
+            how = "age is the time the FILE was written"
+            if obs.get("recorded"):
+                how += f"; bars through {obs.get('latest_bar')}"
+            elif "recorded" in obs:
+                how += "; its rows record no bar date"
+        else:
+            how = "no file, so no age"
+        parts.append(f"{label}: {how}")
+    return "How each age is known — " + ". ".join(parts) + "."
+
+
 def _build_market_context() -> str:
     """The market block handed to the local model.
 
@@ -2559,6 +2803,7 @@ def _build_market_context() -> str:
     return f"""── MARKET STATE ───────────────────────────────────────
 Each section is dated. Sources differ in age and in what they measure — never
 take a number from one section and attach it to a ticker from another.
+{_age_basis_note()}
 
 MACRO ({mac_age})
   Regime     : {macro.get('regime', 'Unknown')}
@@ -2669,7 +2914,33 @@ RISKS:
 - <each way this could be wrong or costly>
 
 Do not state a confidence percentage: none of your data supports one.
+
+Answer THE QUESTION ASKED. The market data above is there to use where the
+question needs it; do not recite it when the question does not. A question
+about a concept, or about numbers the asker supplied, is answered from those,
+and the market data stays out of it.
+
+If the question has numbered parts, ANALYSIS answers every one of them, each
+on its own line starting with its number. If you run short, say which parts
+you did not answer. Show any calculation as "a - b = c" so it can be checked.
 """
+
+
+def _specialist_ticker(question: str, context: str):
+    """(ticker, the text it was found in). The question first; failing that
+    the asking system's context, newest line first — a follow-up such as
+    "about their presence in the market" names its company one turn earlier.
+    Context lines only, never a previous answer: SENTINEL sends the owner's own
+    words (sentinel/kernel.py `_aria_context`)."""
+    ticker, _ = _detect_query_ticker(question)
+    if ticker:
+        return ticker, question
+    lines = [ln.strip().lstrip("-").strip() for ln in (context or "").splitlines()]
+    for line in reversed([ln for ln in lines if ln]):
+        ticker, _ = _detect_query_ticker(line)
+        if ticker:
+            return ticker, line
+    return None, question
 
 
 def _specialist_sections(text: str) -> tuple[str, list, list, bool]:
@@ -2741,7 +3012,7 @@ def specialist_analysis(body: SpecialistQuestion, request: Request):
 
     reasons = [f"{f} is stale" for f in stale]
     signal = None
-    ticker, _market = _detect_query_ticker(question)
+    ticker, ticker_text = _specialist_ticker(question, body.context)
     if ticker:
         row = (_load_optional("signals.json") or {}).get(ticker)
         if row:
@@ -2777,8 +3048,13 @@ def specialist_analysis(body: SpecialistQuestion, request: Request):
                 "model": None}
 
     model = FREE_MODEL
-    system = (f"{_ARIA_SYSTEM}\n\n{_build_market_context()}"
-              f"{_ondemand_ticker_context([ChatMsg(role='user', content=question)])}"
+    market_context = _build_market_context()
+    # The date, said outright: without it a 4B model dated a 2026 conversation
+    # "October 14, 2024" (SENTINEL, 2026-10-14).
+    today = datetime.now().strftime("%A %d %B %Y")
+    system = (f"{_ARIA_SYSTEM}\n\nTODAY IS {today}. Any date you write must be "
+              f"consistent with that.\n\n{market_context}"
+              f"{_ondemand_ticker_context([ChatMsg(role='user', content=ticker_text)])}"
               f"\n{_SPECIALIST_FORMAT}")
     if (body.context or "").strip():
         system += f"\n\nCONTEXT FROM THE ASKING SYSTEM:\n{body.context[:2000]}"
@@ -2798,6 +3074,11 @@ def specialist_analysis(body: SpecialistQuestion, request: Request):
     if not followed:
         reasons.append("the model did not answer in the requested structure; "
                        "assumptions and risks may be missing")
+    # Re-done arithmetic, invented years, unanswered numbered parts. These add
+    # reasons to check; they never rewrite or certify the answer.
+    from src.intelligence.answer_checks import check_answer
+    reasons += check_answer(question, result.text, data=market_context,
+                            context=body.context or "")
     return {**base, "status": "success", "analysis": analysis,
             "assumptions": assumptions, "risks": risks,
             "stated_by_model": ["analysis", "assumptions", "risks"],
@@ -2937,6 +3218,7 @@ def brain_start(model: str = "qwen2.5-coder:7b"):
 @app.post("/api/brain/stop", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def brain_stop():
     """Pause the brain daemon."""
+    _brain_boot_cancelled.set()     # a stop also ends the boot-time wait for Ollama
     from src.brain.brain_daemon import peek_brain
     brain = peek_brain()
     if brain is None or not brain.running:
@@ -3741,6 +4023,53 @@ def desk_performance():
     })
 
 
+#: A step this large between two consecutive equity snapshots is a change of
+#: account capital, not trading: the desk runs unlevered (gross <= 100%), caps a
+#: name at 5% and halts the day at a 2% drawdown, so no sequence of fills moves
+#: equity by a quarter between snapshots. The one in the record is the paper
+#: account being reset from 103,006.92 to 10,000.00 on 2026-07-20.
+EQUITY_RESET_STEP = 0.25
+
+
+def _account_basis(rows: list) -> dict:
+    """Where the CURRENT account's history starts in an equity curve.
+
+    "Total P&L" was `equity - curve[0]` over the last 500 snapshots: a rolling
+    window labelled total, which while the file was shorter also spanned the
+    account reset and reported it as a 90% loss. Total is measured from the
+    first snapshot after the most recent reset, over the whole file.
+
+    What this cannot see is said, not hidden: a deposit or withdrawal smaller
+    than EQUITY_RESET_STEP looks like P&L, because the curve records equity and
+    nothing else. Rows without a usable equity are skipped, never guessed.
+    """
+    points = []
+    for r in rows or []:
+        try:
+            eq = float(r.get("equity"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if eq > 0:
+            points.append((r.get("at"), eq))
+    out = {"method": "equity now minus the first snapshot of the current "
+                     "account basis (the snapshot after the last capital reset)",
+           "snapshots": len(points), "resets_detected": [],
+           "since": None, "start_equity": None,
+           "blind_to": f"deposits or withdrawals under {EQUITY_RESET_STEP:.0%} of "
+                       f"equity, which the curve cannot tell from trading"}
+    if not points:
+        return out
+    start = 0
+    for i in range(1, len(points)):
+        prev, cur = points[i - 1][1], points[i][1]
+        if abs(cur - prev) / prev >= EQUITY_RESET_STEP:
+            out["resets_detected"].append({"at": points[i][0], "from": round(prev, 2),
+                                           "to": round(cur, 2)})
+            start = i
+    out["since"], out["start_equity"] = points[start][0], round(points[start][1], 2)
+    return out
+
+
 @app.get("/api/desk/pnl", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_pnl():
     """Paper equity curve + open positions + day/total P&L."""
@@ -3749,18 +4078,24 @@ def desk_pnl():
     account = account_snapshot()
     day = load_day_state(current_equity=account.get("equity"))
 
-    curve = []
+    history = []
     curve_path = ROOT / "data" / "desk" / "equity_curve.jsonl"
     if curve_path.exists():
-        for line in curve_path.read_text(encoding="utf-8").splitlines()[-500:]:
+        for line in curve_path.read_text(encoding="utf-8").splitlines():
             try:
-                curve.append(json.loads(line))
+                history.append(json.loads(line))
             except Exception:
                 continue
+    curve = history[-500:]          # the chart's window; NOT the P&L's
 
     equity = account.get("equity") or 0.0
     start_eq = day.get("start_equity") or 0.0
-    first_eq = curve[0]["equity"] if curve else start_eq
+    basis = _account_basis(history)
+    if basis["start_equity"] is None:
+        # No equity history at all: the only start there is, is today's.
+        basis.update({"start_equity": start_eq or None, "since": day.get("date"),
+                      "method": "equity now minus today's start (no equity history)"})
+    first_eq = basis["start_equity"] or 0.0
     positions = account.get("positions") or []
     winners = sum(1 for p in positions if (p.get("unrealized_pl") or 0) > 0)
 
@@ -3774,6 +4109,7 @@ def desk_pnl():
         "day_pnl_pct": round((equity - start_eq) / start_eq * 100, 3) if start_eq else 0.0,
         "total_pnl": round(equity - first_eq, 2) if first_eq else 0.0,
         "total_pnl_pct": round((equity - first_eq) / first_eq * 100, 3) if first_eq else 0.0,
+        "total_pnl_basis": basis,
         "open_positions": positions,
         "open_win_rate": round(winners / len(positions), 3) if positions else None,
         "equity_curve": curve,
@@ -5080,19 +5416,81 @@ def consult_outcome(request_id: str, accepted: bool, what_happened: str = ""):
 # moment to re-authenticate.
 # ===========================================================================
 
+def _jsonl_source(path: Path) -> dict:
+    """What one append-only record file actually holds: whether it exists, how
+    many readable records, and when the last one was written by its own `at`
+    field — never the file's modification time. Unreadable lines are counted,
+    not dropped silently."""
+    info = {"exists": path.exists(), "records": 0, "unreadable_lines": 0,
+            "last_record_at": None, "age_hours": None}
+    if not info["exists"]:
+        return info
+    last = None
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                info["unreadable_lines"] += 1
+                continue
+            info["records"] += 1
+            at = row.get("at") if isinstance(row, dict) else None
+            if at:
+                last = str(at)
+    except OSError as e:
+        info["error"] = f"{type(e).__name__}: {e}"
+        return info
+    info["last_record_at"] = last
+    if last:
+        try:
+            from datetime import timezone as _tz
+            when = datetime.fromisoformat(last)
+            now = datetime.now(_tz.utc) if when.tzinfo else datetime.now()
+            info["age_hours"] = round((now - when).total_seconds() / 3600, 1)
+        except ValueError:
+            pass
+    return info
+
+
+def _order_record_sources() -> dict:
+    """Where ARIA's order records really are, side by side.
+
+    The pipeline journal (src/trading) is empty on this deployment because no
+    production caller runs the pipeline; the orders ARIA sends are in the desk's
+    execution log. Showing only the first read as "no orders were ever sent".
+    Read-only, and each source reports missing / empty / stale for itself.
+    """
+    from src.desk import auto_executor as _ae
+    from src.trading import orders as _orders
+    return {
+        "pipeline_journal": {**_jsonl_source(_orders.JOURNAL),
+                             "what": "orders sent through src/trading TradingPipeline",
+                             "production_path": False},
+        "desk_executions": {**_jsonl_source(_ae.EXEC_LOG),
+                            "what": "entries and exits sent through "
+                                    "src/execution/order_manager (desk, reflex, approvals)",
+                            "production_path": True,
+                            "served_by": "/api/desk/executions"},
+    }
+
+
 @app.get("/api/trading/status", tags=["Trading"],
          dependencies=[Depends(require_owner)])
 def trading_status():
     """Everything about what this system may currently do, in one answer."""
     from src.trading import killswitch, lifecycle, limits, modes
-    from src.trading.orders import OrderEngine
+    from src.trading.orders import JOURNAL_SCOPE, OrderEngine
     engine = OrderEngine()
     return _sanitize({
         "mode": modes.status(),
         "limits": limits.describe(),
         "strategies": lifecycle.summary(),
         "order_engine": {"halted": engine.halted(),
-                         "orders": len(engine.latest())},
+                         "orders": len(engine.latest()),
+                         "scope": JOURNAL_SCOPE,
+                         "record_sources": _order_record_sources()},
         "kill_policy": killswitch.policy(),
         "live_readiness": modes.live_readiness(),
         "disabled_in_this_deployment": [
@@ -5377,10 +5775,13 @@ def trading_risk_decisions(symbol: Optional[str] = None, verdict: Optional[str] 
 @app.get("/api/trading/orders", tags=["Trading"],
          dependencies=[Depends(require_owner)])
 def trading_orders():
-    """The order journal's current view, and whether the engine is halted."""
-    from src.trading.orders import OrderEngine
+    """The order journal's current view, and whether the engine is halted.
+    Covers the src/trading pipeline only — see `scope`."""
+    from src.trading.orders import JOURNAL_SCOPE, OrderEngine
     engine = OrderEngine()
-    return _sanitize({"halted": engine.halted(), "orders": engine.latest()})
+    return _sanitize({"halted": engine.halted(), "orders": engine.latest(),
+                      "scope": JOURNAL_SCOPE,
+                      "record_sources": _order_record_sources()})
 
 
 @app.post("/api/trading/orders/reconcile", tags=["Trading"],
