@@ -33,9 +33,17 @@ class PendingTrade:
     """A trade proposal waiting for user approval."""
     id:             str
     created_at:     str
-    # pending | approved | rejected | executed | cancelled | unknown
+    # pending | approved | submitting | executed | rejected | cancelled | unknown
+    # "submitting": claimed for sending, its client id recorded BEFORE the POST.
+    #   Not cancellable, not approvable; a crash leaves it here for
+    #   reconciliation by lookup, never for a fresh automatic send.
     # "unknown": sent, and the broker's answer never settled — it may hold the
-    # order. Terminal: never approvable again, so nothing resends it.
+    #   order. Not approvable again, so nothing resends it. Leaves only by a
+    #   broker answer found by client id (reconcile) or the owner's release.
+    # "executed": the broker acknowledged it — `order_status` says whether it
+    #   is working (submitted), partially filled or filled.
+    # submitting and unknown are UNRESOLVED: they block another automated
+    # order for the same instrument (order_manager), across lanes and restarts.
     status:         str
     # What to trade
     ticker:         str
@@ -74,6 +82,17 @@ class PendingTrade:
     # The idempotency key it was sent with (order_manager.queue_client_order_id)
     # — what finds the order at the broker when its outcome is unknown.
     client_order_id: str = ""
+    submitting_at:   str = ""
+    # The broker's last word on it: submitted | partial | filled | cancelled |
+    # rejected | expired | unknown — and how much actually filled.
+    order_status:    str = ""
+    filled_qty:      float = 0.0
+    # An unresolved order the OWNER released after checking the broker.
+    released_by:     str = ""
+    released_at:     str = ""
+
+
+UNRESOLVED = ("submitting", "unknown")
 
 
 def _load_queue() -> list[dict]:
@@ -176,18 +195,23 @@ class ApprovalQueue:
         return None
 
     def reject(self, trade_id: str, reason: str = "", *,
-               client_order_id: str = "") -> Optional[PendingTrade]:
+               client_order_id: str = "", after_send: bool = False) -> Optional[PendingTrade]:
         """Record a refusal — by the human before it was sent, or by the broker
         after. "approved" is accepted deliberately: OrderManager.execute()
         marks a trade approved *before* it calls the broker, so a broker
         rejection arriving afterwards used to find the trade already out of
         "pending" and silently do nothing. The queue then read "approved" for
         an order that never existed — the audit trail claiming a trade the
-        market rejected."""
+        market rejected.
+
+        A row already claimed for sending ("submitting") can be rejected only
+        with `after_send` — by the broker's own answer — never by the human's
+        "reject before it reaches the broker", which would be false by then."""
+        allowed = ("pending", "approved") + (("submitting",) if after_send else ())
         with _QUEUE_LOCK:
             items = _load_queue()
             for d in items:
-                if d["id"] == trade_id and d["status"] in ("pending", "approved"):
+                if d["id"] == trade_id and d["status"] in allowed:
                     d["status"] = "rejected"
                     d["rejection_reason"] = reason
                     if client_order_id:
@@ -196,32 +220,75 @@ class ApprovalQueue:
                     return PendingTrade(**d)
         return None
 
+    def claim_for_submit(self, trade_id: str, client_order_id: str) -> Optional[PendingTrade]:
+        """Atomically move an approved (or pending) row to "submitting" with its
+        client id recorded — BEFORE anything is sent. None when the row is not
+        sendable any more (cancelled, already claimed): then nothing may be sent.
+        From here the row cannot be cancelled as "never reached the broker"."""
+        with _QUEUE_LOCK:
+            items = _load_queue()
+            for d in items:
+                if d["id"] == trade_id and d["status"] in ("pending", "approved"):
+                    d["status"] = "submitting"
+                    d["client_order_id"] = client_order_id
+                    d["submitting_at"] = datetime.utcnow().isoformat()
+                    _save_queue(items)
+                    return PendingTrade(**d)
+        return None
+
     def mark_executed(self, trade_id: str, broker_order_id: str, fill_price: float = 0.0,
-                      *, client_order_id: str = ""):
+                      *, client_order_id: str = "", order_status: str = "",
+                      filled_qty: Optional[float] = None):
+        """The broker acknowledged the order. `order_status` says how far it got
+        (submitted / partial / filled); `executed` alone never meant filled."""
         with _QUEUE_LOCK:
             items = _load_queue()
             for d in items:
                 if d["id"] == trade_id:
+                    if d["status"] in ("cancelled", "rejected"):
+                        logger.critical(f"trade {trade_id} was {d['status']} locally but the "
+                                        f"broker holds order {broker_order_id} — recording it")
                     d["status"] = "executed"
                     d["broker_order_id"] = broker_order_id
                     d["fill_price"] = fill_price
                     d["executed_at"] = datetime.utcnow().isoformat()
                     if client_order_id:
                         d["client_order_id"] = client_order_id
+                    if order_status:
+                        d["order_status"] = order_status
+                    if filled_qty is not None:
+                        d["filled_qty"] = float(filled_qty)
                     _save_queue(items)
                     return
         logger.warning(f"mark_executed: trade {trade_id} not found")
 
-    def mark_unknown(self, trade_id: str, reason: str, *,
-                     client_order_id: str = "") -> Optional[PendingTrade]:
-        """Sent, and whether the broker holds it could not be settled. Only an
-        "approved" trade gets here — execute() marks it approved before
-        sending. Terminal: execute() and cancel() refuse it from now on."""
+    def mark_ended_unfilled(self, trade_id: str, order_status: str, reason: str) -> Optional[PendingTrade]:
+        """The broker acknowledged the order and later cancelled, rejected or
+        expired it with NOTHING filled. Recorded as rejected with the broker's
+        status — never left reading "executed"."""
         with _QUEUE_LOCK:
             items = _load_queue()
             for d in items:
-                if d["id"] == trade_id and d["status"] in ("pending", "approved"):
+                if d["id"] == trade_id and d["status"] in ("submitting", "executed", "unknown"):
+                    d["status"] = "rejected"
+                    d["order_status"] = order_status
+                    d["filled_qty"] = 0.0
+                    d["rejection_reason"] = reason
+                    _save_queue(items)
+                    return PendingTrade(**d)
+        return None
+
+    def mark_unknown(self, trade_id: str, reason: str, *,
+                     client_order_id: str = "") -> Optional[PendingTrade]:
+        """Sent, and whether the broker holds it could not be settled.
+        execute() and cancel() refuse it from now on; it leaves "unknown" only
+        on a broker answer found by client id, or the owner's release."""
+        with _QUEUE_LOCK:
+            items = _load_queue()
+            for d in items:
+                if d["id"] == trade_id and d["status"] in ("pending", "approved", "submitting"):
                     d["status"] = "unknown"
+                    d["order_status"] = "unknown"
                     d["rejection_reason"] = reason
                     if client_order_id:
                         d["client_order_id"] = client_order_id
@@ -230,7 +297,35 @@ class ApprovalQueue:
         logger.warning(f"mark_unknown: trade {trade_id} not found or not in flight")
         return None
 
+    def unresolved(self) -> list[PendingTrade]:
+        """Rows that may be at the broker without an answer: submitting, unknown."""
+        return [PendingTrade(**d) for d in _load_queue() if d.get("status") in UNRESOLVED]
+
+    def release_unresolved(self, trade_id: str, *, by: str, note: str) -> Optional[PendingTrade]:
+        """The OWNER's decision, after checking the broker, that an unresolved
+        order was never placed. Nothing automatic calls this: a lookup that
+        finds nothing is not proof (Codex review of e4f01ad). Recorded as
+        rejected with who released it and why."""
+        if not (by and note and note.strip()):
+            raise ValueError("a release needs who and why")
+        with _QUEUE_LOCK:
+            items = _load_queue()
+            for d in items:
+                if d["id"] == trade_id and d["status"] in UNRESOLVED:
+                    was = d["status"]
+                    d["status"] = "rejected"
+                    d["rejection_reason"] = (f"released by {by}: {note.strip()} "
+                                             f"(was {was}; client id "
+                                             f"{d.get('client_order_id') or 'n/a'})")
+                    d["released_by"] = by
+                    d["released_at"] = datetime.utcnow().isoformat()
+                    _save_queue(items)
+                    return PendingTrade(**d)
+        return None
+
     def cancel(self, trade_id: str) -> bool:
+        """Cancel a row that was NOT sent. "submitting" and later states are
+        refused: the order may already be at the broker."""
         with _QUEUE_LOCK:
             items = _load_queue()
             for d in items:

@@ -162,27 +162,65 @@ def _status_token(alpaca_status) -> str:
     return token.strip().lower()
 
 
-def _classify_submit_failure(exc: Exception, req: OrderRequest) -> "OrderStatus":
+def _classify_submit_failure(exc: Exception, req: OrderRequest,
+                             retried: bool = False) -> "OrderStatus":
     """REJECTED only when the broker definitely refused; otherwise UNKNOWN.
 
-    An API error with a 4xx status is Alpaca saying no: the order does not
+    A 4xx answer to the ONLY attempt is Alpaca saying no: the order does not
     exist. Anything else — a timeout, a dropped connection, a 5xx — leaves the
     order's existence unknown. That distinction only helps a caller who can
     look the order up afterwards, so UNKNOWN is reported only when a
     client_order_id was supplied; legacy callers keep the old behaviour.
 
-    One 4xx is not a refusal of this order: a complaint about the client
-    order id itself. alpaca-py re-POSTs by itself on a 504 (three times,
-    alpaca/common/rest.py), so when the first POST was accepted behind the
-    gateway timeout, the retry is refused as a duplicate id — the broker
-    already HOLDS the order. That is UNKNOWN, settled by looking it up.
+    Two 4xx answers are not a refusal of the order:
+      * a complaint about the client order id itself — the broker already
+        HOLDS an order with that id;
+      * any 4xx from a client that may have retried (`retried`). alpaca-py
+        re-POSTs by itself on 429/504 (three times, alpaca/common/rest.py); the
+        final answer refuses only the LAST attempt and says nothing about an
+        earlier one accepted behind a gateway timeout (Codex review of e4f01ad:
+        504, 504, 504, 429 was recorded REJECTED). Orders are therefore sent
+        through a client with retries off (`_submit_client`), where a 4xx is
+        the answer to the one and only POST.
     """
+    if not req.client_order_id:
+        return OrderStatus.REJECTED
     code = getattr(exc, "status_code", None)
     if isinstance(code, int) and 400 <= code < 500:
-        if req.client_order_id and "client_order_id" in str(exc).lower():
+        if "client_order_id" in str(exc).lower() or retried:
             return OrderStatus.UNKNOWN
         return OrderStatus.REJECTED
-    return OrderStatus.UNKNOWN if req.client_order_id else OrderStatus.REJECTED
+    if _never_sent(exc):
+        return OrderStatus.REJECTED
+    return OrderStatus.UNKNOWN
+
+
+def _never_sent(exc: Exception) -> bool:
+    """True only when the request provably never left: the TCP connection was
+    never established. A read timeout, a reset or a refusal after connecting is
+    not that — the request may have been received."""
+    try:
+        from requests.exceptions import ConnectTimeout
+    except ImportError:                                     # pragma: no cover
+        return False
+    return isinstance(exc, ConnectTimeout)
+
+
+def _no_retry(client):
+    """The same client, answering each request once. alpaca-py takes no
+    constructor argument for zero retries (RESTClient accepts only a positive
+    count), so the attempt counter is set on the instance; `_retries_possible`
+    reads it back, so an SDK that renames it fails safe (treated as retrying)."""
+    if client is not None and hasattr(client, "_retry"):
+        client._retry = 0
+    return client
+
+
+def _retries_possible(client) -> bool:
+    try:
+        return int(getattr(client, "_retry")) > 0
+    except Exception:
+        return True
 
 
 def _parse_status(alpaca_status, filled_qty: float = 0.0) -> OrderStatus:
@@ -243,6 +281,10 @@ class AlpacaBroker(BrokerBase):
         self._secret_key = os.getenv("ALPACA_SECRET_KEY", "")
         self._is_paper   = os.getenv("ALPACA_PAPER", "true").lower() != "false"
         self._client: Optional["TradingClient"] = None
+        # Orders go through their own client with the SDK's automatic retries
+        # off, so a 4xx answers the one POST that was made (see
+        # _classify_submit_failure). Reads keep the retrying client.
+        self._submit_client: Optional["TradingClient"] = None
         self._stock_data: Optional["StockHistoricalDataClient"] = None
         self._crypto_data: Optional["CryptoHistoricalDataClient"] = None
 
@@ -253,6 +295,11 @@ class AlpacaBroker(BrokerBase):
                     secret_key=self._secret_key,
                     paper=self._is_paper,
                 )
+                self._submit_client = _no_retry(TradingClient(
+                    api_key=self._api_key,
+                    secret_key=self._secret_key,
+                    paper=self._is_paper,
+                ))
                 self._stock_data  = StockHistoricalDataClient(self._api_key, self._secret_key)
                 self._crypto_data = CryptoHistoricalDataClient(self._api_key, self._secret_key)
                 logger.info(f"Alpaca connected ({'PAPER' if self._is_paper else 'LIVE'})")
@@ -382,7 +429,14 @@ class AlpacaBroker(BrokerBase):
                 # four order types and Alpaca rejects a reused value, which is
                 # the broker-side half of idempotency.
                 order_req.client_order_id = req.client_order_id
-            order = self._client.submit_order(order_data=order_req)
+        except Exception as e:
+            # Failed while BUILDING the request: nothing left this process.
+            logger.error(f"Alpaca order request not built, nothing sent: {e}")
+            return OrderResult(broker_order_id="", status=OrderStatus.REJECTED,
+                               error_message=f"order request not built, nothing sent: {e}")
+        client = getattr(self, "_submit_client", None) or self._client
+        try:
+            order = client.submit_order(order_data=order_req)
             filled = float(order.filled_qty or 0)
             return OrderResult(
                 broker_order_id=str(order.id),
@@ -396,7 +450,7 @@ class AlpacaBroker(BrokerBase):
             logger.error(f"Alpaca submit_order error: {e}")
             return OrderResult(
                 broker_order_id="",
-                status=_classify_submit_failure(e, req),
+                status=_classify_submit_failure(e, req, retried=_retries_possible(client)),
                 error_message=str(e),
             )
 
@@ -438,8 +492,12 @@ class AlpacaBroker(BrokerBase):
             return False
 
     def get_order_status(self, broker_order_id: str) -> OrderResult:
+        # A status read that fails says nothing about the order: UNKNOWN, never
+        # REJECTED — "could not ask" read as "the broker refused it" made a
+        # working order look dead (Codex review of e4f01ad).
         if not self._client:
-            return OrderResult(broker_order_id=broker_order_id, status=OrderStatus.REJECTED)
+            return OrderResult(broker_order_id=broker_order_id, status=OrderStatus.UNKNOWN,
+                               error_message="Alpaca client not connected")
         try:
             order = self._client.get_order_by_id(broker_order_id)
             filled = float(order.filled_qty or 0)
@@ -453,7 +511,7 @@ class AlpacaBroker(BrokerBase):
         except Exception as e:
             return OrderResult(
                 broker_order_id=broker_order_id,
-                status=OrderStatus.REJECTED,
+                status=OrderStatus.UNKNOWN,
                 error_message=str(e),
             )
 

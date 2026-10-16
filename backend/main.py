@@ -1782,6 +1782,66 @@ def cancel_trade(trade_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/execute/unresolved", tags=["Execution"], dependencies=[Depends(require_owner)])
+def execute_unresolved(audit: int = 50):
+    """Orders that may be at the broker without an answer (queue rows
+    "submitting" / "unknown"), the reflex playbooks waiting on them, and the
+    latest reconciliation lookups. While one stands for an instrument, no other
+    order that could add to it is sent from any lane."""
+    from src.desk.reflex import load_playbooks
+    from src.execution.approval_queue import ApprovalQueue
+    from src.execution.order_manager import RECONCILE_LOG
+    rows = [t.__dict__ for t in ApprovalQueue().unresolved()]
+    lookups = []
+    if RECONCILE_LOG.exists():
+        for line in RECONCILE_LOG.read_text(encoding="utf-8").splitlines()[-max(0, min(audit, 500)):]:
+            try:
+                lookups.append(json.loads(line))
+            except ValueError:
+                continue
+    return _sanitize({
+        "count": len(rows),
+        "orders": rows,
+        "playbooks": [p for p in load_playbooks() if p.get("status") == "unknown"],
+        "recent_lookups": list(reversed(lookups)),
+    })
+
+
+@app.post("/api/execute/reconcile", tags=["Execution"], dependencies=[Depends(require_owner)])
+def execute_reconcile():
+    """Look every unresolved order up by its client id now and record the
+    broker's answer — the same pass the desk's management tick runs. Reads only:
+    nothing is submitted, cancelled or replaced, and a lookup that finds
+    nothing changes nothing."""
+    from src.desk.reflex import reconcile_unknown_playbooks
+    mgr = _get_order_manager()
+    if not mgr:
+        raise HTTPException(status_code=503, detail="Execution engine not available.")
+    report = mgr.reconcile_unresolved()
+    report["playbooks_settled"] = reconcile_unknown_playbooks()
+    return _sanitize(report)
+
+
+@app.post("/api/execute/unresolved/{trade_id}/release", tags=["Execution"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def execute_release_unresolved(trade_id: str, note: str):
+    """The OWNER's decision, after checking the broker for the order's client
+    id, that an unresolved order was never placed. The only way an order that
+    no lookup can find stops blocking its instrument: absence at the broker is
+    not proof, so nothing automatic does this. Requires a note saying what was
+    checked; never touches the broker."""
+    from src.desk.reflex import reconcile_unknown_playbooks
+    from src.execution.approval_queue import ApprovalQueue
+    if not (note or "").strip():
+        raise HTTPException(status_code=400, detail="say what you checked at the broker")
+    trade = ApprovalQueue().release_unresolved(trade_id, by="owner", note=note)
+    if not trade:
+        raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found or not unresolved")
+    _record_verdict(trade_id, "released", f"unresolved order released by the owner: {note.strip()}")
+    return _sanitize({"ok": True, "trade": trade.__dict__,
+                      "playbooks_settled": reconcile_unknown_playbooks()})
+
+
 @app.get("/api/execute/brokers", tags=["Execution"], dependencies=[Depends(require_owner)])
 def get_broker_status():
     """Connection status and account info for all brokers."""
