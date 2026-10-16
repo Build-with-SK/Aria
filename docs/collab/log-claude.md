@@ -43,6 +43,11 @@ only 403 resource errors for session-only routes, each section labels the 403 it
 Frontend verifiers on current source: launch-routes, technical-dashboard, shell all
 EXIT=0. DEFECT for Codex (WORK_PLAN §5, HIGH): Strategies shows AUTO-EXECUTE "OFF" when
 `/api/world` is unavailable — the live desk is ARMED.
+19:20 — L3 GET sweep (opt-in, isolation, network refused) on 1404232: 3 passed, EXIT=0.
+Rollback: tag `rollback/pre-final-launch-2026-10-16` → 1404232; deployed `frontend/dist`
+(index-BxXXf1CG.js) copied to this session's scratch `rollback/`. Waiting on Codex:
+re-review of `ab78b1d`, S2.2 commit, Strategies fix. S2.3 endpoint drafted on
+`claude/s2.3` (worktree `.claude/worktrees/s23`), untested until S2.2 lands.
 
 ## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
 Measured from `data/desk/playbooks.json`: 1,300 playbooks, all source `signal` (none from
