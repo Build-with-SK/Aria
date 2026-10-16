@@ -62,7 +62,10 @@ class Playbook:
     expires_at: str
     asset_class: str = "equity"
     thesis: str = ""
-    status: str = "armed"     # armed | fired | expired | rejected
+    # armed | fired | expired | rejected | unknown. "unknown": it fired and the
+    # order's state never settled — terminal, and it blocks re-arming its
+    # ticker (_arm) until the owner settles it at the broker.
+    status: str = "armed"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -276,7 +279,19 @@ def _arm(ticker, side, trigger, stop, target, conviction, debate_id,
         asset_class=aclass,
         thesis=thesis).to_dict()
     with _PLAYBOOKS_LOCK:
-        pbs = [p for p in load_playbooks()
+        existing = load_playbooks()
+        # A playbook whose order state is unknown may have opened a position
+        # the account snapshot does not show yet. Arming the ticker again is
+        # how one trade becomes two, so it stays unarmed until that order is
+        # settled at the broker and the playbook's status changed by hand.
+        unsettled = [p for p in existing
+                     if p.get("ticker") == ticker and p.get("status") == "unknown"]
+        if unsettled:
+            logger.warning("REFLEX not arming %s: an earlier order's state is unknown "
+                           "(client order id %s) — settle it at the broker first",
+                           ticker, unsettled[-1].get("client_order_id") or "n/a")
+            return None
+        pbs = [p for p in existing
                if not (p["ticker"] == ticker and p.get("status") == "armed")]
         pbs.append(pb)
         save_playbooks(pbs)
@@ -379,9 +394,13 @@ class ReflexEngine:
                 results.append(outcome)
                 # Status first: nothing below may stand between an executed
                 # order and the playbook leaving "armed".
-                if outcome.get("executed") or outcome.get("terminal"):
+                if outcome.get("order_unknown"):
+                    pb["status"] = "unknown"
+                elif outcome.get("executed") or outcome.get("terminal"):
                     pb["status"] = "fired" if outcome.get("executed") else "expired"
                 changed = True
+                if outcome.get("client_order_id"):
+                    pb["client_order_id"] = outcome["client_order_id"]
                 # Record every attempt on the playbook itself. A gate that stops a
                 # crossed trigger is not terminal, so the playbook stays armed and
                 # later reads "expired" — 1,073 of them did, and nothing anywhere
@@ -492,7 +511,13 @@ class ReflexEngine:
         from src.desk.auto_executor import AutoExecutor
         transcript = {"id": pb.get("debate_id", ""), "judge": {},
                       "rounds": []}
-        record = AutoExecutor(self.cfg)._handle(entry, transcript)
+        executor = AutoExecutor(self.cfg)
+        record = executor._handle(entry, transcript)
+        if record.get("mode") == "unknown":
+            # Reflex fires are not otherwise written to executions.jsonl (the
+            # desk's slate is). An order that may exist and that no position
+            # tracks must be on the record the owner reads.
+            executor._log({**record, "lane": "reflex", "source": entry.get("source")})
         lat["submit"] = _ms(t3)
         lat["total"] = _ms(t0)
         # executed = the broker accepted the order; filled = it confirmed a fill.
@@ -505,6 +530,13 @@ class ReflexEngine:
                "order_status": record.get("order_status"), "mode": record.get("mode"),
                "fill_price": record.get("fill_price") if filled else None,
                "latency_ms": lat}
+        if record.get("client_order_id"):
+            out["client_order_id"] = record["client_order_id"]
+        if record.get("mode") == "unknown":
+            # Sent and never settled: the broker may hold the order. Terminal —
+            # the scan retires the playbook as "unknown" and no new playbook
+            # arms on this ticker while it stands (_arm).
+            out.update({"terminal": True, "uncertain": True, "order_unknown": True})
         logger.info(f"REFLEX {'FIRED' if executed else 'stopped at exec'} "
                     f"{pb['side'].upper()} {ticker} — total {lat['total']}ms "
                     f"({record.get('mode')}, order {record.get('order_status') or 'n/a'}, "

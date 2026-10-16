@@ -14,6 +14,7 @@ Flow:
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from datetime import datetime, timedelta
@@ -28,7 +29,27 @@ from .broker_base import (
 logger = logging.getLogger(__name__)
 
 
+def queue_client_order_id(trade: PendingTrade) -> str:
+    """The broker idempotency key for one approval-queue trade.
+
+    Derived from the trade's own id and creation time, so the same queued
+    trade always sends the same key: the broker refuses a second order with
+    it, and after a timeout the order can be looked up by it. Without one, a
+    submit that timed out after Alpaca accepted the order was recorded
+    REJECTED — and a reflex playbook that read "failed" stayed armed for a
+    second order (S1.3)."""
+    h = hashlib.sha256(f"approval_queue|{trade.id}|{trade.created_at}".encode()).hexdigest()[:24]
+    return f"aria-q-{h}"
+
+
 class OrderManager:
+    # After a submit whose outcome is unknown, how many times to ask the broker
+    # for the order by its client id, and how long to wait before each ask. The
+    # wait gives a request still in flight time to land: "not found" one
+    # millisecond after a timeout says little.
+    SETTLE_LOOKUPS = 3
+    SETTLE_WAIT_S = 2.0
+
     def __init__(self, alpaca: Optional[BrokerBase] = None, ibkr: Optional[BrokerBase] = None,
                  *, market_data=None, portfolio_limits=None):
         self._alpaca = alpaca
@@ -68,6 +89,7 @@ class OrderManager:
             signal_score=trade.signal_score,
             situation=trade.situation,
             thesis_summary=trade.thesis_summary,
+            client_order_id=queue_client_order_id(trade),
         )
 
     @staticmethod
@@ -105,6 +127,15 @@ class OrderManager:
         the position has gone — an exit approved late must not open a new
         position. Protective brackets go through place_protective_orders,
         which enforces the same invariant.
+
+        Every order carries a client_order_id (queue_client_order_id). A
+        submit whose outcome is unknown — a timeout, a dropped connection, a
+        5xx — is settled by looking the order up by that id: found, it
+        continues as whatever the broker says it is; not found, it is
+        rejected; unanswerable, it stays UNKNOWN. An UNKNOWN trade leaves the
+        queue as "unknown" — never approvable again, so nothing resends it —
+        and the result says `unknown: True`. The settlement only reads; every
+        gate above still decides what is sent.
         """
         trade = self._queue.get_by_id(trade_id)
         if not trade:
@@ -160,12 +191,16 @@ class OrderManager:
                                f"{req.qty:g} -> {risk.approved_qty:g} ({risk.binding})")
                 req.qty = risk.approved_qty
         result = broker.submit_order(req)
+        settled = None
+        if result.status == OrderStatus.UNKNOWN:
+            result, settled = self._settle_unknown(broker, req, result)
 
         if result.status in (OrderStatus.SUBMITTED, OrderStatus.FILLED, OrderStatus.PARTIAL):
             self._queue.mark_executed(
                 trade_id,
                 broker_order_id=result.broker_order_id,
                 fill_price=result.avg_fill_price,
+                client_order_id=req.client_order_id,
             )
             logger.info(
                 f"Order executed [{trade_id}]: {trade.side.upper()} {trade.qty} {trade.ticker} "
@@ -202,12 +237,15 @@ class OrderManager:
             if result.avg_fill_price:
                 self._queue.mark_executed(trade_id,
                                           broker_order_id=result.broker_order_id,
-                                          fill_price=result.avg_fill_price)
+                                          fill_price=result.avg_fill_price,
+                                          client_order_id=req.client_order_id)
 
             return {
                 "ok": True,
                 "broker": broker.name,
                 "broker_order_id": result.broker_order_id,
+                "client_order_id": req.client_order_id,
+                "settled": settled,
                 "status": result.status.value,
                 "fill_price": result.avg_fill_price,
                 "filled_qty": result.filled_qty,
@@ -221,13 +259,83 @@ class OrderManager:
                 "risk": risk.to_dict() if risk else None,
                 "sent_qty": req.qty,
             }
+        elif result.status == OrderStatus.UNKNOWN:
+            # The broker may hold this order. Not rejected (that invites a
+            # retry, and a retry is how one trade becomes two) and not
+            # executed (nothing confirmed it): the queue says "unknown" and
+            # execute() refuses it from now on.
+            why = (f"order state UNKNOWN after {result.error_message or 'an unanswered submit'}; "
+                   f"{settled}. It may have been placed — check the broker for client "
+                   f"order id {req.client_order_id} before trading {trade.ticker} again. "
+                   f"Not resent.")
+            self._queue.mark_unknown(trade_id, why, client_order_id=req.client_order_id)
+            logger.critical(f"Trade {trade_id}: {why}")
+            return {
+                "ok": False,
+                "unknown": True,
+                "broker": broker.name,
+                "status": OrderStatus.UNKNOWN.value,
+                "client_order_id": req.client_order_id,
+                "settled": settled,
+                "sent_qty": req.qty,
+                "error": why,
+            }
         else:
-            self._queue.reject(trade_id, result.error_message)
+            why = result.error_message or (
+                f"Order rejected with status {result.status.value}"
+                + (f" ({settled})" if settled else ""))
+            self._queue.reject(trade_id, why, client_order_id=req.client_order_id)
             return {
                 "ok": False,
                 "broker": broker.name,
-                "error": result.error_message or f"Order rejected with status {result.status.value}",
+                "status": result.status.value,
+                "client_order_id": req.client_order_id,
+                "settled": settled,
+                "error": why,
             }
+
+    def _settle_unknown(self, broker: BrokerBase, req: OrderRequest,
+                        first: OrderResult) -> tuple[OrderResult, str]:
+        """Settle a submit whose outcome is unknown by asking the broker for the
+        order by its client id. Only reads; never sends anything.
+
+          found         → the broker's own answer (filled, working, rejected…)
+          not found     → REJECTED: the broker never had it
+          can't ask     → stays UNKNOWN
+
+        "Not found" counts only when the LAST lookup answered it: a lookup that
+        raised is "could not ask", which must never read as "not found", or an
+        order that did arrive would be sent again. Returns the result and a
+        short account of how it was settled."""
+        cid = req.client_order_id
+        lookup = getattr(broker, "get_order_by_client_id", None)
+        if not cid or lookup is None:
+            return first, (f"{getattr(broker, 'name', 'the broker')} cannot look orders "
+                           f"up by client id, so it could not be settled")
+        answer, errors = "unasked", []
+        for _ in range(max(1, int(self.SETTLE_LOOKUPS))):
+            if self.SETTLE_WAIT_S > 0:
+                time.sleep(self.SETTLE_WAIT_S)
+            try:
+                found = lookup(cid)
+            except Exception as e:
+                answer = "error"
+                errors.append(f"{type(e).__name__}: {e}")
+                continue
+            if found is not None:
+                logger.warning(f"order {cid} found after an unknown submit: "
+                               f"{found.status.value} (broker id {found.broker_order_id})")
+                return found, f"found by client id as {found.status.value}"
+            answer = "not found"
+        if answer == "not found":
+            logger.warning(f"order {cid} not found after an unknown submit — "
+                           f"the broker never had it")
+            return (OrderResult(broker_order_id="", status=OrderStatus.REJECTED,
+                                error_message=(f"submit failed ({first.error_message}); the "
+                                               f"broker has no order with client id {cid}, "
+                                               f"so nothing was placed")),
+                    "not found by client id")
+        return first, ("lookup by client id failed (" + "; ".join(errors[-2:]) + ")")
 
     def portfolio_risk(self, trade, broker, now: Optional[datetime] = None):
         """src/risk/pretrade.assess for a queued entry, against the broker's

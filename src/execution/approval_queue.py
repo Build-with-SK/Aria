@@ -33,7 +33,10 @@ class PendingTrade:
     """A trade proposal waiting for user approval."""
     id:             str
     created_at:     str
-    status:         str   # pending | approved | rejected | executed | cancelled
+    # pending | approved | rejected | executed | cancelled | unknown
+    # "unknown": sent, and the broker's answer never settled — it may hold the
+    # order. Terminal: never approvable again, so nothing resends it.
+    status:         str
     # What to trade
     ticker:         str
     side:           str   # buy | sell
@@ -68,6 +71,9 @@ class PendingTrade:
     # that moment (src/execution/reduce_only) and clipped or refused, so an
     # exit approved after the position is gone cannot open a new one.
     reduce_only:     bool = False
+    # The idempotency key it was sent with (order_manager.queue_client_order_id)
+    # — what finds the order at the broker when its outcome is unknown.
+    client_order_id: str = ""
 
 
 def _load_queue() -> list[dict]:
@@ -169,7 +175,8 @@ class ApprovalQueue:
                     return PendingTrade(**d)
         return None
 
-    def reject(self, trade_id: str, reason: str = "") -> Optional[PendingTrade]:
+    def reject(self, trade_id: str, reason: str = "", *,
+               client_order_id: str = "") -> Optional[PendingTrade]:
         """Record a refusal — by the human before it was sent, or by the broker
         after. "approved" is accepted deliberately: OrderManager.execute()
         marks a trade approved *before* it calls the broker, so a broker
@@ -183,11 +190,14 @@ class ApprovalQueue:
                 if d["id"] == trade_id and d["status"] in ("pending", "approved"):
                     d["status"] = "rejected"
                     d["rejection_reason"] = reason
+                    if client_order_id:
+                        d["client_order_id"] = client_order_id
                     _save_queue(items)
                     return PendingTrade(**d)
         return None
 
-    def mark_executed(self, trade_id: str, broker_order_id: str, fill_price: float = 0.0):
+    def mark_executed(self, trade_id: str, broker_order_id: str, fill_price: float = 0.0,
+                      *, client_order_id: str = ""):
         with _QUEUE_LOCK:
             items = _load_queue()
             for d in items:
@@ -196,9 +206,29 @@ class ApprovalQueue:
                     d["broker_order_id"] = broker_order_id
                     d["fill_price"] = fill_price
                     d["executed_at"] = datetime.utcnow().isoformat()
+                    if client_order_id:
+                        d["client_order_id"] = client_order_id
                     _save_queue(items)
                     return
         logger.warning(f"mark_executed: trade {trade_id} not found")
+
+    def mark_unknown(self, trade_id: str, reason: str, *,
+                     client_order_id: str = "") -> Optional[PendingTrade]:
+        """Sent, and whether the broker holds it could not be settled. Only an
+        "approved" trade gets here — execute() marks it approved before
+        sending. Terminal: execute() and cancel() refuse it from now on."""
+        with _QUEUE_LOCK:
+            items = _load_queue()
+            for d in items:
+                if d["id"] == trade_id and d["status"] in ("pending", "approved"):
+                    d["status"] = "unknown"
+                    d["rejection_reason"] = reason
+                    if client_order_id:
+                        d["client_order_id"] = client_order_id
+                    _save_queue(items)
+                    return PendingTrade(**d)
+        logger.warning(f"mark_unknown: trade {trade_id} not found or not in flight")
+        return None
 
     def cancel(self, trade_id: str) -> bool:
         with _QUEUE_LOCK:

@@ -232,6 +232,10 @@ class AutoExecutor:
         # All gates green — execute on the PAPER account, inform after.
         mgr = get_order_manager()
         result = mgr.execute(queued.id)
+        # The idempotency key the order went out with: how it is found at the
+        # broker, whatever happened next. Absent when nothing was sent.
+        if result.get("client_order_id"):
+            record["client_order_id"] = result["client_order_id"]
         if result.get("ok"):
             fill = result.get("fill_price") or entry.get("price", 0.0)
             record["mode"] = "auto"
@@ -265,6 +269,21 @@ class AutoExecutor:
             record["reason"] = result.get("error", "market not in continuous trading")
             self._notify(f"⏸ QUEUED {entry['side'].upper()} {entry['qty']:g} {entry['ticker']}",
                          f"Awaiting your approval — {record['reason']}")
+        elif result.get("unknown"):
+            # Sent, and the broker's answer never settled: the order may exist.
+            # Not "failed" — a failure invites another attempt, and the reflex
+            # lane re-arms on one. Counted against the day's caps as if it
+            # traded, because it may have; not tracked as a position, because
+            # nothing confirmed one — if the broker shows one, the next
+            # management tick adopts it (PositionManager.tick).
+            record["mode"] = "unknown"
+            record["order_status"] = "unknown"
+            record["fill_confirmed"] = False
+            record["reason"] = result.get("error", "order state unknown")
+            record_trade(entry.get("notional", 0.0))
+            self._notify(f"⚠ ORDER STATE UNKNOWN {entry['side'].upper()} "
+                         f"{entry['qty']:g} {entry['ticker']}",
+                         f"{record['reason']}")
         else:
             record["mode"] = "failed"
             record["reason"] = result.get("error", "broker rejected")

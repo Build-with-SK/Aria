@@ -170,9 +170,17 @@ def _classify_submit_failure(exc: Exception, req: OrderRequest) -> "OrderStatus"
     order's existence unknown. That distinction only helps a caller who can
     look the order up afterwards, so UNKNOWN is reported only when a
     client_order_id was supplied; legacy callers keep the old behaviour.
+
+    One 4xx is not a refusal of this order: a complaint about the client
+    order id itself. alpaca-py re-POSTs by itself on a 504 (three times,
+    alpaca/common/rest.py), so when the first POST was accepted behind the
+    gateway timeout, the retry is refused as a duplicate id — the broker
+    already HOLDS the order. That is UNKNOWN, settled by looking it up.
     """
     code = getattr(exc, "status_code", None)
     if isinstance(code, int) and 400 <= code < 500:
+        if req.client_order_id and "client_order_id" in str(exc).lower():
+            return OrderStatus.UNKNOWN
         return OrderStatus.REJECTED
     return OrderStatus.UNKNOWN if req.client_order_id else OrderStatus.REJECTED
 
