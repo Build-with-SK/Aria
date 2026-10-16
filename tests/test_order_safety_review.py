@@ -229,6 +229,21 @@ def test_f4_an_unknown_desk_order_blocks_a_fresh_automated_and_an_owner_order(tm
     assert res["blocked"] is True and len(client.sent) == 1
 
 
+def test_f4_two_lanes_sending_at_once_cannot_both_pass(queue, monkeypatch):
+    """The early guard reads the queue before the risk gate; another lane can
+    claim in between. The claim itself re-checks under the queue lock."""
+    from src.execution import approval_queue as aq
+    from src.execution.order_manager import OrderManager
+    first, second = queue(), queue()
+    ok, _ = aq.ApprovalQueue().claim_for_submit(first.id, "aria-q-first")  # lane A in flight
+    assert ok is not None
+    monkeypatch.setattr(OrderManager, "unresolved_for", lambda self, trade: [])  # B's early read
+    client = FakeClient(accept=_order("b"))
+    res = manager(FakeAlpaca(client)).execute(second.id, now=OPEN_NY)
+    assert res["blocked"] is True and "unresolved" in res["error"]
+    assert client.sent == [] and queue.get(second.id).status == "rejected"
+
+
 def test_f4_an_exit_is_not_blocked_by_an_unresolved_entry(tmp_path, monkeypatch):
     from src.desk import auto_executor as ae
     from src.desk.auto_executor import AutoExecutor
