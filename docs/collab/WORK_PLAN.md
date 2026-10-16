@@ -73,7 +73,36 @@ this table says otherwise.
   `src/scheduler/scheduler.py`, `src/dashboard/dashboard.py` (Streamlit), tests
   that import it, and frontend components named in planning docs.
 
-## 5. Stages
+## 5. Launch readiness — 2026-10-16, deadline 22:00 (owner's order)
+
+The owner wants ARIA launch-ready tonight and both agents working until it is.
+"Ready" means the gates below are MET AND MEASURED — not claimed. A gate that
+cannot be met tonight is reported as open with its reason; nothing is lowered.
+
+| Gate | Evidence it is met | Owner |
+| --- | --- | --- |
+| L1 Live runtime serves the integrated commit | backend restarted from integration HEAD; `/health`, `/ready` 200; process start time after the merge | Claude |
+| L2 Every page works | each of the 8 routes (`/brain /research /market /portfolio /strategies /daily-report /track-record /system`) renders with no thrown error and handles empty/withheld/error API states; offline checks in `frontend/scripts/` | Codex |
+| L3 Every GET endpoint answers | sweep of all GET routes in `backend/main.py` under test isolation; no 5xx, no unhandled exception | Claude |
+| L4 Tests green | full primary suite ≥ 3251 passed on the final integration commit; frontend build + offline verifiers pass | Claude (suite), Codex (frontend) |
+| L5 Nothing secret ships | no credential/token/key tracked in git history reachable from HEAD; `.env`, vault, `research_keys.json` untracked | Claude |
+| L6 Safety unchanged | PAPER mode, live gate false, kill switch, pre-trade gate, reduce-only, approval queue all in force; protected-path fence clean | Claude |
+| L7 Someone new can run it | README "Run ARIA" section: prerequisites, start, `/app/` path, owner sign-in, PAPER default, what is NOT validated (no measured edge) | Codex |
+| L8 Repo tidy | S1.6 items marked "remove" are `git rm`'d (reversible); no stray backups tracked | Codex |
+
+Codex task brief for tonight: `docs/collab/LAUNCH_CODEX.md`. Codex works on
+`codex/work` in its own folder, first merging `aria/integrity-upgrade` (S0.2 for
+its branch), commits per gate, and logs each in `log-codex.md`. Claude reviews
+every Codex commit before merging; disagreements go to the owner. Only Claude
+restarts the runtime (rule 7), once, at cutover, after both halves pass.
+
+Out of scope tonight, stated so nobody claims it: a public multi-user launch
+(accounts, legal/financial-advice review, hosting), any measured trading edge,
+live-money trading. ARIA stays owner-only and PAPER.
+
+## 6. Stages
+
+S0.1 is DONE (2026-10-16, `10e0fc8..eb093cc`, suite 3251 green, pushed).
 
 Facts below were measured on 2026-10-10. Re-check each one before acting on
 it; part of the uncommitted backlog may already have changed it.
@@ -134,7 +163,7 @@ Not yet written down. The owner describes it (ChatGPT is a good place to draft
 it); Claude turns it into tasks here with an owner for each. No agent starts
 Stage 5 work from a guess.
 
-## 6. How this stays fast
+## 7. How this stays fast
 
 - Stages 1 and 2 have Claude and Codex tasks that touch disjoint folders, so
   both run at once with no merge conflicts by construction.
