@@ -122,3 +122,102 @@ def test_the_reflex_reports_no_fill_price_for_an_unconfirmed_order(monkeypatch):
                         "debate_id": ""}, 100.0, {}, None)
     assert out["executed"] is True and out["filled"] is False
     assert out["order_status"] == "submitted" and out["fill_price"] is None
+
+
+# ── failure paths, persisted to a real playbooks file and read back ──────────
+# Codex review of b96cf10 (2026-10-16): an exception from _fire left no record,
+# and a damaged attempts counter could raise after an executed fire and before
+# the playbook left "armed" — so a restart could fire it a second time.
+
+def _file_lane(tmp_path, monkeypatch, playbooks, quotes, fire, account=lambda: {}):
+    from src.desk import reflex, auto_executor, desk_daemon
+    from src.execution import alpaca_broker
+    monkeypatch.setattr(reflex, "PLAYBOOKS_FILE", tmp_path / "playbooks.json")
+    reflex.save_playbooks(playbooks)
+    monkeypatch.setattr(reflex, "load_config", lambda: {**desk_config.DEFAULTS, "reflex_enabled": True})
+    monkeypatch.setattr(reflex, "is_expired", lambda p: False)
+    monkeypatch.setattr(alpaca_broker, "quotable", lambda t, now=None: True)
+    monkeypatch.setattr(desk_daemon, "instrument_open", lambda *a, **k: True)
+    connected = SimpleNamespace(_alpaca=SimpleNamespace(is_connected=lambda: True))
+    monkeypatch.setattr(auto_executor, "get_order_manager", lambda: connected)
+    monkeypatch.setattr(auto_executor, "account_snapshot", account)
+    engine = reflex.ReflexEngine.__new__(reflex.ReflexEngine)
+    engine._last_price = {t: 99.0 for t in quotes}
+    monkeypatch.setattr(engine, "_quote", lambda ticker, mgr: quotes[ticker](), raising=False)
+    monkeypatch.setattr(engine, "_fire", fire, raising=False)
+    return reflex, engine
+
+
+def _pb(ticker, **kw):
+    return {"ticker": ticker, "side": "buy", "trigger_price": 100.0, "status": "armed",
+            "asset_class": "crypto", "source": "signal", "expires_at": "2999-01-01T00:00:00", **kw}
+
+
+def _boom(*a, **k):
+    raise RuntimeError("broker client wedged")
+
+
+def test_a_fire_that_raises_is_recorded_and_retired_not_left_armed(tmp_path, monkeypatch):
+    reflex, engine = _file_lane(tmp_path, monkeypatch, [_pb("BTC-USD")],
+                                {"BTC-USD": lambda: 101.0}, _boom)
+    out = engine.scan_once()
+    assert out[0]["stage"] == "error" and out[0]["uncertain"] is True
+    stored = reflex.load_playbooks()[0]                     # read back from disk
+    assert stored["status"] == "expired", "an uncertain fire must not stay armed"
+    assert stored["attempts"] == 1
+    assert stored["last_attempt"]["stage"] == "error"
+    assert "RuntimeError" in stored["last_attempt"]["reason"]
+
+
+def test_no_account_snapshot_is_recorded_and_leaves_the_playbook_armed(tmp_path, monkeypatch):
+    fired = []
+    reflex, engine = _file_lane(tmp_path, monkeypatch, [_pb("BTC-USD")],
+                                {"BTC-USD": lambda: 101.0},
+                                lambda *a: fired.append(a) or {"executed": True}, account=_boom)
+    engine.scan_once()
+    assert fired == [], "nothing may be sent without an account snapshot"
+    stored = reflex.load_playbooks()[0]
+    assert stored["status"] == "armed" and stored["attempts"] == 1
+    assert stored["last_attempt"]["stage"] == "account"
+
+
+def test_a_damaged_counter_cannot_keep_an_executed_playbook_armed(tmp_path, monkeypatch):
+    reflex, engine = _file_lane(
+        tmp_path, monkeypatch, [_pb("BTC-USD", attempts="damaged")],
+        {"BTC-USD": lambda: 101.0},
+        lambda *a: {"stage": "execute", "reason": "paper", "executed": True, "filled": True})
+    engine.scan_once()
+    stored = reflex.load_playbooks()[0]
+    assert stored["status"] == "fired"
+    assert stored["attempts"] == 1
+
+
+def test_a_later_playbook_raising_does_not_lose_an_earlier_fire(tmp_path, monkeypatch):
+    def quote_eth():
+        raise RuntimeError("quote feed down")
+    reflex, engine = _file_lane(
+        tmp_path, monkeypatch, [_pb("BTC-USD"), _pb("ETH-USD")],
+        {"BTC-USD": lambda: 101.0, "ETH-USD": quote_eth},
+        lambda *a: {"stage": "execute", "reason": "paper", "executed": True, "filled": True})
+    try:
+        engine.scan_once()
+    except RuntimeError:
+        pass                                   # the loop logs it; the save must still happen
+    stored = {p["ticker"]: p for p in reflex.load_playbooks()}
+    assert stored["BTC-USD"]["status"] == "fired"
+    assert stored["ETH-USD"]["status"] == "armed"
+
+
+def test_attempts_accumulate_across_a_restart(tmp_path, monkeypatch):
+    stop = lambda *a: {"stage": "confidence", "reason": "signal prob 0.60 < 0.7", "executed": False}
+    reflex, engine = _file_lane(tmp_path, monkeypatch, [_pb("BTC-USD")],
+                                {"BTC-USD": lambda: 101.0}, stop)
+    engine.scan_once()
+    # a new engine (a restart) reads the stored playbook and sees a fresh crossing
+    restarted = reflex.ReflexEngine.__new__(reflex.ReflexEngine)
+    restarted._last_price = {"BTC-USD": 99.0}
+    monkeypatch.setattr(restarted, "_quote", lambda ticker, mgr: 101.0, raising=False)
+    monkeypatch.setattr(restarted, "_fire", stop, raising=False)
+    restarted.scan_once()
+    stored = reflex.load_playbooks()[0]
+    assert stored["status"] == "armed" and stored["attempts"] == 2

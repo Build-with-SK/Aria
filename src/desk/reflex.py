@@ -149,6 +149,15 @@ def save_playbooks(pbs: list[dict]):
                               encoding="utf-8")
 
 
+def _count(value) -> int:
+    """A stored attempt counter, read without trusting it: a hand-edited or
+    damaged value counts as 0 rather than raising mid-scan."""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def _expiry(days: int) -> str:
     from datetime import timedelta
     d, added = datetime.now(), 0
@@ -322,53 +331,87 @@ class ReflexEngine:
         from src.desk.desk_daemon import instrument_open
         results, changed = [], False
         from src.execution.alpaca_broker import quotable
-        for pb in armed:
-            if is_expired(pb):
-                pb["status"] = "expired"
+        # Saved in `finally`: if a later playbook raises, a playbook that has
+        # already fired in this pass must still be stored as fired, or the next
+        # crossing after a restart would send a second order.
+        try:
+            for pb in armed:
+                if is_expired(pb):
+                    pb["status"] = "expired"
+                    changed = True
+                    continue
+                # Playbooks armed before executable() existed (or for a symbol the
+                # broker has since refused to quote) are retired with the reason,
+                # not polled forever.
+                ok, _, why = executable(pb["ticker"])
+                if ok and not quotable(pb["ticker"]):
+                    ok, why = False, "the broker cannot quote this symbol"
+                if not ok:
+                    pb["status"] = "rejected"
+                    pb["rejected_reason"] = why
+                    changed = True
+                    continue
+                if not instrument_open(pb["ticker"], asset_class=pb.get("asset_class")):
+                    continue
+                price = self._quote(pb["ticker"], mgr)
+                if price <= 0:
+                    continue
+                prev = self._last_price.get(pb["ticker"])
+                self._last_price[pb["ticker"]] = price
+                if not crossed(pb["side"], pb["trigger_price"], prev, price):
+                    continue
+                outcome = self._attempt(pb, price, account_snapshot, mgr)
+                results.append(outcome)
+                # Status first: nothing below may stand between an executed
+                # order and the playbook leaving "armed".
+                if outcome.get("executed") or outcome.get("terminal"):
+                    pb["status"] = "fired" if outcome.get("executed") else "expired"
                 changed = True
-                continue
-            # Playbooks armed before executable() existed (or for a symbol the
-            # broker has since refused to quote) are retired with the reason,
-            # not polled forever.
-            ok, _, why = executable(pb["ticker"])
-            if ok and not quotable(pb["ticker"]):
-                ok, why = False, "the broker cannot quote this symbol"
-            if not ok:
-                pb["status"] = "rejected"
-                pb["rejected_reason"] = why
-                changed = True
-                continue
-            if not instrument_open(pb["ticker"], asset_class=pb.get("asset_class")):
-                continue
-            price = self._quote(pb["ticker"], mgr)
-            if price <= 0:
-                continue
-            prev = self._last_price.get(pb["ticker"])
-            self._last_price[pb["ticker"]] = price
-            if not crossed(pb["side"], pb["trigger_price"], prev, price):
-                continue
-            outcome = self._fire(pb, price, account_snapshot(), mgr)
-            results.append(outcome)
-            # Record every attempt on the playbook itself. A gate that stops a
-            # crossed trigger is not terminal, so the playbook stays armed and
-            # later reads "expired" — 1,073 of them did, and nothing anywhere
-            # said whether their triggers had ever crossed or which gate held.
-            pb["attempts"] = int(pb.get("attempts") or 0) + 1
-            pb["last_attempt"] = {"at": datetime.now().isoformat(timespec="seconds"),
-                                  "price": price, "stage": outcome.get("stage"),
-                                  "reason": str(outcome.get("reason") or "")[:200],
-                                  "executed": bool(outcome.get("executed")),
-                                  "filled": bool(outcome.get("filled"))}
-            changed = True
-            if outcome.get("stage") != "execute":
-                logger.info("REFLEX %s %s crossed %s but stopped at %s: %s", pb["side"].upper(),
-                            pb["ticker"], pb["trigger_price"], outcome.get("stage"),
-                            pb["last_attempt"]["reason"])
-            if outcome.get("executed") or outcome.get("terminal"):
-                pb["status"] = "fired" if outcome.get("executed") else "expired"
-        if changed:
-            save_playbooks(pbs)
+                # Record every attempt on the playbook itself. A gate that stops a
+                # crossed trigger is not terminal, so the playbook stays armed and
+                # later reads "expired" — 1,073 of them did, and nothing anywhere
+                # said whether their triggers had ever crossed or which gate held.
+                pb["attempts"] = _count(pb.get("attempts")) + 1
+                pb["last_attempt"] = {"at": datetime.now().isoformat(timespec="seconds"),
+                                      "price": price, "stage": outcome.get("stage"),
+                                      "reason": str(outcome.get("reason") or "")[:200],
+                                      "executed": bool(outcome.get("executed")),
+                                      "filled": bool(outcome.get("filled"))}
+                if outcome.get("stage") != "execute":
+                    logger.info("REFLEX %s %s crossed %s but stopped at %s: %s",
+                                str(pb.get("side")).upper(), pb["ticker"],
+                                pb.get("trigger_price"), outcome.get("stage"),
+                                pb["last_attempt"]["reason"])
+        finally:
+            if changed:
+                save_playbooks(pbs)
         return results
+
+    def _attempt(self, pb: dict, price: float, account_snapshot, mgr) -> dict:
+        """_fire, with its failures turned into outcomes that can be recorded.
+
+        No account snapshot means nothing could have been sent: the attempt is
+        recorded and the playbook stays armed. An exception from _fire itself
+        may come after the order left (the execute stage), so whether it was
+        sent is unknown: the playbook is retired (terminal) rather than left
+        armed for a second order on the next crossing.
+        """
+        base = {"at": datetime.now().isoformat(), "ticker": pb.get("ticker"),
+                "side": pb.get("side"), "trigger": pb.get("trigger_price"),
+                "price": price, "source": pb.get("source"), "executed": False}
+        try:
+            account = account_snapshot()
+        except Exception as e:
+            logger.warning("REFLEX %s: no account snapshot, nothing sent: %s",
+                           pb.get("ticker"), e)
+            return {**base, "stage": "account", "reason": f"{type(e).__name__}: {e}"}
+        try:
+            return self._fire(pb, price, account, mgr)
+        except Exception as e:
+            logger.exception("REFLEX %s: fire raised; outcome unknown, playbook retired",
+                             pb.get("ticker"))
+            return {**base, "stage": "error", "terminal": True, "uncertain": True,
+                    "reason": f"fire raised, outcome unknown: {type(e).__name__}: {e}"}
 
     # ── the fast pipeline for one triggered playbook ─────────────────────
 
