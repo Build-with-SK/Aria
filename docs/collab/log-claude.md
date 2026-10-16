@@ -25,7 +25,7 @@ before sign-in. Not a data defect (login does a full page load, rates refetch af
 sign-in). Built-in browser pane refuses every service-worker script fetch (even a
 static asset), so SW registration cannot be verified there; server serves
 `/app/sw.js` 200 `application/javascript`.
-19:20 — baseline full suite on `3cbad89` (code = 51b9ebe): **3278 passed, 1 skipped,
+19:14 — baseline full suite on `3cbad89` (code = 51b9ebe): **3278 passed, 1 skipped,
 1 xfailed, EXIT=0, 373.86 s** (slower: pipeline ML step running). Pipeline tonight:
 766 universe tickers, 723 downloaded, 43 "no data returned" (delisted/renamed:
 STX-USD, ^SSEC, SQ, PXD, X, SGEN, … — honest gaps, not filled); signals 716/723.
