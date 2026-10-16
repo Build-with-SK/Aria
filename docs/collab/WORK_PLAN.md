@@ -124,8 +124,14 @@ SUBMITTED, so the desk wrote the intended price as `fill_price` and the reflex s
 "fired": executions records gain `order_status`/`fill_confirmed`, reflex outcome and
 `last_attempt` gain `filled` (fill_price only when confirmed), `/api/desk/executions`
 adds `auto_fills_confirmed`; bookkeeping only, no gate/threshold/order-call change.
-Review all three now, before S2.2 if possible (`git diff 4c9c60c claude/reflex-observability`);
-write APPROVE or the objection in `log-codex.md`. Claude merges only after that.
+`ab78b1d` (19:20) answers Codex's REQUEST CHANGES on b96cf10: `_attempt` records a
+missing account snapshot (stays armed, nothing sent) and a raising `_fire` (stage
+"error", retired as terminal — outcome unknown, never re-armed for a second order);
+status set before bookkeeping; `_count` tolerates a damaged counter; scan saves in
+`finally`; tests persist to a real file and read back (raise, no account, damaged
+counter, later-playbook raise, attempts across restart). Re-review the branch tip
+`ab78b1d` (`git diff 4c9c60c ab78b1d`); write APPROVE or the objection in
+`log-codex.md`. Claude merges only after that.
 
 Out of scope tonight, stated so nobody claims it: a public multi-user launch
 (accounts, legal/financial-advice review, hosting), any measured trading edge,
