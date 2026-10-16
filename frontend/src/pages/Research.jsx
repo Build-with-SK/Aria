@@ -54,13 +54,14 @@ export default function Research() {
 
   useEffect(() => {
     clearTimeout(debounce.current)
+    let cancelled = false
     if (!q.trim() || q.trim().toUpperCase() === symbol) { setResults([]); return }
     debounce.current = setTimeout(() => {
       axios.get('/api/universe/search', { params: { q: q.trim(), n: 12 } })
-        .then(r => setResults(Array.isArray(r.data) ? r.data : r.data.results || []))
-        .catch(() => setResults([]))
+        .then(r => { if (!cancelled) setResults(Array.isArray(r.data) ? r.data : r.data.results || []) })
+        .catch(() => { if (!cancelled) setResults([]) })
     }, 240)
-    return () => clearTimeout(debounce.current)
+    return () => { cancelled = true; clearTimeout(debounce.current) }
   }, [q, symbol])
 
   const choose = useCallback((sym, view) => {
@@ -151,12 +152,11 @@ export default function Research() {
           Each layer mounts only once the one above it has a symbol, so opening
           a ticker does not fire forty modules before you have decided to
           look. */}
-      {symbol && (isExactGoldContract(symbol) ? (
-        <ResearchAnalysis key={symbol} symbol={symbol} currency="USD" />
-      ) : (
+      {symbol && <ResearchAnalysis key={symbol} symbol={symbol} technicalOnly />}
+      {symbol && !isExactGoldContract(symbol) && (
         <>
           <SectionHeader>OVERVIEW · {symbol}</SectionHeader>
-          <Explorer symbol={symbol} embedded />
+          <Explorer key={symbol} symbol={symbol} embedded />
 
           <div style={{ marginTop: 22 }}>
             <SectionHeader>EVIDENCE &amp; SCORING</SectionHeader>
@@ -182,7 +182,7 @@ export default function Research() {
             )}
           </div>
         </>
-      ))}
+      )}
     </div>
   )
 }

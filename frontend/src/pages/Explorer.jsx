@@ -3,6 +3,7 @@ import axios from 'axios'
 import { useCurrency } from '../currency/CurrencyContext'
 import LiveQuote from '../components/LiveQuote'
 import ResearchAnalysis from '../components/ResearchAnalysis'
+import { exactResearchSelection } from '../components/researchSelection'
 
 const mono = { fontFamily: 'var(--mono)' }
 const CCY = { INR: '₹', GBP: '£', USD: '$', EUR: '€' }
@@ -77,44 +78,56 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
   const [dossier, setDossier] = useState(null)
   const [news, setNews] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [resolveState, setResolveState] = useState('idle')
+  const generation = useRef(0)
   const tRef = useRef(null)
 
   // debounced search
   useEffect(() => {
     clearTimeout(tRef.current)
+    let cancelled = false
     if (!q.trim()) { setResults([]); return }
     tRef.current = setTimeout(() => {
       axios.get('/api/universe/search', { params: { q: q.trim(), n: 12 } })
-        .then(r => setResults(Array.isArray(r.data) ? r.data : r.data.results || []))
-        .catch(() => setResults([]))
+        .then(r => { if (!cancelled) setResults(Array.isArray(r.data) ? r.data : r.data.results || []) })
+        .catch(() => { if (!cancelled) setResults([]) })
     }, 250)
-    return () => clearTimeout(tRef.current)
+    return () => { cancelled = true; clearTimeout(tRef.current) }
   }, [q])
 
   const select = useCallback((info) => {
+    const current = ++generation.current
     setSel(info); setResults([]); setQ(info.symbol)
     setQuote(null); setDossier(null); setNews(null); setLoading(true)
-    axios.get(`/api/universe/quote/${info.symbol}`).then(r => setQuote(r.data)).catch(() => {})
-    axios.get(`/api/universe/news/${info.symbol}`).then(r => setNews(r.data)).catch(() => {})
-    axios.get(`/api/universe/dossier/${info.symbol}`).then(r => setDossier(r.data)).catch(() => {}).finally(() => setLoading(false))
+    setResolveState('ready')
+    axios.get(`/api/universe/quote/${encodeURIComponent(info.symbol)}`).then(r => { if (generation.current === current) setQuote(r.data) }).catch(() => {})
+    axios.get(`/api/universe/news/${encodeURIComponent(info.symbol)}`).then(r => { if (generation.current === current) setNews(r.data) }).catch(() => {})
+    axios.get(`/api/universe/dossier/${encodeURIComponent(info.symbol)}`).then(r => { if (generation.current === current) setDossier(r.data) }).catch(() => {}).finally(() => { if (generation.current === current) setLoading(false) })
   }, [])
 
   // Driven from outside: resolve the parent's symbol through the universe so
   // this view gets the same {symbol, exchange, currency, name} shape the search
   // dropdown would have handed it.
   useEffect(() => {
-    if (!externalSymbol || externalSymbol === sel?.symbol) return
+    if (!externalSymbol) return
+    const current = ++generation.current
+    let cancelled = false
+    setSel(null); setQuote(null); setDossier(null); setNews(null); setLoading(false)
+    setResolveState('loading')
     axios.get('/api/universe/search', { params: { q: externalSymbol, n: 5 } })
       .then(r => {
+        if (cancelled || generation.current !== current) return
         const rows = Array.isArray(r.data) ? r.data : r.data.results || []
-        const exact = rows.find(x => (x.symbol || '').toUpperCase() === externalSymbol.toUpperCase())
-        if (exact || rows[0]) select(exact || rows[0])
+        const exact = exactResearchSelection(rows, externalSymbol)
+        if (exact) select(exact)
+        else setResolveState('unavailable')
       })
-      .catch(() => {})
+      .catch(() => { if (!cancelled && generation.current === current) setResolveState('unavailable') })
+    return () => { cancelled = true; generation.current += 1 }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalSymbol])
 
-  const ccy = quote?.currency || sel?.currency || 'USD'
+  const ccy = quote?.currency || sel?.currency || 'currency unavailable'
   // The quote endpoint reports the native currency; hand it to the converter
   // explicitly rather than letting it guess from the symbol.
   const localPrice = toLocal(quote?.price, { from: quote?.currency || sel?.currency })
@@ -154,6 +167,10 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
       </div>
 
       </>}
+
+      {embedded && !sel && <div style={{ ...mono, padding: 16, color: 'var(--muted)' }}>
+        {resolveState === 'loading' ? `Looking up ${externalSymbol}…` : `No exact catalogue listing for ${externalSymbol}. Technical analysis above can still check this provider symbol.`}
+      </div>}
 
       {!sel && !embedded && (
         <div style={{ ...mono, fontSize: 12, color: '#444', textAlign: 'center', padding: 50, border: '1px dashed #1a1a1a', borderRadius: 8 }}>
@@ -253,7 +270,7 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
           </div>
           {/* Technical + fundamental, computed on live data */}
           <div style={{ marginTop: 14 }}>
-            <ResearchAnalysis symbol={sel.symbol} dossier={dossier} currency={ccy} />
+            <ResearchAnalysis key={sel.symbol} symbol={sel.symbol} dossier={dossier} currency={ccy} includeTechnical={!embedded} />
           </div>
         </div>
       )}

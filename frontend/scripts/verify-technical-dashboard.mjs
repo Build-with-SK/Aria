@@ -3,11 +3,12 @@ import { build } from 'rolldown'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { MemoryRouter } from 'react-router-dom'
 import { technicalEvidence, isExactGoldContract } from '../src/components/technicalEvidence.js'
+import { exactResearchSelection, analysisRequestPlan } from '../src/components/researchSelection.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const temporary = mkdtempSync(join(root, 'node_modules', '.technical-smoke-'))
@@ -15,17 +16,32 @@ try {
   await build({ input: join(root, 'src/components/TechnicalDashboard.jsx'), platform: 'node',
     external: ['react', 'react/jsx-runtime', 'axios'], output: { file: join(temporary, 'dashboard.mjs'), format: 'esm' } })
   const { default: Dashboard } = await import(pathToFileURL(join(temporary, 'dashboard.mjs')).href)
-  await build({ input: join(root, 'src/pages/Research.jsx'), platform: 'node',
+  writeFileSync(join(temporary, 'entry.jsx'), `export { default } from ${JSON.stringify(join(root, 'src/pages/Research.jsx').replaceAll('\\', '/'))}; export { CurrencyProvider } from ${JSON.stringify(join(root, 'src/currency/CurrencyContext.jsx').replaceAll('\\', '/'))}; export { default as ResearchAnalysis } from ${JSON.stringify(join(root, 'src/components/ResearchAnalysis.jsx').replaceAll('\\', '/'))};`)
+  await build({ input: join(temporary, 'entry.jsx'), platform: 'node',
     external: ['react', 'react/jsx-runtime', 'react-dom', 'react-router-dom', 'axios', 'recharts', 'lucide-react'],
     output: { file: join(temporary, 'research.mjs'), format: 'esm' } })
-  const { default: Research } = await import(pathToFileURL(join(temporary, 'research.mjs')).href)
+  const { default: Research, CurrencyProvider, ResearchAnalysis } = await import(pathToFileURL(join(temporary, 'research.mjs')).href)
+  const engine = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(ResearchAnalysis, { symbol: 'AAPL', includeTechnical: false })))
+  assert.ok(engine.includes('ARIA ENGINE ANALYSIS') && engine.includes('RUN ENGINE ANALYSIS ON AAPL'))
+  assert.ok(!engine.includes('TECHNICAL ANALYSIS'), 'embedded engine must not duplicate the shared technical panel')
   for (const alias of ['GCZ6', 'gcz26', 'GCZ2026', 'GCZ26.CMX']) {
     assert.ok(isExactGoldContract(alias))
     const research = renderToStaticMarkup(React.createElement(MemoryRouter, { initialEntries: [`/research?symbol=${alias}`] }, React.createElement(Research)))
-    assert.ok(research.includes(`RUN FULL ANALYSIS ON ${alias.toUpperCase()}`), 'exact contract must reach technical analysis directly')
+    assert.ok(research.includes(`RUN TECHNICAL ANALYSIS ON ${alias.toUpperCase()}`), 'exact contract must reach technical analysis directly')
     assert.ok(!research.includes('FULL ENSEMBLE') && !research.includes('RESEARCH THESIS'), 'equity paths must not substitute the contract')
   }
   for (const other of ['GC=F', 'AAPL', 'GCZ6.CMX', 'GCZ27']) assert.ok(!isExactGoldContract(other))
+  for (const symbol of ['SAIL.BO', 'RELIANCE', 'AAPL', 'HSBA', 'BTC-USD', 'EURUSD=X', 'SPY', '^NSEI', 'GC=F', 'TLT', 'HYG']) {
+    const html = renderToStaticMarkup(React.createElement(MemoryRouter, { initialEntries: [`/research?symbol=${encodeURIComponent(symbol)}`] }, React.createElement(CurrencyProvider, null, React.createElement(Research))))
+    assert.equal((html.match(/RUN TECHNICAL ANALYSIS ON/g) || []).length, 1, `${symbol}: exactly one shared technical panel`)
+    assert.ok(html.indexOf('RUN TECHNICAL ANALYSIS ON') < html.indexOf(`OVERVIEW`), `${symbol}: analysis before chart`)
+  }
+  assert.equal(exactResearchSelection([{ symbol: 'SAIL', yahoo: 'SAIL' }], 'SAIL.BO'), null)
+  assert.equal(exactResearchSelection([{ symbol: 'SAIL.BO' }], 'sail.bo').symbol, 'SAIL.BO')
+  assert.equal(exactResearchSelection([{ symbol: 'A', yahoo: 'A.L' }, { symbol: 'ALIAS', yahoo: 'A.L' }], 'A.L'), null)
+  assert.deepEqual(analysisRequestPlan({ technicalOnly: true }), { technical: true, engine: false })
+  assert.deepEqual(analysisRequestPlan({ includeTechnical: false }), { technical: false, engine: true })
+  assert.deepEqual(analysisRequestPlan({ exactContract: true }), { technical: true, engine: false })
   const frames = ['1m','5m','15m','30m','1h','5h','1d','1w','1M']
   const report = { assessment: 'Timeframe conflict — inspect both horizons.', consensus: null,
     conflicts: [{ warning: '1h Strong Buy conflicts with 1d Strong Sell; no unconditional direction.' }],

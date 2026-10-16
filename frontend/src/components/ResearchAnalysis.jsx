@@ -23,6 +23,7 @@ import Term from './Term'
 import ResearchThesis from './ResearchThesis'
 import TechnicalDashboard from './TechnicalDashboard'
 import { isExactGoldContract } from './technicalEvidence'
+import { analysisRequestPlan } from './researchSelection'
 
 const MONO = 'var(--mono)'
 const LABEL_COLOR = {
@@ -278,8 +279,9 @@ function AnalysisProgress() {
 
 /* ══════════════════════════════════════════════════════════════════════════ */
 
-export default function ResearchAnalysis({ symbol, dossier, currency }) {
+export default function ResearchAnalysis({ symbol, dossier, currency, technicalOnly = false, includeTechnical = true }) {
   const exactContract = isExactGoldContract(symbol)
+  const standalone = technicalOnly || exactContract
   const [tech, setTech] = useState(null)
   const requestGeneration = useRef(0)
   const [v5, setV5] = useState(null)
@@ -291,16 +293,21 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
     setState('loading'); setErr(''); setTech(null); setV5(null)
 
     const current = ++requestGeneration.current
-    axios.get('/api/technical/summary', { params: { symbol, timeframes: '1m,5m,15m,30m,1h,5h,1d,1w,1M' } })
-      .then(r => { if (requestGeneration.current === current) setTech(r.data) })
-      .catch(() => { if (requestGeneration.current === current) setTech({ error: 'Technical evidence unavailable' }) })
-    if (isExactGoldContract(symbol)) { setState('ready'); return }
+    const plan = analysisRequestPlan({ technicalOnly, includeTechnical, exactContract })
+    if (plan.technical) axios.get('/api/technical/summary', { params: { symbol, timeframes: '1m,5m,15m,30m,1h,5h,1d,1w,1M' } })
+      .then(r => { if (requestGeneration.current === current) { setTech(r.data); if (!plan.engine) setState('ready') } })
+      .catch(e => { if (requestGeneration.current === current) {
+        const message = e?.response?.data?.detail || 'Technical evidence unavailable'
+        setTech({ error: message })
+        if (!plan.engine) { setErr(message); setState('error') }
+      } })
+    if (!plan.engine) return
 
     // One V5 pass gives every family plus the risk gate's levels.
     axios.get(`/api/v5/analyze/${encodeURIComponent(symbol)}`, { params: { log: false } })
       .then(r => { if (requestGeneration.current === current) { setV5(r.data); setState('ready') } })
       .catch(e => { if (requestGeneration.current === current) { setErr(e?.response?.data?.detail || 'analysis failed'); setState('error') } })
-  }, [symbol])
+  }, [symbol, technicalOnly, includeTechnical, exactContract])
 
   useEffect(() => { requestGeneration.current += 1; setState('idle'); setTech(null); setV5(null); return () => { requestGeneration.current += 1 } }, [symbol])
 
@@ -312,27 +319,27 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
     <>
       {/* ── TECHNICAL ── */}
       <div className="bb-card">
-        <div className="bb-card-header">TECHNICAL ANALYSIS</div>
+        <div className="bb-card-header">{includeTechnical || technicalOnly ? 'TECHNICAL ANALYSIS' : 'ARIA ENGINE ANALYSIS'}</div>
         {state === 'idle' && (
           <div style={{ padding: '10px 2px' }}>
             <button onClick={run} style={{
               fontFamily: MONO, fontSize: 11, fontWeight: 700, padding: '7px 16px', cursor: 'pointer',
               background: 'none', border: '1px solid var(--orange)', color: 'var(--orange)', borderRadius: 4,
-            }}>RUN FULL ANALYSIS ON {symbol}</button>
+            }}>{standalone ? 'RUN TECHNICAL ANALYSIS ON' : includeTechnical ? 'RUN FULL ANALYSIS ON' : 'RUN ENGINE ANALYSIS ON'} {symbol}</button>
             <div style={{ marginTop: 7 }}>
               <Mono size={10}>
-                {exactContract
-                  ? 'Scans nine timeframes for this exact contract; unavailable or stale evidence is withheld. Request an independent SENTINEL review after the scan.'
+                {standalone
+                  ? 'Scans nine timeframes for this listing; unavailable or stale evidence is withheld. Request an independent SENTINEL review after the scan.'
                   : 'Runs the multi-timeframe indicator scan and ARIA’s price, volatility and fundamental engines against available provider data. Each timeframe reports its own freshness.'}
               </Mono>
             </div>
           </div>
         )}
-        {state === 'loading' && <AnalysisProgress />}
+        {state === 'loading' && (standalone ? <Mono>Checking nine timeframes for {symbol}… Provider coverage and history vary by listing.</Mono> : <AnalysisProgress />)}
         {state === 'error' && <div style={{ color: 'var(--red)', fontFamily: MONO, fontSize: 11 }}>{err}</div>}
 
         {tech && <TechnicalDashboard symbol={symbol} tech={tech} onRefresh={run} />}
-        {state === 'ready' && !exactContract && <>
+        {state === 'ready' && !standalone && <>
           <FamilyVerdict modules={technical} title="Technical" />
           <TradeLevels v5={v5} symbol={symbol} />
 
@@ -346,7 +353,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
       </div>
 
       {/* ── FUNDAMENTAL ── */}
-      {state === 'ready' && !exactContract && (
+      {state === 'ready' && !standalone && (
         <div className="bb-card">
           <div className="bb-card-header">FUNDAMENTAL ANALYSIS</div>
           <FamilyVerdict modules={fundamental} title="Fundamental" />
@@ -358,7 +365,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency }) {
       )}
 
       {/* ── RESEARCH THESIS: independent evidence, no confidence number ── */}
-      {!exactContract && <ResearchThesis symbol={symbol} />}
+      {!standalone && <ResearchThesis symbol={symbol} />}
     </>
   )
 }
