@@ -5965,15 +5965,25 @@ try:
         """
 
         async def get_response(self, path, scope):
+            shell = path in ("", ".", "index.html")
             try:
-                return await super().get_response(path, scope)
+                response = await super().get_response(path, scope)
             except _StarletteHTTPException as exc:
                 if exc.status_code != 404:
                     raise
                 # Never mask a missing asset as the app shell.
                 if "." in path.rsplit("/", 1)[-1]:
                     raise
-                return await super().get_response("index.html", scope)
+                response = await super().get_response("index.html", scope)
+                shell = True
+            # The shell names the hashed bundles of the CURRENT build. Sent with
+            # no Cache-Control, a browser reuses it heuristically (about a tenth
+            # of its age), so a deploy reached open browsers minutes — for an
+            # old build, a day — late (seen 2026-10-16). Revalidate it every
+            # time; the etag keeps that a 304. Hashed assets stay cacheable.
+            if shell:
+                response.headers["Cache-Control"] = "no-cache"
+            return response
 
     _dist = ROOT / "frontend" / "dist"
     if _dist.exists():
