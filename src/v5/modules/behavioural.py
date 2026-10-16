@@ -12,7 +12,6 @@ market but not itself is only half a system.
 """
 from __future__ import annotations
 
-import math
 
 import pandas as pd
 

@@ -29,7 +29,6 @@ from typing import Dict, List, Optional, Tuple
 from src.political.political_data_schema import (
     PoliticalTradeRecord,
     PoliticalWatchlistEntry,
-    WATCHLIST_SCORE_WEIGHTS,
 )
 from src.political.political_sources import load_all_sources
 

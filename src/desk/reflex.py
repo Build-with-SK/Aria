@@ -30,14 +30,13 @@ import json
 import logging
 import threading
 import time
-import uuid
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
 
-from src.desk.config import load_config, paper_mode_confirmed
+from src.desk.config import load_config
 from src.desk.opinion import load_data_json, signals_freshness
-from src.desk.position_manager import _sane_levels, trading_age_days
+from src.desk.position_manager import _sane_levels
 
 logger = logging.getLogger(__name__)
 

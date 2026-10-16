@@ -47,7 +47,6 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -59,7 +58,7 @@ logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
 
-from src.core.bus import DB_PATH, connect as _bus_connect, publish  # noqa: E402
+from src.core.bus import connect as _bus_connect, publish  # noqa: E402
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS predictions (

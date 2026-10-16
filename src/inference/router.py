@@ -29,8 +29,8 @@ from enum import Enum
 from pathlib import Path
 
 from src.inference import policy
-from src.inference.errors import (AllProvidersFailed, FatalError,
-                                  InferenceError, RetryableError)
+from src.inference.errors import (FatalError, InferenceError,
+                                  RetryableError)
 from src.inference.providers import Provider
 
 logger = logging.getLogger(__name__)
