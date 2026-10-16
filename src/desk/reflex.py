@@ -341,9 +341,22 @@ class ReflexEngine:
                 continue
             outcome = self._fire(pb, price, account_snapshot(), mgr)
             results.append(outcome)
+            # Record every attempt on the playbook itself. A gate that stops a
+            # crossed trigger is not terminal, so the playbook stays armed and
+            # later reads "expired" — 1,073 of them did, and nothing anywhere
+            # said whether their triggers had ever crossed or which gate held.
+            pb["attempts"] = int(pb.get("attempts") or 0) + 1
+            pb["last_attempt"] = {"at": datetime.now().isoformat(timespec="seconds"),
+                                  "price": price, "stage": outcome.get("stage"),
+                                  "reason": str(outcome.get("reason") or "")[:200],
+                                  "executed": bool(outcome.get("executed"))}
+            changed = True
+            if outcome.get("stage") != "execute":
+                logger.info("REFLEX %s %s crossed %s but stopped at %s: %s", pb["side"].upper(),
+                            pb["ticker"], pb["trigger_price"], outcome.get("stage"),
+                            pb["last_attempt"]["reason"])
             if outcome.get("executed") or outcome.get("terminal"):
                 pb["status"] = "fired" if outcome.get("executed") else "expired"
-                changed = True
         if changed:
             save_playbooks(pbs)
         return results
