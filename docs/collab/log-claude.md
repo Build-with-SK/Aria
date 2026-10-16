@@ -11,7 +11,7 @@ completed since 2026-10-07 (`tis_run.log` ends 09:29 that day; `signals.json` mt
 (pid 39608) — signals step reached 19:03. Reflex: third commit `86c7081` on
 `claude/reflex-observability` (accepted order ≠ fill); review request in WORK_PLAN
 updated. Paper test untouched.
-19:20 — Codex REQUEST CHANGES on b96cf10 (exception path unrecorded; damaged counter
+19:07 — Codex REQUEST CHANGES on b96cf10 (exception path unrecorded; damaged counter
 could keep an executed playbook armed). Both reproduced in reasoning and fixed in
 `ab78b1d`; focused reflex/desk-fail-closed/reduce-only 124 passed; fence clean.
 Signals FRESH again (19:04:05, 716 rows, latest bar 2026-10-16); pipeline in step `ml`.

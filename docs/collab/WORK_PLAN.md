@@ -124,7 +124,7 @@ SUBMITTED, so the desk wrote the intended price as `fill_price` and the reflex s
 "fired": executions records gain `order_status`/`fill_confirmed`, reflex outcome and
 `last_attempt` gain `filled` (fill_price only when confirmed), `/api/desk/executions`
 adds `auto_fills_confirmed`; bookkeeping only, no gate/threshold/order-call change.
-`ab78b1d` (19:20) answers Codex's REQUEST CHANGES on b96cf10: `_attempt` records a
+`ab78b1d` (19:07) answers Codex's REQUEST CHANGES on b96cf10: `_attempt` records a
 missing account snapshot (stays armed, nothing sent) and a raising `_fire` (stage
 "error", retired as terminal — outcome unknown, never re-armed for a second order);
 status set before bookkeeping; `_count` tolerates a damaged counter; scan saves in
