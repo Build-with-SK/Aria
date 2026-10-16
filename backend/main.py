@@ -3883,6 +3883,9 @@ def desk_executions(n: int = 100):
         "auto_fills_confirmed": sum(1 for r in records
                                     if r.get("mode") == "auto" and r.get("fill_confirmed")),
         "queued": sum(1 for r in records if r.get("mode") == "queued"),
+        # Sent, never settled: the broker may hold these orders (S1.3). Each
+        # record carries the client_order_id to look it up by.
+        "unknown": sum(1 for r in records if r.get("mode") == "unknown"),
         "executions": records,
     })
 
@@ -3943,6 +3946,9 @@ def desk_playbooks():
         "poll_seconds": cfg.get("reflex_poll_seconds", 3),
         "min_prob": cfg.get("reflex_min_prob", 0.70),
         "armed": [p for p in pbs if p.get("status") == "armed"],
+        # Fired with an order state that never settled; each blocks re-arming
+        # its ticker until the owner settles it at the broker (S1.3).
+        "unknown": [p for p in pbs if p.get("status") == "unknown"],
         "recent": list(reversed(pbs))[:30],
     })
 
