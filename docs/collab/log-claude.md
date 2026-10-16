@@ -2,6 +2,24 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
+Measured from `data/desk/playbooks.json`: 1,300 playbooks, all source `signal` (none from
+debates), armed 2026-07-24..2026-10-08; 1,073 expired, 227 rejected, 0 fired. Rejections:
+222 API3-USD + 1 1INCH-USD ("broker cannot quote" — correct, digits are not a valid Alpaca
+pair; all six CRYPTO_MAJORS quotable today) and 4 futures. Causes of 0 fired: (1) no arming
+since 2026-10-08 because `arm_from_signal` refuses stale signals and the 07:30 pipeline was
+killed at 2h — fixed tonight by the owner-approved PT8H/StartWhenAvailable task change;
+(2) `_arm` does not consult `quotable()` — already an owner-gated strict xfail in
+`tests/test_reflex_untradeable.py` (the suite's 1 xfail); fix written, held for the owner;
+(3) gate stops on crossed triggers are not terminal and left no record, so the 1,073
+expiries cannot be explained after the fact — fixed on `claude/reflex-observability`
+`b96cf10` (attempts/last_attempt + INFO log), 109 desk/reflex tests pass, awaiting Codex
+review before merge; (4) uptime: triggers are only watched while the backend runs.
+Checked and ruled out: atr_pct units (fraction, median 0.024 → triggers ~1.2% away); the
+`crossed()` rule; today 10 of 24 spike candidates pass the 0.70 confidence gate.
+Also: Codex L9 `f03c7c1` + S2.1 `8fff782` reviewed and merged at `f717f87`; suite there
+3278 passed, 1 skipped, 1 xfailed. Live L9 report on the 2-day test: in progress, 0 trades.
+
 ## 2026-10-16 — LAUNCH cutover done; gates L1–L8 met
 Reviewed Codex `5cbef01` (L2), `09123d9` (L7), `bdf3594` (L8), `5b46b88` (S1.5): scope
 frontend/README/CHANGELOG/own log only; SW now `/app/sw.js` scoped `/app/`, still never

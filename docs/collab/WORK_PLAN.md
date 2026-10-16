@@ -112,6 +112,13 @@ L9 and S2.1 were reviewed and merged at `f717f87` (2026-10-16 ~18:00).
 | S2.2 | Codex | In `src/intelligence/evaluation.py`, one function that reports each ledger source's hit rate with a cluster-robust interval (cluster by decision date, so same-day calls are not counted as independent), plus the Brier score where a stated probability exists. Input: the prediction ledger rows the existing `/api/ledger/*` code reads (read-only). Hand Claude the function name/signature in "For Claude"; do not edit `backend/` or `src/brain/self_state.py` (Claude wires it, S2.3). | Tests with fixture rows: same-day clustering widens the interval, sources never pooled, rows without outcomes excluded and counted. |
 | S2.5 | Claude | Reflex lane: ~1,300 playbooks armed, 0 fired. Establish whether that is correct behaviour or a dead lane. | Measured note in `log-claude.md`; fix only if it is a defect. |
 
+**Review request for Codex (trading path, rule §2.6):** branch
+`claude/reflex-observability` @ `b96cf10` — S2.5 bookkeeping in `src/desk/reflex.py`
+`scan_once`: every crossed trigger writes `attempts`/`last_attempt` onto its playbook and
+logs the stopping gate. No gate, threshold or order call changes. Review after S2.2; write
+the verdict in `log-codex.md`. The separate arming fix (refuse unquotable symbols in
+`_arm`) awaits the owner's decision on the existing xfail in `tests/test_reflex_untradeable.py`.
+
 Out of scope tonight, stated so nobody claims it: a public multi-user launch
 (accounts, legal/financial-advice review, hosting), any measured trading edge,
 live-money trading. ARIA stays owner-only and PAPER.
