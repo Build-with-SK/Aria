@@ -227,11 +227,18 @@ def test_an_unreachable_consultant_is_visible_to_the_approving_human():
 
 # ── two systems, not one ───────────────────────────────────────────────────
 
+#: Anchored to this repository, not the working directory — `Path("src")` read
+#: nothing when pytest was started anywhere else.
+ROOT = Path(__file__).resolve().parent.parent
+
+
 def test_aria_imports_no_sentinel_internals():
     """The entire coupling is HTTP. A convenience import is how two separate
     systems quietly become one."""
-    for path in Path("src").rglob("*.py"):
-        if path.parts[:2] == ("src", "consult"):
+    files = list((ROOT / "src").rglob("*.py"))
+    assert len(files) > 100, f"the scan found only {len(files)} files — it is not reading the source"
+    for path in files:
+        if path.relative_to(ROOT).parts[:2] == ("src", "consult"):
             continue
         # utf-8-sig, not utf-8: thirteen empty package markers in this repo
         # carried a UTF-8 BOM, and `ast.parse` rejects it as a non-printable
@@ -250,8 +257,14 @@ def test_aria_imports_no_sentinel_internals():
                 f"supposed to be one HTTP call")
 
 
+def test_the_import_scan_reads_the_source_from_any_working_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    test_aria_imports_no_sentinel_internals()
+    test_the_bridge_talks_over_http_and_nothing_else()
+
+
 def test_the_bridge_talks_over_http_and_nothing_else():
-    src = Path("src/consult/sentinel_client.py").read_text(encoding="utf-8")
+    src = (ROOT / "src" / "consult" / "sentinel_client.py").read_text(encoding="utf-8")
     assert "urllib.request" in src
     for forbidden in ("import sqlite3", "chromadb", "from src.brain"):
         assert forbidden not in src, (
