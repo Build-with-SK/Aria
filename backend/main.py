@@ -1503,7 +1503,16 @@ def get_signal_history(ticker: str, response: Response, days: int = 30):
             "freshness": fresh,
         }
     except Exception as e:
+        if _legacy_table_missing(e):
+            return {"ticker": ticker, "days": days, "records": [], "freshness": fresh,
+                    "message": "The legacy signal database has no history table on this install."}
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _legacy_table_missing(exc: Exception) -> bool:
+    """A fresh install has no legacy trading_intelligence.db tables; that is an
+    empty history, not a server error."""
+    return "no such table" in str(exc).lower()
 
 
 @app.get("/api/stats", tags=["Database"])
@@ -1559,6 +1568,10 @@ def get_signal_performance(ticker: str, response: Response):
             "freshness": fresh,
         }
     except Exception as e:
+        if _legacy_table_missing(e):
+            return {"ticker": ticker, "records": [], "freshness": fresh,
+                    "message": ("No performance data: the legacy signal database has no "
+                                "performance table on this install; graded calls are in /api/ledger.")}
         raise HTTPException(status_code=500, detail=str(e))
 
 
