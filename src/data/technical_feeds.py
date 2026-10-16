@@ -191,7 +191,7 @@ def fx_daily_from_hourly(hourly, provider, *, now=None, session_loader=None):
     source = source.tz_convert("UTC")
     loader = session_loader or session_windows
     reports = {}
-    rows, starts, excluded = [], [], 0
+    rows, starts, excluded, outside_bars = [], [], 0, 0
     for start, group in source.resample("D", closed="left", label="left"):
         end = start + pd.Timedelta(days=1)
         if end > current:
@@ -208,14 +208,24 @@ def fx_daily_from_hourly(hourly, provider, *, now=None, session_loader=None):
             if len(group):
                 raise ValueError("FX provider returned candles outside its verified trading windows")
             continue
-        if set(group.index) != set(expected):
+        # Every scheduled hour must be present. A provider bar after the
+        # verified close (Yahoo prints Friday's 17:00-18:00 New York hour) is
+        # outside the session: left out of the candle and counted, not a
+        # reason to drop the whole day. Dropping it would silently remove
+        # every Friday from the series.
+        if not set(expected) <= set(group.index):
             excluded += 1
             continue
+        outside = group.index.difference(pd.DatetimeIndex(expected))
+        if len(outside):
+            outside_bars += len(outside)
+            group = group.drop(outside)
         rows.append({"Open": group.Open.iloc[0], "High": group.High.max(), "Low": group.Low.min(), "Close": group.Close.iloc[-1],
                      **({"Volume": group.Volume.sum(min_count=len(group))} if "Volume" in group else {})})
         starts.append(start)
     result = pd.DataFrame(rows, index=pd.DatetimeIndex(starts, tz="UTC"), columns=source.columns.intersection(["Open", "High", "Low", "Close", "Volume"]))
     return result, {"alignment": "UTC-day OHLC reconstructed from complete scheduled closed hourly candles of the exact same Yahoo pair",
-                    "incomplete_days_excluded": excluded, "hourly_source_validation": validation,
+                    "incomplete_days_excluded": excluded, "out_of_session_bars_excluded": outside_bars,
+                    "hourly_source_validation": validation,
                     "reconstructed": True, "reconstruction_calendar_verified": True,
                     "independent_price_validation": "not performed"}
