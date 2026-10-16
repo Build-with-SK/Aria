@@ -31,7 +31,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from src.desk.config import load_config, paper_mode_confirmed
+from src.desk.config import load_config
 from src.desk.opinion import load_data_json
 from src.risk.profiles import EXECUTABLE_ASSET_CLASSES
 
@@ -43,6 +43,9 @@ POSITIONS_FILE = DESK_DIR / "positions.json"
 CLOSED_FILE = DESK_DIR / "closed_trades.jsonl"
 EXEC_LOG = DESK_DIR / "executions.jsonl"
 DEBATES_DIR = DESK_DIR / "debates"
+#: Sibling orders of a closed position that the broker did not cancel. Retried
+#: every tick until the broker no longer lists them as open.
+PENDING_CANCELS_FILE = DESK_DIR / "pending_cancels.json"
 
 COMPOSITE_FLIP = 20.0          # long + composite < −20 (or mirror) → rule 4b
 EXIT_DEBATE_CLOSE_AT = 50      # deterministic hold-vs-close score threshold
@@ -111,6 +114,21 @@ def _await_cancelled(broker, order_ids: list, timeout_s: float = 2.0,
         if not still or time.monotonic() >= deadline:
             return not still
         time.sleep(poll_s)
+
+
+def _try_cancel(broker, order_id) -> str | None:
+    """Ask the broker to cancel one order. None when it accepted, else why not.
+
+    Both brokers and the paper gate report a refused cancel by RETURNING False
+    (AlpacaBroker catches the API error itself), so a bare try/except sees
+    almost none of the failures. Only an explicit False or an exception counts
+    as a failure; a broker that returns nothing has not said no.
+    """
+    try:
+        ok = broker.cancel_order(order_id)
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+    return "broker did not accept the cancel" if ok is False else None
 
 
 def _sane_levels(stop: float | None, target: float | None, entry: float,
@@ -314,15 +332,26 @@ class PositionManager:
                 logger.info(f"PositionManager adopted {ticker}: "
                             f"stop {pos['stop']}, target {pos['target']}")
 
+        # ORPHANED ORDERS — sibling cancels that failed on an earlier tick. The
+        # position they protected is gone, so nothing else will revisit them.
+        try:
+            self._retry_pending_cancels(mgr, summary)
+        except Exception as e:
+            summary["errors"].append(f"orphaned-order retry: {e}")
+
         # PRUNE — tracked positions gone from the broker (bracket fired or
         # closed elsewhere). Cancel leftover sibling orders, record the close.
         open_orders = mgr.open_orders_by_ticker() if mgr else {}
         for ticker in list(tracked.keys()):
             if ticker not in broker_positions:
-                self._record_external_close(tracked.pop(ticker), mgr,
-                                            open_orders.get(ticker, []))
+                failed = self._record_external_close(tracked.pop(ticker), mgr,
+                                                     open_orders.get(ticker, []))
                 summary["exits"].append({"ticker": ticker,
                                          "reason": "closed at broker (bracket or manual)"})
+                for f in failed:
+                    summary["errors"].append(
+                        f"{ticker}: sibling order {f['order_id']} not cancelled "
+                        f"({f['last_error']}) — retrying next tick")
 
         # GROSS EXPOSURE TRIAGE — flatten worst-first until inside the cap
         equity = float(account.get("equity") or 0.0)
@@ -658,16 +687,32 @@ class PositionManager:
         except Exception as e:
             logger.error(f"could not queue manual exit for {ticker}: {e}")
 
-    def _record_external_close(self, pos: dict, mgr, leftover_orders: list):
+    def _record_external_close(self, pos: dict, mgr, leftover_orders: list) -> list:
         """A tracked position vanished from the broker: a bracket filled or a
-        human closed it. Cancel sibling orders, estimate the realized P&L."""
+        human closed it. Cancel sibling orders, estimate the realized P&L.
+
+        Returns the sibling orders the broker did NOT cancel. They are also
+        saved for retry: the ticker leaves `tracked` here, so without that a
+        resting stop on a now-flat account would never be looked at again —
+        and a sell stop that fires on a flat account opens a short.
+        """
         ticker = pos.get("ticker", "?")
+        failed = []
         if mgr and mgr._alpaca:
             for o in leftover_orders:
-                try:
-                    mgr._alpaca.cancel_order(o["id"])
-                except Exception:
-                    pass
+                why = _try_cancel(mgr._alpaca, o["id"])
+                if why is not None:
+                    logger.error(f"{ticker}: sibling order {o['id']} of a closed "
+                                 f"position was not cancelled ({why}) — saved for retry")
+                    failed.append({"ticker": ticker, "order_id": o["id"],
+                                   "order_type": o.get("order_type"),
+                                   "first_failed_at": datetime.now().isoformat(),
+                                   "attempts": 1, "last_error": why})
+        if failed:
+            try:
+                self._save_pending_cancels(self._load_pending_cancels() + failed)
+            except Exception as e:
+                logger.error(f"{ticker}: could not save uncancelled orders for retry: {e}")
         entry = float(pos.get("entry_price") or 0.0)
         long = _is_long(pos)
         estimated = True
@@ -718,6 +763,70 @@ class PositionManager:
                       exit_price or entry, pnl, pnl_pct, reason), self.cfg)
         self._update_scorecard(record)
         self._record_outcome_memory(record)
+        return failed
+
+    # ── orphaned sibling orders ──────────────────────────────────────────
+
+    def _load_pending_cancels(self) -> list:
+        if PENDING_CANCELS_FILE.exists():
+            try:
+                return list(json.loads(PENDING_CANCELS_FILE.read_text(encoding="utf-8")))
+            except Exception as e:
+                logger.error(f"pending_cancels.json unreadable: {e}")
+        return []
+
+    def _save_pending_cancels(self, pending: list):
+        PENDING_CANCELS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        PENDING_CANCELS_FILE.write_text(json.dumps(pending, indent=2, default=str),
+                                        encoding="utf-8")
+
+    def _retry_pending_cancels(self, mgr, summary: dict):
+        """Retry every saved sibling cancel. An order the broker no longer
+        lists as open is resolved, however it went (cancelled, expired or
+        filled — a fill shows up as a new position and is adopted). Behind the
+        same paper gate as every other cancel in the tick: on an account that
+        gate refuses, the orders are reported for a human, never touched."""
+        pending = self._load_pending_cancels()
+        if not pending:
+            return
+        ids = ", ".join(f"{p.get('ticker')}:{p.get('order_id')}" for p in pending)
+        if mgr is None:
+            summary["errors"].append(f"orphaned order(s) pending cancel, no broker: {ids}")
+            return
+        try:
+            open_ids = {str(o.get("id")) for orders in (mgr.open_orders_by_ticker() or {}).values()
+                        for o in orders}
+        except Exception as e:
+            summary["errors"].append(f"orphaned-order retry skipped — open orders "
+                                     f"unreadable ({e}): {ids}")
+            return
+        may_cancel = _may_mutate_broker(mgr)
+        still = []
+        for p in pending:
+            if str(p.get("order_id")) not in open_ids:
+                logger.info(f"orphaned order {p.get('order_id')} ({p.get('ticker')}) "
+                            f"is no longer open — resolved")
+                continue
+            if not may_cancel:
+                still.append(p)
+                continue
+            why = _try_cancel(mgr._alpaca, p["order_id"])
+            if why is None:
+                logger.info(f"orphaned order {p['order_id']} ({p.get('ticker')}) cancelled")
+                continue
+            p["attempts"] = int(p.get("attempts") or 0) + 1
+            p["last_error"] = why
+            logger.error(f"orphaned order {p['order_id']} ({p.get('ticker')}) still not "
+                         f"cancelled after {p['attempts']} attempts: {why}")
+            still.append(p)
+        self._save_pending_cancels(still)
+        if still:
+            summary["orphaned_orders"] = still
+            summary["errors"].append(
+                ("orphaned order(s) still open after retry: " if may_cancel else
+                 "orphaned order(s) still open — not cancelled on this account, "
+                 "a human must: ")
+                + ", ".join(f"{p.get('ticker')}:{p['order_id']}" for p in still))
 
     # ── brackets ─────────────────────────────────────────────────────────
 
@@ -737,10 +846,10 @@ class PositionManager:
         if mgr._alpaca is not None:
             for o in open_orders:
                 if o.get("order_type") in ("stop", "stop_limit", "limit"):
-                    try:
-                        mgr._alpaca.cancel_order(o["id"])
-                    except Exception:
-                        pass
+                    why = _try_cancel(mgr._alpaca, o["id"])
+                    if why is not None:
+                        logger.warning(f"{ticker}: partial protection {o['id']} not "
+                                       f"cancelled before healing ({why})")
         placed = mgr.place_protective_orders(
             ticker, float(pos.get("qty") or 0.0),
             "buy" if _is_long(pos) else "sell",
@@ -778,10 +887,10 @@ class PositionManager:
                 return
         for o in open_orders:
             if o.get("order_type") in ("stop", "stop_limit", "limit"):
-                try:
-                    mgr._alpaca.cancel_order(o["id"])
-                except Exception:
-                    pass
+                why = _try_cancel(mgr._alpaca, o["id"])
+                if why is not None:
+                    logger.warning(f"{ticker}: old protection {o['id']} not "
+                                   f"cancelled before the ratchet ({why})")
         mgr.place_protective_orders(
             ticker, float(pos.get("qty") or 0.0),
             "buy" if _is_long(pos) else "sell",

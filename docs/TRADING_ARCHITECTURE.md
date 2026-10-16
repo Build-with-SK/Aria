@@ -406,7 +406,7 @@ All routes are owner-only. ★ = also requires a recent step-up.
 | GET | `/api/trading/latency` | measured stage latencies |
 | POST | `/api/trading/arbitrage/evaluate` | net edge after everything |
 | GET / POST | `/api/trading/capital` | the contribution ledger |
-| GET | `/api/trading/orders` | the order journal |
+| GET | `/api/trading/orders` | the TradingPipeline order journal — not desk or approval-queue orders (see `scope`) |
 | POST | `/api/trading/orders/reconcile` | settle unknown orders, lift a halt |
 
 `/api/trading` is in `policy.EXECUTION_PREFIXES` and `policy.NEVER_SHARED`: the

@@ -341,3 +341,222 @@ def test_disconnected_broker_never_seeds_a_fictional_start_equity(
         f"seeded start_equity={state.get('start_equity')!r} from the sizing "
         f"fallback — the £100 re-basing halt in a different costume"
     )
+
+
+# ── F-02 · a sibling order that will not cancel is never silently forgotten ──
+#
+# When a tracked position disappears from the broker, its leftover stop and
+# target are cancelled and the ticker leaves `tracked`. The cancel used to sit
+# in `try: ... except Exception: pass` — but both brokers and the paper gate
+# report a refused cancel by RETURNING False, so the handler saw almost none of
+# the failures, and nothing ever looked at that ticker again. A sell stop left
+# resting on a flat account opens a short when it fires.
+
+class _CancelBroker:
+    """`results` maps order id -> what cancel_order does: True / False /
+    an exception instance to raise."""
+
+    def __init__(self, results=None):
+        self.results = results or {}
+        self.attempted = []
+
+    def cancel_order(self, oid):
+        self.attempted.append(oid)
+        r = self.results.get(oid, True)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+class _OrphanMgr:
+    def __init__(self, broker, open_orders=None):
+        self._alpaca = broker
+        self._open = open_orders or {}
+
+    def open_orders_by_ticker(self):
+        return self._open
+
+
+def _quiet_engine(pm, monkeypatch, tmp_path):
+    """A PositionManager whose close bookkeeping writes nowhere real."""
+    monkeypatch.setattr(pm, "PENDING_CANCELS_FILE", tmp_path / "pending_cancels.json")
+    monkeypatch.setattr(pm, "load_data_json", lambda name: {})
+    import src.desk.notify as notify
+    monkeypatch.setattr(notify, "push", lambda *a, **k: None)
+    engine = pm.PositionManager.__new__(pm.PositionManager)
+    engine.cfg = {}
+    for name in ("_log_execution", "_log_closed", "_update_scorecard",
+                 "_record_outcome_memory"):
+        monkeypatch.setattr(engine, name, lambda *a, **k: None)
+    return engine
+
+
+_CLOSED_POS = {"ticker": "AAPL", "side": "long", "qty": 10, "entry_price": 100.0,
+               "stop": 95.0, "target": 110.0}
+
+
+@pytest.mark.parametrize("failure", [False, RuntimeError("HTTP 500")])
+def test_refused_sibling_cancel_is_returned_and_saved_for_retry(
+        tmp_path, monkeypatch, failure):
+    from src.desk import position_manager as pm
+
+    engine = _quiet_engine(pm, monkeypatch, tmp_path)
+    broker = _CancelBroker({"stop-1": failure})
+    mgr = _OrphanMgr(broker)
+
+    failed = engine._record_external_close(
+        dict(_CLOSED_POS), mgr,
+        [{"id": "stop-1", "order_type": "stop"}, {"id": "tgt-1", "order_type": "limit"}])
+
+    assert broker.attempted == ["stop-1", "tgt-1"], "every sibling must still be attempted"
+    assert [f["order_id"] for f in failed] == ["stop-1"], (
+        "a cancel the broker refused was reported as done — the ticker leaves "
+        "`tracked` here, so this is the only chance to notice")
+    saved = json.loads((tmp_path / "pending_cancels.json").read_text(encoding="utf-8"))
+    assert [p["order_id"] for p in saved] == ["stop-1"]
+    assert saved[0]["ticker"] == "AAPL" and saved[0]["attempts"] == 1
+
+
+def test_accepted_sibling_cancels_leave_nothing_pending(tmp_path, monkeypatch):
+    from src.desk import position_manager as pm
+
+    engine = _quiet_engine(pm, monkeypatch, tmp_path)
+    failed = engine._record_external_close(
+        dict(_CLOSED_POS), _OrphanMgr(_CancelBroker()),
+        [{"id": "stop-1", "order_type": "stop"}])
+
+    assert failed == []
+    assert not (tmp_path / "pending_cancels.json").exists()
+
+
+def test_pending_cancels_are_retried_until_the_broker_lets_go(tmp_path, monkeypatch):
+    from src.desk import position_manager as pm
+
+    engine = _quiet_engine(pm, monkeypatch, tmp_path)
+    monkeypatch.setattr(pm, "_may_mutate_broker", lambda mgr: True)
+    engine._save_pending_cancels([
+        {"ticker": "AAPL", "order_id": "now-ok", "attempts": 1},
+        {"ticker": "MSFT", "order_id": "gone", "attempts": 1},
+        {"ticker": "NVDA", "order_id": "stuck", "attempts": 2},
+    ])
+    broker = _CancelBroker({"now-ok": True, "stuck": False})
+    mgr = _OrphanMgr(broker, open_orders={
+        "AAPL": [{"id": "now-ok"}], "NVDA": [{"id": "stuck"}]})
+    summary = {"errors": []}
+
+    engine._retry_pending_cancels(mgr, summary)
+
+    assert "gone" not in broker.attempted, \
+        "an order the broker no longer lists as open is resolved, not re-cancelled"
+    left = engine._load_pending_cancels()
+    assert [p["order_id"] for p in left] == ["stuck"]
+    assert left[0]["attempts"] == 3
+    assert any("stuck" in e for e in summary["errors"]), \
+        "an order still stuck after retry must reach the tick's errors"
+
+
+def test_pending_cancels_are_reported_not_touched_on_a_live_account(
+        tmp_path, monkeypatch):
+    from src.desk import position_manager as pm
+
+    engine = _quiet_engine(pm, monkeypatch, tmp_path)
+    monkeypatch.setattr(pm, "_may_mutate_broker", lambda mgr: False)
+    engine._save_pending_cancels([{"ticker": "AAPL", "order_id": "o1", "attempts": 1},
+                                  {"ticker": "MSFT", "order_id": "gone", "attempts": 1}])
+    broker = _CancelBroker()
+    summary = {"errors": []}
+
+    engine._retry_pending_cancels(_OrphanMgr(broker, {"AAPL": [{"id": "o1"}]}), summary)
+
+    assert broker.attempted == [], "the paper gate covers the retry like every other cancel"
+    assert [p["order_id"] for p in engine._load_pending_cancels()] == ["o1"], \
+        "reading open orders is allowed, so a resolved order still drops off"
+    assert any("o1" in e and "human" in e for e in summary["errors"])
+
+
+def test_unreadable_pending_cancels_never_abort_the_tick_section(tmp_path, monkeypatch):
+    from src.desk import position_manager as pm
+
+    engine = _quiet_engine(pm, monkeypatch, tmp_path)
+    (tmp_path / "pending_cancels.json").write_text("{not json", encoding="utf-8")
+
+    assert engine._load_pending_cancels() == []
+
+
+# ── F-02 through a whole tick: position state AND order state ────────────────
+
+class _TickMgr(_OrphanMgr):
+    def cancel_stale_orders(self):
+        return []
+
+
+def _tick_engine(pm, monkeypatch, tmp_path, mgr):
+    engine = _quiet_engine(pm, monkeypatch, tmp_path)
+    monkeypatch.setattr(pm, "POSITIONS_FILE", tmp_path / "positions.json")
+    monkeypatch.setattr(pm, "_may_mutate_broker", lambda m: True)
+    import src.desk.auto_executor as ae
+    monkeypatch.setattr(ae, "get_order_manager", lambda: mgr)
+    monkeypatch.setattr(ae, "account_snapshot", lambda: {
+        "connected": True, "equity": 10_000.0, "positions": []})
+    closes = []
+    monkeypatch.setattr(engine, "_log_closed", lambda rec: closes.append(rec["ticker"]))
+    return engine, closes
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("HTTP 503"), False])
+def test_a_tick_survives_a_failed_sibling_cancel_and_remembers_it(
+        tmp_path, monkeypatch, failure):
+    """The position is gone at the broker; its stop will not cancel. After the
+    tick: the position is untracked and its close recorded ONCE, the failure is
+    in the tick's errors, the order is saved for retry — and the protective
+    order itself was never touched beyond the one cancel attempt."""
+    from src.desk import position_manager as pm
+
+    broker = _CancelBroker({"stop-1": failure})
+    mgr = _TickMgr(broker, open_orders={"AAPL": [{"id": "stop-1", "order_type": "stop"}]})
+    engine, closes = _tick_engine(pm, monkeypatch, tmp_path, mgr)
+    engine.save_positions({"AAPL": dict(_CLOSED_POS)})
+
+    summary = engine.tick()
+
+    assert engine.load_positions() == {}, "the closed position must leave tracking"
+    assert closes == ["AAPL"]
+    assert broker.attempted == ["stop-1"], "exactly one cancel attempt in the tick that found it"
+    assert any("stop-1" in e and "not cancelled" in e for e in summary["errors"])
+    pending = engine._load_pending_cancels()
+    assert [p["order_id"] for p in pending] == ["stop-1"] and pending[0]["attempts"] == 1
+
+    # Next tick: the order is still open and still refuses. One more attempt,
+    # no second close record, nothing re-tracked, and it stays on the books.
+    summary2 = engine.tick()
+    assert closes == ["AAPL"], "the close was recorded twice"
+    assert broker.attempted == ["stop-1", "stop-1"]
+    assert engine._load_pending_cancels()[0]["attempts"] == 2
+    assert summary2["orphaned_orders"][0]["order_id"] == "stop-1"
+    assert engine.load_positions() == {}
+
+    # The broker finally lets go (the order is no longer listed as open):
+    # resolved without another cancel call — never a blind retry.
+    mgr._open = {}
+    summary3 = engine.tick()
+    assert broker.attempted == ["stop-1", "stop-1"]
+    assert engine._load_pending_cancels() == []
+    assert not any("orphan" in e for e in summary3["errors"])
+
+
+def test_a_clean_external_close_touches_nothing_else(tmp_path, monkeypatch):
+    from src.desk import position_manager as pm
+
+    broker = _CancelBroker()
+    mgr = _TickMgr(broker, open_orders={
+        "AAPL": [{"id": "stop-1", "order_type": "stop"}],
+        "MSFT": [{"id": "keep-me", "order_type": "limit"}]})
+    engine, closes = _tick_engine(pm, monkeypatch, tmp_path, mgr)
+    engine.save_positions({"AAPL": dict(_CLOSED_POS)})
+
+    summary = engine.tick()
+
+    assert broker.attempted == ["stop-1"], \
+        "only the closed position's own siblings may be cancelled"
+    assert closes == ["AAPL"] and summary["errors"] == []
+    assert not (tmp_path / "pending_cancels.json").exists()

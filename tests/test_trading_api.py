@@ -109,6 +109,19 @@ def test_status_reports_the_mode_the_limits_and_what_is_disabled(owner):
     assert TOKEN not in owner.get("/api/trading/status").text
 
 
+def test_order_engine_views_say_they_cover_the_pipeline_only(owner):
+    """The journal is fed only by TradingPipeline, which nothing in production
+    runs; an unlabelled `orders: 0` read as "ARIA has sent no orders" while the
+    desk was trading paper (see tests/test_trading_status_scope.py)."""
+    status = owner.get("/api/trading/status").json()["order_engine"]
+    assert set(status) >= {"halted", "orders", "scope"}, "existing keys must stay"
+    assert status["scope"]["production_path"] is False
+    assert "order_manager" in status["scope"]["note"]
+    orders = owner.get("/api/trading/orders").json()
+    assert set(orders) >= {"halted", "orders", "scope"}
+    assert orders["scope"]["production_path"] is False
+
+
 # ── the mode ─────────────────────────────────────────────────────────────────
 
 def test_the_mode_cannot_be_raised_without_the_phrase(owner):
@@ -269,3 +282,103 @@ def test_a_contribution_is_recorded_and_never_inferred(owner):
     assert r.status_code == 200
     after = owner.get("/api/trading/capital").json()
     assert after["net_contributions_account_ccy"] == 38.4
+
+
+# ── where the order records really are (audit F-01) ──────────────────────────
+#
+# The pipeline journal is empty here because nothing in production runs the
+# pipeline; the orders ARIA sends are in the desk's execution log. Each source
+# reports missing / empty / populated / stale for itself, by its own records'
+# timestamps — never by file modification time — and no history is invented.
+
+@pytest.fixture
+def record_files(tmp_path, monkeypatch):
+    from src.desk import auto_executor
+    from src.trading import orders
+    journal, desk_log = tmp_path / "order_journal.jsonl", tmp_path / "executions.jsonl"
+    monkeypatch.setattr(orders, "JOURNAL", journal)
+    monkeypatch.setattr(auto_executor, "EXEC_LOG", desk_log)
+    return journal, desk_log
+
+
+def _sources(owner):
+    body = owner.get("/api/trading/orders").json()
+    return body, body["record_sources"]
+
+
+def test_missing_record_files_are_reported_as_missing(owner, record_files):
+    body, src = _sources(owner)
+    assert body["orders"] == {}
+    for name in ("pipeline_journal", "desk_executions"):
+        assert src[name]["exists"] is False
+        assert src[name]["records"] == 0 and src[name]["last_record_at"] is None
+    assert src["pipeline_journal"]["production_path"] is False
+    assert src["desk_executions"]["production_path"] is True
+
+
+def test_empty_record_files_are_empty_not_missing(owner, record_files):
+    journal, desk_log = record_files
+    journal.write_text("", encoding="utf-8")
+    desk_log.write_text("\n", encoding="utf-8")
+    _, src = _sources(owner)
+    assert src["pipeline_journal"]["exists"] is True and src["pipeline_journal"]["records"] == 0
+    assert src["desk_executions"]["exists"] is True and src["desk_executions"]["records"] == 0
+
+
+def test_an_empty_journal_beside_real_executions_says_so(owner, record_files):
+    """The original misreading: orders: {} while the desk had traded."""
+    import json as _json
+    from datetime import datetime
+    journal, desk_log = record_files
+    now = datetime.now().isoformat()
+    desk_log.write_text("\n".join(_json.dumps(r) for r in [
+        {"at": now, "action": "entry", "ticker": "AAPL", "mode": "auto"},
+        {"at": now, "action": "exit", "ticker": "AAPL", "mode": "broker"}]) + "\n",
+        encoding="utf-8")
+    body, src = _sources(owner)
+    assert body["orders"] == {}, "no pipeline order history may be invented"
+    assert src["pipeline_journal"]["records"] == 0
+    assert src["desk_executions"]["records"] == 2
+    assert src["desk_executions"]["last_record_at"] == now
+    assert src["desk_executions"]["age_hours"] is not None and src["desk_executions"]["age_hours"] < 1
+    assert src["desk_executions"]["served_by"] == "/api/desk/executions"
+
+
+def test_a_stale_execution_log_shows_its_real_age(owner, record_files):
+    import json as _json
+    from datetime import datetime, timedelta
+    _, desk_log = record_files
+    old = (datetime.now() - timedelta(days=40)).isoformat()
+    desk_log.write_text(_json.dumps({"at": old, "action": "exit", "ticker": "SPY"}) + "\n",
+                        encoding="utf-8")
+    import os as _os, time as _time
+    _os.utime(desk_log, (_time.time(), _time.time()))      # file touched just now
+    _, src = _sources(owner)
+    assert src["desk_executions"]["age_hours"] > 24 * 39, \
+        "age must come from the record's own timestamp, not the file's mtime"
+
+
+def test_a_populated_pipeline_journal_is_shown_as_it_is(owner, record_files):
+    import json as _json
+    from datetime import datetime, timezone
+    journal, _ = record_files
+    at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    journal.write_text("\n".join(_json.dumps(r) for r in [
+        {"at": at, "client_order_id": "aria-abc", "state": "INTENT"},
+        {"at": at, "client_order_id": "aria-abc", "state": "FILLED"}]) + "\n",
+        encoding="utf-8")
+    body, src = _sources(owner)
+    assert set(body["orders"]) == {"aria-abc"} and body["orders"]["aria-abc"]["state"] == "FILLED"
+    assert src["pipeline_journal"]["records"] == 2
+    assert src["pipeline_journal"]["age_hours"] is not None
+    status = owner.get("/api/trading/status").json()["order_engine"]
+    assert status["orders"] == 1 and status["record_sources"]["pipeline_journal"]["records"] == 2
+
+
+def test_unreadable_lines_are_counted_not_hidden(owner, record_files):
+    _, desk_log = record_files
+    desk_log.write_text('{"at": "2026-10-01T10:00:00", "action": "entry"}\n{broken\n',
+                        encoding="utf-8")
+    _, src = _sources(owner)
+    assert src["desk_executions"]["records"] == 1
+    assert src["desk_executions"]["unreadable_lines"] == 1

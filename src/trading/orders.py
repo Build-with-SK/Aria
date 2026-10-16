@@ -53,6 +53,22 @@ ROOT = Path(__file__).parent.parent.parent
 JOURNAL = ROOT / "data" / "trading" / "order_journal.jsonl"
 HALT_FILE = ROOT / "data" / "trading" / "order_halt.json"
 
+#: What the journal and halt above cover, for anything that reports them. Only
+#: TradingPipeline.run calls OrderEngine.submit, and no production caller runs
+#: the pipeline — tests/test_trading_status_scope.py fails the day one does, so
+#: this text changes with it. The desk, the reflex lane and the owner's approve
+#: button send through src/execution/order_manager.OrderManager instead; those
+#: orders are never in this journal, and this halt does not stop them.
+JOURNAL_SCOPE = {
+    "covers": "orders sent through src/trading/pipeline.TradingPipeline only",
+    "production_path": False,
+    "note": ("No production caller runs TradingPipeline, so an empty journal and "
+             "halted=false say nothing about the orders ARIA actually sends. Those go "
+             "through src/execution/order_manager (approval queue, desk auto-executor, "
+             "reflex lane); the system-wide stop is the kill switch."),
+    "production_orders_at": ["/api/desk/executions", "/api/execute/queue"],
+}
+
 INTENT = "INTENT"
 SUBMITTING = "SUBMITTING"
 UNKNOWN = "UNKNOWN"
