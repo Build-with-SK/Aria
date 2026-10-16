@@ -2,6 +2,80 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-16 — S1.3 client_order_id + settle-on-timeout — built on `claude/s1.3-client-order-id`, NOT merged, awaits independent review
+Files: `src/execution/order_manager.py`, `src/execution/alpaca_broker.py`
+(`_classify_submit_failure` only), `src/execution/approval_queue.py` (fenced path —
+adds terminal status `unknown` and a `client_order_id` field; no approval step
+changed), `src/desk/auto_executor.py`, `src/desk/reflex.py`, `backend/main.py` (two
+response keys added, nothing renamed), new `tests/test_order_settlement.py`.
+Branched from `aria/integrity-upgrade` @ `b5b47f2`.
+Changed:
+- Every approval-queue order (owner approve, desk auto-execute, reflex) is sent with
+  `client_order_id = aria-q-<sha256(approval_queue|id|created_at)[:24]>` —
+  deterministic per queued trade, recorded on the queue row.
+- A submit the adapter reports UNKNOWN (timeout, connection drop, 5xx — already
+  classified that way when a client id is present) is settled in
+  `OrderManager._settle_unknown`: up to 3 lookups by client id, 2 s apart. Found →
+  continues as the broker's answer (a fill takes the normal path: queue executed,
+  brackets after a confirmed fill). Not found on the LAST lookup → REJECTED, nothing
+  placed. Last lookup unanswerable, or the adapter cannot look up → UNKNOWN.
+- Found in review of alpaca-py 0.43.4: `alpaca/common/rest.py` re-POSTs on 504 (3×,
+  3 s). With a client id, a retry after an accepted-but-timed-out first POST is
+  refused 422 "client_order_id must be unique" — that read as a definite refusal.
+  A 4xx naming the client order id is now UNKNOWN and settled by lookup; every
+  other 4xx stays REJECTED, unlooked-up.
+- UNKNOWN is terminal everywhere: queue status `unknown` (execute and cancel refuse
+  it — never resent); `execute` returns `ok: False, unknown: True, client_order_id`;
+  desk record `mode: "unknown"` with `client_order_id`, counted against the day's caps
+  (`record_trade`), not tracked as a position (PositionManager.tick adopts it if the
+  broker shows one), owner notified; reflex playbook status `unknown` (not
+  "expired"), and `_arm` refuses its ticker while any `unknown` playbook for it
+  stands; reflex unknown outcomes are written to `executions.jsonl` (`lane:
+  "reflex"`). `/api/desk/executions` adds `unknown` (count); `/api/desk/playbooks`
+  adds `unknown` (list). Fill/failed records also carry `client_order_id`.
+- Gates unchanged and still in front of the send: session, pre-trade risk,
+  reduce-only, mode gate, kill switch. Settlement runs after the send and only reads
+  (`get_order_by_client_id` was already a READ in `live_guard`). Tests show closed
+  market, kill switch and RESEARCH mode each send nothing and look nothing up.
+  Nothing calls `approve_and_execute`.
+Measured: `tests/test_order_settlement.py` 23 passed — real `AlpacaBroker` code over a
+fake alpaca-py client; timeout→found filled / found working / found rejected or
+cancelled / not found / lookup fails / mixed answers / duplicate-id 422 / no lookup
+support / through `gate_for_desk`; reflex end to end through the real order path
+(found → `fired`, not found → stays `armed`, lookup fails → `unknown`, second
+crossing sends nothing, re-arm refused). Against the base source, 16 of the first
+20 failed (the 4 that passed are gate tests that hold either way). Named suites
+(structure, live gate, reflex×3, desk×2, send-time, session bypass, reduce-only,
+portfolio risk, kill switch, backend reliability, execution auth, settlement):
+449 passed. Full suite on `e4f01ad` in the worktree, with a read-only copy of the
+production `universe.db` (removed after): **3322 passed, 7 skipped, exit 0**.
+Without that copy a worktree fails one test, `test_stabilization.py::
+test_the_universe_audit_reports_without_repairing` (fallback fixture 16 rows, finds
+29) — the base `b5b47f2` fails it identically in a worktree (3296 passed, 1 failed),
+and it passes alone and right after the new tests: environment, not this change.
+`scripts/check_protected_paths.py --require-git`: clean (also `--base b5b47f2`).
+Open:
+- Trading-path change: independent review BEFORE merge (Codex, or a fresh reviewer
+  if the owner says so). Not merged, not pushed, nothing restarted.
+- An `unknown` playbook blocks its ticker until the owner finds the order at Alpaca
+  by client order id and changes that playbook's status in `data/desk/playbooks.json`;
+  no endpoint does that yet (candidate: settle `unknown` playbooks by client id on
+  the next scan).
+- Residual race: a request still in flight after ~6 s of "not found" could land
+  later — an untracked order (PositionManager adopts it) while the playbook stays
+  armed.
+- Pre-existing, unchanged: `AlpacaBroker.get_order_status` returns REJECTED on a
+  transport error, so `_await_fill` can report a working order as "rejected" while
+  the queue says executed; a reflex `_fire` exception still retires as `expired`,
+  not `unknown`, so it does not block re-arming; reflex fills (other than unknown)
+  never reach `executions.jsonl`; a trade left `approved` by a crash mid-submit can
+  be approved again and resends the same id (now settled by lookup instead of a
+  second order); the deliberate desk lane does not consult `unknown` records when
+  choosing the next slate.
+For Codex: review request (trading path, §2.6) — `git diff b5b47f2
+claude/s1.3-client-order-id`; APPROVE or the objection in `log-codex.md`. Claude
+merges only after that.
+
 ## 2026-10-16 — FINAL LAUNCH — deployed 21:27, report
 Deployed `afde34e` (HEAD `05a938c` adds logs only): `ARIA Backend` restarted, pid 51284 →
 42692 (21:27:58), `/ready` 200 in 1 s, one listener; desk daemon + reflex engine started
