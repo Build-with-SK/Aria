@@ -48,6 +48,13 @@ const realistic = {
   useInvestigation: { overall: { rate: null, ci95: null }, distinct_events: 0 },
   useWorkers: { healthy: true, counts: { ok: 1 }, workers: [{ name: 'fixture', label: 'Synthetic worker', loop: 'fast', state: 'ok', ticks: 1, age_seconds: 20 }], degraded: [] },
   useConsultStatus: { sentinel_status: 'UNAVAILABLE', url: 'Synthetic offline fixture', auto_consult_enabled: false, auto_consult_flag: 'OFF' },
+  useDataFreshness: { as_of: '2026-10-16T12:00:00', pipeline_run: { state: 'DID_NOT_FINISH', step: 'ml',
+    started_at: '2026-10-15T10:00:00', finished_at: null, why: 'Synthetic unfinished run' }, datasets: [
+    { dataset: 'signals.json', status: 'FRESH', age_hours: 0, stale_threshold_hours: 30, as_of: '2026-10-16T12:00:00', basis: 'file_mtime', writer: 'Synthetic signals writer',
+      observation: { recorded: true, earliest_bar: '2026-10-15', latest_bar: '2026-10-16', rows_dated: 2, rows: 3 } },
+    { dataset: 'legacy.json', status: 'STALE', age_hours: 100, stale_threshold_hours: 30, legacy: true, writer: 'Synthetic retired writer' },
+    { dataset: 'missing.json', status: 'UNKNOWN', age_hours: null, stale_threshold_hours: 48, as_of: null, writer: null },
+  ] },
   '/api/quant/strategies': [{ id: 'synthetic', name: 'Synthetic challenger', metrics: { oos: { sharpe: null }, full: { sharpe: null } } }],
   '/api/evolution/campaigns': { campaigns: [{ started_at: '2026-10-16', generations: 1, population: 2, evaluated: 2, holdout_days: 30, survivors: [], best_in_sample: [] }] },
   '/api/quant/papers': [],
@@ -57,11 +64,12 @@ try {
   const names = [...source.matchAll(/export (?:async )?(?:const|function) (\w+)/g)].map(m => m[1])
   const mock = join(temporary, 'api.mjs')
   writeFileSync(mock, names.map(name => name.startsWith('use')
-    ? `export function ${name}(...args) { const key = ${JSON.stringify(name)} === 'useApiData' ? args[0] : ${JSON.stringify(name)}; globalThis.__launchReads.push(key); return {data: globalThis.__launchFixture[key] ?? globalThis.__launchDefault, loading: false, error: globalThis.__launchError, reload() { throw new Error('No actions during SSR') }} }`
+    ? `export function ${name}(...args) { const key = ${JSON.stringify(name)} === 'useApiData' ? args[0] : ${JSON.stringify(name)}; globalThis.__launchReads.push(key); return {data: globalThis.__launchFixture[key] ?? globalThis.__launchDefault, loading: !!globalThis.__launchLoading, error: globalThis.__launchError, reload() { throw new Error('No actions during SSR') }} }`
     : `export function ${name}() { throw new Error('No network or actions during SSR: ${name}') }`).join('\n'))
   const entry = join(temporary, 'entry.jsx')
   writeFileSync(entry, Object.entries(routes).map(([route, file]) => `export { default as ${file} } from ${JSON.stringify(join(root, 'src/pages', `${file}.jsx`).replaceAll('\\', '/'))};`).join('\n')
     + `\nexport { ExplorerDetails } from ${JSON.stringify(join(root, 'src/pages/Explorer.jsx').replaceAll('\\', '/'))};`
+    + `\nexport { default as DataFreshness } from ${JSON.stringify(join(root, 'src/components/DataFreshness.jsx').replaceAll('\\', '/'))};`
     + `\nexport { CurrencyProvider } from ${JSON.stringify(join(root, 'src/currency/CurrencyContext.jsx').replaceAll('\\', '/'))};`)
   await build({ input: entry, platform: 'node', external: ['react', 'react/jsx-runtime', 'react-dom', 'react-router-dom', 'axios', 'recharts', 'lucide-react'],
     plugins: [{ name: 'offline-api', resolveId(id) { if (/hooks\/useApi(?:\.js)?$/.test(id)) return mock } }],
@@ -110,13 +118,38 @@ try {
       assert.ok(!/NaN|undefined|\[object Object\]|Infinity/.test(html), `Research details/${scenario}: invalid value`)
       assert.match(html, scenario === 'realistic' ? /Synthetic headline/ : /unavailable|withheld/)
     }
+    const freshness = realistic.useDataFreshness
+    const freshnessCases = [
+      ...['COMPLETED', 'IN_PROGRESS', 'DID_NOT_FINISH', 'UNKNOWN'].map(state => ({
+        data: { ...freshness, pipeline_run: { ...freshness.pipeline_run, state } }, expect: state.replaceAll('_', ' '),
+      })),
+      ...[null, [], { summary: null, consensus: null }, { datasets: [], pipeline_run: null }].map(data => ({ data, expect: 'unavailable' })),
+      { data: null, error: '503 Synthetic failed freshness request', expect: '503 Synthetic failed freshness request' },
+      { data: freshness, loading: true, expect: 'signals.json' }, // retained data during polling
+      { data: null, loading: true, expect: 'Checking dataset freshness' },
+    ]
+    for (const { data, error = null, loading = false, expect } of freshnessCases) {
+      globalThis.__launchFixture = { useDataFreshness: data }; globalThis.__launchDefault = null; globalThis.__launchError = error
+      globalThis.__launchLoading = loading
+      const html = renderToStaticMarkup(React.createElement(pages.DataFreshness))
+      assert.ok(!/NaN|undefined|\[object Object\]|Infinity/.test(html), 'Freshness invalid display value')
+      assert.ok(html.includes(expect), `Freshness expected ${expect}`)
+      if (data?.datasets?.length && !error) {
+        assert.equal((html.match(/<tbody><tr>|<\/tr><tr>/g) || []).length, 3, 'one row per dataset')
+        assert.ok(html.includes('0m / 30.0h'), 'a zero age is valid')
+        assert.ok(html.includes('unavailable / 2.0d'), 'unknown age is not zero')
+        assert.ok(html.includes('file write time · not a market observation'))
+        assert.ok(html.includes('LEGACY') && html.includes('2/3 rows dated'))
+      }
+    }
   } finally { console.error = originalError }
   console.log(`PASS: ${observed.length} offline route renders (8 routes × 6 payload states).`)
   console.log('PASS: 5 populated/empty/withheld/failed Research snapshot renders.')
+  console.log('PASS: 11 freshness panel cases (four pipeline states, missing/empty/withheld/error/loading data; dataset ages, legacy and observation basis).')
   console.log('Scope: actual page JSX + synthetic useApi read hooks and loaded Research snapshot. SSR does not run effects, hydration, authentication, chart scripts or action handlers; nested effect-only loaders remain at their initial state. Run verify-technical-dashboard.mjs for populated technical evidence.')
 } finally {
   globalThis.fetch = originalFetch
-  for (const key of ['__launchFixture', '__launchDefault', '__launchError', '__launchReads']) delete globalThis[key]
+  for (const key of ['__launchFixture', '__launchDefault', '__launchError', '__launchReads', '__launchLoading']) delete globalThis[key]
   assert.ok(temporary.startsWith(join(root, 'node_modules', '.launch-render-')))
   rmSync(temporary, { recursive: true, force: true })
 }

@@ -10,7 +10,9 @@ node scripts/verify-shell.mjs
 
 The route checks render the eight workspace pages with synthetic read-hook
 responses: populated, null, empty arrays, withheld summaries/consensus, errors
-and partial objects. Loaded Research details are rendered separately. The
+and partial objects. Loaded Research details are rendered separately, along
+with freshness-panel cases for pipeline states, dataset ages, legacy sources,
+observation dates, loading and failed requests. The
 technical checks exercise populated and withheld multi-timeframe evidence.
 No server, credentials, live accounts or vault access is needed.
 

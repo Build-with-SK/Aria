@@ -81,6 +81,7 @@ export async function fetchNexusResearch(symbol) {
 export const useWorld        = () => useApiData('/api/aria/world',          60_000)
 export const useWorldChanges = (h = 24) => useApiData(`/api/aria/world/changes?hours=${h}`, 120_000)
 export const useWorkers      = () => useApiData('/api/aria/workers',        30_000)
+export const useDataFreshness = () => useApiData('/api/data/freshness',      60_000)
 // The honest status dot. `/health` returns ok whenever the web server can
 // answer, which told you nothing about whether the daemons behind it were
 // still running — the exact failure this system already had for a week.

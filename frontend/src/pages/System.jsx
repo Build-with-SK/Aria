@@ -15,6 +15,7 @@ import axios from 'axios'
 import { useWorkers, useWorld, useConsultStatus } from '../hooks/useApi'
 import { Empty, SectionHeader, Spinner } from '../components/UI'
 import { DataUnavailable, hasRecord } from '../components/DataState'
+import DataFreshness from '../components/DataFreshness'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -328,7 +329,7 @@ export default function System() {
   const { data: world } = useWorld()
 
   if (loading && !data) return <Spinner />
-  if (error || !hasRecord(data)) return <DataUnavailable name="System worker status" error={error} />
+  if (error || !hasRecord(data)) return <><DataUnavailable name="System worker status" error={error} /><DataFreshness /></>
 
   const workers = data?.workers || []
   const counts = data?.counts || {}
@@ -395,7 +396,8 @@ export default function System() {
       ))}
 
       {/* ── data freshness ── */}
-      <SectionHeader>DATA FRESHNESS</SectionHeader>
+      <DataFreshness />
+      <SectionHeader>WORLD SNAPSHOT WARNINGS</SectionHeader>
       <div className="bb-card" style={{ marginBottom: 14 }}>
         {!world?.unknowns?.length && (
           <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
