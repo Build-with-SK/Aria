@@ -66,6 +66,13 @@ unknown auto-execute/slate render "—"/"unavailable"; the Portfolio desk toggle
 assertions fail on the old pages (EXIT=1) and pass on the new; all three verifiers
 EXIT=0; staging build + shell verifier pass. Merged `--no-ff` → `019c637`.
 For Codex (when back): review `4e78017` after the fact (your area).
+19:50 — frontend published from `ef34cae` (staging build + all verifiers EXIT=0; copied
+into `frontend/dist` without purge): live `/app/` serves `index-BfVBrMwS.js`, old
+`index-BxXXf1CG.js` still 200. The owner's Chrome kept the OLD shell: `/app/*` had no
+Cache-Control, so browsers cache index.html heuristically. Fixed `579ad64`
+(`_SPAStatics` sets `Cache-Control: no-cache` on the shell and SPA fallbacks; assets
+untouched; 304 keeps it) + `tests/test_app_shell_cache.py`; merged `cbc0206`; live at the
+next restart. Loopback scratch copy deleted, its server stopped.
 
 ## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
 Measured from `data/desk/playbooks.json`: 1,300 playbooks, all source `signal` (none from
