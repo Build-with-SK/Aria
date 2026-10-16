@@ -73,7 +73,12 @@ function AutoExecToggle({ status, onChanged }) {
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState('')
   const gates = status?.gates || {}
-  const armed = !!status?.config?.auto_execute
+  // usePoll gives null until the first answer and after a failed one. Unknown
+  // is not OFF: it used to render "ARM AUTO-EXECUTE", "OFF by default" and a
+  // FAILed paper check while the desk was armed and trading, with a live button
+  // acting on that guess.
+  const known = typeof status?.config?.auto_execute === 'boolean'
+  const armed = known && status.config.auto_execute
   const account = gates.account || 'disconnected'
   const paperOk = gates.env_paper && account === 'paper'
   const live = account === 'live'
@@ -98,17 +103,23 @@ function AutoExecToggle({ status, onChanged }) {
     <div className="bb-card glow-frame" style={{ padding: 16 }}>
       <div className="bb-card-header">AUTONOMOUS EXECUTION</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <button onClick={toggle} disabled={busy || live} style={{
+        <button onClick={toggle} disabled={busy || live || !known} style={{
           fontFamily: MONO, fontSize: 13, fontWeight: 800, letterSpacing: '.14em',
-          padding: '14px 26px', borderRadius: 6, cursor: live ? 'not-allowed' : 'pointer',
+          padding: '14px 26px', borderRadius: 6, cursor: live || !known ? 'not-allowed' : 'pointer',
           background: armed ? 'var(--green-bg)' : 'var(--bg-3)',
           color: armed ? 'var(--green)' : live ? 'var(--muted)' : 'var(--text-dim)',
           border: `1px solid ${armed ? 'var(--green-dim)' : 'var(--border-2)'}`,
           boxShadow: armed ? '0 0 18px rgba(43,227,139,.3)' : 'none',
           animation: armed ? 'pulseGlow 3.2s ease-in-out infinite' : 'none',
         }}>
-          {armed ? '■ AUTO-EXECUTE ARMED' : '▶ ARM AUTO-EXECUTE'}
+          {!known ? '— AUTO-EXECUTE STATE UNKNOWN' : armed ? '■ AUTO-EXECUTE ARMED' : '▶ ARM AUTO-EXECUTE'}
         </button>
+        {!known ? (
+          <div style={{ fontFamily: MONO, fontSize: 11, lineHeight: 1.8, color: 'var(--muted)' }}>
+            Desk status unavailable — whether auto-execute is armed is unknown,
+            so it is shown as neither on nor off and cannot be changed here.
+          </div>
+        ) : (
         <div style={{ fontFamily: MONO, fontSize: 11, lineHeight: 1.8 }}>
           <div style={{ color: paperOk ? 'var(--green)' : live ? 'var(--red)' : 'var(--yellow)', fontWeight: 700 }}>
             {account === 'paper' ? '● PAPER — auto-exec permitted' :
@@ -125,6 +136,7 @@ function AutoExecToggle({ status, onChanged }) {
               'OFF by default. Trades wait in the approval queue until you arm it.'}
           </div>
         </div>
+        )}
       </div>
       {refusal && (
         <div style={{
