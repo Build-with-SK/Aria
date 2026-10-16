@@ -48,7 +48,9 @@ try {
     conflicts: [{ warning: '1h Strong Buy conflicts with 1d Strong Sell; no unconditional direction.' }],
     timeframes: Object.fromEntries(frames.map(tf => [tf, { summary: tf === '1d' ? 'Strong Sell' : 'Strong Buy',
       instrument: { provider_symbol: 'SYNTHETIC', exchange: 'TEST' }, data_as_of: '2026-10-15T00:00:00Z',
-      evidence: { quality: 'synthetic fixture', bars: 260 }, data_quality: 'synthetic fixture',
+      evidence: { quality: 'synthetic fixture', bars: 260, warmup_complete: true }, data_quality: 'synthetic fixture',
+      verification: { identity: 'verified', ohlc: 'valid', independent_price_validation: 'not performed' },
+      calendar_status: 'unverified; gaps may include exchange closures',
       indicator_values: Object.fromEntries(['RSI14','Stochastic14','StochRSI14','MACD12_26_9','ADX14','WilliamsR14','CCI20','ROC12','IchimokuCloud'].map(name => [name, { value: 55, signal: 'buy' }])),
       moving_average_values: Object.fromEntries(['SMA20','SMA50','SMA100','SMA200','EMA9','EMA21','EMA50','EMA200'].map(name => [name,{ value: 100, signal: 'buy' }])),
     }])) }
@@ -57,9 +59,20 @@ try {
   assert.ok(html.includes('Strong Buy') && html.includes('Strong Sell'))
   assert.ok(html.includes('No independent review obtained. Silence is not agreement.'))
   assert.ok(!html.includes('NaN'))
+  const feed = renderToStaticMarkup(React.createElement(Dashboard, { symbol: 'SYNTHETIC', tech: { timeframes: { '1d': {
+    ...report.timeframes['1d'], summary: null, calculated_summary: 'Strong Buy', history_prefix_excluded: 21,
+    verification: { identity: 'verified', history: 'insufficient_warmup', ohlc: 'valid', independent_price_validation: 'not performed' },
+    calendar_status: 'unverified venue dates', data_quality: 'insufficient_warmup',
+  } } } }))
+  assert.ok(feed.includes('Identity: verified') && feed.includes('history: insufficient_warmup'))
+  assert.ok(feed.includes('independent price validation: not performed'))
+  assert.ok(feed.includes('Indicators restarted') && feed.includes('21 earlier rows excluded'))
+  assert.ok(feed.includes('unverified venue dates') && feed.includes('Current recommendation withheld.'))
   const context = technicalEvidence('SYNTHETIC', report.timeframes)
   assert.ok(encodeURIComponent(context).length < 14000, 'all nine horizons must fit the existing consultation interface')
   assert.equal(Object.keys(JSON.parse(context).timeframes).length, 9)
+  assert.equal(JSON.parse(context).timeframes['1d'].feed_checks.independent_prices, 'not performed')
+  assert.equal(JSON.parse(context).timeframes['1d'].feed_checks.warmup, true)
   assert.ok(!context.includes('Strong Buy'), 'withhold ARIA directional labels from independent reconstruction')
   const missing = renderToStaticMarkup(React.createElement(Dashboard, { symbol: 'GCZ6', tech: { timeframes: { '1d': { error: 'contract unavailable' } } } }))
   assert.ok(missing.includes('contract unavailable') && missing.includes('disabled=""'))

@@ -65,14 +65,16 @@ export default function TechnicalDashboard({ symbol, tech, onRefresh }) {
           <td style={cell}>{d?.moving_averages?.label || '—'}</td>
           <td style={cell}>{d?.momentum || '—'}</td>
           <td style={cell}>{d?.volatility ? `${d.volatility.regime}; ATR ${Number(d.volatility.atr14).toFixed(3)}` : '—'}</td>
-          <td style={cell}>{d?.data_as_of || 'Unverified'}<div>{d?.data_stale ? 'STALE' : d?.data_as_of ? `Closed ${d.last_closed_at || 'unverified'}` : ''}</div></td>
-          <td style={cell}>{d?.evidence?.quality || 'Unavailable'}{d?.evidence && <div>{d.evidence.bars} bars · {d.evidence.ma_votes}/8 MA · {d.evidence.indicator_votes}/9 indicators</div>}</td>
+          <td style={cell}>{d?.data_as_of || 'Unverified'}<div>{d?.data_stale ? `STALE${d.market_session ? ` · session ${d.market_session}` : ''}` : d?.data_as_of ? `Closed ${d.last_closed_at || 'unverified'}` : ''}</div></td>
+          <td style={cell}>{d?.evidence?.quality || d?.data_quality || 'Unavailable'}{d?.evidence && <div>{d.evidence.bars} bars · {d.evidence.ma_votes}/8 MA · {d.evidence.indicator_votes}/9 indicators</div>}{d?.verification && <div>Identity: {d.verification.identity} · history: {d.verification.history}</div>}</td>
         </tr>
       })}</tbody>
     </table></div>
     {detail && !detail.error && <div style={{ marginTop: 12 }}>
       <div>OBSERVED DATA · {detail.instrument?.provider_symbol} · exchange {detail.provenance?.exchange || detail.instrument?.exchange || 'unverified'} · close {detail.price} · {detail.provenance?.provider}</div>
-      <div>DATA LIMITATIONS · {detail.provenance?.alignment || detail.latency} · {detail.gap_count} gaps (calendar unverified) · {detail.open_bars_excluded} open bars excluded</div>
+      <div>DATA LIMITATIONS · {detail.provenance?.alignment || detail.latency} · {detail.gap_count} gaps · {detail.calendar_status || 'calendar unverified'} · {detail.open_bars_excluded} open bars excluded</div>
+      {detail.verification && <div>FEED CHECKS · identity {detail.verification.identity} · OHLC {detail.verification.ohlc} · {detail.verification.history} · independent price validation: {detail.verification.independent_price_validation}</div>}
+      {!!detail.history_prefix_excluded && <div style={{ color: 'var(--orange)' }}>Indicators restarted after the last invalid candle: {detail.history_prefix_excluded} earlier rows excluded; {detail.evidence?.bars} consecutive valid bars used. No prices were repaired.</div>}
       <div>CALCULATED INDICATORS · {selected} · {detail.confirmation?.structure} · support {detail.confirmation?.support20} · resistance {detail.confirmation?.resistance20}</div>
       {detail.calculated_summary && <div style={{ color: 'var(--orange)' }}>Historical/provisional calculation: {detail.calculated_summary}. Current recommendation withheld.</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, marginTop: 8 }}>{[['Indicators', detail.indicator_values], ['Moving averages', detail.moving_average_values]].map(([label, values]) => <div key={label} style={{ flex: '1 1 280px' }}>

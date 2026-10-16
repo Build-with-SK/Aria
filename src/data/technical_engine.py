@@ -5,7 +5,7 @@ Heavy numeric dependencies are imported only when called.
 """
 from __future__ import annotations
 
-VERSION = "aria-technical-1"
+VERSION = "aria-technical-2"
 TIMEFRAMES = {
     "1m": ("1m", "7d"), "5m": ("5m", "1mo"),
     "15m": ("15m", "1mo"), "30m": ("30m", "1mo"),
@@ -126,7 +126,7 @@ def score_candles(df):
     }
 
 
-def closed_candles(df, timeframe, now=None):
+def closed_candles(df, timeframe, now=None, *, provider_symbol=None):
     """Validate OHLCV and timezone, discard open bars; never fill missing prices.
 
     Provider timestamps denote bar opens. Intraday uses absolute UTC grids.
@@ -144,13 +144,6 @@ def closed_candles(df, timeframe, now=None):
         raise ValueError("timezone-aware candle timestamps required")
     if not df.index.is_monotonic_increasing or df.index.has_duplicates:
         raise ValueError("unordered or duplicate candles")
-    values = df[["Open", "High", "Low", "Close"]].to_numpy(dtype=float)
-    if not np.isfinite(values).all():
-        raise ValueError("non-finite OHLC prices")
-    if ((df.High < df[["Open", "Close", "Low"]].max(axis=1)) | (df.Low > df[["Open", "Close", "High"]].min(axis=1))).any():
-        raise ValueError("malformed OHLC range")
-    if "Volume" in df and ((df.Volume < 0).any() or np.isinf(df.Volume).any()):
-        raise ValueError("invalid volume")
     now = pd.Timestamp(now or pd.Timestamp.now(tz="UTC"))
     if now.tzinfo is None:
         raise ValueError("timezone-aware as-of required")
@@ -162,37 +155,149 @@ def closed_candles(df, timeframe, now=None):
         ends = df.index + duration
     else:
         offset = {"1d": DateOffset(days=1), "1w": DateOffset(weeks=1), "1M": DateOffset(months=1)}[timeframe]
-        if timeframe == "1w" and any(df.index.dayofweek != 0):
-            raise ValueError("weekly candles must open Monday")
-        if timeframe == "1M" and any(df.index.day != 1):
-            raise ValueError("monthly candles must open on day 1")
         ends = pd.DatetimeIndex([ts.normalize() + offset for ts in df.index])
     complete = ends <= now
     out = df.loc[complete].copy()
     ends = ends[complete]
     if len(out) < 30:
-        raise ValueError("insufficient closed history (minimum 30 bars; full warm-up 200)")
+        raise ValueError(f"insufficient closed history: provider returned {len(df)} bars, {len(out)} closed (minimum 30; full warm-up 200)")
+    # A corrupt historical candle breaks the series. Use ONLY the contiguous
+    # valid suffix after its last occurrence, restarting every indicator there.
+    # Never clip OHLC, skip an interior bad row, or splice another vendor in.
+    values = out[["Open", "High", "Low", "Close"]].to_numpy(dtype=float)
+    finite = np.isfinite(values).all(axis=1)
+    ranges = ((out.High >= out[["Open", "Close", "Low"]].max(axis=1)) &
+              (out.Low <= out[["Open", "Close", "High"]].min(axis=1))).to_numpy()
+    volume = np.ones(len(out), dtype=bool)
+    if "Volume" in out:
+        volume = (~((out.Volume < 0) | np.isinf(out.Volume))).to_numpy()
+    valid = finite & ranges & volume
+    excluded = 0
+    bad_count = int((~valid).sum())
+    if bad_count:
+        excluded = int(np.flatnonzero(~valid)[-1]) + 1
+        reason = "non-finite OHLC prices" if not finite.all() else "malformed OHLC range" if not ranges.all() else "invalid volume"
+        out, ends = out.iloc[excluded:].copy(), ends[excluded:]
+        if len(out) < 200:
+            raise ValueError(f"{reason}: {bad_count} invalid closed bars; only {len(out)} consecutive valid bars after the last invalid row (full warm-up 200 required)")
+    # Calendar alignment applies to closed bars that actually contribute.
+    # A lone in-progress Friday/month-end quote is a short-history issue.
+    if timeframe == "1w" and any(out.index.dayofweek != 0):
+        raise ValueError("weekly candles must open Monday")
+    if timeframe == "1M" and any(out.index.day != 1):
+        raise ValueError("monthly candles must open on day 1")
     if duration is not None:
         gaps = out.index.to_series().diff().dropna()
-        if (gaps < duration).any() or not (gaps == duration).any():
+        if (gaps < duration).any() or (timeframe != "5h" and not (gaps == duration).any()):
             raise ValueError("candle timeframe mismatch")
+        if timeframe == "5h" and not out.attrs.get("session_grid_verified") and any(ts.value % duration.value for ts in out.index):
+            raise ValueError("5h candles do not match their declared UTC grid")
         # Gaps can be exchange closures or missing data; neither is silently repaired.
         gap_count = int((gaps > duration).sum())
     else:
         gap_count = int(sum(out.index[i] > ends[i-1] for i in range(1, len(out))))
     age = float((now - ends[-1]).total_seconds())
     limit = float(duration.total_seconds() * 3) if duration is not None else {"1d": 5*86400, "1w": 14*86400, "1M": 62*86400}[timeframe]
+    calendar_status = "unverified; gaps may include exchange closures"
+    if provider_symbol and (timeframe == "1d" or (timeframe == "5h" and out.attrs.get("session_grid_verified"))):
+        gap_count, calendar_status = _calendar_gaps(out, timeframe, provider_symbol, gap_count)
+    market_state = None
+    if provider_symbol:
+        from src.markets.sessions import session
+        market_state = session(provider_symbol, at=now.to_pydatetime()).state.value
     return out, {"data_as_of": out.index[-1].isoformat(), "last_closed_at": ends[-1].isoformat(),
                  "age_seconds": age, "data_stale": age > limit, "stale_after_seconds": limit,
                  "open_bars_excluded": int((~complete).sum()), "gap_count": gap_count,
-                 "calendar_status": "unverified; gaps may include exchange closures",
+                 "calendar_status": calendar_status, "market_session": market_state,
+                 "invalid_closed_bars": bad_count, "history_prefix_excluded": excluded,
+                 "validation_policy": "strict contiguous valid history; indicators restart after any invalid row",
                  "latency": "provider delay unknown; never labelled real-time"}
 
 
-def aggregate_five_hours(df, now=None):
-    """Five consecutive closed hourly candles per epoch-anchored UTC 5h bin."""
+def _calendar_gaps(df, timeframe, symbol, fallback):
+    """Count missing scheduled candles rather than counting weekends as gaps."""
     import pandas as pd
-    hourly, _ = closed_candles(df, "1h", now)
+    from src.markets.candle_sessions import session_windows
+    from src.markets.sessions import resolve
+    from src.markets.venues import VENUES
+    venue = resolve(symbol).venue
+    if venue not in VENUES:
+        return fallback, "unverified; venue calendar unavailable"
+    if VENUES[venue].kind not in ("exchange", "options"):
+        return fallback, "unverified; continuous/OTC daily boundary is provider-specific"
+    zone = VENUES[venue].tz
+    local = df.index.tz_convert(zone)
+    expected = []
+    for day in pd.date_range(local[0].date(), local[-1].date(), freq="D"):
+        report = session_windows(symbol, day.date())
+        if report["status"] == "unknown":
+            return fallback, "unverified; one or more venue dates have unknown calendars"
+        if timeframe == "1d":
+            if report["status"] == "verified" and report["windows"]:
+                expected.append(day.date())
+        else:
+            for window in report["windows"]:
+                start, end = pd.Timestamp(window["open"]), pd.Timestamp(window["close"])
+                while start + pd.Timedelta(hours=5) <= end:
+                    if df.index[0] <= start <= df.index[-1]:
+                        expected.append(start)
+                    start += pd.Timedelta(hours=5)
+    actual = set(local.date) if timeframe == "1d" else set(df.index)
+    expected = set(expected)
+    if actual - expected:
+        raise ValueError("candles fall outside the verified venue session grid")
+    return len(expected - actual), "verified venue session calendar"
+
+
+def aggregate_five_hours(df, now=None, *, provider_symbol=None, session_loader=None):
+    """Five full consecutive hourly candles; exchange bins start at session open.
+
+    Continuous crypto/FX/futures retain the explicitly labelled UTC epoch grid.
+    Exchange windows come only from the canonical venue calendar helper.
+    """
+    import pandas as pd
+    hourly, source_validation = closed_candles(df, "1h", now)
+    if provider_symbol:
+        from src.markets.sessions import resolve
+        from src.markets.venues import VENUES
+        venue = resolve(provider_symbol).venue
+        if venue not in VENUES:
+            raise ValueError("5h session grid unavailable: provider venue is unverified")
+        if VENUES[venue].kind in ("exchange", "options"):
+            if session_loader is None:
+                from src.markets.candle_sessions import session_windows
+                session_loader = session_windows
+            local = hourly.tz_convert(VENUES[venue].tz)
+            rows, starts = [], []
+            unknown, short, incomplete = 0, 0, 0
+            for day in sorted(set(local.index.date)):
+                report = session_loader(provider_symbol, day)
+                if report["status"] == "unknown":
+                    unknown += 1
+                    continue
+                for window in report["windows"]:
+                    start, end = pd.Timestamp(window["open"]), pd.Timestamp(window["close"])
+                    if end - start < pd.Timedelta(hours=5):
+                        short += 1
+                    while start + pd.Timedelta(hours=5) <= end:
+                        expected = pd.date_range(start, periods=5, freq="h")
+                        group = local.reindex(expected)
+                        if expected.isin(local.index).all() and not group[["Open", "High", "Low", "Close"]].isna().any().any():
+                            rows.append({"Open": group.Open.iloc[0], "High": group.High.max(),
+                                         "Low": group.Low.min(), "Close": group.Close.iloc[-1],
+                                         **({"Volume": group.Volume.sum(min_count=5)} if "Volume" in group else {})})
+                            starts.append(start)
+                        else:
+                            incomplete += 1
+                        start += pd.Timedelta(hours=5)
+            if not rows:
+                reason = "venue calendar unverified" if unknown else "session shorter than one full 5h bin" if short and not incomplete else "no complete session-aligned 5h buckets; missing or open hourly candles"
+                raise ValueError(reason)
+            result = pd.DataFrame(rows, index=pd.DatetimeIndex(starts)).sort_index()
+            result.attrs.update(session_grid_verified=True, aggregation_alignment="venue session-open anchored; five full consecutive hourly candles; partial remainders excluded",
+                                calendar_unknown_days_excluded=unknown, incomplete_5h_bins=incomplete,
+                                source_validation=source_validation)
+            return result
     hourly = hourly.tz_convert("UTC")
     grouped = hourly.resample("5h", origin="epoch", closed="left", label="left")
     out = grouped.agg({"Open": "first", "High": "max", "Low": "min", "Close": "last",
@@ -200,9 +305,14 @@ def aggregate_five_hours(df, now=None):
     # Exact grid membership: no irregular/partial buckets, including session gaps.
     keep = []
     for start, group in grouped:
-        if len(group) == 5 and group.index.equals(pd.date_range(start, periods=5, freq="h")):
+        if len(group) == 5 and group.index.to_list() == pd.date_range(start, periods=5, freq="h").to_list():
             keep.append(start)
-    return out.loc[keep]
+    result = out.loc[keep]
+    if "Volume" in result:
+        result["Volume"] = grouped.Volume.sum(min_count=5).loc[keep]
+    result.attrs["aggregation_alignment"] = "UTC epoch-anchored 5h; five full consecutive hourly candles; no partial buckets"
+    result.attrs["source_validation"] = source_validation
+    return result
 
 
 def timeframe_conflicts(rows):

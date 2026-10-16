@@ -213,7 +213,9 @@ def test_replay_rejects_invalid_costs(fee,slip):
     with pytest.raises(ValueError): replay(candles(),fee_per_side=fee,slippage_ticks=slip,tick_size=.1,multiplier=100)
 
 
-def test_all_nine_timeframes_and_real_conflict():
+def test_all_nine_timeframes_and_real_conflict(monkeypatch):
+    from src.data import technical_summary
+    monkeypatch.setattr(technical_summary, "_resolve_yahoo", lambda symbol: symbol)
     now = pd.Timestamp("2026-10-15T12:00:00Z")
     def load(_,tf):
         freq = {"1m":"min","5m":"5min","15m":"15min","30m":"30min","1h":"h","5h":"h","1d":"D","1w":"W-MON","1M":"MS"}[tf]
@@ -224,9 +226,11 @@ def test_all_nine_timeframes_and_real_conflict():
         df=candles(n=n,direction=-1 if tf in ("1d","1w") else 1)
         df.index=pd.date_range(end=end,periods=n,freq=freq,tz="UTC")
         return df,{"provider":"synthetic fixture"}
-    report=analyze_all("AAPL",loader=load,now=now)
+    # This synthetic hourly fixture trades around the clock. Session-traded
+    # equity fixtures must instead use their venue's actual hourly grid.
+    report=analyze_all("BTC-USD",loader=load,now=now)
     assert len(report["timeframes"])==9
-    assert all(r.get("summary") for r in report["timeframes"].values())
+    assert all(r.get("summary") for r in report["timeframes"].values()), {tf: r.get("error") for tf, r in report["timeframes"].items() if not r.get("summary")}
     assert report["consensus"] is None
     assert any(c["lower"]=="1h" and c["higher"]=="1d" for c in report["conflicts"])
     assert report["timeframes"]["1h"]["summary"]=="Strong Buy"

@@ -239,3 +239,86 @@ With no local universe.db and a clean dependency environment: **3,011 passed,
 9 skipped, actual exit 0** in 277.63 seconds. Prior failing GitHub runs are historical;
 remote CI status must be checked on the final pushed integration commit.
 The optional Chroma startup error recovered on the next scheduled brain cycle.
+
+## Public feed recovery and methodology v2 (2026-10-16)
+
+`aria-technical-2` keeps identity, OHLC validity, history depth, calendar coverage,
+freshness and independent price validation separate. An exact provider response
+confirms the listing namespace; it does not prove every price against another
+supplier. The dashboard shows these checks and never invents a global verified flag.
+
+Five-hour bars for cash exchanges start at each verified venue session opening.
+A bin requires all five consecutive full hourly candles inside one continuous
+OPEN window. Closing remainders, lunch breaks, half-days shorter than five hours,
+missing hours and UNKNOWN calendar dates cannot form a bin. Crypto, OTC FX and
+explicit futures retain the declared UTC epoch grid. Hourly source validation is
+preserved in provenance; partial/missing volume is not converted into a full sum.
+
+Open candles are excluded before OHLC checks and weekly/monthly alignment checks.
+Short-history errors report returned and closed counts. A malformed historical row
+can only be bypassed by restarting ALL indicators on the entire contiguous valid
+suffix after the LAST invalid closed row, with at least 200 following bars. No
+interior corrupt row is skipped, no price is clipped, and no vendor series is
+spliced into the original. Thirty bars permit diagnostics; 200 are still required
+for a current descriptive recommendation. These are different gates.
+
+The public recovery paths are deliberately narrow:
+
+- BSE cash equity: use the official [stock-price report](https://www.bseindia.com/markets/equity/EQReports/StockPrcHistori),
+  binding its six-digit scrip code, ticker and full company name to the catalogue's
+  ISIN-bound code. Each public date request returns up to 31 records. At most nine
+  backward date-range requests within one year recover up to a year's daily OHLC;
+  cache identity and response identity are rechecked. No `.NS` substitution or
+  authenticated download bypass is used. Prices are unadjusted and corporate
+  actions are not independently validated. Weekly/monthly aggregation requires
+  complete verified daily coverage for each period and sufficient resulting bars.
+- FX daily: when native daily OHLC is malformed, reconstruct UTC-day OHLC from
+  closed hourly candles of the EXACT same Yahoo pair. Every scheduled hourly slot
+  must be present. Incomplete days are excluded and counted; UNKNOWN windows are
+  refused. This is an explicitly labelled reconstruction, not independent pricing.
+- Central daily caches: the technical adapter opts into provider-bound metadata.
+  Legacy caches without matching response identity are refetched. Even the
+  last-resort stale-cache branch must match that binding. Stale flags remain in
+  force and stale prices never become a current recommendation.
+
+Public-feed availability still limits coverage. No keyless, identity-verified
+long-history FX weekly/monthly alternative was established in this run. Recent
+malformed native prices remain refused. The continuous gold monthly response has
+only 188 valid consecutive months after its last malformed row, below 200. Bitcoin
+monthly and the exact December 2026 gold contract are also too young for the full
+200-month warm-up. Do not lower these gates or turn errors into neutral votes.
+The BSE fallback's one-year bound cannot supply 200 weekly or monthly candles.
+
+Venue calendar checks count scheduled missing daily/5h bars instead of treating
+weekends as missing data. Unknown dates remain explicitly unverified. Current
+session state is displayed alongside conservative wall-clock staleness. A closed
+market is not evidence that the latest stored price is current.
+
+Development public probes used isolated copies of the public instrument master
+and isolated caches, not production stores. Initial live checks recovered 494
+session-aligned AAPL five-hour bars and 407 EUR/USD reconstructed daily bars. The
+bounded official BSE probe returned 247 SAIL daily bars (2025-10-16–2026-10-15),
+compared with the native Yahoo single open quote. These are coverage observations,
+not predictive performance claims or verification of every catalogue instrument.
+
+SENTINEL's compact consultation evidence includes feed identity/OHLC/warm-up checks,
+calendar status, source adjustment, reconstructed-day counts and excluded historical
+prefixes where applicable. It still omits ARIA's directional labels. The nine-frame
+synthetic payload measures 8,834 URL-encoded bytes against the existing 14,000-byte
+interface guard; this is not a claim that every real response fits or that a model
+review independently validates prices.
+
+Actual Claude Code supplied the canonical continuous-session helper and narrow
+BSE calendar overrides, using BSE's own dated cash-market circulars. An exact dated
+override can exist without claiming the rest of its year: unrelated dates still
+use the existing calendar provider and remain UNKNOWN when coverage is missing.
+
+Final isolated BSE checks after the special-session corrections: SAIL.BO,
+RELIANCE.BO and HDFCBANK.BO each have 247 closed daily bars with exact listing
+identity, valid OHLC, full warm-up and verified scheduled-day coverage. TCS.BO
+has 495 usable daily bars and explicitly reported missing scheduled dates.
+A separate manual public sample found 15/15 daily closing prices agree with
+same-listing Yahoo hourly final closes within INR0.011 rounding tolerance.
+Full daily OHLC is not independently comparable from continuous-session intraday
+bars because auction coverage differs; the runtime does not turn this limited
+sample into an independent verification badge for all history or horizons.

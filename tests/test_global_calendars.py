@@ -199,19 +199,149 @@ def test_nse_date_bounds_are_explicit(shipped):
 
 
 def test_nse_is_not_bse(shipped):
-    """Separate exchanges, separate sources. exchange_calendars' BSE data has
-    neither the 2025 Muhurat hour nor the 2026 Budget Sunday; NSE's circulars
-    have both. Neither venue borrows the other's day."""
+    """Separate exchanges, separate sources, read independently.
+    data/calendars/XNSE.json (NSE/CMTR/70319) and data/calendars/XBOM.json
+    (BSE Notice 20250922-21) each verify the 2025 Muhurat hour from their own
+    exchange's own circular, so the two venues happen to agree there. BSE
+    also independently verifies its own Union Budget 2026 Sunday session from
+    BSE Notice 20260116-33 — NSE's file makes no claim about that date at
+    all, so the two venues agreeing there too is not BSE borrowing NSE's
+    file, it is BSE's own notice. The scope/identity checks below prove that:
+    XBOM's reason names a BSE notice, never NSE's circular number or XNSE,
+    and XNSE's calendar_bounds never mentions XBOM."""
     assert S.session("RELIANCE.NS", ist(2025, 10, 21, 13, 50)).state == St.OPEN
-    assert S.session("500325.BO", ist(2025, 10, 21, 13, 50)).state == St.HOLIDAY
+    assert S.session("500325.BO", ist(2025, 10, 21, 13, 50)).state == St.OPEN
     assert S.session("RELIANCE.NS", ist(2026, 2, 1, 10, 0)).state == St.OPEN
-    assert S.session("500325.BO", ist(2026, 2, 1, 10, 0)).state != St.OPEN
+    budget = S.session("500325.BO", ist(2026, 2, 1, 10, 0))
+    assert budget.state == St.OPEN
+    assert "20260116-33" in budget.reasons[0]
+    assert "NSE" not in budget.reasons[0] and "CMTR" not in budget.reasons[0]
     assert "XBOM" not in json.dumps(S.calendar_bounds("XNSE"))
 
 
 def test_without_the_file_nse_is_unknown_again():
     """The harness's empty data tree: nothing answers for NSE."""
     assert S.session("RELIANCE.NS", ist(2026, 10, 6, 11, 0)).state == St.UNKNOWN
+
+
+# ═══ BSE (India, Muhurat only) ══════════════════════════════════════════════
+# data/calendars/XBOM.json carries ONLY the two verified Muhurat sessions
+# below (BSE Notices 20241019-1 and 20250922-21) — it is not a BSE holiday
+# calendar, so every BSE day it does not name keeps answering from
+# exchange_calendars exactly as before that file existed.
+
+def test_bse_shipped_file_validates_and_is_narrow():
+    raw = json.loads((SHIPPED / "XBOM.json").read_text(encoding="utf-8"))
+    cal = calendars.parse("XBOM", raw)
+    assert cal.source and cal.provenance
+    for doc in cal.provenance:
+        assert doc.get("url", "").startswith("https://"), doc
+        assert doc.get("date") and doc.get("ref"), doc
+    assert raw.get("retrieved") == "2026-10-16"
+    assert cal.years == frozenset()            # claims no year's full holiday list
+    assert set(cal.special_sessions) == {date(2024, 11, 1), date(2025, 10, 21), date(2026, 2, 1)}
+
+
+def test_bse_muhurat_2024_matches_bse_notice_20241019_1(shipped):
+    """BSE Notice 20241019-1: pre-open 17:45-18:00, continuous trading
+    18:00-19:00, post-closing 19:10-19:20 IST on Fri 1 Nov 2024 — a real
+    trading session, not the plain holiday exchange_calendars alone reports."""
+    sym = "500325.BO"
+    assert S.session(sym, ist(2024, 11, 1, 11, 0)).state == St.CLOSED
+    assert S.session(sym, ist(2024, 11, 1, 17, 50)).state == St.PRE_OPEN
+    live = S.session(sym, ist(2024, 11, 1, 18, 30))
+    assert live.state == St.OPEN and live.tradable
+    assert live.next_close == ist(2024, 11, 1, 19, 0).astimezone(UTC).isoformat()
+    assert S.session(sym, ist(2024, 11, 1, 19, 5)).state == St.CLOSED
+    assert S.session(sym, ist(2024, 11, 1, 19, 15)).state == St.POST_MARKET
+
+
+def test_bse_muhurat_2025_matches_bse_notice_20250922_21_and_nse(shipped):
+    """BSE Notice 20250922-21: pre-open 13:30-13:45, continuous trading
+    13:45-14:45, post-closing 14:55-15:05 IST on Tue 21 Oct 2025 — the same
+    hour NSE/CMTR/70319 verifies for NSE (data/calendars/XNSE.json), read
+    from BSE's own notice rather than copied from NSE's file."""
+    sym = "500325.BO"
+    assert S.session(sym, ist(2025, 10, 21, 11, 0)).state == St.CLOSED
+    assert S.session(sym, ist(2025, 10, 21, 13, 35)).state == St.PRE_OPEN
+    live = S.session(sym, ist(2025, 10, 21, 13, 50))
+    assert live.state == St.OPEN and live.tradable
+    assert live.next_close == ist(2025, 10, 21, 14, 45).astimezone(UTC).isoformat()
+    assert S.session(sym, ist(2025, 10, 21, 14, 50)).state == St.CLOSED
+    assert S.session(sym, ist(2025, 10, 21, 15, 0)).state == St.POST_MARKET
+    assert S.session("RELIANCE.NS", ist(2025, 10, 21, 13, 50)).state == live.state == St.OPEN
+
+
+def test_bse_budget_2026_matches_bse_notice_20260116_33(shipped):
+    """BSE Notice 20260116-33: pre-open 9:00-9:15am, continuous trading
+    9:15am-3:30pm, closing 3:30-3:40pm, post-closing 3:40-4:00pm IST on
+    Sunday 1 Feb 2026 for the Union Budget 2026 presentation — read from
+    BSE's own notice, not inferred from NSE or from BSE's Muhurat precedent."""
+    sym = "500325.BO"
+    assert S.session(sym, ist(2026, 2, 1, 8, 50)).state == St.CLOSED
+    assert S.session(sym, ist(2026, 2, 1, 9, 5)).state == St.PRE_OPEN
+    live = S.session(sym, ist(2026, 2, 1, 10, 0))
+    assert live.state == St.OPEN and live.tradable
+    assert live.next_close == ist(2026, 2, 1, 15, 30).astimezone(UTC).isoformat()
+    assert S.session(sym, ist(2026, 2, 1, 15, 35)).state == St.CLOSED
+    assert S.session(sym, ist(2026, 2, 1, 15, 50)).state == St.POST_MARKET
+    assert S.session(sym, ist(2026, 2, 1, 16, 5)).state == St.CLOSED
+
+
+def test_bse_budget_sunday_opens_only_that_window_and_other_sundays_dont(shipped):
+    """The Union Budget 2026 session opens Sunday 2026-02-01 and only that
+    window (09:15-15:30); this file claims nothing about any other Sunday,
+    so the Sundays immediately either side of it stay whatever the provider
+    says for an ordinary BSE Sunday (closed, never a guessed open)."""
+    from src.markets.candle_sessions import session_windows
+    w = session_windows("500325.BO", date(2026, 2, 1))
+    assert w["status"] == "verified"
+    assert w["windows"] == [{"open": ist(2026, 2, 1, 9, 15), "close": ist(2026, 2, 1, 15, 30)}]
+    # the one OPEN window is entirely inside 2026-02-01 local time — a
+    # same-day span an aggregator can bin whole, never one that rolls past
+    # local midnight into the next calendar date.
+    assert w["windows"][0]["open"].date() == w["windows"][0]["close"].date() == date(2026, 2, 1)
+    for adjacent in (date(2026, 1, 25), date(2026, 2, 8)):
+        assert S.session("500325.BO", ist(adjacent.year, adjacent.month,
+                                          adjacent.day, 10, 0)).state != St.OPEN
+
+
+def test_bse_ordinary_days_still_come_from_the_provider(shipped):
+    """XBOM.json does not list 2024 or 2025 under `years`, so every day it
+    does not name stays exchange_calendars' answer, unchanged by this file's
+    existence — a real BSE holiday must not become a false "open"."""
+    independence_day = S.session("500325.BO", ist(2025, 8, 15, 11, 0))
+    assert independence_day.state == St.HOLIDAY and "XBOM" in independence_day.reasons[0]
+    ordinary = S.session("500325.BO", ist(2025, 1, 2, 11, 0))
+    assert ordinary.state == St.OPEN and ordinary.calendar_verified
+    assert S.session("500325.BO", ist(2024, 1, 26, 11, 0)).state == St.HOLIDAY
+
+
+def test_bse_calendar_bounds_show_the_provider_not_a_fake_owner_span(shipped):
+    """years=[] must not credit "owner file" with 2024 or 2025 in
+    calendar_bounds — exchange_calendars' own verified range is what
+    actually covers them, as it did before this file existed."""
+    b = S.calendar_bounds("XBOM")
+    assert all(span["by"] != "owner file" for span in b["spans"])
+    assert b["unknown_days"] == []
+
+
+def test_bse_session_windows_helper_agrees_with_session(shipped):
+    """TECH-09's session_windows() calls the same _day() session() does; it
+    must report the same verified Muhurat window for both dates, not a
+    separately-derived answer."""
+    from src.markets.candle_sessions import session_windows
+    w2024 = session_windows("500325.BO", date(2024, 11, 1))
+    assert w2024["status"] == "verified"
+    assert w2024["windows"] == [{"open": ist(2024, 11, 1, 18, 0), "close": ist(2024, 11, 1, 19, 0)}]
+    w2025 = session_windows("500325.BO", date(2025, 10, 21))
+    assert w2025["status"] == "verified"
+    assert w2025["windows"] == [{"open": ist(2025, 10, 21, 13, 45), "close": ist(2025, 10, 21, 14, 45)}]
+    assert S.session("500325.BO", ist(2025, 10, 21, 13, 50)).state == St.OPEN
+    holiday_window = session_windows("500325.BO", date(2025, 8, 15))
+    assert holiday_window == {"status": "closed", "venue": "XBOM", "timezone": "Asia/Kolkata",
+                              "reason": holiday_window["reason"], "windows": []}
+    assert "XBOM holiday" in holiday_window["reason"]
 
 
 # ═══ Shenzhen (China) ═══════════════════════════════════════════════════════
@@ -465,6 +595,8 @@ BAD_FILES = [
     ("closure backwards", {"source": "s", "years": [2026],
                            "closures": [{"from": "2026-10-07", "to": "2026-10-01"}]}),
     ("not an object", ["2026-01-26"]),
+    ("empty years, no special session or unknown day to justify it",
+     {"source": "s", "years": []}),
 ]
 
 
@@ -500,6 +632,31 @@ def test_a_valid_owner_file_with_ranges_and_named_days(owner_dir):
     for d in (5, 6, 8):
         assert S.session("0005.HK", at("Asia/Hong_Kong", 2026, 10, d, 10, 0)).state == St.HOLIDAY
     assert S.session("0005.HK", at("Asia/Hong_Kong", 2026, 10, 7, 10, 0)).state == St.OPEN
+
+
+def test_a_special_session_only_file_does_not_need_years(owner_dir):
+    """A file that states one verified special session needs no `years`: it
+    is not claiming to be that venue's holiday calendar, just one fact a
+    notice confirms — the mechanism data/calendars/XBOM.json uses for its
+    two Muhurat sessions (calendars.py's module docstring)."""
+    owner_dir("XHKG", {"source": "test notice",
+                       "special_sessions": {"2026-10-07": [["OPEN", "10:00", "11:00"]]}})
+    narrow = S.session("0005.HK", at("Asia/Hong_Kong", 2026, 10, 7, 10, 30))
+    assert narrow.state == St.OPEN and narrow.tradable
+    # every other HKEX day, including ones this file never mentions, still
+    # comes from the library exactly as if the file did not exist
+    assert S.session("0005.HK", at("Asia/Hong_Kong", 2026, 10, 6, 10, 0)).state == St.OPEN
+    lny = S.session("0005.HK", at("Asia/Hong_Kong", 2026, 2, 17, 10, 0))      # Lunar New Year
+    assert lny.state == St.HOLIDAY
+
+
+def test_special_session_date_need_not_be_inside_years():
+    """A `years`-bearing file can still carry a special session for a year
+    outside it — the two fields are independent claims."""
+    cal = calendars.parse("XHKG", {"source": "t", "years": [2025],
+                                   "special_sessions": {"2030-05-01": [["OPEN", "09:00", "10:00"]]}})
+    assert cal.years == frozenset({2025})
+    assert date(2030, 5, 1) in cal.special_sessions
 
 
 def test_a_stale_owner_file_is_not_extrapolated(owner_dir):

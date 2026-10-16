@@ -182,13 +182,14 @@ def _truncate_point_in_time(symbol: str, full: pd.DataFrame, cutoff,
     return full[keep]
 
 
-def history(symbol: str, period: str = "2y", interval: str = "1d") -> Optional[pd.DataFrame]:
+def history(symbol: str, period: str = "2y", interval: str = "1d", *, verify_identity: bool = False) -> Optional[pd.DataFrame]:
     """Daily (or `interval`) OHLCV for one symbol, or None.
 
     Columns are normalised to Open/High/Low/Close/Volume with a tz-naive
     DatetimeIndex. Slices out of one long series per symbol.
     """
-    full = _full_history(symbol, interval)
+    full = (_full_history(symbol, interval, verify_identity=True) if verify_identity
+            else _full_history(symbol, interval))
     if full is None or full.empty:
         return None
     cutoff_date = current_as_of()
@@ -203,11 +204,13 @@ def history(symbol: str, period: str = "2y", interval: str = "1d") -> Optional[p
     return full if len(full) >= 5 else None
 
 
-def _full_history(symbol: str, interval: str) -> Optional[pd.DataFrame]:
+def _full_history(symbol: str, interval: str, *, verify_identity: bool = False) -> Optional[pd.DataFrame]:
     key = f"{symbol}|{interval}"
     with _LOCK:
         hit = _MEM.get(key)
-        if hit and datetime.now() - hit[0] < timedelta(minutes=30):
+        identity = (_PROVENANCE.get(key) or {}).get("identity") or {}
+        confirmed = bool(identity.get("symbol")) and identity["symbol"].upper() == (_PROVENANCE[key].get("provider_symbol") or "").upper()
+        if hit and datetime.now() - hit[0] < timedelta(minutes=30) and (not verify_identity or confirmed):
             return hit[1]
         miss = _MISSES.get(key)
         if miss and datetime.now() - miss < timedelta(minutes=10):
@@ -217,7 +220,9 @@ def _full_history(symbol: str, interval: str) -> Optional[pd.DataFrame]:
     with lock:
         with _LOCK:                          # another thread may have filled it
             hit = _MEM.get(key)
-            if hit and datetime.now() - hit[0] < timedelta(minutes=30):
+            identity = (_PROVENANCE.get(key) or {}).get("identity") or {}
+            confirmed = bool(identity.get("symbol")) and identity["symbol"].upper() == (_PROVENANCE[key].get("provider_symbol") or "").upper()
+            if hit and datetime.now() - hit[0] < timedelta(minutes=30) and (not verify_identity or confirmed):
                 return hit[1]
 
         prov = {"symbol": symbol, "interval": interval}
@@ -232,13 +237,16 @@ def _full_history(symbol: str, interval: str) -> Optional[pd.DataFrame]:
             with _quiet_vendor():
                 provider = resolve(symbol)
         prov["provider_symbol"] = provider
-        df = _from_raw(provider) if interval == "1d" else None
+        df = _from_raw(provider) if interval == "1d" and not verify_identity else None
         if df is not None:
             prov.update(served_from="raw_csv", vendor=None, degraded=False,
                         adjustment="split+dividend",
                         detail=f"data/raw/{_safe(symbol)}.csv")
         if df is None:
-            df = _from_cache(symbol, interval)
+            meta = _cache_meta(symbol, interval)
+            identity = meta.get("identity") or {}
+            bound = (meta.get("provider_symbol") == provider and str(identity.get("symbol") or "").upper() == provider.upper())
+            df = _from_cache(symbol, interval) if not verify_identity or bound else None
             if df is not None:
                 # The cache used to be served as clean, un-degraded data
                 # whichever vendor had filled it — a fallback series, raw
@@ -249,17 +257,21 @@ def _full_history(symbol: str, interval: str) -> Optional[pd.DataFrame]:
                             vendor=meta.get("vendor"),
                             degraded=bool(meta) and not meta.get("is_primary", False),
                             adjustment=meta.get("adjustment", "unknown"),
+                            identity=meta.get("identity") or {},
                             detail=(f"cache within {CACHE_TTL_HOURS}h TTL"
                                     + (f", filled by {meta['vendor']}" if meta.get("vendor")
                                        else ", filler not recorded")))
         if df is None:
-            df, prov = _from_vendors(symbol, interval, prov)
+            df, prov = (_from_vendors(symbol, interval, prov, verify_identity=True) if verify_identity
+                        else _from_vendors(symbol, interval, prov))
 
         df = _normalise(df) if df is not None else None
         with _LOCK:
             if df is None or len(df) < 5:
                 _MISSES[key] = datetime.now()
                 _PROVENANCE[key] = {**prov, "ok": False,
+                                    "rows": 0 if df is None else int(len(df)),
+                                    "unavailable_reason": "no usable provider history" if df is None else "provider history below central minimum of 5 bars",
                                     "stale": True, "last_bar": None,
                                     "last_bar_age_days": None,
                                     "at": datetime.now().isoformat(timespec="seconds")}
@@ -420,7 +432,7 @@ def _from_cache(symbol: str, interval: str) -> Optional[pd.DataFrame]:
 
 
 def _from_vendors(symbol: str, interval: str,
-                  prov: dict) -> tuple[Optional[pd.DataFrame], dict]:
+                  prov: dict, *, verify_identity: bool = False) -> tuple[Optional[pd.DataFrame], dict]:
     """Live fetch through the vendor chain, then the stale cache as last resort.
 
     The stale cache is still here — old data beats no data for a research
@@ -448,6 +460,7 @@ def _from_vendors(symbol: str, interval: str,
             _cache_meta_path(symbol, interval).write_text(json.dumps({
                 "vendor": report["vendor"], "is_primary": report["is_primary"],
                 "adjustment": report.get("adjustment", "unknown"),
+                "provider_symbol": yahoo, "identity": report.get("identity") or {},
                 "fetched_at": report.get("fetched_at")}), encoding="utf-8")
         except Exception as e:
             logger.debug(f"v5 cache write failed for {symbol}: {e}")
@@ -455,6 +468,7 @@ def _from_vendors(symbol: str, interval: str,
                     "served_from": f"vendor:{report['vendor']}",
                     "vendor": report["vendor"],
                     "adjustment": report.get("adjustment", "unknown"),
+                    "identity": report.get("identity") or {},
                     # A fallback vendor is degraded even when its data is
                     # perfectly fresh: the primary is down and somebody should
                     # know before it matters.
@@ -464,17 +478,20 @@ def _from_vendors(symbol: str, interval: str,
                     "vendor_attempts": report["attempts"]}
 
     p = _cache_path(symbol, interval)
-    if p.exists():
+    meta = _cache_meta(symbol, interval)
+    bound = (meta.get("provider_symbol") == yahoo and
+             str((meta.get("identity") or {}).get("symbol") or "").upper() == yahoo.upper())
+    if p.exists() and (not verify_identity or bound):
         try:
             age = _age_days(p)
             logger.warning(f"v5 using STALE cache for {symbol} "
                            f"({age:.1f} days old) — every vendor failed")
-            meta = _cache_meta(symbol, interval)
             return pd.read_csv(p, index_col=0, parse_dates=True), {
                 **prov,
                 "served_from": "stale_cache",
                 "vendor": meta.get("vendor"),
                 "adjustment": meta.get("adjustment", "unknown"),
+                "identity": meta.get("identity") or {},
                 "degraded": True,
                 "detail": f"every vendor failed; cache is {age:.1f} days old",
                 "vendor_attempts": report["attempts"]}
