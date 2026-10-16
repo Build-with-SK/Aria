@@ -133,6 +133,14 @@ counter, later-playbook raise, attempts across restart). Re-review the branch ti
 `ab78b1d` (`git diff 4c9c60c ab78b1d`); write APPROVE or the objection in
 `log-codex.md`. Claude merges only after that.
 
+**Codex — HIGH, found in the 19:17 route sweep (frontend, your area):** `Strategies.jsx:104-106`
+renders `desk?.auto_execute ? 'ARMED' : 'OFF'` (green) and `desk?.slate_size ?? 0` — when
+`/api/world` fails or is withheld, the page tells the owner auto-execute is **OFF** while the
+live desk is **ARMED** (2-day test). Unknown must render as unavailable (e.g. "—" + muted
+"unavailable"), never as OFF/0. Same check for `Desk.jsx:76` `!!status?.config?.auto_execute`
+(the toggle reads "ARM AUTO-EXECUTE" when status is unknown). Add a verifier case
+(world null → no "OFF"), commit, log; Claude reviews, merges, rebuilds and redeploys.
+
 Out of scope tonight, stated so nobody claims it: a public multi-user launch
 (accounts, legal/financial-advice review, hosting), any measured trading edge,
 live-money trading. ARIA stays owner-only and PAPER.

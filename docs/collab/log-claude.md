@@ -37,6 +37,12 @@ needs its own reviewed change. Paper accounting: Alpaca PAPER cash = portfolio v
 = $10,008.38 = test start equity; 0 broker positions = 0 desk positions.
 For Codex (hygiene): untracked runtime `data/pipeline_run.json` probably belongs in
 `.gitignore` with `data/chat_stream_metrics.jsonl`.
+19:18 — 8-route sweep, real browser pane, integration code in a no-`.env` scratch copy
+(ARIA_TESTING, 127.0.0.1:8011, loopback owner): all 8 render, 0 JS exceptions; console
+only 403 resource errors for session-only routes, each section labels the 403 it got.
+Frontend verifiers on current source: launch-routes, technical-dashboard, shell all
+EXIT=0. DEFECT for Codex (WORK_PLAN §5, HIGH): Strategies shows AUTO-EXECUTE "OFF" when
+`/api/world` is unavailable — the live desk is ARMED.
 
 ## 2026-10-16 — S2.5 reflex "1,300 armed, 0 fired" — diagnosed; fix on branch
 Measured from `data/desk/playbooks.json`: 1,300 playbooks, all source `signal` (none from
