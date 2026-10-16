@@ -106,6 +106,27 @@ try {
         observed.push({ route: `/${route}`, scenario, reads: [...new Set(globalThis.__launchReads)] })
       }
     }
+    // Unknown desk state is not OFF (2026-10-16: Strategies said OFF while the
+    // paper desk was armed). /api/world decides Strategies; SSR runs no effects,
+    // so the Desk toggle's polled status is always unknown here.
+    const renderText = (component, fixture) => {
+      globalThis.__launchFixture = fixture; globalThis.__launchDefault = null; globalThis.__launchError = null
+      return renderToStaticMarkup(React.createElement(MemoryRouter, { initialEntries: ['/'] },
+        React.createElement(pages.CurrencyProvider, null, React.createElement(pages[component])))).replace(/<[^>]+>/g, ' ')
+    }
+    const withDesk = desk => ({ ...realistic, useWorld: { ...world, strategies: { catalogued: 1, desk } } })
+    const unknown = renderText('Strategies', realistic)
+    assert.match(unknown, /AUTO-EXECUTE\s+—\s+unavailable/, 'Strategies: unknown auto-execute must read unavailable')
+    assert.ok(!/AUTO-EXECUTE\s+(OFF|ARMED)/.test(unknown) && !/\b0 picks/.test(unknown), 'Strategies: unknown desk shown as known')
+    const armed = renderText('Strategies', withDesk({ auto_execute: true, slate_size: 2, min_conviction: 58 }))
+    assert.match(armed, /AUTO-EXECUTE\s+ARMED/); assert.match(armed, /2 picks/)
+    assert.match(renderText('Strategies', withDesk({ auto_execute: false, slate_size: 0 })), /AUTO-EXECUTE\s+OFF/)
+    const deskToggle = renderText('PortfolioWorkspace', realistic)
+    assert.ok(deskToggle.includes('AUTONOMOUS EXECUTION'), 'Portfolio: desk toggle not rendered')
+    assert.ok(deskToggle.includes('AUTO-EXECUTE STATE UNKNOWN'), 'Desk toggle: unknown status must say so')
+    assert.ok(!deskToggle.includes('ARM AUTO-EXECUTE') && !deskToggle.includes('OFF by default'), 'Desk toggle: unknown shown as OFF')
+    console.log('PASS: unknown desk state renders as unavailable (Strategies, Desk toggle); known ARMED/OFF still render.')
+
     const selected = { symbol: 'TEST', name: 'Synthetic listing', currency: 'USD', exchange: 'TEST' }
     for (const scenario of ['realistic', 'null', 'empty', 'withheld', 'failed']) {
       const data = scenario === 'realistic' ? { price: 100, currency: 'USD', fundamentals: { trailingPE: 15 },

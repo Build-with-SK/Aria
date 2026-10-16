@@ -53,6 +53,11 @@ export default function Strategies() {
     : (strategies?.strategies || [])
   const lab = world?.strategies?.lab
   const desk = world?.strategies?.desk
+  // Auto-execute and the slate come from /api/world. When that has not
+  // answered, the desk's state is UNKNOWN — showing it as OFF / 0 picks told
+  // the owner the desk was idle while it was armed and trading.
+  const autoKnown = typeof desk?.auto_execute === 'boolean'
+  const slateKnown = desk?.slate_size != null && Number.isFinite(Number(desk.slate_size))
   const camps = Array.isArray(campaigns) ? campaigns : (campaigns?.campaigns || [])
 
   // A challenger has to beat the gate, not merely exist. Sorting by
@@ -102,14 +107,19 @@ export default function Strategies() {
           <div>
             <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: '.15em' }}>AUTO-EXECUTE</div>
             <div style={{ ...mono, fontSize: 15, fontWeight: 800,
-                          color: desk?.auto_execute ? 'var(--yellow)' : 'var(--green)' }}>
-              {desk?.auto_execute ? 'ARMED' : 'OFF'}
+                          color: !autoKnown ? 'var(--muted)'
+                            : desk.auto_execute ? 'var(--yellow)' : 'var(--green)' }}>
+              {!autoKnown ? '—' : desk.auto_execute ? 'ARMED' : 'OFF'}
             </div>
+            {!autoKnown && (
+              <div style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>unavailable</div>
+            )}
           </div>
           <div>
             <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: '.15em' }}>SLATE</div>
-            <div style={{ ...mono, fontSize: 15, fontWeight: 800, color: '#fff' }}>
-              {desk?.slate_size ?? 0} picks
+            <div style={{ ...mono, fontSize: 15, fontWeight: 800,
+                          color: slateKnown ? '#fff' : 'var(--muted)' }}>
+              {slateKnown ? `${desk.slate_size} picks` : '—'}
             </div>
           </div>
           <div>
