@@ -551,9 +551,18 @@ def universe_reference(isolate_production_state) -> dict:
     master copied in verbatim (`kind: "production"`), or the small
     named-instrument fallback (`kind: "fallback_fixture"`, `rows: 16`) built
     because CI never has `data/universe.db`. A test asserting a row COUNT
-    needs to know which one it is reading rather than guessing."""
+    needs to know which one it is reading rather than guessing.
+
+    For the fallback it also carries `build(path)`, the fixture's own writer:
+    the session copy is shared, and tests that refresh the universe index
+    (test_technical_engine, test_v5) add rows to it, so a test that needs the
+    DECLARED fixture builds a pristine one rather than reading what earlier
+    tests left behind."""
     assert _UNIVERSE_SOURCE, "isolation fixture did not run"
-    return dict(_UNIVERSE_SOURCE)
+    out = dict(_UNIVERSE_SOURCE)
+    if out.get("kind") == "fallback_fixture":
+        out["build"] = _load_universe_fixture_builder()
+    return out
 
 
 @pytest.fixture
