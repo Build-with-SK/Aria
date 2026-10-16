@@ -143,6 +143,14 @@ def load_playbooks() -> list[dict]:
     return []
 
 
+#: One load → modify → save at a time. The reflex loop's scan, a manual
+#: POST /api/desk/reflex-scan and arming (desk ticks) run on different threads;
+#: without this a scan holding a stale copy could write a fired playbook back
+#: as armed, and the next crossing would send a second order (independent
+#: review of ab78b1d, 2026-10-16). Re-entrant so a locked caller may arm.
+_PLAYBOOKS_LOCK = threading.RLock()
+
+
 def save_playbooks(pbs: list[dict]):
     PLAYBOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
     PLAYBOOKS_FILE.write_text(json.dumps(pbs, indent=2, default=str),
@@ -267,10 +275,11 @@ def _arm(ticker, side, trigger, stop, target, conviction, debate_id,
         expires_at=_expiry(days),
         asset_class=aclass,
         thesis=thesis).to_dict()
-    pbs = [p for p in load_playbooks()
-           if not (p["ticker"] == ticker and p.get("status") == "armed")]
-    pbs.append(pb)
-    save_playbooks(pbs)
+    with _PLAYBOOKS_LOCK:
+        pbs = [p for p in load_playbooks()
+               if not (p["ticker"] == ticker and p.get("status") == "armed")]
+        pbs.append(pb)
+        save_playbooks(pbs)
     logger.info(f"REFLEX armed {source} playbook: {side.upper()} {ticker} "
                 f"@ trigger {pb['trigger_price']} (conviction {conviction})")
     return pb
@@ -312,6 +321,12 @@ class ReflexEngine:
     # ── one scan pass (also the manual/tested entry point) ───────────────
 
     def scan_once(self) -> list[dict]:
+        # The whole load → fire → save runs under the playbook lock, so two
+        # scans (loop + manual) or a scan and an arming never interleave.
+        with _PLAYBOOKS_LOCK:
+            return self._scan_locked()
+
+    def _scan_locked(self) -> list[dict]:
         self.cfg = load_config()      # pick up kill-switch / param changes
         if not self.cfg.get("reflex_enabled", True):
             return []
@@ -375,8 +390,14 @@ class ReflexEngine:
                 pb["last_attempt"] = {"at": datetime.now().isoformat(timespec="seconds"),
                                       "price": price, "stage": outcome.get("stage"),
                                       "reason": str(outcome.get("reason") or "")[:200],
-                                      "executed": bool(outcome.get("executed")),
-                                      "filled": bool(outcome.get("filled"))}
+                                      # an uncertain fire may have sent the order:
+                                      # unknown, not "not executed"
+                                      "executed": (None if outcome.get("uncertain")
+                                                   else bool(outcome.get("executed"))),
+                                      "filled": (None if outcome.get("uncertain")
+                                                 else bool(outcome.get("filled")))}
+                if outcome.get("uncertain"):
+                    pb["last_attempt"]["uncertain"] = True
                 if outcome.get("stage") != "execute":
                     logger.info("REFLEX %s %s crossed %s but stopped at %s: %s",
                                 str(pb.get("side")).upper(), pb["ticker"],

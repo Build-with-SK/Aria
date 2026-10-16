@@ -167,6 +167,9 @@ def test_a_fire_that_raises_is_recorded_and_retired_not_left_armed(tmp_path, mon
     assert stored["attempts"] == 1
     assert stored["last_attempt"]["stage"] == "error"
     assert "RuntimeError" in stored["last_attempt"]["reason"]
+    # the order may have been sent: unknown, never "not executed"
+    assert stored["last_attempt"]["executed"] is None and stored["last_attempt"]["filled"] is None
+    assert stored["last_attempt"]["uncertain"] is True
 
 
 def test_no_account_snapshot_is_recorded_and_leaves_the_playbook_armed(tmp_path, monkeypatch):
@@ -221,3 +224,42 @@ def test_attempts_accumulate_across_a_restart(tmp_path, monkeypatch):
     restarted.scan_once()
     stored = reflex.load_playbooks()[0]
     assert stored["status"] == "armed" and stored["attempts"] == 2
+
+
+def test_a_filled_status_with_no_average_price_is_not_a_confirmed_fill(tmp_path, monkeypatch):
+    """Alpaca reports a missing average price as 0.0, never None."""
+    rec = _desk_handle(tmp_path, monkeypatch, {"ok": True, "status": "filled",
+                                              "fill_price": 0.0, "broker_order_id": "o3"})
+    assert rec["fill_confirmed"] is False
+
+
+def test_overlapping_scans_cannot_put_a_fired_playbook_back_to_armed(tmp_path, monkeypatch):
+    """Independent review of ab78b1d: the loop's scan B waits in a slow gate for
+    ETH while a manual scan A fires BTC and saves it fired; B then saved its
+    stale copy, BTC read "armed" again, and the next crossing sent a second
+    order. Scans now serialise on the playbook lock."""
+    import threading
+    entered, release, sends = threading.Event(), threading.Event(), []
+
+    def fire(pb, price, account, mgr):
+        if pb["ticker"] == "ETH-USD":
+            if not entered.is_set():
+                entered.set()
+                release.wait(5)                     # B's slow gate
+            return {"stage": "veto", "reason": "slow", "executed": False}
+        sends.append(pb["ticker"])
+        return {"stage": "execute", "reason": "paper", "executed": True, "filled": True}
+
+    reflex, engine = _file_lane(tmp_path, monkeypatch, [_pb("ETH-USD"), _pb("BTC-USD")],
+                                {"ETH-USD": lambda: 101.0, "BTC-USD": lambda: 101.0}, fire)
+    b = threading.Thread(target=engine.scan_once)
+    b.start()
+    assert entered.wait(5)
+    a = threading.Thread(target=engine.scan_once)    # manual POST /api/desk/reflex-scan
+    a.start()
+    a.join(0.5)                                      # A must not run while B holds the lock
+    release.set()
+    b.join(5); a.join(5)
+    stored = {p["ticker"]: p for p in reflex.load_playbooks()}
+    assert stored["BTC-USD"]["status"] == "fired"
+    assert sends == ["BTC-USD"]

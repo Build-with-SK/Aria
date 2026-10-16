@@ -243,8 +243,9 @@ class AutoExecutor:
             # confirmed in the poll window fill_price above is the intended
             # entry. These two fields say which one this record is.
             record["order_status"] = str(result.get("status") or "")
+            # Alpaca reports a missing average price as 0.0, never None.
             record["fill_confirmed"] = (record["order_status"] == "filled"
-                                        and result.get("fill_price") is not None)
+                                        and float(result.get("fill_price") or 0) > 0)
             record_trade(entry.get("notional", 0.0))
             # Hand lifecycle ownership to the exit engine
             try:
