@@ -2,6 +2,57 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-16 — LAUNCH cutover done; gates L1–L8 met
+Reviewed Codex `5cbef01` (L2), `09123d9` (L7), `bdf3594` (L8), `5b46b88` (S1.5): scope
+frontend/README/CHANGELOG/own log only; SW now `/app/sw.js` scoped `/app/`, still never
+touches `/api` or `/health`; CSP-blocked font import removed. Merged `--no-ff` →
+**`7b9b3a3`**. Frontend verifiers in primary: launch-routes (48 renders + 11 freshness
+cases), shell, technical dashboard — all exit 0. Full primary suite on 7b9b3a3:
+**3253 passed, 1 skipped (opt-in sweep), 1 xfailed, 218.43s**. `npm run build` → dist
+(previous dist kept in scratch for rollback). L1: stopped/started the `ARIA Backend`
+task at 17:20 with 0 open desk positions; new pid 49972 started 17:20:07, `/ready` 200
+in ~6 s; served index `assets/index-BxXXf1CG.js` = built; `/app/sw.js` 200; desk daemon +
+reflex restarted (heartbeat tick 1, no errors), auto-execute AGGRESSIVE still armed from
+config. Live browser: unauthenticated owner routes redirect to login, system fonts, no
+sw/font/404 console errors. Codex next assigned in WORK_PLAN (`6f40949`): L9 paper-test
+report, S2.1 bear diagnosis.
+Open: owner may need to sign in again after the restart; integration branch not yet
+pushed for tonight's commits (awaiting owner).
+
+## 2026-10-16 — 2-day AGGRESSIVE paper-trading test — started 17:13:55 BST
+Owner asked ARIA to paper trade aggressively for two days (crypto because it trades
+24/7; equities still trade in US hours — a crypto-only switch was written, then
+reverted at the owner's word, nothing committed). Owner armed it himself with his
+token (bearer = step-up): `PATCH /api/desk/config` 200 17:13:54 and
+`POST /api/desk/auto-execute?enabled=true` 200 17:13:55 (first attempt never reached
+the backend). Config now AGGRESSIVE, auto_execute true, capital_base 0 (size against
+broker equity), max_name 8%, conviction 58, 20 trades/day, drawdown halt 4%, heat 15%,
+corr 4 — all inside `profiles.HARD_LIMITS`; no safety gate changed. Baseline in
+`data/desk/two_day_test.json` (gitignored): equity $10,008.38, 0 open positions,
+19 closed trades / 43 executions before start. Ends 2026-10-18 17:13:55 BST.
+Caveats told to owner: two days cannot separate skill from luck; no measured edge;
+the laptop must not sleep; tonight's L1 restart briefly pauses the loops.
+
+## 2026-10-16 — Launch readiness (WORK_PLAN §5) — in progress
+L3 met: 157 GET routes swept (isolation, owner auth, outbound network refused) →
+0 5xx, 0 timeouts after fixing `/api/history/{ticker}` and `/api/performance/{ticker}`
+500ing on a fresh install's table-less legacy DB (`c27004d`, opt-in sweep
+`ARIA_LAUNCH_SWEEP=1 tests/test_launch_get_sweep.py`). L5 met: no credential-shaped
+string tracked in tree or HEAD history (two matches are fakes in scrubbing tests);
+`.env`, research keys, auth, kill switch, brain memory gitignored; vault outside repo.
+L6 met: trading mode PAPER (since 2026-09-23), `auto_execute` false, kill switch
+disarmed-ready, nothing calls `approve_and_execute`, live guard requires confirmed
+paper, fence clean. Browser check (scratch copy without `.env`, ARIA_TESTING, port
+8011, deleted after): all 8 routes render, no NaN/undefined/crash; two defects handed
+to Codex in `LAUNCH_CODEX.md` (`main.jsx:38` registers `/sw.js` not `/app/sw.js` → 404 on
+every page; Google Fonts blocked by CSP). Codex could not be launched from here (auto
+mode blocks spawning agents); owner pasted the brief into the Codex app.
+Owner-approved system change: installed `TradingIntelligenceSystem` task
+ExecutionTimeLimit PT2H → **PT8H** (action and 07:30 trigger unchanged;
+then, on the owner's second yes, StartWhenAvailable False → **True**, so a 07:30 run
+missed while asleep starts on wake). The installed task now matches the generator.
+Live backend still runs 13:14 code until the L1 cutover.
+
 ## 2026-10-16 — S0.1 backlog committed in groups — done, suite green, pushed
 Owner's explicit yes ("commit the S0.1 backlog in the proposed groups, leave the
 runtime data files uncommitted, run the full suite, push"). On
