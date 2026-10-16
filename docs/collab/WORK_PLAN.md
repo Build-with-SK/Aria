@@ -103,6 +103,15 @@ restarts the runtime (rule 7), once, at cutover, after both halves pass.
 | L9 | `scripts/paper_test_report.py`: READ-ONLY report for the owner's 2-day aggressive paper test. Inputs: `data/desk/two_day_test.json` (baseline: start time/equity, counts before start), `closed_trades.jsonl`, `executions.jsonl`, `equity_curve.jsonl`, `positions.json`. Output (stdout, optional `--json PATH` outside `data/`): start/end equity and P&L ($ and %), realised vs unrealised, trades closed after start with per-trade symbol/side/entry/exit/P&L/hold time, win rate, average win/loss, max drawdown from the equity curve, crypto vs equity split, and a plain caveat that two days cannot separate skill from luck. Counts ONLY records after `started_at`. Works mid-test (reports "in progress"). Never writes `data/`, never calls the broker or the API. | Tests with fixture files (no production data): before-start records excluded, open position = unrealised, empty test, drawdown math. |
 | S2.1 | Diagnosis only (no tuning): why V5 logged 0 bear calls in 498. Thresholds, module coverage, data gaps. | Note in `log-codex.md` with measured counts. |
 
+L9 and S2.1 were reviewed and merged at `f717f87` (2026-10-16 ~18:00).
+
+**Next round (assigned 2026-10-16 ~18:00):**
+
+| Id | Owner | Task | Evidence it is done |
+| --- | --- | --- | --- |
+| S2.2 | Codex | In `src/intelligence/evaluation.py`, one function that reports each ledger source's hit rate with a cluster-robust interval (cluster by decision date, so same-day calls are not counted as independent), plus the Brier score where a stated probability exists. Input: the prediction ledger rows the existing `/api/ledger/*` code reads (read-only). Hand Claude the function name/signature in "For Claude"; do not edit `backend/` or `src/brain/self_state.py` (Claude wires it, S2.3). | Tests with fixture rows: same-day clustering widens the interval, sources never pooled, rows without outcomes excluded and counted. |
+| S2.5 | Claude | Reflex lane: ~1,300 playbooks armed, 0 fired. Establish whether that is correct behaviour or a dead lane. | Measured note in `log-claude.md`; fix only if it is a defect. |
+
 Out of scope tonight, stated so nobody claims it: a public multi-user launch
 (accounts, legal/financial-advice review, hosting), any measured trading edge,
 live-money trading. ARIA stays owner-only and PAPER.
