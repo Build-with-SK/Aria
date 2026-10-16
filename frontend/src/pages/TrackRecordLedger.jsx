@@ -29,6 +29,7 @@ import { Link } from 'react-router-dom'
 import { useCalibration, useInvestigation, useLedger, useLedgerDecisions } from '../hooks/useApi'
 import { Empty, SectionHeader, Spinner } from '../components/UI'
 import ModelIntelligence from '../components/ModelIntelligence'
+import { DataUnavailable, hasRecord } from '../components/DataState'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -43,11 +44,11 @@ const Head = ({ label, value, sub, color = '#fff' }) => (
 /* Reliability diagram, drawn as bars rather than a curve: with six buckets a
    curve implies a smoothness the data does not have. */
 function Calibration({ cal }) {
-  if (!cal) return null
-  if (cal.measurable === false) {
+  if (!hasRecord(cal)) return <DataUnavailable name="Calibration" />
+  if (cal.measurable !== true || !Array.isArray(cal.buckets)) {
     return (
       <div className="bb-card">
-        <div style={{ ...mono, fontSize: 11, color: 'var(--muted)', lineHeight: 1.7 }}>{cal.note}</div>
+        <div style={{ ...mono, fontSize: 11, color: 'var(--muted)', lineHeight: 1.7 }}>{cal.note || 'Calibration unavailable / withheld.'}</div>
       </div>
     )
   }
@@ -109,13 +110,14 @@ function Calibration({ cal }) {
 }
 
 export default function TrackRecordLedger() {
-  const { data: led, loading } = useLedger(300)
+  const { data: led, loading, error } = useLedger(300)
   const { data: cal } = useCalibration()
   const { data: inv } = useInvestigation()
   const { data: dec } = useLedgerDecisions(150)
   const [filter, setFilter] = useState('all')
 
   if (loading && !led) return <Spinner />
+  if (error || !hasRecord(led)) return <DataUnavailable name="Track record" error={error} />
 
   const stats = led?.stats || {}
   const preds = led?.predictions || []
@@ -160,7 +162,7 @@ export default function TrackRecordLedger() {
                      : ov.verdict === 'worse than chance' ? 'var(--red)'
                      : 'var(--yellow)'}
               sub={ov.ci95
-                    ? `95% CI ${(ov.ci95[0] * 100).toFixed(1)}–${(ov.ci95[1] * 100).toFixed(1)}% · ${ov.verdict}`
+                    ? `95% CI ${ov.ci95[0] == null ? '—' : (ov.ci95[0] * 100).toFixed(1)}–${ov.ci95[1] == null ? '—' : (ov.ci95[1] * 100).toFixed(1)}% · ${ov.verdict || 'verdict withheld'}`
                     : (stats.hit_rate_note || `over ${stats.scored ?? 0} scored calls`)} />
         <Head label="NEXT DUE" value={stats.next_resolution_due || '—'}
               sub="the next horizon to elapse" />

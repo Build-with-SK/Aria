@@ -18,6 +18,7 @@
 import React, { useState } from 'react'
 import { useDailyReport, useReportHistory, generateDailyReport } from '../hooks/useApi'
 import { Spinner } from '../components/UI'
+import { DataUnavailable, hasRecord } from '../components/DataState'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -110,7 +111,7 @@ function MoversTable({ rows, positive }) {
             ...mono, fontSize: 11, fontWeight: 700, minWidth: 52, textAlign: 'right',
             color: positive ? 'var(--green)' : 'var(--red)',
           }}>
-            {r.score > 0 ? '+' : ''}{Number(r.score).toFixed(1)}
+            {r.score != null && Number.isFinite(Number(r.score)) ? `${r.score > 0 ? '+' : ''}${Number(r.score).toFixed(1)}` : 'withheld'}
           </span>
         </div>
       ))}
@@ -120,7 +121,7 @@ function MoversTable({ rows, positive }) {
 
 export default function DailyReport() {
   const [date, setDate] = useState(null)      // null = today
-  const { data: report, loading, reload } = useDailyReport(date)
+  const { data: report, loading, error, reload } = useDailyReport(date)
   const { data: hist, reload: reloadHist } = useReportHistory()
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
@@ -166,6 +167,7 @@ export default function DailyReport() {
         </div>
 
         {loading && <Spinner />}
+        {!loading && (error || !hasRecord(report)) && <DataUnavailable name="Daily report" error={error} />}
 
         {missing && (
           <div className="bb-card" style={{ borderColor: 'rgba(255,179,36,.4)' }}>
@@ -194,11 +196,11 @@ export default function DailyReport() {
           </div>
         )}
 
-        {!missing && report && (
+        {!missing && hasRecord(report) && !error && (
           <>
             <Section title="EXECUTIVE SUMMARY">
               <div style={{ ...mono, fontSize: 13, color: 'var(--text)', lineHeight: 1.85 }}>
-                {report.executive_summary}
+                {report.executive_summary || 'Executive summary unavailable / withheld.'}
               </div>
             </Section>
 
@@ -266,7 +268,7 @@ export default function DailyReport() {
                     }}>{n.headline}</a>
                   </div>
                   <div style={{ ...mono, fontSize: 8, color: 'var(--muted)', marginTop: 1 }}>
-                    {String(n.source_tier).replace(/_/g, ' ')} · {n.source}
+                    {String(n.source_tier || 'source tier unavailable').replace(/_/g, ' ')} · {n.source}
                     {n.corroboration > 1 && ` · corroborated ×${n.corroboration}`}
                   </div>
                 </div>

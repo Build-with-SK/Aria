@@ -3,6 +3,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recha
 import { usePortfolio, useHoldings, useRelated } from '../hooks/useApi'
 import { Spinner, ErrorBox, SectionHeader, MetricCard } from '../components/UI'
 import Term from '../components/Term'
+import { DataUnavailable, hasRecord } from '../components/DataState'
 
 // ─── Portfolio ────────────────────────────────────────────────────────────────
 // WHAT HE OWNS, FIRST. This page used to open on data/portfolio_analysis.json:
@@ -90,7 +91,7 @@ function Holdings({ data }) {
                     </span>
                   )}
                 </td>
-                <td style={mono}>{h.weight_pct === null ? '—' : `${h.weight_pct}%`}</td>
+                <td style={mono}>{h.weight_pct == null ? '—' : `${h.weight_pct}%`}</td>
                 <td style={{ ...mono, ...dim }}>
                   {h.days_held === null || h.days_held === undefined ? '—' : `${h.days_held}d`}
                 </td>
@@ -187,6 +188,7 @@ export default function Portfolio() {
 
   if (loading) return <Spinner />
   if (error) return <ErrorBox message={error} />
+  if (!hasRecord(book)) return <DataUnavailable name="Holdings" />
 
   const account = book?.account || {}
   const totals = book?.totals || {}
@@ -205,7 +207,7 @@ export default function Portfolio() {
           value={`${totals.unrealised_pl > 0 ? '+' : ''}${money(totals.unrealised_pl)}`}
           color={totals.unrealised_pl > 0 ? 'bull' : totals.unrealised_pl < 0 ? 'bear' : undefined}
         />
-        <MetricCard label="Cash" value={totals.cash_pct === null ? '—' : `${totals.cash_pct}%`} />
+        <MetricCard label="Cash" value={totals.cash_pct == null ? '—' : `${totals.cash_pct}%`} />
       </div>
 
       <Holdings data={book} />
@@ -228,7 +230,7 @@ export default function Portfolio() {
       {/* The old page. Kept, because the risk maths is useful — but labelled,
           because presenting a model universe next to real holdings without
           saying which is which is how the confusion started. */}
-      {analysis.diversification_score !== undefined && (
+      {analysis.diversification_score != null && (
         <div className="card">
           <SectionHeader>Model universe — not your holdings</SectionHeader>
           <div style={{ ...mono, fontSize: 11, ...dim, marginBottom: 12, lineHeight: 1.6 }}>

@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import axios from 'axios'
-import { useCurrency } from '../currency/CurrencyContext'
 import LiveQuote from '../components/LiveQuote'
 import ResearchAnalysis from '../components/ResearchAnalysis'
 import { exactResearchSelection } from '../components/researchSelection'
+import { DataUnavailable } from '../components/DataState'
 
 const mono = { fontFamily: 'var(--mono)' }
 const CCY = { INR: '₹', GBP: '£', USD: '$', EUR: '€' }
@@ -70,13 +70,13 @@ const sentColor = (l) => l === 'Bullish' ? 'var(--green)' : l === 'Bearish' ? 'v
  * hands this view the chosen symbol.
  */
 export default function Explorer({ symbol: externalSymbol = null, embedded = false }) {
-  const { price: toLocal } = useCurrency()
   const [q, setQ] = useState('')
   const [results, setResults] = useState([])
   const [sel, setSel] = useState(null)          // selected search-result info
   const [quote, setQuote] = useState(null)
   const [dossier, setDossier] = useState(null)
   const [news, setNews] = useState(null)
+  const [newsState, setNewsState] = useState('idle')
   const [loading, setLoading] = useState(false)
   const [resolveState, setResolveState] = useState('idle')
   const generation = useRef(0)
@@ -98,10 +98,12 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
   const select = useCallback((info) => {
     const current = ++generation.current
     setSel(info); setResults([]); setQ(info.symbol)
-    setQuote(null); setDossier(null); setNews(null); setLoading(true)
+    setQuote(null); setDossier(null); setNews(null); setLoading(true); setNewsState('loading')
     setResolveState('ready')
     axios.get(`/api/universe/quote/${encodeURIComponent(info.symbol)}`).then(r => { if (generation.current === current) setQuote(r.data) }).catch(() => {})
-    axios.get(`/api/universe/news/${encodeURIComponent(info.symbol)}`).then(r => { if (generation.current === current) setNews(r.data) }).catch(() => {})
+    axios.get(`/api/universe/news/${encodeURIComponent(info.symbol)}`).then(r => {
+      if (generation.current === current) { setNews(r.data); setNewsState('complete') }
+    }).catch(() => { if (generation.current === current) setNewsState('failed') })
     axios.get(`/api/universe/dossier/${encodeURIComponent(info.symbol)}`).then(r => { if (generation.current === current) setDossier(r.data) }).catch(() => {}).finally(() => { if (generation.current === current) setLoading(false) })
   }, [])
 
@@ -112,7 +114,7 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
     if (!externalSymbol) return
     const current = ++generation.current
     let cancelled = false
-    setSel(null); setQuote(null); setDossier(null); setNews(null); setLoading(false)
+    setSel(null); setQuote(null); setDossier(null); setNews(null); setLoading(false); setNewsState('idle')
     setResolveState('loading')
     axios.get('/api/universe/search', { params: { q: externalSymbol, n: 5 } })
       .then(r => {
@@ -126,13 +128,6 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
     return () => { cancelled = true; generation.current += 1 }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalSymbol])
-
-  const ccy = quote?.currency || sel?.currency || 'currency unavailable'
-  // The quote endpoint reports the native currency; hand it to the converter
-  // explicitly rather than letting it guess from the symbol.
-  const localPrice = toLocal(quote?.price, { from: quote?.currency || sel?.currency })
-  const change = quote?.change_pct
-  const tv = tvSymbol(sel)
 
   return (
     <div style={{ maxWidth: 1080, margin: '0 auto' }}>
@@ -178,7 +173,19 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
         </div>
       )}
 
-      {sel && (
+      {sel && <ExplorerDetails sel={sel} quote={quote} dossier={dossier} news={news}
+        loading={loading} newsState={newsState} embedded={embedded} />}
+    </div>
+  )
+}
+
+// Read-only snapshot view: the live loader and offline checks render the same
+// JSX. Identity selection and cancellation remain in the loader above.
+export function ExplorerDetails({ sel, quote, dossier, news, loading = false, newsState = 'complete', embedded = false }) {
+  const ccy = quote?.currency || sel?.currency || 'currency unavailable'
+  const tv = tvSymbol(sel)
+  if (!sel) return <DataUnavailable name="Research listing" />
+  return (
         <div>
           {/* header — live price, market state, day range */}
           <div style={{ marginBottom: 14 }}>
@@ -203,7 +210,8 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
               }}>
                 {tv ? <TVChart tv={tv} /> : <div style={{ ...mono, padding: 30, color: '#444' }}>no chart</div>}
               </div>
-              {dossier && !dossier.error && (
+              {!loading && (!dossier || Array.isArray(dossier) || dossier.error) && <DataUnavailable name="Fundamentals" />}
+              {dossier && !Array.isArray(dossier) && !dossier.error && (
                 <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 14, background: '#070707' }}>
                   <div style={{ ...mono, fontSize: 11, fontWeight: 800, color: 'var(--orange)', letterSpacing: 2, marginBottom: 10 }}>FUNDAMENTALS</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '8px 16px' }}>
@@ -248,7 +256,7 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
               <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 14, background: '#070707' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                   <span style={{ ...mono, fontSize: 11, fontWeight: 800, color: 'var(--orange)', letterSpacing: 2 }}>NEWS & SENTIMENT</span>
-                  {news?.sentiment && (
+                  {typeof news?.sentiment?.label === 'string' && (
                     <span style={{ ...mono, fontSize: 9, fontWeight: 800, color: '#000', background: sentColor(news.sentiment.label), borderRadius: 3, padding: '2px 6px' }}>
                       {news.sentiment.label.toUpperCase()}
                     </span>
@@ -257,8 +265,9 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
                 {news?.political_exposure && news.political_exposure !== 'Low' && (
                   <div style={{ ...mono, fontSize: 9, color: 'var(--yellow)', marginBottom: 8 }}>⚑ Political exposure: {news.political_exposure}</div>
                 )}
-                {!news ? <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>fetching fresh news…</div>
-                  : news.news?.length === 0 ? <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>{news.source}</div>
+                {newsState === 'loading' ? <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>fetching fresh news…</div>
+                  : newsState === 'failed' || !Array.isArray(news?.news) ? <DataUnavailable name="News" />
+                  : news.news.length === 0 ? <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>{news.source || 'No headlines available in this response.'}</div>
                   : news.news.map((a, i) => (
                     <a key={i} href={a.url} target="_blank" rel="noreferrer" style={{ display: 'block', textDecoration: 'none', padding: '7px 0', borderBottom: '1px solid #141414' }}>
                       <div style={{ ...mono, fontSize: 11, color: '#cdd', lineHeight: 1.4 }}>{a.title}</div>
@@ -273,7 +282,5 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
             <ResearchAnalysis key={sel.symbol} symbol={sel.symbol} dossier={dossier} currency={ccy} includeTechnical={!embedded} />
           </div>
         </div>
-      )}
-    </div>
   )
 }
