@@ -243,58 +243,106 @@ The live feed only shows what the research eye actually recorded. It also checks
 
 ---
 
-## Getting started
+## Run ARIA
 
-Windows is the primary development environment; the interpreter path below reflects that.
+Windows is the primary development environment. Use Python 3.11 with a virtual
+environment, Git, npm and a Node version supported by Vite: Node 20.19 or later
+in the 20.x line, or Node 22.12 or later. The commands below are PowerShell,
+from a fresh clone's repository root.
 
-```bash
-# 1. clone & install
-git clone <your-repo-url> && cd trading-intelligence-system
-python -m venv venv
-venv\Scripts\pip.exe install -r requirements.txt
-npm install --prefix frontend
+```powershell
+py -3.11 -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+npm ci --prefix frontend
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
+```
 
-# 2. configure — copy the example and add your keys
-cp .env.example .env
+Configure `.env` privately before starting. Set `ARIA_OWNER_TOKEN` there and use
+that value in the **Owner Token** sign-in field; do not print it, put it in a
+URL, commit it or paste it into logs. Sign-in posts the token once to
+`/api/auth/login` and receives an HttpOnly session cookie. Without a configured
+owner credential the sign-in screen reports **Server not initialized**.
+Hashed owner credentials and session configuration are described in
+[authentication setup](docs/AUTH_SETUP.md). This is an owner-only local launch.
 
-# 3. optional, for the reasoning layer: install Ollama and pull a model
-ollama pull qwen2.5:7b-instruct-q4_K_M
+For the production frontend served by the backend:
 
-# 4. run
-venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```powershell
+npm run build --prefix frontend
+.\venv\Scripts\python.exe -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+Open **http://127.0.0.1:8000/app/**. The build writes `frontend/dist`, which the
+backend serves at `/app/`; route links include that base, for example
+`/app/research` and `/app/system`. The API reference is at `/docs`. On an
+existing installation, coordinate with its runtime owner before replacing the
+served build or starting another backend.
+
+For frontend development, keep the backend running and use a second terminal:
+
+```powershell
 npm run dev --prefix frontend
 ```
 
-On Linux/macOS the interpreter is `venv/bin/python`.
+Open **http://localhost:3000/app/**. Vite proxies `/api` to the backend; its
+`ARIA_API` environment setting can select another backend URL. On Linux/macOS,
+create the venv with `python3 -m venv venv` and use `venv/bin/python`.
 
-**The app is served under `/app/`, not `/`.**
+Ollama is optional for local model reasoning. The default `BrainDaemon` model
+is available with `ollama pull qwen2.5:7b-instruct-q4_K_M`; the backend waits for
+Ollama before starting that brain. Optional semantic memory dependencies are
+listed in `requirements.txt`; their absence limits memory features. Market
+and broker integrations also need their own configuration and available data;
+a running web server does not establish feed coverage.
 
-```
-http://localhost:3000/app/     vite dev server, with hot reload
-http://localhost:8000/app/     the backend serving the production build
-http://localhost:8000/docs     API reference
-```
+**PAPER and live trading:** broker adapters default to paper connections
+(`ALPACA_PAPER` / `IBKR_PAPER`). A fresh or unreadable execution-mode state
+defaults even more restrictively to **RESEARCH**, which places no orders
+(`src/trading/modes.py`). Use **PAPER** for this launch. Moving up a mode
+requires the existing explicit confirmation and safety checks; live autonomous
+mode additionally requires the external `ARIA_LIVE_TRADING_ENABLED` gate and
+an eligible strategy. Keep that gate closed. See
+[the execution-mode contract](src/trading/modes.py); these setup commands do
+not enable live trading.
 
-`frontend/vite.config.js` sets `base: '/app/'` because the backend mounts the built SPA at `/app`, and the two have to agree. `http://localhost:3000/brain` will 404; `http://localhost:3000/app/brain` is the page. This costs everyone a minute exactly once.
+Local state lives under `data/`: market snapshots and caches, the
+`aria_core.db` activity/claim ledger, `brain_memory/` semantic indexes,
+`desk/` desk state, `execution/` order state and `trading/` mode records.
+The backend also keeps local session state; treat this directory as private.
+An optional Obsidian vault is configured separately and remains owner-only.
+Do not copy an existing user's data into a new checkout as sample data.
 
-The signal engine populates on first run (`venv\Scripts\python.exe main.py`); the reasoning loop wakes automatically if Ollama is running.
-
-### Authentication
-
-Set `ARIA_OWNER_TOKEN` in `.env` and present it as `Authorization: Bearer <token>` or `X-ARIA-Token`, or paste it into the owner field on the sign-in screen. If **no** token is configured, requests from loopback are treated as the owner — which keeps a single-user localhost workflow working untouched. The moment this is reachable from anywhere else, set the token.
-
-Authorization is an **allowlist**, not a blocklist: a role starts with nothing and is granted named path prefixes in `src/auth/policy.py`. A route added tomorrow is invisible to non-owners until somebody deliberately names it, so forgetting costs a 403 rather than a disclosure. The vault, the portfolio and execution are never a tier — no plan or flag reaches them.
+**What ARIA does NOT claim:** ARIA has no measured trading edge. Technical
+consensus describes the available indicator readings and their conflicts;
+it is not a validated return forecast. Missing, stale or insufficient evidence
+must remain unavailable or withheld. Outputs are for research and education,
+not financial advice.
 
 ---
 
 ## Development
 
-```bash
-venv\Scripts\python.exe -m pytest tests/ -q -p no:randomly   # 1,556 tests, 0 skipped, 0 xfail
-npm run build --prefix frontend                              # production build
+Install test dependencies in the same venv, then run the isolated Python suite
+and the offline frontend checks:
+
+```powershell
+.\venv\Scripts\python.exe -m pip install -r requirements-ci.txt
+.\venv\Scripts\python.exe -m pytest tests/ -q -p no:randomly
+Set-Location frontend
+node scripts/verify-launch-routes.mjs
+node scripts/verify-technical-dashboard.mjs
+node scripts/verify-shell.mjs
+npm run build -- --outDir ../artifacts/frontend-check
+node scripts/verify-shell.mjs ../artifacts/frontend-check
+Set-Location ..
 ```
 
-The test suite writes nothing to `data/`. `tests/conftest.py` redirects every module's data path into a temp directory and raises if a test opens the owner's live record read-write — which is why a few tests that legitimately need to read production state open it with `?mode=ro`.
+Use a fresh staging output directory for build checks. The frontend checks use
+synthetic payloads without a server; their SSR/effect coverage limits are in
+[the verifier notes](frontend/scripts/README.md). `tests/conftest.py` redirects
+application data paths to temporary fixtures and guards production-state
+access. Report the counts from the run being reviewed rather than relying on
+a historical test total in this README.
 
 ### API
 
