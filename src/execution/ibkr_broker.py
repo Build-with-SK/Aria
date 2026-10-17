@@ -17,6 +17,8 @@ Requires:
 from __future__ import annotations
 
 import logging
+import asyncio
+import atexit
 import os
 from typing import Optional
 
@@ -28,8 +30,34 @@ from .broker_base import (
 
 logger = logging.getLogger(__name__)
 
+
+def _ensure_sdk_loop():
+    """ib_insync's synchronous API needs a thread-local loop.
+
+    Python 3.14 removed implicit creation. Preserve an existing/running loop;
+    own and close only loops created here. This neither connects nor sends.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        def close_owned():
+            if not loop.is_closed() and not loop.is_running():
+                loop.close()
+        atexit.register(close_owned)
+    return loop
+
 try:
-    import ib_insync as ibi
+    try:
+        import ib_insync as ibi
+    except RuntimeError as exc:
+        if "no current event loop" not in str(exc).lower():
+            raise
+        _ensure_sdk_loop()
+        import ib_insync as ibi
     IBKR_AVAILABLE = True
 except ImportError:
     IBKR_AVAILABLE = False
@@ -324,6 +352,7 @@ class IBKRBroker(BrokerBase):
 
         if IBKR_AVAILABLE:
             try:
+                _ensure_sdk_loop()
                 self._ib = ibi.IB()
                 self._ib.connect(self._host, self._port, clientId=self._client_id, timeout=3)
                 logger.info(f"IBKR connected ({'PAPER' if self._is_paper else 'LIVE'}) on port {self._port}")

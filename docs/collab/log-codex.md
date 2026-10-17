@@ -213,3 +213,6 @@ Files: long_term_memory, lazy-loading tests, cold-process profiling test, strict
 
 ## 2026-10-17 — PHASE2-4 — runtime PASS; full suite running
 Fresh source snapshot/venv on actual Ubuntu26.04 WSL2 Python3.14.4. Full app+test install/pip check pass. Runtime/recovery25 passed in2.91s: two real process starts, SIGTERM+lifespan completion, UNKNOWN retained on restart, DB/config/Unicode/permission checks. Distro missing ensurepip; official PyPA bootstrap only inside temp venv, no system install. Added reproducible Linux3.12/3.14 CI (unexecuted remotely). Full Linux suite follows in final regression evidence.
+
+## 2026-10-17 — PHASE2-4 follow-up — portability defects fixed
+First full Linux3.14 run:3367 passed/37 failed/21 skipped/3 errors. SDK import failed because eventkit/ib_insync assumes implicit asyncio loop creation removed in3.14. Added explicit thread-local loop ownership without replacing running/existing loops; owned loops close at exit. Scheduler test had patched global os.name and broke pathlib/isolation; narrowed to module-local stub, all original assertions retained. Targeted Linux58 passed/73 deprecation warnings in2.93s; full rerun pending. Initial /tmp stage was tmpfs and expired when WSL shut down; rebuilt clean source/venv under user cache with no system changes.

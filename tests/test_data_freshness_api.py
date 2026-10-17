@@ -175,7 +175,10 @@ def test_the_generated_task_lets_a_full_run_finish(tmp_path, monkeypatch):
     import re
     from src.scheduler import scheduler as S
     monkeypatch.setattr(S, "PROJECT_ROOT", tmp_path)
-    monkeypatch.setattr(S.os, "name", "nt")
+    # Spoof this module's platform, not the process-wide os.name used by
+    # pathlib and the production-state isolation guard on Linux.
+    from types import SimpleNamespace
+    monkeypatch.setattr(S, "os", SimpleNamespace(name="nt"))
     assert S.install_windows_task() is True
     ps = (tmp_path / "install_scheduler.ps1").read_text()
     hours = int(re.search(r"ExecutionTimeLimit \(New-TimeSpan -Hours (\d+)\)", ps).group(1))
