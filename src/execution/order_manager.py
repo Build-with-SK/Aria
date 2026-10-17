@@ -24,7 +24,7 @@ from typing import Optional
 
 from .approval_queue import ApprovalQueue, PendingTrade
 from .broker_base import (
-    AssetClass, OrderRequest, OrderResult, OrderSide,
+    AssetClass, OrderRefused, OrderRequest, OrderResult, OrderSide,
     OrderStatus, OrderType, BrokerBase
 )
 
@@ -625,6 +625,10 @@ class OrderManager:
                     out["target_skipped"] = (f"{broker.name} has no OCO: a separate "
                                               "target and stop could both fill")
                 r = broker.submit_order(req)
+        except OrderRefused as e:
+            # Definitely refused (kill switch, mode gate, a 4xx to the one
+            # POST): nothing exists, so nothing must block the symbol.
+            r = OrderResult("", OrderStatus.REJECTED, error_message=str(e))
         except Exception as e:
             r = OrderResult("", OrderStatus.UNKNOWN, error_message=str(e))
         if r.status in (OrderStatus.SUBMITTED, OrderStatus.PARTIAL, OrderStatus.FILLED):

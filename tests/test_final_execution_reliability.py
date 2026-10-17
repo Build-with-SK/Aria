@@ -84,7 +84,9 @@ def test_oco_submission_obeys_kill_switch(monkeypatch):
     broker = ab.AlpacaBroker.__new__(ab.AlpacaBroker)
     broker._client = client
     monkeypatch.setattr(ab.kill_switch, "is_engaged", lambda: True)
-    assert broker.submit_oco_exit("AAPL", 1, "buy", 95, 110) is None
+    # A known refusal, not None ("outcome unknown") — see test_protective_order_outcomes.
+    with pytest.raises(ab.OrderRefused):
+        broker.submit_oco_exit("AAPL", 1, "buy", 95, 110)
 
 
 def test_ibkr_place_timeout_is_unknown_and_keeps_client_reference(monkeypatch):

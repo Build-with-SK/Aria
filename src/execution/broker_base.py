@@ -75,6 +75,13 @@ class OrderRequest:
     reduce_only: bool = False
 
 
+class OrderRefused(RuntimeError):
+    """A write the broker (or a gate in front of it) DEFINITELY refused:
+    nothing exists under the request. Raised only where the method's normal
+    return cannot say so — `submit_oco_exit` returns an order id or None, and
+    None must stay "outcome unknown", or a timeout would read as a refusal."""
+
+
 @dataclass
 class OrderResult:
     """Broker's response after order submission."""

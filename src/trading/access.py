@@ -87,6 +87,11 @@ class ModeGatedBroker(PaperOnlyBroker):
                                error_message=f"{why}")
         if item in CANCEL_METHODS:
             return False
+        if item == "submit_oco_exit":
+            # None from submit_oco_exit means "outcome unknown"; this one is
+            # known — nothing was sent (src/execution/broker_base.OrderRefused).
+            from src.execution.broker_base import OrderRefused
+            raise OrderRefused(f"mode gate: {why}")
         return None
 
 

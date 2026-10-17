@@ -305,9 +305,10 @@ SENDERS = {
     "src/trading/orders.py": (1, "OrderEngine.submit: reached only from TradingPipeline.run, "
                                  "after its SESSION stage and the validator's session check"),
     "src/trading/broker.py": (1, "LegacyBrokerAdapter forwarding to the wrapped broker"),
-    "src/execution/order_manager.py": (4, "execute(): session_refusal() before the entry, "
+    "src/execution/order_manager.py": (3, "execute(): session_refusal() before the entry, "
                                           "reduce_only.at_broker() for a queued exit; protective "
-                                          "OCO / stop / target: reduce_only.at_broker() first"),
+                                          "OCO, or ONE stop-or-target order (Codex 09f2158 merged "
+                                          "the two): reduce_only.at_broker() first"),
     "src/execution/alpaca_broker.py": (2, "the Alpaca adapter itself (order + OCO exit)"),
     "src/execution/ibkr_broker.py": (1, "the IBKR adapter itself"),
     "src/desk/position_manager.py": (1, "exit engine: instrument_open(ticker, asset_class) first"),

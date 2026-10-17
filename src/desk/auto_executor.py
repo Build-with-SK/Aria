@@ -84,7 +84,6 @@ def account_snapshot() -> dict:
             from src.execution.live_guard import paper_status
             acct = mgr._alpaca.get_account()
             snap["equity"] = acct.portfolio_value or acct.cash
-            snap["connected"] = True
             # Three separate facts, not one flag reported twice: the operator's
             # env var, the adapter's flag, and the endpoint the client will
             # actually call. `paper` stays the adapter's view of the ACCOUNT
@@ -99,13 +98,26 @@ def account_snapshot() -> dict:
                              else bool(mgr._alpaca.paper))
             snap["cash"] = acct.cash
             snap["buying_power"] = acct.buying_power
-            for p in mgr._alpaca.get_positions():
-                snap["positions"].append({
-                    "ticker": p.ticker, "qty": p.qty, "side": p.side,
-                    "avg_cost": p.avg_cost, "market_value": p.market_value,
-                    "unrealized_pl": p.unrealized_pl,
-                })
+            # Connected only once the POSITIONS are read too. Marked connected
+            # before this read, a failure here left "connected, holding
+            # nothing": the management tick then recorded every tracked
+            # position as closed at the broker and cancelled its protective
+            # orders while the position still existed.
+            try:
+                positions = [{"ticker": p.ticker, "qty": p.qty, "side": p.side,
+                              "avg_cost": p.avg_cost, "market_value": p.market_value,
+                              "unrealized_pl": p.unrealized_pl}
+                             for p in mgr._alpaca.get_positions()]
+            except Exception as e:
+                snap["error"] = f"positions unreadable: {type(e).__name__}: {e}"
+                logger.warning(f"account snapshot: {snap['error']} — treated as unavailable")
+                return snap
+            snap["positions"] = positions
+            snap["connected"] = True
     except Exception as e:
+        snap["connected"] = False
+        snap["positions"] = []
+        snap.setdefault("error", f"{type(e).__name__}: {e}")
         logger.warning(f"account snapshot failed: {e}")
     return snap
 

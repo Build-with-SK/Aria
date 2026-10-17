@@ -25,7 +25,7 @@ from typing import Optional
 
 from . import kill_switch
 from .broker_base import (
-    AssetClass, BrokerBase, AccountInfo, OrderRequest, OrderResult,
+    AssetClass, BrokerBase, AccountInfo, OrderRefused, OrderRequest, OrderResult,
     OrderSide, OrderStatus, OrderType, Position
 )
 
@@ -519,12 +519,19 @@ class AlpacaBroker(BrokerBase):
                         stop: float, target: float, *, client_order_id: Optional[str] = None) -> Optional[str]:
         """One-cancels-other exit: take-profit limit + stop-loss leg on the
         SAME reserved shares — the only way Alpaca allows both protections
-        on one position. Returns the order id or None."""
+        on one position.
+
+        Returns the order id, or None when the outcome is UNKNOWN (a timeout:
+        it may exist). Raises OrderRefused when nothing can exist under the
+        request — the kill switch, a request that could not be built, or a
+        definite refusal of the one POST (e.g. 40310000 insufficient qty).
+        Returning None for those too made a refused OCO an UNKNOWN that
+        blocked the symbol until the owner released it by hand."""
         if kill_switch.is_engaged():
             logger.critical("Alpaca OCO refused: kill switch engaged")
-            return None
+            raise OrderRefused("kill switch engaged")
         if not self._client:
-            return None
+            raise OrderRefused("Alpaca client not connected")
         try:
             from alpaca.trading.requests import (LimitOrderRequest,
                                                  StopLossRequest,
@@ -532,8 +539,7 @@ class AlpacaBroker(BrokerBase):
             from alpaca.trading.enums import OrderClass
             side = (AlpacaSide.SELL if entry_side in ("buy", "long")
                     else AlpacaSide.BUY)
-            client = getattr(self, "_submit_client", None) or self._client
-            order = client.submit_order(order_data=LimitOrderRequest(
+            order_req = LimitOrderRequest(
                 symbol=ticker, qty=qty, side=side,
                 client_order_id=client_order_id,
                 time_in_force=TimeInForce.GTC,
@@ -541,10 +547,21 @@ class AlpacaBroker(BrokerBase):
                 order_class=OrderClass.OCO,
                 take_profit=TakeProfitRequest(limit_price=round(target, 2)),
                 stop_loss=StopLossRequest(stop_price=round(stop, 2)),
-            ))
+            )
+        except Exception as e:
+            logger.error(f"Alpaca OCO request for {ticker} not built, nothing sent: {e}")
+            raise OrderRefused(f"OCO request not built, nothing sent: {e}") from e
+        client = getattr(self, "_submit_client", None) or self._client
+        try:
+            order = client.submit_order(order_data=order_req)
             return str(order.id)
         except Exception as e:
             logger.error(f"Alpaca submit_oco_exit({ticker}) error: {e}")
+            probe = OrderRequest(ticker=ticker, side=OrderSide.SELL, qty=qty,
+                                 client_order_id=client_order_id or "")
+            if (client_order_id and _classify_submit_failure(
+                    e, probe, retried=_retries_possible(client)) == OrderStatus.REJECTED):
+                raise OrderRefused(str(e)) from e
             return None
 
     def get_open_orders(self) -> list[dict]:

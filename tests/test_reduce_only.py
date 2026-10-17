@@ -626,3 +626,79 @@ def test_flatten_is_the_kill_switchs_only_sender():
     assert src.count("submit_order(") == 1
     flat = inspect.getsource(killswitch._flatten)
     assert 'side="sell"' in flat and "reduce_only.check(" in flat
+
+
+# ── a durable exit claim that the broker has finished is not resting ─────────
+#
+# Codex 09f2158 made reduce_only refuse an exit while an earlier exit's queue
+# claim is not visible at the broker. The exit engine cancels the bracket OCO
+# first and then checks — so the just-cancelled OCO was "not visible" and the
+# stop-loss exit was refused, leaving the position with no bracket and no exit
+# until reconciliation ran on the next tick. The tests above use a broker named
+# "book", which never matched the queue's "alpaca" route, so they could not see
+# it. The broker's own answer about that order settles it; nothing else does.
+
+class _AlpacaNamedBook(_OcoBook):
+    name = "Alpaca"
+
+    def __init__(self, holdings=None):
+        super().__init__(holdings)
+        self.status_of = {}                 # id -> OrderStatus the broker reports
+        self.asked = []
+
+    def cancel_order(self, oid):
+        o = self.resting.pop(oid, None)
+        if o is None:
+            return False
+        for k in [k for k, v in self.resting.items() if v.get("parent_id") == oid]:
+            self.resting.pop(k, None)       # cancelling an OCO parent takes its leg
+        self.status_of[oid] = OrderStatus.CANCELLED
+        return True
+
+    def get_order_status(self, oid):
+        self.asked.append(oid)
+        return OrderResult(broker_order_id=oid,
+                           status=self.status_of.get(oid, OrderStatus.UNKNOWN))
+
+
+def test_the_exit_goes_out_after_its_own_bracket_is_cancelled(monkeypatch):
+    book = _AlpacaNamedBook({"AAPL": 10})
+    _mgr(book).place_protective_orders("AAPL", 10, "buy", stop=9.0, target=12.0)
+    assert [s[0] for s in book.sent] == ["oco"]
+    _close(monkeypatch, book)
+    assert [s for s in book.sent if s[0] == "market"] == [("market", "AAPL", "sell", 10.0)]
+    assert book.holdings["AAPL"] == 0 and book.asked, "settled by asking the broker"
+
+
+@pytest.mark.parametrize("answer", [OrderStatus.UNKNOWN, OrderStatus.SUBMITTED,
+                                    OrderStatus.PARTIAL])
+def test_an_unseen_claim_the_broker_cannot_call_finished_still_blocks(answer):
+    from src.execution import reduce_only
+    book = _AlpacaNamedBook({"AAPL": 10})
+    _mgr(book).place_protective_orders("AAPL", 10, "buy", stop=9.0, target=12.0)
+    oco = next(iter(book.resting))
+    book.resting.clear()                     # not listed — but not known to be gone
+    book.status_of[oco] = answer
+    ro = reduce_only.at_broker(book, "AAPL", "sell", 10)
+    assert not ro.ok and "not visible" in ro.reason
+
+
+def test_a_claim_that_filled_meanwhile_is_sized_against_the_position_after_it():
+    from src.execution import reduce_only
+    book = _AlpacaNamedBook({"AAPL": 10})
+    _mgr(book).place_protective_orders("AAPL", 10, "buy", stop=9.0, target=12.0)
+    oco = next(iter(book.resting))
+    real_positions = book.get_positions
+    calls = {"n": 0}
+
+    def positions_then_fill():
+        calls["n"] += 1
+        out = real_positions()
+        if calls["n"] == 1:                  # the OCO's stop fills right after this read
+            book.fill_resting(oco)
+            book.status_of[oco] = OrderStatus.FILLED
+        return out
+
+    book.get_positions = positions_then_fill
+    ro = reduce_only.at_broker(book, "AAPL", "sell", 10)
+    assert not ro.ok, "the first read is stale: the position is now flat"

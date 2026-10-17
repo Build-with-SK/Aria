@@ -1884,7 +1884,15 @@ def get_live_positions():
     mgr = _get_order_manager()
     if not mgr:
         return {"positions": []}
-    return {"count": len(p := mgr.get_all_positions()), "positions": p}
+    try:
+        p = mgr.get_all_positions()
+    except Exception as e:
+        # Since 09f2158 an adapter RAISES on a failed read instead of returning
+        # []: say "unreadable", never "no positions".
+        raise HTTPException(status_code=503,
+                            detail=f"positions unreadable at the broker ({type(e).__name__}: "
+                                   f"{e}); this is not an empty book")
+    return {"count": len(p), "positions": p}
 
 
 # ===========================================================================
