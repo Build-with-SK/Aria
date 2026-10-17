@@ -463,7 +463,7 @@ class OrderManager:
                    "was": t.status, "broker": getattr(broker, "name", None)}
             found = None
             legacy_lookup = getattr(broker, "get_order_by_broker_id", None) if broker else None
-            legacy = not t.client_order_id
+            legacy = t.legacy_original is not None or not t.client_order_id
             if legacy and t.broker_order_id and any(
                     other.id != t.id and other.broker == t.broker and
                     other.broker_order_id == t.broker_order_id for other in persisted):
@@ -471,7 +471,7 @@ class OrderManager:
                 report["still_unresolved"].append(t.id)
                 _audit({**row, "result": "conflicting identity — unchanged"})
                 continue
-            if legacy and t.broker_order_id and t.broker in ("alpaca", "ibkr"):
+            if not t.client_order_id and t.broker_order_id and t.broker in ("alpaca", "ibkr"):
                 lookup = legacy_lookup
                 key = t.broker_order_id
                 row["lookup_by"] = "broker_order_id"
@@ -486,7 +486,7 @@ class OrderManager:
                     if found is None:
                         row["result"] = "not found — not proof; unchanged"
                     elif legacy and (
-                            found.broker_order_id != t.broker_order_id or
+                            (t.broker_order_id and found.broker_order_id != t.broker_order_id) or
                             not same_symbol(found.raw.get("symbol"), t.ticker) or
                             str(found.raw.get("side", "")).lower() != t.side or
                             not math.isclose(float(found.raw.get("qty", -1)), t.qty,
@@ -509,7 +509,10 @@ class OrderManager:
                     row["result"] = "lookup failed — unchanged"
                     row["error"] = f"{type(e).__name__}: {e}"
                     report["errors"][t.id] = row["error"]
-            if found is None and t.broker_order_id and broker is not None:
+            if (found is None and not legacy and t.broker_order_id and broker is not None
+                    and "mismatch" not in row.get("error", "")
+                    and "conflicts" not in row.get("error", "")
+                    and "invalid broker" not in row.get("error", "")):
                 # The broker ACKNOWLEDGED this one — it has a broker order id —
                 # so its own status, read by that id, is the broker's answer
                 # even when the client-id lookup failed or lags behind. Without
@@ -523,8 +526,16 @@ class OrderManager:
                     by_id = None
                     row["status_error"] = f"{type(e).__name__}: {e}"
                 if by_id is not None and by_id.status != OrderStatus.UNKNOWN:
-                    found = by_id
-                    row["via"] = "broker order id"
+                    if (by_id.broker_order_id != t.broker_order_id or
+                            not math.isfinite(float(by_id.filled_qty)) or
+                            not 0 <= by_id.filled_qty <= t.qty + 1e-8 or
+                            not math.isfinite(float(by_id.avg_fill_price)) or
+                            by_id.avg_fill_price < 0):
+                        report["errors"][t.id] = "invalid broker-id status evidence; unchanged"
+                        row["result"] = report["errors"][t.id]
+                    else:
+                        found = by_id
+                        row["via"] = "broker order id"
             if found is not None:
                 row.update(result=found.status.value, broker_order_id=found.broker_order_id,
                            filled_qty=found.filled_qty, fill_price=found.avg_fill_price)

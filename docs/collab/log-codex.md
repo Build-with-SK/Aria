@@ -219,3 +219,7 @@ First full Linux3.14 run:3367 passed/37 failed/21 skipped/3 errors. SDK import f
 
 ## 2026-10-17 — PHASE2-5 — local browser PASS
 Actual built React app tested through real Chromium Playwright/AX: dashboard/scanner filtering/approval display/UNKNOWN/risk rejection/history/503/health reconnection/refresh. Fixture origin has no broker/backend imports and refuses all mutations; request logGET-only. Fixed ignored queue errors and stale actionable rows; added visible unresolved notice/filter. Final real-browser checks: initial503 noemptyclaim/actions; cached503 retainsrows/noapproval; recovery/scannerreload restores. No trade/approval action clicked. Screenshot+DOM evidence private. Offline execution states7+notices3, routes and staging build pass. Deployed auth/proxy/broker/PWA acceptance remains separate.
+
+
+## Final integration mission — 2026-10-17
+Owner explicitly assigns integration and Claude areas to Codex while Claude is unavailable. New isolated branch codex/aria-final-integration starts on designated aria/integrity-upgrade b5b47f2, fast-forwarded to completion candidate 659a75c (all its commits retained). Phase2 implementation commits selectively cherry-picked; no whole-file override. Original codex/work S2.2 dirty paths left untouched. Expected areas: execution, reliability, test infrastructure, six final docs. No protected branch merge/deploy/runtime restart or broker mutation. Initial combined execution run: 198 pass, 1 fail; legacy IBKR unsafe bare-status fallback reproduced, fixing without losing modern R1.

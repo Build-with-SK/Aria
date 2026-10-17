@@ -213,3 +213,39 @@ def test_alpaca_legacy_lookup_identity_and_404(world):
         status_code = 404
     broker._client.get_order_by_id = lambda _: (_ for _ in ()).throw(NotFound())
     assert broker.get_order_by_broker_id("old-order") is None
+
+
+def test_failed_legacy_intent_check_cannot_fall_back_to_bare_status(world):
+    old = historical(world)
+    broker = Broker([evidence(symbol="ETHUSD")])
+    broker.get_order_status = lambda _: pytest.fail("legacy identity check bypassed")
+    report = om.OrderManager(alpaca=broker).reconcile_unresolved()
+    assert old["id"] in report["errors"]
+    assert world.get_by_id(old["id"]).status == "unknown"
+
+
+def test_owner_bound_original_client_id_still_requires_legacy_intent(world):
+    old = historical(world, oid="")
+    world.get_by_id(old["id"])
+    world.bind_legacy_evidence(old["id"], by="owner", note="original reference", client_order_id="old-ref")
+    broker = Broker()
+    broker.get_order_by_client_id = lambda _: evidence(side="sell")
+    report = om.OrderManager(alpaca=broker).reconcile_unresolved()
+    assert old["id"] in report["errors"]
+    assert world.get_by_id(old["id"]).status == "unknown"
+
+
+@pytest.mark.parametrize("answer", [OrderResult("wrong", OrderStatus.CANCELLED),
+    OrderResult("old-order", OrderStatus.CANCELLED, float("nan")),
+    OrderResult("old-order", OrderStatus.FILLED, 3, 100)])
+def test_modern_status_fallback_requires_identity_and_valid_fills(world, answer):
+    trade = proposal(world)
+    assert world.claim_for_submit(trade.id, "modern-ref")[0]
+    world.mark_executed(trade.id, "old-order", 0, order_status="submitted")
+    broker = Broker()
+    broker.get_order_by_client_id = lambda _: None
+    broker.get_order_status = lambda _: answer
+    report = om.OrderManager(alpaca=broker).reconcile_unresolved()
+    assert trade.id in report["errors"]
+    assert world.get_by_id(trade.id).order_status == "submitted"
+    assert len(world.in_flight()) == 1
