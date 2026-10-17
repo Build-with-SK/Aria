@@ -17,12 +17,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 from .approval_queue import ApprovalQueue, PendingTrade
+from .reduce_only import same_symbol
 from .broker_base import (
     AssetClass, OrderRefused, OrderRequest, OrderResult, OrderSide,
     OrderStatus, OrderType, BrokerBase
@@ -452,6 +454,7 @@ class OrderManager:
         A 404 resolves nothing (see _settle_unknown); the owner's release does
         that. Every lookup is appended to RECONCILE_LOG with its result."""
         report: dict = {"checked": 0, "settled": {}, "still_unresolved": [], "errors": {}}
+        persisted = self._queue.get_all(limit=2**31)
         for t in self._queue.in_flight():
             report["checked"] += 1
             broker = self._broker_for(t)
@@ -459,14 +462,50 @@ class OrderManager:
             row = {"trade_id": t.id, "ticker": t.ticker, "client_order_id": t.client_order_id,
                    "was": t.status, "broker": getattr(broker, "name", None)}
             found = None
-            if not t.client_order_id or lookup is None:
+            legacy_lookup = getattr(broker, "get_order_by_broker_id", None) if broker else None
+            legacy = not t.client_order_id
+            if legacy and t.broker_order_id and any(
+                    other.id != t.id and other.broker == t.broker and
+                    other.broker_order_id == t.broker_order_id for other in persisted):
+                report["errors"][t.id] = "broker identity shared by multiple queue rows; manual reconciliation required"
+                report["still_unresolved"].append(t.id)
+                _audit({**row, "result": "conflicting identity — unchanged"})
+                continue
+            if legacy and t.broker_order_id and t.broker in ("alpaca", "ibkr"):
+                lookup = legacy_lookup
+                key = t.broker_order_id
+                row["lookup_by"] = "broker_order_id"
+            else:
+                key = t.client_order_id
+                row["lookup_by"] = "client_order_id"
+            if not key or lookup is None:
                 row["result"] = "cannot look up — unchanged"
             else:
                 try:
-                    found = lookup(t.client_order_id)
+                    found = lookup(key)
                     if found is None:
                         row["result"] = "not found — not proof; unchanged"
+                    elif legacy and (
+                            found.broker_order_id != t.broker_order_id or
+                            not same_symbol(found.raw.get("symbol"), t.ticker) or
+                            str(found.raw.get("side", "")).lower() != t.side or
+                            not math.isclose(float(found.raw.get("qty", -1)), t.qty,
+                                             rel_tol=1e-9, abs_tol=1e-8)):
+                        found = None
+                        raise ValueError("legacy broker identity/intent mismatch; manual reconciliation required")
+                    if found is not None and t.broker_order_id and found.broker_order_id != t.broker_order_id:
+                        found = None
+                        raise ValueError("broker order id conflicts with persisted identity")
+                    if found is not None and (
+                            not math.isfinite(float(found.filled_qty)) or
+                            not 0 <= found.filled_qty <= t.qty + 1e-8 or
+                            not math.isfinite(float(found.avg_fill_price)) or found.avg_fill_price < 0 or
+                            (legacy and found.status in (OrderStatus.FILLED, OrderStatus.PARTIAL)
+                             and found.filled_qty <= 0)):
+                        found = None
+                        raise ValueError("invalid broker fill evidence; unchanged")
                 except Exception as e:
+                    found = None
                     row["result"] = "lookup failed — unchanged"
                     row["error"] = f"{type(e).__name__}: {e}"
                     report["errors"][t.id] = row["error"]

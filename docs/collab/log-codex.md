@@ -201,3 +201,6 @@ Verified clean codex/aria-final-verification at 2a4be8f. Original codex/work has
 
 ## 2026-10-17 — PHASE2-1 — candidate ready; deployment blocked
 Files: dependency manifests, constraints-security.txt, frontend lock/PostCSS config, ARIA_DEPENDENCY_SECURITY. npm audit 9 to 0; removed unused Tailwind (identical CSS), necessary router security major to 7.18.4 passes route/technical/execution checks and build. Python baseline 119 records/74 unique package-advisory pairs; compatible security floors added. Fresh full install ongoing; final audit/regression will be recorded at Phase2-7. Prior minimal focused 128 passed/1 skipped. Existing optional-heavy production env unchanged; Chroma/OAuth/Torch exceptions require deployment owner review.
+
+## 2026-10-17 — PHASE2-2 — local PASS; external migration blocked
+Files: approval_queue, order_manager, alpaca_broker, test_legacy_reconciliation, ARIA_LEGACY_RECONCILIATION. Historical no-key rows conservatively quarantined with full preimage; safe broker-ID lookup checks identity and intent. Bare IBKR session IDs remain manual. Cumulative fills/terminal evidence monotonic, duplicate callbacks idempotent, owner evidence binding requires notes. Focused 157 passed in21.59s; Ruff fatal checks pass. No production migration/credential/order. Overlaps Claude execution/durability work; independent review required.

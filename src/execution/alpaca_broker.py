@@ -488,6 +488,27 @@ class AlpacaBroker(BrokerBase):
             logger.error(f"Alpaca cancel_order error: {e}")
             return False
 
+    def get_order_by_broker_id(self, broker_order_id: str) -> Optional[OrderResult]:
+        """Historical recovery by account-scoped broker evidence; never by symbol.
+
+        Unlike get_order_status, this exposes identity fields for reconciliation
+        and raises failed reads. A 404 is absence of evidence, not rejection.
+        """
+        if not self._client:
+            raise ConnectionError("Alpaca client not connected")
+        try:
+            order = self._client.get_order_by_id(broker_order_id)
+        except Exception as exc:
+            if getattr(exc, "status_code", None) == 404:
+                return None
+            raise
+        filled = float(order.filled_qty or 0)
+        return OrderResult(
+            broker_order_id=str(order.id), status=_parse_status(order.status, filled),
+            filled_qty=filled, avg_fill_price=float(order.filled_avg_price or 0),
+            filled_at=order.filled_at,
+            raw={"status": str(order.status), "symbol": str(order.symbol),
+                 "side": str(getattr(order.side, "value", order.side)), "qty": float(order.qty)})
     def get_order_status(self, broker_order_id: str) -> OrderResult:
         # A status read that fails says nothing about the order: UNKNOWN, never
         # REJECTED — "could not ask" read as "the broker refused it" made a
