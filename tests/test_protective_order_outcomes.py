@@ -17,7 +17,7 @@ import pytest
 
 from test_order_settlement import FakeAlpaca, FakeClient, ReadTimeout, Unprocessable  # noqa: F401
 
-from src.execution.broker_base import OrderRefused, OrderStatus, Position
+from src.execution.broker_base import OrderRefused, Position
 
 
 class Forbidden(Exception):
