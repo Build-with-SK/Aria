@@ -210,3 +210,6 @@ Fresh full requirements+CI venv installed, compatible Plotly/Anthropic major cap
 
 ## 2026-10-17 — PHASE2-3 — reproduced and fixed
 Files: long_term_memory, lazy-loading tests, cold-process profiling test, stricter GET sweep, ARIA_COLD_MEMORY. First isolated listing76.2556s to4.2950s; warm1.5195s to0.0403s; Python tracked peak248.2 to42.3MiB. Stack samples confirm unnecessary Transformers import; no model import or response error after. Backend setup4.0787s vs4.1966s. No timeout increase or production state/model/network use. Synthetic empty-store profile with instrumentation, not production SLO; native RSS not measured.
+
+## 2026-10-17 — PHASE2-4 — runtime PASS; full suite running
+Fresh source snapshot/venv on actual Ubuntu26.04 WSL2 Python3.14.4. Full app+test install/pip check pass. Runtime/recovery25 passed in2.91s: two real process starts, SIGTERM+lifespan completion, UNKNOWN retained on restart, DB/config/Unicode/permission checks. Distro missing ensurepip; official PyPA bootstrap only inside temp venv, no system install. Added reproducible Linux3.12/3.14 CI (unexecuted remotely). Full Linux suite follows in final regression evidence.
