@@ -2,7 +2,7 @@
 
 Candidate: branch **`claude/aria-completion`**, worktree
 `.claude/worktrees/aria-completion` (HEAD at the commit that adds this file;
-code last changed in `e5903f1`). Release owner: Claude Code. Reviewer of record
+code last changed in `c133e28`; everything after it is docs). Release owner: Claude Code. Reviewer of record
 for the trading path: Codex (WORK_PLAN §2.6).
 
 ## Verdict
@@ -29,7 +29,7 @@ G12), and live trading stays disabled by design.
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
-| G1 Full test suite | **PASS — 3457 passed, 9 skipped, 0 failed, EXIT 0** (401.9 s) | `venv\Scripts\python.exe -m pytest tests -q -p no:randomly` on `4abcb84` + docs; floor in WORK_PLAN is 3251 |
+| G1 Full test suite | **PASS — 3458 passed, 9 skipped, 0 failed, EXIT 0** (363.9 s) on `822223a`, whose code is identical to HEAD (later commits are docs only). Earlier run on `4abcb84`: 3457 passed | `venv\Scripts\python.exe -m pytest tests -q -p no:randomly`; floor in WORK_PLAN is 3251 |
 | G2 Trading-path focus suites | **PASS** — the 930-test desk/reflex/order/risk/execution/session/security/durability group found 4 failures on the merged tree (2 integration defects: audit F-10 and the R1 fix in `4abcb84`); after the fixes every one passes inside G1 | per-group runs in this session |
 | G3 Frontend | **PASS** — `verify-launch-routes`, `verify-technical-dashboard`, `verify-execution-status` (7 states; unknowns never shown as fills), staging `vite build`, `verify-shell`: all EXIT 0 | run from the worktree; output in scratch, nothing published, `frontend/dist` untouched |
 | G4 API sweep (every GET route, isolation, network refused) | **PASS for the trading path** — 158 routes: 138 × 200, 13 × 422 (required query missing), 4 × 404 and 2 × 400 (literal path templates), **1 timeout: `/api/brain/memories` 25 s** (cold vector store; not trading) — **no 5xx** | `ARIA_LAUNCH_SWEEP=1 pytest tests/test_launch_get_sweep.py`: 3 passed |
