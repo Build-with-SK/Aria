@@ -87,8 +87,10 @@ G12), and live trading stays disabled by design.
 3. Before cutover, check the **legacy queue rows** from before S1.3 against the
    broker (Codex, `2a4be8f`). A row with no recorded client id cannot prove by
    its label that nothing was sent. The live queue holds 74 executed,
-   20 cancelled and **1 rejected** (`launch_check`, 20:28). Verify that one in
-   Alpaca's order history; never replay a legacy row.
+   20 cancelled and **1 rejected** (`launch_check`, 20:28). The rejected one is
+   `dfe2a885`: AAPL buy 1 market, created 2026-08-06 21:02 UTC, no broker id,
+   marked "test artefact from the independent review probe". Confirm Alpaca's
+   order history has no AAPL buy at that time. Never replay a legacy row.
 4. Stop and start the `ARIA Backend` task, preferably after the paper test ends
    on 2026-10-18 17:13. Confirm a single listener.
 5. `python -m src.core.launch_check --root <repo> --base-url http://localhost:8000`.
