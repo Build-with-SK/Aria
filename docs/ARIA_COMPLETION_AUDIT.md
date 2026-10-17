@@ -79,6 +79,7 @@ Priority: **P0** = can send a duplicate or unintended order, or misstate one;
 | F-15 | P2 | `test_launch_check` failed once the clock passed its fixture time | `9c5894c` (`--now`) |
 | F-16 | P1 | Desk config saved non-atomically (a crash reset every owner setting to defaults) | `33eb7a0` |
 | F-17 | P1 | Execution UI showed UNKNOWN as CANCELLED and unconfirmed fills as AUTO-FILLED (Codex review F8) | Codex `0a1b21a`; `verify-execution-status.mjs` passes (7 states) |
+| F-18 | P1 | The nightly backup zipped `data/desk/` only — the approval queue, which now stops its lane when damaged, had no restorable copy | `c133e28`; `test_the_nightly_backup_includes_the_order_records` |
 
 ### Open — not fixed, with acceptance criteria
 
@@ -125,7 +126,7 @@ Priority: **P0** = can send a duplicate or unintended order, or misstate one;
 | mypy 1.13 on the order path (`--ignore-missing-imports`) | 139 lines: union-attr 25, arg-type 25, attr-defined 22, index 17, … Inspected: Optional client ids that are always set at runtime, `fcntl` unknown on Windows, `hasattr`-guarded `submit_oco_exit`, a dynamically set `RiskOfficer.allocation`. No runtime defect found among them; typing debt (O-11) |
 | Database migrations | Additive `ALTER TABLE … ADD COLUMN` on connect (`src/core/ledger.py`, `src/data/universe.py`); no migration framework. Run against **copies** of the live `aria_core.db` and `universe.db`: already current, idempotent on re-run, `integrity_check ok`, no row counts changed. Copies deleted |
 | Secrets | No credential-shaped strings in tracked files (only `sk-ant-your-key-here` placeholders in `chat.py`, `.env.example`). `.env`, `data/research_keys.json`, the kill-switch file and the order records are ignored. No logger call prints a key |
-| Fence | `src/execution/approval_queue.py` and `live_guard.py` are fenced against **ARIA-authored** commits; these commits are Claude's and Codex's. `live_guard.py` was not modified |
+| Fence | `scripts/check_protected_paths.py --require-git`: **clean** over all history and over `b5b47f2..HEAD`. `approval_queue.py` and `live_guard.py` are fenced against ARIA-authored commits; these are Claude's and Codex's. `live_guard.py` was not modified |
 
 ## 6. Things checked and found working
 

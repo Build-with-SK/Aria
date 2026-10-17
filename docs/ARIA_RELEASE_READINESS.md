@@ -84,14 +84,19 @@ G12), and live trading stays disabled by design.
 2. `git merge --no-ff claude/aria-completion` into `aria/integrity-upgrade`
    (main folder). Tag the current HEAD `rollback/pre-completion-2026-10-17`
    first. Run the full suite there (floor 3457).
-3. Stop and start the `ARIA Backend` task, preferably after the paper test ends
+3. Before cutover, check the **legacy queue rows** from before S1.3 against the
+   broker (Codex, `2a4be8f`). A row with no recorded client id cannot prove by
+   its label that nothing was sent. The live queue holds 74 executed,
+   20 cancelled and **1 rejected** (`launch_check`, 20:28). Verify that one in
+   Alpaca's order history; never replay a legacy row.
+4. Stop and start the `ARIA Backend` task, preferably after the paper test ends
    on 2026-10-18 17:13. Confirm a single listener.
-4. `python -m src.core.launch_check --root <repo> --base-url http://localhost:8000`.
+5. `python -m src.core.launch_check --root <repo> --base-url http://localhost:8000`.
    Expect PASS for runtime, owner refusal, PAPER mode, desk and broker; the
    desk status must show no `instance_conflict`.
-5. Rebuild the frontend from the merged source if `0a1b21a` is to go live
+6. Rebuild the frontend from the merged source if `0a1b21a` is to go live
    (staging build, verifiers, then copy into `frontend/dist`).
-6. Rollback: stop the task, `git checkout` the rollback tag, restart. The
+7. Rollback: stop the task, `git checkout` the rollback tag, restart. The
    state files stay readable by the old code (only new fields were added).
 
 ## Remaining risks (full list with acceptance criteria: audit §3 "Open")
