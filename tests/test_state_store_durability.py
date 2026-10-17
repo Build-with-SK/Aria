@@ -103,3 +103,22 @@ def test_damaged_positions_recover_by_adoption_and_keep_a_copy(tmp_path, monkeyp
     assert list(tmp_path.glob("positions.json.corrupt-*"))
     mgr.save_positions({"AAPL": {"qty": 1}})
     assert mgr.load_positions() == {"AAPL": {"qty": 1}}
+
+
+# ── desk config ──────────────────────────────────────────────────────────────
+
+def test_a_crash_while_saving_the_desk_config_keeps_the_owners_settings(tmp_path, monkeypatch):
+    from src.desk import config as desk_config
+    monkeypatch.setattr(desk_config, "CONFIG_FILE", tmp_path / "desk_config.json")
+    desk_config.save_config({"auto_execute": True, "max_trades_per_day": 3})
+
+    def crash(src, dst):
+        raise OSError("power cut")
+
+    with monkeypatch.context() as m:
+        m.setattr(durable.os, "replace", crash)
+        with pytest.raises(OSError):
+            desk_config.save_config({"max_trades_per_day": 4})
+    cfg = desk_config.load_config()
+    assert cfg["auto_execute"] is True and cfg["max_trades_per_day"] == 3
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["desk_config.json"]
