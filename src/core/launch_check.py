@@ -410,9 +410,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--base-url", default="", help="e.g. http://localhost:8000")
     ap.add_argument("--sentinel-url", default="", help="e.g. http://127.0.0.1:8300")
     ap.add_argument("--json", default="", help="also write the results here (outside --root)")
+    ap.add_argument("--now", default="",
+                    help="judge ages against this ISO time instead of the clock "
+                         "(re-reading an old snapshot; tests)")
     args = ap.parse_args(argv)
     root = Path(args.root).resolve()
-    results = run(root, args.base_url.rstrip("/") or None, args.sentinel_url or None)
+    now = None
+    if args.now:
+        now = datetime.fromisoformat(args.now)
+        if now.tzinfo is None:
+            print("--now needs a time zone (e.g. 2026-10-17T09:00+00:00)", file=sys.stderr)
+            return 2
+    results = run(root, args.base_url.rstrip("/") or None, args.sentinel_url or None, now=now)
     for r in results:
         print(f"{r['status']:<13} {r['check']:<42} {r['evidence']}")
     if args.json:

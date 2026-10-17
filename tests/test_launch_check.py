@@ -125,7 +125,7 @@ def test_what_needs_a_look_is_a_warning(repo, change, check):
 def test_it_reads_and_never_writes(repo, tmp_path_factory):
     before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in repo.rglob("*") if p.is_file()}
     out = tmp_path_factory.mktemp("out") / "r.json"
-    code = lc.main(["--root", str(repo), "--json", str(out)])
+    code = lc.main(["--root", str(repo), "--json", str(out), "--now", NOW.isoformat()])
     after = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in repo.rglob("*") if p.is_file()}
     assert before == after
     assert code == 0 and json.loads(out.read_text())["results"]
