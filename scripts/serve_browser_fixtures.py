@@ -3,7 +3,7 @@
 No backend/broker imports, credentials, trading calls, or writable API routes.
 Usage: python scripts/serve_browser_fixtures.py --dist <staging-dist>
        --control <json-state> --log <private-jsonl> [--port 0]
-Control keys: health_up (default true), queue_error, signals_error.
+Control keys: health_up (default true), queue_error, signals_error, pwa_old.
 """
 from __future__ import annotations
 
@@ -85,6 +85,18 @@ def main():
             self.record()
             path = urlsplit(self.path).path
             state = json.loads(args.control.read_text()) if args.control.exists() else {}
+            if path == "/app/acceptance-worker.js":
+                worker = (dist / "sw.js").read_text(encoding="utf-8")
+                if state.get("pwa_old"):
+                    worker = worker.replace("aria-shell-v2", "aria-shell-acceptance-old")
+                self.send(200, worker.encode(), "application/javascript")
+                return
+            if path == "/app/acceptance-pwa.html":
+                self.send(200, Path(__file__).with_name("browser_pwa_acceptance.html").read_bytes(), "text/html")
+                return
+            if path == "/api/acceptance-probe":
+                self.send(200, b'{"source":"network"}')
+                return
             failed = (path == "/health" and not state.get("health_up", True) or
                       path == "/api/execute/queue" and state.get("queue_error") or
                       path == "/api/signals" and state.get("signals_error"))

@@ -462,6 +462,7 @@ class OrderManager:
             row = {"trade_id": t.id, "ticker": t.ticker, "client_order_id": t.client_order_id,
                    "was": t.status, "broker": getattr(broker, "name", None)}
             found = None
+            invalid_evidence = False
             legacy_lookup = getattr(broker, "get_order_by_broker_id", None) if broker else None
             legacy = t.legacy_original is not None or not t.client_order_id
             if legacy and t.broker_order_id and any(
@@ -497,7 +498,7 @@ class OrderManager:
                         found = None
                         raise ValueError("broker order id conflicts with persisted identity")
                     if found is not None and (
-                            not math.isfinite(float(found.filled_qty)) or
+                            not found.broker_order_id or not math.isfinite(float(found.filled_qty)) or
                             not 0 <= found.filled_qty <= t.qty + 1e-8 or
                             not math.isfinite(float(found.avg_fill_price)) or found.avg_fill_price < 0 or
                             (legacy and found.status in (OrderStatus.FILLED, OrderStatus.PARTIAL)
@@ -506,13 +507,12 @@ class OrderManager:
                         raise ValueError("invalid broker fill evidence; unchanged")
                 except Exception as e:
                     found = None
+                    invalid_evidence = isinstance(e, (ValueError, TypeError, OverflowError))
                     row["result"] = "lookup failed — unchanged"
                     row["error"] = f"{type(e).__name__}: {e}"
                     report["errors"][t.id] = row["error"]
             if (found is None and not legacy and t.broker_order_id and broker is not None
-                    and "mismatch" not in row.get("error", "")
-                    and "conflicts" not in row.get("error", "")
-                    and "invalid broker" not in row.get("error", "")):
+                    and not invalid_evidence):
                 # The broker ACKNOWLEDGED this one — it has a broker order id —
                 # so its own status, read by that id, is the broker's answer
                 # even when the client-id lookup failed or lags behind. Without
@@ -548,10 +548,17 @@ class OrderManager:
                     report["settled"][t.id] = found.status.value
                 elif found.status in (OrderStatus.CANCELLED, OrderStatus.REJECTED,
                                       OrderStatus.EXPIRED):
-                    self._queue.mark_ended_unfilled(
-                        t.id, found.status.value,
-                        f"reconciled by {row.get('via', 'client id')}: the broker "
-                        f"{found.status.value} order {found.broker_order_id}; nothing filled")
+                    if found.filled_qty > 0:
+                        self._queue.mark_executed(
+                            t.id, found.broker_order_id, found.avg_fill_price,
+                            client_order_id=t.client_order_id, filled_qty=found.filled_qty,
+                            order_status="filled" if found.filled_qty >= t.qty else "partial",
+                            order_terminal=True)
+                    else:
+                        self._queue.mark_ended_unfilled(
+                            t.id, found.status.value,
+                            f"reconciled by {row.get('via', 'client id')}: the broker "
+                            f"{found.status.value} order {found.broker_order_id}; nothing filled")
                     report["settled"][t.id] = found.status.value
             if t.id not in report["settled"]:
                 report["still_unresolved"].append(t.id)

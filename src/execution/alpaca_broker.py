@@ -475,7 +475,10 @@ class AlpacaBroker(BrokerBase):
             avg_fill_price=float(order.filled_avg_price or 0),
             filled_at=order.filled_at,
             raw={"id": str(order.id), "status": str(order.status),
-                 "client_order_id": client_order_id},
+                 "client_order_id": client_order_id,
+                 "symbol": str(getattr(order, "symbol", "")),
+                 "side": str(getattr(getattr(order, "side", ""), "value", getattr(order, "side", ""))),
+                 "qty": float(getattr(order, "qty", None) or -1)},
         )
 
     def cancel_order(self, broker_order_id: str) -> bool:

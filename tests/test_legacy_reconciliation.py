@@ -249,3 +249,36 @@ def test_modern_status_fallback_requires_identity_and_valid_fills(world, answer)
     assert trade.id in report["errors"]
     assert world.get_by_id(trade.id).order_status == "submitted"
     assert len(world.in_flight()) == 1
+
+
+def test_terminal_cancellation_with_new_fill_keeps_actual_cumulative_quantity(world):
+    old = historical(world)
+    broker = Broker([evidence(OrderStatus.CANCELLED, 1)])
+    om.OrderManager(alpaca=broker).reconcile_unresolved()
+    row = world.get_by_id(old["id"])
+    assert row.filled_qty == 1 and row.fill_price == 123
+    assert row.order_terminal and row.order_status == "partial"
+
+
+def test_late_zero_cancel_does_not_downgrade_fully_filled(world):
+    trade = proposal(world)
+    world.claim_for_submit(trade.id, "modern-ref")
+    world.mark_executed(trade.id, "old-order", 123, filled_qty=2,
+                        order_status="filled", order_terminal=True)
+    world.mark_ended_unfilled(trade.id, "cancelled", "stale callback")
+    row = world.get_by_id(trade.id)
+    assert row.order_status == "filled" and row.filled_qty == 2 and row.fill_price == 123
+
+
+def test_alpaca_original_client_reference_exposes_intent_for_legacy_recovery(world):
+    from src.execution.alpaca_broker import AlpacaBroker
+    old = historical(world, oid="")
+    world.get_by_id(old["id"])
+    world.bind_legacy_evidence(old["id"], by="owner", note="original reference", client_order_id="original")
+    broker = object.__new__(AlpacaBroker)
+    order = SimpleNamespace(id="old-order", symbol="BTCUSD", side="buy", qty="2", status="filled",
+                            filled_qty="2", filled_avg_price="123", filled_at=None)
+    broker._client = SimpleNamespace(get_order_by_client_id=lambda _: order)
+    report = om.OrderManager(alpaca=broker).reconcile_unresolved()
+    assert report["settled"][old["id"]] == "filled"
+    assert world.get_by_id(old["id"]).broker_order_id == "old-order"

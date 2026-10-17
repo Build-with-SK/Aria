@@ -428,7 +428,8 @@ class ApprovalQueue:
                 if d["id"] == trade_id and d["status"] in ("submitting", "executed", "unknown"):
                     if d.get("filled_qty", 0) > 0:
                         # A stale zero-fill cancellation cannot erase a known fill.
-                        d["order_status"] = "partial"
+                        d["order_status"] = ("filled" if d.get("order_status") == "filled"
+                                             or d["filled_qty"] >= d["qty"] else "partial")
                         d["order_terminal"] = True
                         d["status"] = "executed"
                         _save_queue(items)
