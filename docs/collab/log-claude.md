@@ -2,6 +2,33 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-17 19:45–21:15 — ARIA completion mission (owner brief) — on `claude/aria-completion`, NOT merged
+Worktree `.claude/worktrees/aria-completion`, branched from `claude/s1.3-followup` (`6c32d98`)
++ `claude/launch-sprint`. Codex worked the same mission in parallel on
+`codex/aria-final-verification` (owner expanded its remit to execution reliability).
+Docs: `docs/ARIA_COMPLETION_AUDIT.md`, `ARIA_ARCHITECTURE.md`, `ARIA_HANDOFF.md`,
+`ARIA_RELEASE_READINESS.md`.
+Changed (mine): `src/core/durable.py` (atomic write, fail-closed read + quarantine, cross-process
+and single-instance locks); playbooks / day state / positions / pending cancels / desk config
+durable and fail-closed (`f5f2bf7`, `33eb7a0`); single-instance desk daemon (`c49217c`);
+`OrderRefused` so a refused OCO is rejected, not UNKNOWN; `account_snapshot` connected only after
+positions are read (a failed read used to close every tracked position on paper and cancel its
+stops) (`e7282f4`); reconciliation by broker id for acknowledged orders; sentiment yf fallback
+re-wired after a merge broke it silently (`4abcb84`); 503 for damaged state (`aba32e3`);
+`.gitignore` for `data/execution/` (`edf818b`); nightly backup includes the order records
+(`c133e28`); `launch_check --now` (`9c5894c`).
+Merged + reviewed Codex: `09f2158` (approve with 3 fixes), `0a1b21a` + `048f47b` (approve; 2
+integration fixes). Two merge artifacts found by ruff/tests and fixed (`dde257b`, `4abcb84`).
+Measured: baseline 3390 passed / 9 skipped; final full suite **3457 passed, 9 skipped, EXIT 0**
+(on `4abcb84`+docs; rerun on the final commit is in RELEASE_READINESS). Frontend verifiers +
+staging build EXIT 0. GET sweep 158 routes, no 5xx (1 timeout `/api/brain/memories`). Migrations
+run on DB copies: current, idempotent, integrity ok. ruff/mypy run via uvx (isolated, venv
+untouched): debt only. Live (read-only `launch_check` 20:28): PAPER, kill switch off, broker
+$10,008.38, backend gap 08:59→20:13, ML from 2026-05-31 (pipeline mid-ML, owner's console).
+Open: Codex re-review of my trading-path commits; owner's yes to merge/deploy (after the paper
+test ends 2026-10-18 17:13); paper-venue validation session; audit O-1..O-14.
+For Codex: requests are in `docs/ARIA_HANDOFF.md` (`git show claude/aria-completion:docs/ARIA_HANDOFF.md`).
+
 ## 2026-10-17 ~00:50 — S1.3 follow-up for Codex's CHANGES REQUIRED — on `claude/s1.3-followup`, NOT merged, awaits re-review
 From `claude/s1.3-client-order-id` @ `9bd17f9`: `4c0a172` test-fixture isolation (same change
 as `16e603d` on the sprint branch), `4f3b18e` the fixes, `d2f5e80` atomic claim. Review
