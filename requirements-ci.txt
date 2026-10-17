@@ -8,6 +8,7 @@
 # path (e.g. "keep raw" instead of choosing isotonic/Platt) is a materially
 # different decision than the one production makes with sklearn installed, so
 # leaving them out would test the fallback rather than the real behaviour.
+-c constraints-security.txt
 pytest>=8.0
 fastapi>=0.110
 httpx>=0.27
@@ -19,7 +20,7 @@ pyyaml>=6.0.1
 # /api/aria/listen takes an UploadFile, and FastAPI raises at ROUTE-BUILD time
 # without this — so `import backend.main` fails and every test that touches the
 # app dies with it, which is exactly how CI failed the first time it ran.
-python-multipart>=0.0.28
+python-multipart>=0.0.31
 # The brain-eye wiring tests import the daemon, which schedules. Pure Python,
 # no build step — and without it those ten tests error out rather than run,
 # which is indistinguishable from passing if nobody reads the log.
