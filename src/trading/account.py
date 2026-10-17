@@ -323,6 +323,7 @@ def from_legacy_broker(broker, *, now: Optional[datetime] = None) -> AccountStat
         for o in broker.get_open_orders() or []:
             px = o.get("limit_price") or o.get("stop_price") or 0.0
             pending.append({"symbol": o.get("ticker"), "side": o.get("side"),
+                            "id": o.get("id"), "parent_id": o.get("parent_id"),
                             "qty": float(o.get("qty") or 0),
                             "notional": float(o.get("qty") or 0) * float(px or 0)})
     except Exception as exc:

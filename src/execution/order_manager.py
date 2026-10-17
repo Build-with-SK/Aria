@@ -242,7 +242,13 @@ class OrderManager:
                 self._queue.reject(trade_id, f"{why}. Nothing was sent.")
             return {"ok": False, "blocked": blocked,
                     "error": f"Trade {trade_id} not sent: {why}. Nothing was sent."}
-        result = broker.submit_order(req)
+        try:
+            result = broker.submit_order(req)
+        except Exception as exc:
+            # The adapter may raise after writing the request to its socket.
+            # The durable claim must survive; only a broker lookup can settle it.
+            result = OrderResult("", OrderStatus.UNKNOWN,
+                                 error_message=f"{type(exc).__name__}: {exc}")
         settled = None
         if result.status == OrderStatus.UNKNOWN:
             result, settled = self._settle_unknown(broker, req, result)
@@ -413,9 +419,10 @@ class OrderManager:
     def unresolved_for(self, trade) -> list:
         """Other queue rows for the same broker and instrument whose order may
         be at the broker without an answer (approval_queue.UNRESOLVED)."""
-        sym = (trade.ticker or "").upper()
-        return [t for t in self._queue.unresolved()
-                if t.id != trade.id and (t.ticker or "").upper() == sym
+        from .reduce_only import same_symbol
+        return [t for t in self._queue.in_flight()
+                if t.id != trade.id and same_symbol(t.ticker, trade.ticker)
+                and (t.status in ("submitting", "unknown") or t.situation != "protective_exit")
                 and t.broker == trade.broker]
 
     def reconcile_unresolved(self) -> dict:
@@ -431,8 +438,8 @@ class OrderManager:
 
         A 404 resolves nothing (see _settle_unknown); the owner's release does
         that. Every lookup is appended to RECONCILE_LOG with its result."""
-        report = {"checked": 0, "settled": {}, "still_unresolved": [], "errors": {}}
-        for t in self._queue.unresolved():
+        report: dict = {"checked": 0, "settled": {}, "still_unresolved": [], "errors": {}}
+        for t in self._queue.in_flight():
             report["checked"] += 1
             broker = self._broker_for(t)
             lookup = getattr(broker, "get_order_by_client_id", None) if broker else None
@@ -529,7 +536,10 @@ class OrderManager:
         latest = result
         while time.monotonic() < deadline:
             time.sleep(poll_s)
-            got = broker.get_order_status(result.broker_order_id)
+            try:
+                got = broker.get_order_status(result.broker_order_id)
+            except Exception:
+                continue  # a failed read cannot turn an acknowledged order into a rejection
             if got.status == OrderStatus.UNKNOWN:
                 continue        # a failed read says nothing about the order
             latest = got
@@ -556,7 +566,7 @@ class OrderManager:
         full-size exits can both fill and turn a long into a short."""
         from src.execution import reduce_only
         broker = broker or self._alpaca
-        out = {"stop_loss_order": None, "take_profit_order": None}
+        out: dict = {"stop_loss_order": None, "take_profit_order": None}
         if not broker or not broker.is_connected():
             return out
         exit_side = OrderSide.SELL if entry_side in ("buy", "long") else OrderSide.BUY
@@ -575,43 +585,63 @@ class OrderManager:
             qty = float(int(qty))
             if qty <= 0:
                 return out
+        if not stop and not target:
+            return out
+        from . import kill_switch
+        if kill_switch.is_engaged():
+            out["error"] = "kill switch engaged; no protection submitted"
+            return out
+        route = "alpaca" if broker is self._alpaca else "ibkr"
+        active = [t for t in self._queue.in_flight() if t.situation == "protective_exit"
+                  and t.broker == route and reduce_only.same_symbol(t.ticker, ticker)]
+        if active:
+            out.update(protection_pending=True, client_order_id=active[0].client_order_id)
+            return out
+        use_oco = bool(stop and target and hasattr(broker, "submit_oco_exit"))
+        req = OrderRequest(ticker=ticker, side=exit_side, qty=qty,
+                           order_type=OrderType.STOP if stop else OrderType.LIMIT,
+                           stop_price=stop, limit_price=target, time_in_force="gtc",
+                           asset_class=AssetClass(asset_class), reduce_only=True,
+                           situation="protective_exit")
+        queued = self._queue.push(req, broker=route)
+        req.client_order_id = queue_client_order_id(queued)
+        claimed, why = self._queue.claim_for_submit(queued.id, req.client_order_id,
+                                                    exclusive=False, protection=True)
+        out["client_order_id"] = req.client_order_id
+        if claimed is None:
+            self._queue.reject(queued.id, why)
+            out["protection_pending"] = True
+            return out
         # Both protections on one position need ONE OCO order — separate
         # stop + limit sells fight over the same reserved shares (40310000),
         # and at a broker that does not reserve them, both could fill.
-        if stop and target:
-            if hasattr(broker, "submit_oco_exit"):
-                oid = broker.submit_oco_exit(ticker, qty, entry_side, stop, target)
-                if oid:
-                    out["stop_loss_order"] = {"broker_order_id": oid, "stop_price": stop}
-                    out["take_profit_order"] = {"broker_order_id": oid, "limit_price": target}
-                    return out
-                logger.warning(f"OCO exit failed for {ticker} — falling back to stop-only")
-                out["target_skipped"] = "OCO refused; stop only rather than two independent exits"
-            else:
-                out["target_skipped"] = (f"{getattr(broker, 'name', 'broker')} has no OCO: a "
-                                         f"separate target and stop could both fill")
-            target = None       # protect the downside at minimum
         try:
-            if stop:
-                r = broker.submit_order(OrderRequest(
-                    ticker=ticker, side=exit_side, qty=qty,
-                    order_type=OrderType.STOP, stop_price=stop,
-                    time_in_force="gtc", asset_class=AssetClass(asset_class),
-                    reduce_only=True))
-                if r.status not in (OrderStatus.REJECTED,):
-                    out["stop_loss_order"] = {"broker_order_id": r.broker_order_id,
-                                              "stop_price": stop}
-            elif target:
-                r = broker.submit_order(OrderRequest(
-                    ticker=ticker, side=exit_side, qty=qty,
-                    order_type=OrderType.LIMIT, limit_price=target,
-                    time_in_force="gtc", asset_class=AssetClass(asset_class),
-                    reduce_only=True))
-                if r.status not in (OrderStatus.REJECTED,):
-                    out["take_profit_order"] = {"broker_order_id": r.broker_order_id,
-                                                "limit_price": target}
+            if use_oco:
+                oid = broker.submit_oco_exit(ticker, qty, entry_side, stop, target,
+                                             client_order_id=req.client_order_id)
+                r = OrderResult(oid or "", OrderStatus.SUBMITTED if oid else OrderStatus.UNKNOWN)
+            else:
+                if stop and target:
+                    out["target_skipped"] = (f"{broker.name} has no OCO: a separate "
+                                              "target and stop could both fill")
+                r = broker.submit_order(req)
         except Exception as e:
-            logger.error(f"place_protective_orders({ticker}) failed: {e}")
+            r = OrderResult("", OrderStatus.UNKNOWN, error_message=str(e))
+        if r.status in (OrderStatus.SUBMITTED, OrderStatus.PARTIAL, OrderStatus.FILLED):
+            self._queue.mark_executed(queued.id, r.broker_order_id, r.avg_fill_price,
+                                      client_order_id=req.client_order_id,
+                                      order_status=r.status.value, filled_qty=r.filled_qty)
+            if stop:
+                out["stop_loss_order"] = {"broker_order_id": r.broker_order_id, "stop_price": stop}
+            if use_oco or not stop:
+                out["take_profit_order"] = {"broker_order_id": r.broker_order_id, "limit_price": target}
+        elif r.status in (OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.EXPIRED):
+            self._queue.mark_ended_unfilled(queued.id, r.status.value, r.error_message)
+        else:
+            self._queue.mark_unknown(queued.id, r.error_message or "protection acknowledgement lost",
+                                     client_order_id=req.client_order_id)
+            out.update(unknown=True, protection_pending=True)
+            logger.critical("Protection for %s is UNKNOWN; no fallback or blind retry", ticker)
         return out
 
     def _connected_brokers(self) -> list[BrokerBase]:
@@ -693,7 +723,7 @@ class OrderManager:
             },
         }
 
-        if alpaca_connected:
+        if alpaca_connected and self._alpaca is not None:
             try:
                 acct = self._alpaca.get_account()
                 result["alpaca"]["account"] = {
@@ -704,7 +734,7 @@ class OrderManager:
             except Exception:
                 pass
 
-        if ibkr_connected:
+        if ibkr_connected and self._ibkr is not None:
             try:
                 acct = self._ibkr.get_account()
                 result["ibkr"]["account"] = {

@@ -167,3 +167,12 @@ Measured: ...
 Open: ...
 For Claude: ...
 ```
+
+## 2026-10-17 — FINAL-VERIFY — started
+Files: docs/CODEX_*.md, docs/ARIA_HANDOFF.md, execution/broker/queue reliability modules and regression tests as confirmed by reproduction. Owner mission supersedes older area limits for this isolated branch. Baseline b5b47f2; integration merge already up to date. Preserve original Codex working edits. No live orders, production writes, merge, push or deployment.
+
+
+## 2026-10-17 — FINAL-VERIFY-1 — implemented
+Reused Claude's e4f01ad/4c0a172/4f3b18e/d2f5e80 on this branch only; original author attribution preserved. Independent baseline: 3296 passed, 1 failed (universe fixture mutation), 9 skipped; 8 initial fault probes failed. Fixed durable process-locked atomic queue claims/audit, adapter read failures, IBKR timeout/reference recovery, protective OCO ambiguity/kill switch/duplicate reservations, raised submit exceptions, crypto aliases, pending-entry risk omission and future quote timestamps (bounded 5s clock skew). Added chat unreachable-brain import fix found by Ruff. Regression/recovery/live-gate/risk area: 274 passed / exit 0; selected six-module mypy clean. Actual ephemeral ASGI listener restarted and retained UNKNOWN then reconciled to FILLED with one mock send. No broker credentials, live orders, production runtime restart, merge or deployment.
+For Claude: these extend your S1.3 follow-up; review changes against 0c965d2 as well as baseline. Read failures now raise so callers fail closed. Protective orders persist in approval queue with situation=protective_exit and block blind healing until reconciled. IBKR orderRef is a lookup reference, not venue-enforced idempotency. New module-level OS lock is portable Windows/POSIX; Windows tested here, Linux awaits CI.
+

@@ -2617,6 +2617,7 @@ def aria_chat(body: ChatRequest, request: Request):
     decision 1). The Anthropic key gate that used to stand here is gone with
     it: a missing vendor key is no longer a reason she cannot think, and its
     presence is no longer a reason she reaches for one."""
+    from src.inference.policy import BrainUnreachable
     system, msgs, fitted = _prepare_aria_chat(body, request)
 
     try:

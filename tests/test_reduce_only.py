@@ -45,6 +45,12 @@ TUE_OPEN = datetime(2026, 10, 6, 15, 0, tzinfo=UTC)
 SATURDAY = datetime(2026, 10, 10, 15, 0, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def isolated_approval_queue(tmp_path, monkeypatch):
+    from src.execution import approval_queue as aq
+    monkeypatch.setattr(aq, "QUEUE_FILE", tmp_path / "queue.json")
+
+
 # ── a broker that keeps a book ──────────────────────────────────────────────
 
 class _Book:
@@ -127,7 +133,7 @@ class _Book:
 
 
 class _OcoBook(_Book):
-    def submit_oco_exit(self, ticker, qty, entry_side, stop, target):
+    def submit_oco_exit(self, ticker, qty, entry_side, stop, target, *, client_order_id=None):
         side = "sell" if entry_side in ("buy", "long") else "buy"
         pid = self._id()
         self.resting[pid] = {"id": pid, "ticker": ticker, "side": side, "qty": qty,
