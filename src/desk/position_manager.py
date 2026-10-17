@@ -585,6 +585,11 @@ class PositionManager:
         for o in open_for_ticker:
             broker.cancel_order(o["id"])
         _await_cancelled(broker, [o["id"] for o in open_for_ticker])
+        # Refresh durable protection claims after cancellation. A hidden or
+        # ambiguous exit remains reserved and prevents a second reducing order.
+        from src.execution.order_manager import OrderManager
+        durable_manager = OrderManager(alpaca=broker)
+        durable_manager.reconcile_unresolved()
 
         # REDUCE-ONLY, at the moment of sending: the snapshot this tick began
         # with can be stale — a stop may have filled, a human may have closed
@@ -593,7 +598,7 @@ class PositionManager:
         # the cancels; send at most what is held, net of anything still
         # resting on the exit side. Unreadable = nothing sent, retry next tick.
         from src.execution import reduce_only
-        ro = reduce_only.at_broker(broker, ticker, exit_side, qty)
+        ro = reduce_only.at_broker(broker, ticker, exit_side, qty, broker_key="alpaca")
         if not ro.ok:
             logger.warning(f"exit for {ticker} not sent — {ro.reason}")
             return None
@@ -612,21 +617,43 @@ class PositionManager:
             asset_class=AssetClass(held_class),   # guarded above
             reduce_only=True,
         )
-        result = broker.submit_order(req)
-        if result.status == OrderStatus.REJECTED:
-            logger.error(f"exit order rejected for {ticker}: {result.error_message}")
+        # The same durable claim and timeout settlement as every approved
+        # entry; a lost exit acknowledgement must never invite a fresh POST.
+        from src.execution.approval_queue import ApprovalQueue
+        from src.execution.broker_base import OrderResult
+        queued = ApprovalQueue().push(req, broker="alpaca")
+        response = durable_manager.execute(queued.id)
+        if not response.get("ok"):
+            if response.get("unknown"):
+                self._log_execution({"at": datetime.now().isoformat(), "action": "exit",
+                                     "ticker": ticker, "side": exit_side, "qty": qty,
+                                     "mode": "unknown", "trade_id": queued.id,
+                                     "client_order_id": response.get("client_order_id"),
+                                     "reason": response.get("error")})
+            logger.warning("exit for %s deferred: %s", ticker, response.get("error"))
             return None
+        result = OrderResult(response["broker_order_id"], OrderStatus(response["status"]),
+                             filled_qty=response.get("filled_qty", 0),
+                             avg_fill_price=response.get("fill_price", 0))
         if result.status != OrderStatus.FILLED:
             result = mgr._await_fill(broker, result)
         if result.status != OrderStatus.FILLED:
             # No fill, no exit: cancel so orders never stack, retry next tick.
             # A recorded P&L must come from a REAL fill, never an estimate.
-            broker.cancel_order(result.broker_order_id)
+            if result.broker_order_id:
+                broker.cancel_order(result.broker_order_id)
             logger.warning(f"exit for {ticker} did not fill in the poll window "
                            f"— cancelled, will retry next tick ({reason})")
             return None
 
-        exit_price = result.avg_fill_price or self._current_price(ticker, bp, {}, mgr)
+        import math
+        if (not math.isfinite(result.avg_fill_price) or result.avg_fill_price <= 0 or
+                not math.isfinite(result.filled_qty) or abs(result.filled_qty - qty) > 1e-6):
+            logger.error("exit for %s has an incomplete fill/price; P&L withheld pending reconciliation", ticker)
+            return None
+        ApprovalQueue().mark_executed(queued.id, result.broker_order_id, result.avg_fill_price,
+                                      order_status=result.status.value, filled_qty=result.filled_qty)
+        exit_price = result.avg_fill_price
         entry = float(pos.get("entry_price") or bp.get("avg_cost") or 0.0)
         direction = 1 if long else -1
         pnl = round((exit_price - entry) * qty * direction, 2)
@@ -651,6 +678,10 @@ class PositionManager:
             "entry_at": pos.get("entry_at", ""),
             "mode": "auto",
             "broker_order_id": result.broker_order_id,
+            "client_order_id": response.get("client_order_id"),
+            "trade_id": queued.id,
+            "filled_qty": result.filled_qty,
+            "fill_confirmed": True,
         }
         self._log_execution(record)
         self._log_closed(record)
@@ -960,7 +991,7 @@ class PositionManager:
         """Realized P&L → ChromaDB keyed by the entry's debate_id, so future
         debates on similar setups recall what this thesis actually did."""
         debate_id = record.get("debate_id")
-        if not debate_id:
+        if not debate_id or record.get("estimated"):
             return
         try:
             from src.brain.cognitive.long_term_memory import LongTermMemory

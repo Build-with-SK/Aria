@@ -205,7 +205,8 @@ class OrderManager:
         risk = None
         if getattr(trade, "reduce_only", False):
             from src.execution import reduce_only
-            ro = reduce_only.at_broker(broker, trade.ticker, trade.side, trade.qty)
+            ro = reduce_only.at_broker(broker, trade.ticker, trade.side, trade.qty,
+                                      broker_key="alpaca" if broker is self._alpaca else "ibkr")
             if not ro.ok:
                 self._queue.reject(trade_id, f"reduce-only exit refused: {ro.reason}")
                 return {"ok": False, "reduce_only": ro.to_dict(),
@@ -235,13 +236,25 @@ class OrderManager:
         # instrument is in flight — the guard above cannot see one claimed a
         # moment ago by another lane.
         claimed, why = self._queue.claim_for_submit(trade_id, req.client_order_id,
-                                                    exclusive=not req.reduce_only)
+                                                    exclusive=not req.reduce_only,
+                                                    reduction=req.reduce_only)
         if claimed is None:
             blocked = "unresolved" in why
             if blocked:
                 self._queue.reject(trade_id, f"{why}. Nothing was sent.")
             return {"ok": False, "blocked": blocked,
                     "error": f"Trade {trade_id} not sent: {why}. Nothing was sent."}
+        if req.reduce_only:
+            # A competing exit may have filled while this caller was checking
+            # the book. Re-read AFTER the exclusive durable reducing claim.
+            ro = reduce_only.at_broker(broker, trade.ticker, trade.side, req.qty,
+                                      broker_key="alpaca" if broker is self._alpaca else "ibkr",
+                                      exclude_trade_id=trade_id)
+            if not ro.ok:
+                self._queue.reject(trade_id, ro.reason, after_send=True)
+                return {"ok": False, "reduce_only": ro.to_dict(),
+                        "error": f"reduce-only exit not sent: {ro.reason}"}
+            req.qty = ro.qty
         try:
             result = broker.submit_order(req)
         except Exception as exc:
@@ -260,7 +273,7 @@ class OrderManager:
                 fill_price=result.avg_fill_price,
                 client_order_id=req.client_order_id,
                 order_status=result.status.value,
-                filled_qty=result.filled_qty,
+                filled_qty=result.filled_qty, order_terminal=result.terminal,
             )
             logger.info(
                 f"Order executed [{trade_id}]: {trade.side.upper()} {trade.qty} {trade.ticker} "
@@ -315,7 +328,7 @@ class OrderManager:
                                       fill_price=result.avg_fill_price,
                                       client_order_id=req.client_order_id,
                                       order_status=result.status.value,
-                                      filled_qty=result.filled_qty)
+                                      filled_qty=result.filled_qty, order_terminal=result.terminal)
 
             return {
                 "ok": True,
@@ -465,7 +478,7 @@ class OrderManager:
                     self._queue.mark_executed(
                         t.id, broker_order_id=found.broker_order_id,
                         fill_price=found.avg_fill_price, client_order_id=t.client_order_id,
-                        order_status=found.status.value, filled_qty=found.filled_qty)
+                        order_status=found.status.value, filled_qty=found.filled_qty, order_terminal=found.terminal)
                     report["settled"][t.id] = found.status.value
                 elif found.status in (OrderStatus.CANCELLED, OrderStatus.REJECTED,
                                       OrderStatus.EXPIRED):
@@ -570,7 +583,8 @@ class OrderManager:
         if not broker or not broker.is_connected():
             return out
         exit_side = OrderSide.SELL if entry_side in ("buy", "long") else OrderSide.BUY
-        ro = reduce_only.at_broker(broker, ticker, exit_side.value, qty)
+        ro = reduce_only.at_broker(broker, ticker, exit_side.value, qty,
+                                  broker_key="alpaca" if broker is self._alpaca else "ibkr")
         out["reduce_only"] = ro.to_dict()
         if not ro.ok:
             logger.warning(f"protective orders for {ticker} not placed — {ro.reason}")
@@ -630,7 +644,7 @@ class OrderManager:
         if r.status in (OrderStatus.SUBMITTED, OrderStatus.PARTIAL, OrderStatus.FILLED):
             self._queue.mark_executed(queued.id, r.broker_order_id, r.avg_fill_price,
                                       client_order_id=req.client_order_id,
-                                      order_status=r.status.value, filled_qty=r.filled_qty)
+                                      order_status=r.status.value, filled_qty=r.filled_qty, order_terminal=r.terminal)
             if stop:
                 out["stop_loss_order"] = {"broker_order_id": r.broker_order_id, "stop_price": stop}
             if use_oco or not stop:

@@ -94,6 +94,9 @@ class OrderAck:
 class BrokerAdapter(ABC):
     name: str = "broker"
     is_live: bool = False
+    # Only an in-process synchronous simulator can prove that no request is
+    # still in flight. A remote 404 never authorizes a retry after a timeout.
+    authoritative_absence: bool = False
 
     @abstractmethod
     def get_account(self) -> dict: ...
@@ -122,6 +125,7 @@ class SimulatedBroker(BrokerAdapter):
     plus `slippage_bps`, fees follow a real schedule, and cash is enforced. A
     simulator that fills at mid for free makes every strategy look viable.
     """
+    authoritative_absence = True
     name = "simulated"
     is_live = False
 

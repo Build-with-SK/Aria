@@ -39,8 +39,6 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Dict, List, Optional, Set, Tuple
 
-import yfinance as yf
-
 logger = logging.getLogger(__name__)
 
 try:
@@ -271,6 +269,7 @@ def _fetch_yfinance_news(ticker: str, limit: int = 15) -> List[ArticleSentiment]
     """Fetch and score news from yfinance."""
     articles: List[ArticleSentiment] = []
     try:
+        import yfinance as yf
         news = yf.Ticker(ticker).news or []
         for item in news[:limit]:
             try:

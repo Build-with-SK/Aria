@@ -37,10 +37,11 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import threading
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from src.execution.approval_queue import _queue_guard
 
 from .broker import (BrokerAdapter, BrokerRejected, BrokerTimeout,
                      BrokerUnavailable, OrderAck, OrderSpec, TERMINAL)
@@ -82,9 +83,6 @@ def client_order_id(strategy_id: str, signal_id: str, leg: int = 0) -> str:
 
 
 class OrderEngine:
-    def __init__(self):
-        self._lock = threading.Lock()
-
     # ── journal ──────────────────────────────────────────────────────────
     def _append(self, cid: str, state: str, **extra) -> None:
         JOURNAL.parent.mkdir(parents=True, exist_ok=True)
@@ -92,6 +90,8 @@ class OrderEngine:
                "client_order_id": cid, "state": state, **extra}
         with JOURNAL.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, default=str) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
     def latest(self) -> dict[str, dict]:
         out: dict[str, dict] = {}
@@ -100,8 +100,10 @@ class OrderEngine:
         for line in JOURNAL.read_text(encoding="utf-8").splitlines():
             try:
                 r = json.loads(line)
-            except ValueError:
-                continue
+                if not isinstance(r, dict) or not r.get("client_order_id") or not r.get("state"):
+                    raise ValueError("invalid journal row")
+            except ValueError as exc:
+                raise RuntimeError("order journal is corrupt; recover before sending") from exc
             prev = out.get(r["client_order_id"], {})
             out[r["client_order_id"]] = {**prev, **r}
         return out
@@ -126,6 +128,12 @@ class OrderEngine:
 
     # ── halt ─────────────────────────────────────────────────────────────
     def halted(self) -> Optional[dict]:
+        try:
+            unsettled = [cid for cid, row in self.latest().items() if row.get("state") in UNSETTLED]
+        except Exception:
+            return {"halted": True, "reason": "order journal unreadable — failing closed"}
+        if unsettled:
+            return {"halted": True, "reason": f"unsettled journal claims: {unsettled}"}
         if not HALT_FILE.exists():
             return None
         try:
@@ -160,7 +168,7 @@ class OrderEngine:
     # ── submitting ───────────────────────────────────────────────────────
     def submit(self, order: OrderSpec, broker: BrokerAdapter) -> OrderAck:
         """Send once. Never twice. Never while anything is unknown."""
-        with self._lock:
+        with _queue_guard(JOURNAL):
             h = self.halted()
             if h:
                 return OrderAck(order.client_order_id, "REFUSED",
@@ -195,7 +203,7 @@ class OrderEngine:
     def reconcile(self, broker: BrokerAdapter) -> dict:
         """Settle every non-final order against the broker. Lifts the halt
         only when nothing remains unknown."""
-        with self._lock:
+        with _queue_guard(JOURNAL):
             report = {"settled": {}, "still_unknown": [], "errors": {}}
             for cid, row in self.latest().items():
                 st = row.get("state")
@@ -208,8 +216,12 @@ class OrderEngine:
                     report["still_unknown"].append(cid)
                     continue
                 if ack is None:
-                    self._append(cid, NOT_FOUND, detail="broker has no such order")
-                    report["settled"][cid] = NOT_FOUND
+                    if broker.authoritative_absence:
+                        self._append(cid, NOT_FOUND, detail="synchronous simulator proves absence")
+                        report["settled"][cid] = NOT_FOUND
+                    else:
+                        self._append(cid, UNKNOWN, detail="not visible; absence is not proof")
+                        report["still_unknown"].append(cid)
                 else:
                     self._append(cid, ack.status, ack=ack.to_dict(), via="reconcile")
                     report["settled"][cid] = ack.status

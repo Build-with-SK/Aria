@@ -15,7 +15,9 @@ def listening(app):
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
-    server = uvicorn.Server(uvicorn.Config(app, log_level="error", lifespan="on"))
+    # Do not alter global uvicorn loggers: later security tests must still see
+    # access records and prove credential redaction before any handler runs.
+    server = uvicorn.Server(uvicorn.Config(app, log_config=None, log_level=None, lifespan="on"))
     thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
     thread.start()
     try:

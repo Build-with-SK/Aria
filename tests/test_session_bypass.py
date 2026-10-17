@@ -305,12 +305,11 @@ SENDERS = {
     "src/trading/orders.py": (1, "OrderEngine.submit: reached only from TradingPipeline.run, "
                                  "after its SESSION stage and the validator's session check"),
     "src/trading/broker.py": (1, "LegacyBrokerAdapter forwarding to the wrapped broker"),
-    "src/execution/order_manager.py": (4, "execute(): session_refusal() before the entry, "
+    "src/execution/order_manager.py": (3, "execute(): session_refusal() before the entry, "
                                           "reduce_only.at_broker() for a queued exit; protective "
                                           "OCO / stop / target: reduce_only.at_broker() first"),
     "src/execution/alpaca_broker.py": (2, "the Alpaca adapter itself (order + OCO exit)"),
     "src/execution/ibkr_broker.py": (1, "the IBKR adapter itself"),
-    "src/desk/position_manager.py": (1, "exit engine: instrument_open(ticker, asset_class) first"),
     "src/trading/killswitch.py": (1, "halt flatten: reduce-only closes on a halt, deliberately "
                                      "below the normal path; the kill switch is not session-gated"),
 }
@@ -345,8 +344,8 @@ def test_the_session_check_precedes_the_send_in_each_gated_path():
             (OrderManager.execute, "reduce_only.at_broker(", "broker.submit_order(req)"),
             (OrderManager.place_protective_orders, "reduce_only.at_broker(",
              "broker.submit_oco_exit("),
-            (PositionManager._close, "instrument_open(", "broker.submit_order(req)"),
-            (PositionManager._close, "reduce_only.at_broker(", "broker.submit_order(req)"),
+            (PositionManager._close, "instrument_open(", "durable_manager.execute(queued.id)"),
+            (PositionManager._close, "reduce_only.at_broker(", "durable_manager.execute(queued.id)"),
             (TradingPipeline.run, "_sessions.session(", "self.orders.submit("),
             (TradingPipeline.run, "at_send = _sessions.session(", "self.orders.submit("),
             (TradingPipeline.run, "self._portfolio_risk(", "self.orders.submit("),

@@ -78,6 +78,7 @@ class _Book:
         self._n = 0
         self.reject_next = False
         self.partial_next = None
+        self.client_orders = {}
 
     # reads
     def is_connected(self):
@@ -99,6 +100,18 @@ class _Book:
         return f"o{self._n}"
 
     def submit_order(self, req: OrderRequest):
+        result = self._submit_order(req)
+        if req.client_order_id:
+            self.client_orders[req.client_order_id] = result
+        return result
+
+    def get_order_by_client_id(self, cid):
+        result = self.client_orders.get(cid)
+        if result and result.status == OrderStatus.SUBMITTED and result.broker_order_id not in self.resting:
+            return OrderResult(result.broker_order_id, OrderStatus.CANCELLED)
+        return result
+
+    def _submit_order(self, req: OrderRequest):
         side = req.side.value if hasattr(req.side, "value") else req.side
         self.sent.append((req.order_type.value, req.ticker, side, req.qty))
         if self.reject_next:
@@ -136,6 +149,8 @@ class _OcoBook(_Book):
     def submit_oco_exit(self, ticker, qty, entry_side, stop, target, *, client_order_id=None):
         side = "sell" if entry_side in ("buy", "long") else "buy"
         pid = self._id()
+        if client_order_id:
+            self.client_orders[client_order_id] = OrderResult(pid, OrderStatus.SUBMITTED)
         self.resting[pid] = {"id": pid, "ticker": ticker, "side": side, "qty": qty,
                              "order_type": "limit", "limit_price": target}
         leg = self._id()

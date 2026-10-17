@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import pandas as pd
-import yfinance as yf
 import yaml
 
 # ---------------------------------------------------------------------------
@@ -97,6 +96,7 @@ class YFinanceProvider(MarketDataProvider):
             logger.info(f"Downloading batch {i//batch_size + 1}: {batch}")
 
             try:
+                import yfinance as yf
                 raw = yf.download(
                     tickers=batch,
                     period=period,
@@ -145,6 +145,7 @@ class YFinanceProvider(MarketDataProvider):
         Returns empty dict if unavailable (common for non-equity assets).
         """
         try:
+            import yfinance as yf
             info = yf.Ticker(ticker).info
             return {
                 "pe_ratio":            info.get("trailingPE"),
@@ -175,6 +176,7 @@ class YFinanceProvider(MarketDataProvider):
         Note: yfinance news is limited. Replace with a proper news API in Phase 3.
         """
         try:
+            import yfinance as yf
             news = yf.Ticker(ticker).news
             if not news:
                 return []
