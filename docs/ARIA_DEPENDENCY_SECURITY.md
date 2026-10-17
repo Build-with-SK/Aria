@@ -62,8 +62,12 @@ python -m venv <temporary-directory>
 pip-audit --path <temporary-site-packages> --format json
 ```
 
-The complete candidate audit/regression results and resolved versions are
-recorded in the Phase 2 handoff after installation finishes. Initial web/live
+The completed fresh install audits **104 distributions, zero known findings**;
+`pip check` reports no broken requirements. It resolves Starlette 1.8.0,
+anyio 4.15.1, python-multipart 0.0.32, Pillow 12.3.0 and urllib3 2.8.0.
+Plotly 6.9.0 and Anthropic 0.125.0 retain the installed application's major lines.
+The resolved freeze and raw audit are in private evidence. Full regression is
+recorded in the Phase 2 handoff. Initial web/live
 gate/calendar/runtime regressions in the prior minimal environment: 128 passed,
 1 skipped, 24.48s. This does not substitute for testing the upgraded environment.
 

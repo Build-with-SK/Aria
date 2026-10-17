@@ -204,3 +204,6 @@ Files: dependency manifests, constraints-security.txt, frontend lock/PostCSS con
 
 ## 2026-10-17 — PHASE2-2 — local PASS; external migration blocked
 Files: approval_queue, order_manager, alpaca_broker, test_legacy_reconciliation, ARIA_LEGACY_RECONCILIATION. Historical no-key rows conservatively quarantined with full preimage; safe broker-ID lookup checks identity and intent. Bare IBKR session IDs remain manual. Cumulative fills/terminal evidence monotonic, duplicate callbacks idempotent, owner evidence binding requires notes. Focused 157 passed in21.59s; Ruff fatal checks pass. No production migration/credential/order. Overlaps Claude execution/durability work; independent review required.
+
+## 2026-10-17 — PHASE2-1 follow-up — candidate audit PASS
+Fresh full requirements+CI venv installed, compatible Plotly/Anthropic major caps retained. pip-audit 104 distributions/0 findings, pip check clean. Shared optional-heavy runtime unchanged. Full upgraded regression follows. PHASE2-2 follow-up: new pure broker lookup explicitly classified READ_METHODS; write gates unchanged.
