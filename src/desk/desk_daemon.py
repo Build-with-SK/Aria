@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).parent.parent.parent
 DESK_DIR = ROOT / "data" / "desk"
+#: The approval queue, its append-only audit and the reconciliation log —
+#: backed up nightly beside the desk state (see _backup_desk_state).
+EXECUTION_DIR = ROOT / "data" / "execution"
 STATE_FILE = DESK_DIR / "last_cycle.json"
 SLATE_FILE = DESK_DIR / "slate.json"
 
@@ -50,9 +53,11 @@ EQUITY_FILE = DESK_DIR / "equity_curve.jsonl"
 
 
 def _backup_desk_state():
-    """Zip data/desk/ JSON state to data/backups/, keeping the last 14.
-    A corrupted positions.json or scorecard.json is then one file-copy away
-    from recovery."""
+    """Zip data/desk/ JSON state — and the order records in data/execution/
+    (approval queue, its audit, reconciliation lookups) — to data/backups/,
+    keeping the last 14. A corrupted positions.json, playbooks.json or
+    approval_queue.json is then one file-copy away from recovery; the queue
+    used to be left out, though it is the record that blocks a second order."""
     import zipfile
     try:
         backup_dir = ROOT / "data" / "backups"
@@ -64,6 +69,9 @@ def _backup_desk_state():
                 z.write(p, p.name)
             for p in DESK_DIR.glob("*.jsonl"):
                 z.write(p, p.name)
+            for pattern in ("*.json", "*.jsonl"):
+                for p in EXECUTION_DIR.glob(pattern):
+                    z.write(p, f"execution/{p.name}")
         backups = sorted(backup_dir.glob("desk_*.zip"))
         for old in backups[:-14]:
             old.unlink()

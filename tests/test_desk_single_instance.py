@@ -102,3 +102,26 @@ def test_stop_releases_the_desk_and_a_restart_in_the_same_process_works(desk):
     assert not desk._instance().held and _Reflex.stopped == 1
     d.start()
     assert d.running and desk._instance().held
+
+
+def test_the_nightly_backup_includes_the_order_records(tmp_path, monkeypatch):
+    """The queue is what blocks a second order for an UNKNOWN one; a damaged
+    queue now stops the lane (fail closed), so it must be restorable."""
+    import zipfile
+    from src.desk import desk_daemon as dd
+    desk_dir, exec_dir = tmp_path / "data" / "desk", tmp_path / "data" / "execution"
+    desk_dir.mkdir(parents=True)
+    exec_dir.mkdir(parents=True)
+    (desk_dir / "playbooks.json").write_text("[]", encoding="utf-8")
+    (exec_dir / "approval_queue.json").write_text("[]", encoding="utf-8")
+    (exec_dir / "approval_queue.audit.jsonl").write_text("{}\n", encoding="utf-8")
+    (exec_dir / "approval_queue.json.lock").write_bytes(b"")
+    monkeypatch.setattr(dd, "ROOT", tmp_path)
+    monkeypatch.setattr(dd, "DESK_DIR", desk_dir)
+    monkeypatch.setattr(dd, "EXECUTION_DIR", exec_dir)
+    dd._backup_desk_state()
+    (zip_path,) = (tmp_path / "data" / "backups").glob("desk_*.zip")
+    names = set(zipfile.ZipFile(zip_path).namelist())
+    assert {"playbooks.json", "execution/approval_queue.json",
+            "execution/approval_queue.audit.jsonl"} <= names
+    assert "execution/approval_queue.json.lock" not in names
