@@ -26,7 +26,6 @@ auto_execute AND a separate reflex_enabled kill switch.
 """
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -34,6 +33,8 @@ from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
 
+from src.core.durable import (ProcessSharedLock, atomic_write_json,
+                              read_json_state, rows_with)
 from src.desk.config import load_config
 from src.desk.opinion import load_data_json, signals_freshness
 from src.desk.position_manager import _sane_levels
@@ -138,12 +139,14 @@ def is_expired(pb: dict, now: datetime | None = None) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_playbooks() -> list[dict]:
-    if PLAYBOOKS_FILE.exists():
-        try:
-            return json.loads(PLAYBOOKS_FILE.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.warning(f"playbooks.json unreadable: {e}")
-    return []
+    """Every playbook. A missing file is none. A file that exists but cannot be
+    read raises StateUnreadable (src/core/durable) — it used to read as NO
+    playbooks, and the next save wrote that over it: every "fired" and
+    "unknown" playbook gone, and with them the block on re-arming a ticker
+    whose order may be at the broker. Now the scan fires nothing and arming
+    refuses until the file is repaired (a copy is kept beside it)."""
+    return read_json_state(PLAYBOOKS_FILE, list, expect=list,
+                           validate=rows_with("ticker", "status"))
 
 
 #: One load → modify → save at a time. The reflex loop's scan, a manual
@@ -151,13 +154,17 @@ def load_playbooks() -> list[dict]:
 #: without this a scan holding a stale copy could write a fired playbook back
 #: as armed, and the next crossing would send a second order (independent
 #: review of ab78b1d, 2026-10-16). Re-entrant so a locked caller may arm.
-_PLAYBOOKS_LOCK = threading.RLock()
+#: It also excludes other processes: the per-process RLock it replaced did not
+#: cover two backends running at once (final-launch log, 2026-10-16). A scan
+#: holds it through a fire (quote, veto, submit), hence the long timeout.
+_PLAYBOOKS_LOCK = ProcessSharedLock(
+    lambda: PLAYBOOKS_FILE.with_name(PLAYBOOKS_FILE.name + ".lock"), timeout_s=120.0)
 
 
 def save_playbooks(pbs: list[dict]):
-    PLAYBOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PLAYBOOKS_FILE.write_text(json.dumps(pbs, indent=2, default=str),
-                              encoding="utf-8")
+    # Atomic: a crash mid-write leaves the previous playbooks, never a
+    # truncated file that the next load would have to refuse.
+    atomic_write_json(PLAYBOOKS_FILE, pbs)
 
 
 def reconcile_unknown_playbooks() -> dict:

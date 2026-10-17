@@ -31,6 +31,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from src.core.durable import StateUnreadable, atomic_write_json, read_json_state
 from src.desk.config import load_config
 from src.desk.opinion import load_data_json
 from src.risk.profiles import EXECUTABLE_ASSET_CLASSES
@@ -293,17 +294,28 @@ class PositionManager:
     # ── state ────────────────────────────────────────────────────────────
 
     def load_positions(self) -> dict:
-        if POSITIONS_FILE.exists():
+        """The desk's tracked positions (entry, stop, target, thesis).
+
+        A damaged file is NOT silently an empty book any more: a copy is kept
+        beside it (src/core/durable), the owner is told, and the tick carries
+        on with nothing tracked — every broker position is then adopted with
+        synthetic 1×ATR / 2×ATR levels, the same recovery the desk uses on its
+        first run, so nothing sits unmanaged. The original levels and theses
+        are in the copy."""
+        try:
+            return read_json_state(POSITIONS_FILE, dict, expect=dict)
+        except StateUnreadable as e:
+            logger.critical(f"desk positions unreadable — recovering by adoption: {e}")
             try:
-                return json.loads(POSITIONS_FILE.read_text(encoding="utf-8"))
-            except Exception as e:
-                logger.warning(f"positions.json unreadable: {e}")
-        return {}
+                from src.desk.notify import push
+                push(f"⚠ DESK POSITIONS FILE DAMAGED — {e} Broker positions are "
+                     f"re-adopted with synthetic levels.", self.cfg)
+            except Exception:
+                pass
+            return {}
 
     def save_positions(self, positions: dict):
-        POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        POSITIONS_FILE.write_text(json.dumps(positions, indent=2, default=str),
-                                  encoding="utf-8")
+        atomic_write_json(POSITIONS_FILE, positions)
 
     # ── the tick ─────────────────────────────────────────────────────────
 
@@ -768,17 +780,16 @@ class PositionManager:
     # ── orphaned sibling orders ──────────────────────────────────────────
 
     def _load_pending_cancels(self) -> list:
-        if PENDING_CANCELS_FILE.exists():
-            try:
-                return list(json.loads(PENDING_CANCELS_FILE.read_text(encoding="utf-8")))
-            except Exception as e:
-                logger.error(f"pending_cancels.json unreadable: {e}")
-        return []
+        try:
+            return list(read_json_state(PENDING_CANCELS_FILE, list, expect=list))
+        except StateUnreadable as e:
+            # Nothing to rebuild it from; the copy is kept for the owner, and
+            # cancel_stale_orders still sweeps resting orders on flat tickers.
+            logger.critical(f"pending sibling cancels unreadable: {e}")
+            return []
 
     def _save_pending_cancels(self, pending: list):
-        PENDING_CANCELS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PENDING_CANCELS_FILE.write_text(json.dumps(pending, indent=2, default=str),
-                                        encoding="utf-8")
+        atomic_write_json(PENDING_CANCELS_FILE, pending)
 
     def _retry_pending_cancels(self, mgr, summary: dict):
         """Retry every saved sibling cancel. An order the broker no longer

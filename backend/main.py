@@ -250,6 +250,33 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+
+def _state_unavailable(request, exc):
+    """A state file the order path depends on (approval queue, playbooks, day
+    state) is damaged, or its lock is held too long: say so plainly, as 503,
+    rather than a bare 500. Names files, never paths (src/core/durable)."""
+    from src.core.durable import StateUnreadable
+    if isinstance(exc, StateUnreadable):
+        kept = exc.quarantined.name if exc.quarantined else "not made"
+        detail = (f"{exc.path.name} is unreadable ({exc.why}). Nothing was sent or "
+                  f"changed, and nothing will overwrite it until it is repaired "
+                  f"(copy: {kept}).")
+        body = {"detail": detail, "state_unreadable": exc.path.name}
+    else:
+        detail = f"state busy: {exc}. Nothing was sent or changed; try again."
+        body = {"detail": detail, "state_locked": True}
+    logger.error(f"{request.method} {request.url.path}: {detail}")
+    return JSONResponse(status_code=503, content=body)
+
+
+def _register_state_handlers():
+    from src.core.durable import StateLockTimeout, StateUnreadable
+    app.add_exception_handler(StateUnreadable, _state_unavailable)
+    app.add_exception_handler(StateLockTimeout, _state_unavailable)
+
+
+_register_state_handlers()
+
 @on_startup
 async def _startup():
     """Pre-warm the order manager on startup (runs in the asyncio thread — safe for ib_insync).

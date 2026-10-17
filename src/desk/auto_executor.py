@@ -125,6 +125,10 @@ class AutoExecutor:
         armed = bool(self.cfg.get("auto_execute"))
         budget_left = self.cfg["daily_notional_budget"] - day.get("notional_used", 0.0)
         trades_left = self.cfg["max_trades_per_day"] - day.get("trades_count", 0)
+        if day.get("usage_unknown"):
+            # The day state could not be read (src/desk/day_state): what has
+            # been spent today is unknown, so nothing is left to spend.
+            budget_left, trades_left = 0.0, 0
         g = {
             "env_paper": env_paper,                       # gate 1
             "armed": armed,                               # gate 2
@@ -135,6 +139,8 @@ class AutoExecutor:
             "account": "paper" if broker_paper else
                        ("live" if broker_paper is False else "disconnected"),
         }
+        if day.get("usage_unknown"):
+            g["day_state"] = f"unreadable — today's usage unknown: {day.get('unreadable')}"
         # paper_confirmed folds in the endpoint check. It is absent when the
         # broker never connected, and its absence must not read as True.
         confirmed = account.get("paper_confirmed")
@@ -372,9 +378,11 @@ class AutoExecutor:
             reasons.append("auto-execute is not armed")
         if not g["broker_connected"]:
             reasons.append("broker not connected")
-        if g["trades_left"] <= 0:
+        if g.get("day_state"):
+            reasons.append(f"desk day state {g['day_state']}")
+        elif g["trades_left"] <= 0:
             reasons.append("max trades/day reached")
-        if g["budget_left"] <= 0:
+        if g["budget_left"] <= 0 and not g.get("day_state"):
             reasons.append("daily notional budget spent")
         if g.get("signals_fresh") is not True:
             age = g.get("signals_age_hours")
