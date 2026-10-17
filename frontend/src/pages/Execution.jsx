@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { StatusPill, ExecutionReceipt } from '../components/ExecutionStatus'
+import { StatusPill, ExecutionReceipt, QueueNotice } from '../components/ExecutionStatus'
 import { useCurrency } from '../currency/CurrencyContext'
 import { BBCard, SectionHeader, ScoreBadge, ActionBadge } from '../components/UI'
 import {
@@ -94,7 +94,7 @@ function PositionsTable() {
 }
 
 // ─── Single trade card ────────────────────────────────────────────────────────
-function TradeCard({ trade, onAction }) {
+function TradeCard({ trade, onAction, actionsAvailable = true }) {
   const { price } = useCurrency()
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
@@ -228,7 +228,7 @@ function TradeCard({ trade, onAction }) {
       )}
 
       {/* Action buttons — only for pending */}
-      {isPending && (
+      {isPending && actionsAvailable && (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             onClick={() => handle('approve')}
@@ -329,10 +329,11 @@ function StatsBar({ stats }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function Execution() {
   const [filter, setFilter] = useState('pending')
-  const { data, loading, refetch } = useApprovalQueue(3000)
+  const { data, loading, error, refetch } = useApprovalQueue(3000)
 
   const trades = data?.trades || []
-  const filtered = filter === 'all' ? trades : trades.filter(t => t.status === filter)
+  const unresolved = trades.filter(t => ['unknown', 'submitting'].includes(t.status))
+  const filtered = filter === 'all' ? trades : filter === 'unresolved' ? unresolved : trades.filter(t => t.status === filter)
   const pendingCount = trades.filter(t => t.status === 'pending').length
 
   return (
@@ -368,10 +369,14 @@ export default function Execution() {
       {/* Stats */}
       <StatsBar stats={data?.stats} />
 
+      <QueueNotice error={error} hasData={!!data} unresolved={unresolved.length}
+        onRetry={refetch} onReview={() => setFilter('unresolved')} />
+
       {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
         {[
           ['pending', 'PENDING', pendingCount],
+          ['unresolved', 'UNRESOLVED', unresolved.length],
           ['executed', 'EXECUTED', null],
           ['rejected', 'REJECTED', null],
           ['cancelled', 'CANCELLED', null],
@@ -406,7 +411,7 @@ export default function Execution() {
         <div style={{ fontFamily: 'var(--mono)', color: 'var(--text-dim)', padding: 40, textAlign: 'center' }}>
           LOADING QUEUE...
         </div>
-      ) : filtered.length === 0 ? (
+      ) : error && !data ? null : filtered.length === 0 ? (
         <div style={{
           fontFamily: 'var(--mono)', color: 'var(--text-dim)', padding: 60,
           textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 8,
@@ -421,7 +426,7 @@ export default function Execution() {
         </div>
       ) : (
         filtered.map(trade => (
-          <TradeCard key={trade.id} trade={trade} onAction={refetch} />
+          <TradeCard key={trade.id} trade={trade} onAction={refetch} actionsAvailable={!error} />
         ))
       )}
 

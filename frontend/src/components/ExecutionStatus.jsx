@@ -1,5 +1,24 @@
 import React from 'react'
 
+export function QueueNotice({ error, hasData, unresolved = 0, onRetry, onReview }) {
+  const style = { fontFamily: 'var(--mono)', fontSize: 12, border: '1px solid var(--orange)',
+    color: 'var(--orange)', borderRadius: 4, padding: 12, marginBottom: 16 }
+  const button = { fontFamily: 'var(--mono)', marginLeft: 12, padding: '5px 9px',
+    border: '1px solid var(--orange)', background: 'transparent', color: 'var(--orange)', cursor: 'pointer' }
+  return <>
+    {error && <div role="alert" style={style}>
+      Queue unavailable — {hasData ? 'showing the last loaded records; approval actions are disabled.'
+        : 'order state could not be read. Do not assume the queue is empty.'}
+      <div>{error}</div>
+      <button onClick={onRetry} style={button}>RETRY QUEUE</button>
+    </div>}
+    {unresolved > 0 && <div role="alert" style={style}>
+      {unresolved} UNRESOLVED BROKER ORDER{unresolved === 1 ? '' : 'S'} — verify broker state before another submission.
+      <button onClick={onReview} style={button}>REVIEW UNRESOLVED</button>
+    </div>}
+  </>
+}
+
 export function executionLabel(trade) {
   if (trade.status === 'unknown') return 'UNKNOWN — CHECK BROKER'
   if (trade.status === 'submitting') return 'SUBMITTING — UNCONFIRMED'
