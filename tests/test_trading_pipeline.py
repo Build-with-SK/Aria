@@ -309,6 +309,26 @@ def test_halt_never_raises_even_when_the_broker_is_broken():
         kill_switch.release(actor="test")
 
 
+@pytest.mark.parametrize("unknown", ["positions", "details"])
+def test_halt_preserves_possible_protection_when_evidence_is_unreadable(monkeypatch, unknown):
+    from src.execution import kill_switch
+    from types import SimpleNamespace
+    b = SimpleNamespace(get_open_orders=lambda: [SimpleNamespace(client_order_id="stop")],
+                        get_positions=lambda: [{"symbol": "AAPL", "qty": 1}],
+                        open_order_details=lambda: [{"client_order_id": "stop", "symbol": "AAPL", "side": "sell"}],
+                        cancel_order=lambda _: pytest.fail("possible protective stop cancelled"))
+    def unreadable():
+        raise ConnectionError("broker evidence unavailable")
+    monkeypatch.setattr(b, "get_positions" if unknown == "positions" else "open_order_details", unreadable)
+    try:
+        report = killswitch.halt("unreadable account", broker=b)
+        assert kill_switch.is_engaged()
+        assert report["steps"]["cancel"]["kept_protective"] == ["stop"]
+        assert report["steps"]["positions"] == "preserved"
+    finally:
+        kill_switch.release(actor="test")
+
+
 def test_the_halt_is_recorded():
     from src.execution import kill_switch
     try:

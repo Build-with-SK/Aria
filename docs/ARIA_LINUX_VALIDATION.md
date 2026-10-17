@@ -32,7 +32,17 @@ must run its own full suite instead of assuming one freeze works everywhere.
   preserving the prior snapshot, and POSIX lock/atomic-write code paths.
 - Legacy crash/recovery tests and the existing real ASGI listener restart test.
 
-Full Linux regression results are in ARIA_PHASE2_HANDOFF.md. The first attempted
+Full Linux regression: **3408 passed, 21 skipped, 121.39s, exit 0** after
+portability repairs. The first full run had 37 failures/3 errors: the installed
+IBKR/eventkit SDK expected implicit event-loop creation removed in Python 3.14;
+one scheduler test spoofed global os.name, changing pathlib's native flavor.
+The adapter now explicitly owns a thread-local loop only when none exists;
+existing/running loops are preserved, owned loops close at exit. No connection
+is made by loop setup. The test now stubs only the scheduler module's OS view,
+retaining all original assertions. Targeted portability rerun: 58 passed in
+2.93s. Full source includes the candidate through 9862967.
+
+The first attempted
 runtime run overlapped unfinished dependency installation and is not a valid
 runtime verdict; the recorded PASS above is after successful installation.
 

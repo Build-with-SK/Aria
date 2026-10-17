@@ -122,6 +122,7 @@ def halt(reason: str, *, actor: str = "owner", broker=None,
     # 3. cancel pending orders
     if held is None and broker is not None:
         held = _held(broker, report)
+    positions_unknown = held is None
     held = held or {}
     if broker is None:
         report["steps"]["cancel"] = {"skipped": "no broker supplied"}
@@ -135,6 +136,12 @@ def halt(reason: str, *, actor: str = "owner", broker=None,
         details = _order_details(broker)
         for o in open_orders:
             d = details.get(o.client_order_id)
+            if (not report["policy"]["cancel_protective"] and
+                    (positions_unknown or d is None)):
+                # A failed read cannot establish that an order is an entry.
+                # Keep possible protection; the kill switch already stops sends.
+                kept.append(o.client_order_id)
+                continue
             protective = bool(d and _reduces(d["side"], d["symbol"], held))
             if protective and not report["policy"]["cancel_protective"]:
                 kept.append(o.client_order_id)
@@ -165,15 +172,13 @@ def _signed(p: dict) -> float:
     return -abs(qty) if (str(p.get("side") or "").lower() == "short" or qty < 0) else abs(qty)
 
 
-def _held(broker, report: dict) -> dict:
-    """{symbol: signed qty} read from the broker. Unreadable is recorded
-    and treated as "nothing known to be held" — which cancels rather than
-    keeps, the pre-existing behaviour, never a guess that keeps an entry."""
+def _held(broker, report: dict) -> Optional[dict]:
+    """Signed positions; None means unreadable and preserves possible stops."""
     try:
         return {p["symbol"]: _signed(p) for p in broker.get_positions()}
     except Exception as exc:
         report["steps"]["positions_read"] = {"error": str(exc)}
-        return {}
+        return None
 
 
 def _order_details(broker) -> dict:

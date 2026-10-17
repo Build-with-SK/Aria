@@ -12,7 +12,6 @@ import json
 import math
 import logging
 import os
-import sys
 import tempfile
 import uuid
 from contextlib import contextmanager
@@ -30,8 +29,8 @@ QUEUE_FILE = Path(__file__).parent.parent.parent / "data" / "execution" / "appro
 
 # Audit L4: the queue is read-modify-write over one JSON file; concurrent
 # approve/push/reject from the API thread and desk threads could lose writes.
-import threading
-_QUEUE_LOCK = threading.Lock()
+from src.core.durable import ProcessSharedLock
+_QUEUE_LOCK = ProcessSharedLock(lambda: QUEUE_FILE.with_suffix(".lock"))
 
 
 @dataclass
@@ -123,28 +122,13 @@ def _queue_guard(path: Optional[Path] = None):
     The lock has its own stable inode; the snapshot is replaced atomically.
     Kernel locks are released if a worker crashes. Never lock the replaced file.
     """
-    with _QUEUE_LOCK:
-        target = path if path is not None else QUEUE_FILE
-        target.parent.mkdir(parents=True, exist_ok=True)
-        with target.with_suffix(".lock").open("a+b") as lock:
-            if sys.platform == "win32":
-                import msvcrt
-                if lock.seek(0, os.SEEK_END) == 0:
-                    lock.write(b"\0")
-                    lock.flush()
-                lock.seek(0)
-                msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                if sys.platform == "win32":
-                    lock.seek(0)
-                    msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
-                else:
-                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+    if path is None:
+        with _QUEUE_LOCK:
+            yield
+    else:
+        with ProcessSharedLock(lambda: path.with_suffix(".lock")):
+            yield
+
 
 
 def _load_queue() -> list[dict]:

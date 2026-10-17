@@ -106,6 +106,26 @@ def test_another_process_holding_the_queue_serialises_the_write(queue, tmp_path)
 TOKEN = "test-owner-token-for-queue-durability"
 
 
+def test_queue_lock_timeout_preserves_state_and_recovers(queue, tmp_path, monkeypatch):
+    from src.execution import approval_queue as aq
+    from src.core.durable import StateLockTimeout
+    q = queue()
+    before = aq.QUEUE_FILE.read_bytes()
+    script = tmp_path / "hold-timeout.py"
+    script.write_text(_HOLD_QUEUE, encoding="utf-8")
+    child = subprocess.Popen([sys.executable, str(script), str(ROOT), str(aq.QUEUE_FILE), "1"],
+                             stdout=subprocess.PIPE, text=True)
+    try:
+        assert child.stdout.readline().strip() == "held"
+        monkeypatch.setattr(aq._QUEUE_LOCK, "timeout_s", 0.1)
+        with pytest.raises(StateLockTimeout):
+            aq.ApprovalQueue().approve(q.id)
+        assert aq.QUEUE_FILE.read_bytes() == before
+    finally:
+        child.wait(10)
+    assert aq.ApprovalQueue().approve(q.id).status == "approved"
+
+
 def test_the_api_reports_a_damaged_queue_as_503_not_500(queue, monkeypatch, tmp_path):
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient

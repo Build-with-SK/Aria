@@ -61,7 +61,7 @@ from __future__ import annotations
 import logging
 import os
 
-from .broker_base import OrderRequest, OrderResult, OrderStatus
+from .broker_base import OrderRefused, OrderRequest, OrderResult, OrderStatus
 
 logger = logging.getLogger(__name__)
 
@@ -285,7 +285,7 @@ class PaperOnlyBroker:
                       "close_all_positions", "replace_order"):
             return False
         if method == "submit_oco_exit":
-            return None
+            raise OrderRefused(detail)
         raise LiveAccountBlocked(detail)
 
     def _queue_for_human(self, req: OrderRequest, why: str):

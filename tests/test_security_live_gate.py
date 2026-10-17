@@ -178,7 +178,9 @@ def test_live_cancel_is_refused(monkeypatch):
 def test_live_oco_exit_is_refused(monkeypatch):
     monkeypatch.setenv("ALPACA_PAPER", "true")
     broker = FakeBroker(paper=False, endpoint=LIVE)
-    assert PaperOnlyBroker(broker).submit_oco_exit("AAPL", 10, "buy", 9, 12) is None
+    from src.execution.broker_base import OrderRefused
+    with pytest.raises(OrderRefused, match="paper-only"):
+        PaperOnlyBroker(broker).submit_oco_exit("AAPL", 10, "buy", 9, 12)
     assert broker.submitted == []
 
 

@@ -73,6 +73,32 @@ gate/calendar/runtime regressions in the prior minimal environment: 128 passed,
 
 ## Remaining deployment exceptions
 
+**Additional runtime blocker:** the Windows interpreter (including the fresh
+candidate venv) is Python 3.11.8 with Expat 2.5.0 and OpenSSL 3.0.13. Python's
+[XML security guidance](https://docs.python.org/3/library/xml.html#xml-security)
+warns that Expat below 2.7.2 may be vulnerable to XML resource-exhaustion attacks.
+ARIA has external XML/RSS parsing paths, so this is relevant availability risk,
+not excused by authentication or the zero pip-advisory count. Upgrade the
+deployment interpreter to a supported patched build, verify its actual Expat,
+recreate the venv and rerun regression/audit. No host interpreter or production
+runtime was replaced here. Tested Linux has Python 3.14.4 / Expat 2.7.4 /
+OpenSSL 3.5.5. This is a BLOCKED runtime remediation, not an accepted exception.
+
+Source security check `bandit -r src backend main.py -ll`: 48 medium/high
+patterns, exit 1 (4 high, 44 medium), with no newly introduced pattern compared
+with the prior report's scanned inventory. These are scanner findings, not 48
+proven exploitable vulnerabilities. Four high SHA1 findings are event/cache
+identity keys, not password/signature primitives; collision implications for
+deduplication still deserve review before an identity-format migration.
+Other patterns: 31 URL opens (scheme/host/input provenance review), six dynamic
+SQL constructions (identifier allowlists and bound values), five XML parses
+(interpreter blocker above), two local pickle loads (trusted caches/models only;
+never accept untrusted files). No broad ignores or source suppressions added.
+This is scoped triage, not a source-security clearance. Existing API audit:
+231 routes, no anonymous-access failures or warnings. Changed tracked files:
+no match to configured secret values or bounded credential signatures; this
+does not establish absence of every possible secret.
+
 These are scoped, justified restrictions, not accepted blanket release waivers.
 Do not expose a Chroma server, permit remote model trust, consume untrusted
 PyTorch code/models, or keep unused OAuth/build packages solely because their
