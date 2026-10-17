@@ -64,6 +64,8 @@ from src.risk import fx as _fx
 from src.risk import portfolio_risk as _pr
 
 EPS = 1e-12
+# A quote fetched during the check can be milliseconds newer than its start.
+MAX_CLOCK_SKEW_S = 5.0
 
 
 class Verdict(str, Enum):
@@ -237,7 +239,7 @@ def assess(order: ProposedOrder, account, *, at: datetime, limits: PortfolioRisk
     if not check("portfolio_known", account.known, account.why_unknown or "read from the broker"):
         return done(Verdict.DEFER)
     age = (at - account.as_of).total_seconds() if account.as_of else math.inf
-    if not check("portfolio_fresh", age <= limits.max_portfolio_age_s,
+    if not check("portfolio_fresh", -MAX_CLOCK_SKEW_S <= age <= limits.max_portfolio_age_s,
                  f"snapshot {age:.0f}s old (limit {limits.max_portfolio_age_s:.0f}s)"):
         return done(Verdict.DEFER)
 
@@ -254,6 +256,37 @@ def assess(order: ProposedOrder, account, *, at: datetime, limits: PortfolioRisk
     if reducing:
         check("reduces_position", True, f"{side} {order.qty:g} reduces {held:g} to {new:g}")
         return done(Verdict.ACCEPT, order.qty)
+
+    # Pending entries can fill before this order. They are not in the valued
+    # holdings yet (market orders often have no price/notional). Defer rather
+    # than assuming zero exposure. Existing reducing protections do not block
+    # entries; group OCO siblings and reserve each unlinked exit separately.
+    reservations: dict[tuple[str, str, object], float] = {}
+    for pending in account.pending_orders:
+        symbol = pending.get("symbol") or pending.get("ticker") or ""
+        pside = str(pending.get("side") or "").lower()
+        try:
+            qty = float(pending.get("qty", 0))
+        except (TypeError, ValueError):
+            qty = math.nan
+        pheld = sum(h.qty for h in account.holdings if _ro.same_symbol(h.symbol, symbol))
+        key = pending.get("parent_id") or pending.get("id") or id(pending)
+        group = (symbol, pside, key)
+        reservations[group] = max(reservations.get(group, 0.0), qty)
+        reducing_pending = (bool(symbol) and math.isfinite(qty) and qty > 0 and
+                            pside == _ro.reducing_side(pheld))
+        if not reducing_pending:
+            check("pending_entries", False, "working entry or unreadable order; "
+                  "reconcile the pending book before adding exposure")
+            return done(Verdict.DEFER)
+    for symbol, pside, _ in reservations:
+        pheld = sum(h.qty for h in account.holdings if _ro.same_symbol(h.symbol, symbol))
+        reserved = sum(q for (sym, sd, _key), q in reservations.items()
+                       if _ro.same_symbol(sym, symbol) and sd == pside)
+        if reserved > abs(pheld) + EPS:
+            check("pending_entries", False, "pending exits exceed the held position")
+            return done(Verdict.DEFER)
+    check("pending_entries", True, "no pending exposure-increasing orders")
 
     if session is not None and not getattr(session, "tradable", False):
         v.session = session.to_dict() if hasattr(session, "to_dict") else dict(session)
@@ -280,7 +313,7 @@ def assess(order: ProposedOrder, account, *, at: datetime, limits: PortfolioRisk
                                  "probability_type", "labels", "routing", "data_quality",
                                  "model_reliability", "disagreement", "calibration_quality",
                                  "research_context")}
-        want = {"LONG": "buy", "SHORT": "sell"}.get(c.get("direction"))
+        want = {"LONG": "buy", "SHORT": "sell"}.get(c.get("direction") or "")
         if not check("prediction_supports_side", want == side,
                      (f"{c.get('direction')} supports a {side} entry" if want == side else
                       f"the prediction is {c.get('direction') or 'missing'}; a {side} "
@@ -304,11 +337,11 @@ def assess(order: ProposedOrder, account, *, at: datetime, limits: PortfolioRisk
     if not check("price_known", price_ok, f"price {order.price!r}"):
         return done(Verdict.DEFER)
     p_age = (at - order.price_at).total_seconds() if order.price_at else math.inf
-    if not check("price_fresh", p_age <= limits.max_price_age_s,
+    if not check("price_fresh", -MAX_CLOCK_SKEW_S <= p_age <= limits.max_price_age_s,
                  f"price {'is untimed' if not order.price_at else f'{p_age:.0f}s old'} "
                  f"(limit {limits.max_price_age_s:.0f}s)"):
         return done(Verdict.DEFER)
-    v.data["price_at"] = order.price_at.isoformat()
+    v.data["price_at"] = order.price_at.isoformat() if order.price_at else None
     if order.spread_bps is not None and not check(
             "spread", order.spread_bps <= limits.max_spread_bps,
             f"spread {order.spread_bps:.1f} bps (limit {limits.max_spread_bps:.0f})"):
@@ -395,7 +428,7 @@ def assess(order: ProposedOrder, account, *, at: datetime, limits: PortfolioRisk
                          f"{frac:g} x the name limit")
 
     vol_before = vol_after_fn = None
-    if vol_known:
+    if vol_known and cov is not None:
         cs = list(cov.matrix.index)
         w = np.array([weights.get(x, 0.0) for x in cs])
         m = cov.matrix.to_numpy()
@@ -446,7 +479,7 @@ def assess(order: ProposedOrder, account, *, at: datetime, limits: PortfolioRisk
         v.timings_ms["factors"] = round((time.perf_counter() - t3) * 1000, 3)
 
     v.caps = {k: round(x, 6) for k, x in caps.items()}
-    binding = min(caps, key=caps.get)
+    binding = min(caps, key=lambda key: caps[key])
     q = min(float(order.qty), caps[binding])
     q = _floor(q, order.lot)
     v.binding = binding if caps[binding] < order.qty else None

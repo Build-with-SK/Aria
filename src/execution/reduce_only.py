@@ -156,7 +156,21 @@ def at_broker(broker, ticker: str, side: str, requested: float, *,
         return ReduceOnly((side or "").lower(), requested, 0.0, None, None,
                           f"position unreadable ({type(exc).__name__}: {exc}) — nothing sent")
     try:
-        resting = resting_reduce_qty(broker.get_open_orders(), ticker,
+        open_orders = broker.get_open_orders()
+        # A timeout can hide a protective/exit order from the venue's read API.
+        # The durable local claim still reserves its reducing quantity. Refuse
+        # another exit until it is reconciled; absence cannot prove cancellation.
+        from .approval_queue import ApprovalQueue
+        broker_name = str(getattr(broker, "name", "")).lower()
+        visible = {str(_field(o, "id") or "") for o in open_orders or []}
+        for trade in ApprovalQueue().in_flight():
+            if (trade.reduce_only and trade.broker == broker_name and
+                    same_symbol(trade.ticker, ticker) and trade.side == (side or "").lower()
+                    and (not trade.broker_order_id or trade.broker_order_id not in visible)):
+                return ReduceOnly((side or "").lower(), requested, 0.0, position, None,
+                                  "a durable exit claim is not visible at the broker; "
+                                  "reconcile it before sending another exit")
+        resting = resting_reduce_qty(open_orders, ticker,
                                      (side or "").lower(), exclude_ids)
     except Exception as exc:
         return ReduceOnly((side or "").lower(), requested, 0.0, position, None,

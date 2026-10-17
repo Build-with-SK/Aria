@@ -10,13 +10,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import tempfile
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from .broker_base import AssetClass, OrderRequest, OrderSide, OrderType
+from .reduce_only import same_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -95,23 +99,106 @@ class PendingTrade:
 UNRESOLVED = ("submitting", "unknown")
 
 
+def _active(row: dict) -> bool:
+    return row.get("status") in UNRESOLVED or (
+        row.get("status") == "executed" and row.get("order_status") in ("submitted", "partial"))
+
+
+class QueueStateError(RuntimeError):
+    """Unreadable execution state must never be replaced with an empty book."""
+
+
+@contextmanager
+def _queue_guard():
+    """Serialize readers and writers across API threads AND process restarts.
+
+    The lock has its own stable inode; the snapshot is replaced atomically.
+    Kernel locks are released if a worker crashes. Never lock the replaced file.
+    """
+    with _QUEUE_LOCK:
+        QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with QUEUE_FILE.with_suffix(".lock").open("a+b") as lock:
+            if os.name == "nt":
+                import msvcrt
+                if lock.seek(0, os.SEEK_END) == 0:
+                    lock.write(b"\0")
+                    lock.flush()
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == "nt":
+                    lock.seek(0)
+                    msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def _load_queue() -> list[dict]:
     QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not QUEUE_FILE.exists():
         return []
     try:
-        return json.loads(QUEUE_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+        items = json.loads(QUEUE_FILE.read_text(encoding="utf-8"))
+        if not isinstance(items, list):
+            raise ValueError("queue must contain a list")
+        seen = set()
+        for row in items:
+            trade = PendingTrade(**row)
+            if not trade.id or trade.id in seen or trade.status not in (
+                    "pending", "approved", "submitting", "unknown", "executed",
+                    "rejected", "cancelled"):
+                raise ValueError("invalid or duplicate queue identity/state")
+            seen.add(trade.id)
+        return items
+    except (OSError, ValueError, TypeError) as exc:
+        raise QueueStateError("approval queue unreadable; execution is blocked; "
+                              "preserve the file and recover from the broker/audit") from exc
 
 
 def _save_queue(items: list[dict]):
+    """Durable snapshot plus append-only state transitions, under _queue_guard.
+
+    A failed write never truncates the prior snapshot. A claim is durable before
+    its caller can POST. Audit failure propagates, so an unaudited claim is not
+    sent; reconciliation can recover the persisted submitting row.
+    """
     QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    QUEUE_FILE.write_text(json.dumps(items, indent=2, default=str), encoding="utf-8")
+    before = {row["id"]: row for row in _load_queue()}
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", delete=False,
+                                         dir=QUEUE_FILE.parent, suffix=".tmp") as stream:
+            temporary = Path(stream.name)
+            json.dump(items, stream, indent=2, default=str, allow_nan=False)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, QUEUE_FILE)
+        if os.name != "nt":
+            directory = os.open(QUEUE_FILE.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
+    changed = [row for row in items if row != before.get(row["id"])]
+    if changed:
+        with QUEUE_FILE.with_suffix(".audit.jsonl").open("a", encoding="utf-8") as audit:
+            for row in changed:
+                audit.write(json.dumps({"at": datetime.utcnow().isoformat(),
+                                        "trade": row}, default=str, allow_nan=False) + "\n")
+            audit.flush()
+            os.fsync(audit.fileno())
 
 
 class ApprovalQueue:
-    """Thread-safe(ish) in-process approval queue backed by JSON."""
+    """Process-safe approval queue with durable claims and an execution audit."""
 
     def push(
         self,
@@ -138,7 +225,7 @@ class ApprovalQueue:
                 broker = "alpaca"
 
         trade = PendingTrade(
-            id=str(uuid.uuid4())[:8],
+            id=uuid.uuid4().hex,
             created_at=datetime.utcnow().isoformat(),
             status="pending",
             ticker=req.ticker,
@@ -164,7 +251,7 @@ class ApprovalQueue:
             reduce_only=bool(getattr(req, "reduce_only", False)),
         )
 
-        with _QUEUE_LOCK:
+        with _queue_guard():
             items = _load_queue()
             items.append(asdict(trade))
             _save_queue(items)
@@ -185,7 +272,7 @@ class ApprovalQueue:
         return None
 
     def approve(self, trade_id: str) -> Optional[PendingTrade]:
-        with _QUEUE_LOCK:
+        with _queue_guard():
             items = _load_queue()
             for d in items:
                 if d["id"] == trade_id and d["status"] == "pending":
@@ -208,7 +295,7 @@ class ApprovalQueue:
         with `after_send` — by the broker's own answer — never by the human's
         "reject before it reaches the broker", which would be false by then."""
         allowed = ("pending", "approved") + (("submitting",) if after_send else ())
-        with _QUEUE_LOCK:
+        with _queue_guard():
             items = _load_queue()
             for d in items:
                 if d["id"] == trade_id and d["status"] in allowed:
@@ -221,7 +308,7 @@ class ApprovalQueue:
         return None
 
     def claim_for_submit(self, trade_id: str, client_order_id: str, *,
-                         exclusive: bool = True) -> tuple[Optional[PendingTrade], str]:
+                         exclusive: bool = True, protection: bool = False) -> tuple[Optional[PendingTrade], str]:
         """Atomically move an approved (or pending) row to "submitting" with its
         client id recorded — BEFORE anything is sent. From here the row cannot
         be cancelled as "never reached the broker".
@@ -232,16 +319,18 @@ class ApprovalQueue:
         second sees the first in flight. Exits pass exclusive=False.
 
         (trade, "") on success; (None, why) when nothing may be sent."""
-        with _QUEUE_LOCK:
+        with _queue_guard():
             items = _load_queue()
             row = next((d for d in items if d["id"] == trade_id), None)
             if row is None or row["status"] not in ("pending", "approved"):
                 return None, (f"trade {trade_id} is "
                               f"{'missing' if row is None else row['status']}, not sendable")
-            if exclusive:
-                sym = (row.get("ticker") or "").upper()
-                busy = [d for d in items if d["id"] != trade_id and d.get("status") in UNRESOLVED
-                        and (d.get("ticker") or "").upper() == sym
+            if exclusive or protection:
+                busy = [d for d in items if d["id"] != trade_id and _active(d)
+                        and same_symbol(d.get("ticker"), row.get("ticker"))
+                        and ((exclusive and (d.get("status") in UNRESOLVED or
+                                             d.get("situation") != "protective_exit")) or
+                             (protection and d.get("situation") == "protective_exit"))
                         and d.get("broker") == row.get("broker")]
                 if busy:
                     return None, (f"another order for {row.get('ticker')} is unresolved: "
@@ -257,7 +346,7 @@ class ApprovalQueue:
                       filled_qty: Optional[float] = None):
         """The broker acknowledged the order. `order_status` says how far it got
         (submitted / partial / filled); `executed` alone never meant filled."""
-        with _QUEUE_LOCK:
+        with _queue_guard():
             items = _load_queue()
             for d in items:
                 if d["id"] == trade_id:
@@ -282,7 +371,7 @@ class ApprovalQueue:
         """The broker acknowledged the order and later cancelled, rejected or
         expired it with NOTHING filled. Recorded as rejected with the broker's
         status — never left reading "executed"."""
-        with _QUEUE_LOCK:
+        with _queue_guard():
             items = _load_queue()
             for d in items:
                 if d["id"] == trade_id and d["status"] in ("submitting", "executed", "unknown"):
@@ -299,7 +388,7 @@ class ApprovalQueue:
         """Sent, and whether the broker holds it could not be settled.
         execute() and cancel() refuse it from now on; it leaves "unknown" only
         on a broker answer found by client id, or the owner's release."""
-        with _QUEUE_LOCK:
+        with _queue_guard():
             items = _load_queue()
             for d in items:
                 if d["id"] == trade_id and d["status"] in ("pending", "approved", "submitting"):
@@ -317,6 +406,10 @@ class ApprovalQueue:
         """Rows that may be at the broker without an answer: submitting, unknown."""
         return [PendingTrade(**d) for d in _load_queue() if d.get("status") in UNRESOLVED]
 
+    def in_flight(self) -> list[PendingTrade]:
+        """Uncertain submissions AND acknowledged orders still working."""
+        return [PendingTrade(**d) for d in _load_queue() if _active(d)]
+
     def release_unresolved(self, trade_id: str, *, by: str, note: str) -> Optional[PendingTrade]:
         """The OWNER's decision, after checking the broker, that an unresolved
         order was never placed. Nothing automatic calls this: a lookup that
@@ -324,7 +417,7 @@ class ApprovalQueue:
         rejected with who released it and why."""
         if not (by and note and note.strip()):
             raise ValueError("a release needs who and why")
-        with _QUEUE_LOCK:
+        with _queue_guard():
             items = _load_queue()
             for d in items:
                 if d["id"] == trade_id and d["status"] in UNRESOLVED:
@@ -342,7 +435,7 @@ class ApprovalQueue:
     def cancel(self, trade_id: str) -> bool:
         """Cancel a row that was NOT sent. "submitting" and later states are
         refused: the order may already be at the broker."""
-        with _QUEUE_LOCK:
+        with _queue_guard():
             items = _load_queue()
             for d in items:
                 if d["id"] == trade_id and d["status"] in ("pending", "approved"):

@@ -341,7 +341,7 @@ class AlpacaBroker(BrokerBase):
 
     def get_positions(self) -> list[Position]:
         if not self._client:
-            return []
+            raise ConnectionError("Alpaca positions unavailable: client not connected")
         try:
             positions = self._client.get_all_positions()
             return [
@@ -358,7 +358,7 @@ class AlpacaBroker(BrokerBase):
             ]
         except Exception as e:
             logger.error(f"Alpaca get_positions error: {e}")
-            return []
+            raise ConnectionError("Alpaca positions unreadable") from e
 
     def get_position(self, ticker: str) -> Optional[Position]:
         positions = self.get_positions()
@@ -516,10 +516,13 @@ class AlpacaBroker(BrokerBase):
             )
 
     def submit_oco_exit(self, ticker: str, qty: float, entry_side: str,
-                        stop: float, target: float) -> Optional[str]:
+                        stop: float, target: float, *, client_order_id: Optional[str] = None) -> Optional[str]:
         """One-cancels-other exit: take-profit limit + stop-loss leg on the
         SAME reserved shares — the only way Alpaca allows both protections
         on one position. Returns the order id or None."""
+        if kill_switch.is_engaged():
+            logger.critical("Alpaca OCO refused: kill switch engaged")
+            return None
         if not self._client:
             return None
         try:
@@ -529,8 +532,10 @@ class AlpacaBroker(BrokerBase):
             from alpaca.trading.enums import OrderClass
             side = (AlpacaSide.SELL if entry_side in ("buy", "long")
                     else AlpacaSide.BUY)
-            order = self._client.submit_order(order_data=LimitOrderRequest(
+            client = getattr(self, "_submit_client", None) or self._client
+            order = client.submit_order(order_data=LimitOrderRequest(
                 symbol=ticker, qty=qty, side=side,
+                client_order_id=client_order_id,
                 time_in_force=TimeInForce.GTC,
                 limit_price=round(target, 2),
                 order_class=OrderClass.OCO,
@@ -544,7 +549,7 @@ class AlpacaBroker(BrokerBase):
 
     def get_open_orders(self) -> list[dict]:
         if not self._client:
-            return []
+            raise ConnectionError("Alpaca open orders unavailable: client not connected")
         try:
             from alpaca.trading.requests import GetOrdersRequest
             from alpaca.trading.enums import QueryOrderStatus
@@ -577,7 +582,7 @@ class AlpacaBroker(BrokerBase):
             return out
         except Exception as e:
             logger.error(f"Alpaca get_open_orders error: {e}")
-            return []
+            raise ConnectionError("Alpaca open orders unreadable") from e
 
     def last_closed_fill(self, ticker: str, side: str | None = None) -> Optional[dict]:
         """Most recent FILLED order for a symbol from the closed-orders feed —
@@ -611,6 +616,8 @@ class AlpacaBroker(BrokerBase):
         try:
             is_crypto = "-USD" in ticker.upper() or "/" in ticker
             if is_crypto:
+                if self._crypto_data is None:
+                    return {}
                 symbol = crypto_symbol(ticker)
                 req    = CryptoLatestQuoteRequest(symbol_or_symbols=[symbol])
                 quotes = self._crypto_data.get_crypto_latest_quote(req)
