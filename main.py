@@ -366,13 +366,29 @@ def run_macro(config: dict):
 def _sentiment_record(r) -> dict:
     """One ticker's sentiment in the shape the strategy modules read: `score`
     (signed; distressed.py uses its sign), `headlines` (event_driven.py's M&A
-    scan), `label`, `article_count`. A dict passes through unchanged."""
+    scan), `label`, `article_count`, `available`. A dict passes through unchanged.
+
+    No articles is NOT a neutral reading. The analyzer reports a ticker it
+    found no news for (or whose fetch failed) as label "Neutral", score 0.0 —
+    indistinguishable from news that genuinely nets to zero. Here it becomes
+    `available: False`, `score: None`, label "Unavailable": absent, not calm."""
     if isinstance(r, dict):
         return r
+    n = int(getattr(r, "n_articles", 0) or 0)
+    if n <= 0:
+        return {
+            "available":     False,
+            "score":         None,
+            "label":         "Unavailable",
+            "article_count": 0,
+            "headlines":     [],
+            "warning":       getattr(r, "warning", "") or "no news articles found",
+        }
     return {
+        "available":     True,
         "score":         float(getattr(r, "sentiment_score", 0.0) or 0.0),
         "label":         getattr(r, "label", "Neutral"),
-        "article_count": int(getattr(r, "n_articles", 0) or 0),
+        "article_count": n,
         "headlines":     list(getattr(r, "top_headlines", None) or []),
         "warning":       getattr(r, "warning", ""),
     }
@@ -404,7 +420,14 @@ def run_sentiment(tickers: list, config: dict) -> dict:
         else:
             results = {}
 
-        logger.info(f"Sentiment analysis complete for {len(results)} tickers.")
+        missing = sum(1 for r in results.values()
+                      if isinstance(r, dict) and r.get("available") is False)
+        logger.info(f"Sentiment analysis complete for {len(results)} tickers: "
+                    f"{len(results) - missing} with news, {missing} unavailable "
+                    f"(no articles or the fetch failed — not scored as neutral).")
+        if results and missing == len(results):
+            logger.warning("Sentiment: NO ticker had any news — the news sources "
+                           "returned nothing; every strategy input is unavailable.")
         return results
     except Exception as e:
         logger.warning(f"Sentiment analysis failed: {e}")

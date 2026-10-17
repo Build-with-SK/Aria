@@ -209,9 +209,11 @@ def _post_earnings_drift_signal(
         if len(df) < 5:
             return None
         last_ret = float(df["Close"].pct_change().iloc[-1])
-        sent_score = (sentiment_scores or {}).get(ticker, {})
+        sent_score = (sentiment_scores or {}).get(ticker)
         if isinstance(sent_score, dict):
-            sent_score = sent_score.get("score", 0)
+            sent_score = sent_score.get("score")
+        if sent_score is None:
+            return None         # no news for this name: no sentiment to confirm with
         if last_ret > 0.03 and float(sent_score) > 10:
             return {
                 "ticker": ticker,

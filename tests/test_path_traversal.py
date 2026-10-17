@@ -190,14 +190,30 @@ def test_real_model_names_still_pass(good, monkeypatch):
     assert launched and launched[0][:2] == ["ollama", "pull"]
 
 
+def _production_sources() -> list[Path]:
+    """backend/ and src/ of THIS repository, wherever pytest was started.
+    `Path("src")` resolved against the working directory: run from anywhere
+    else, it matched nothing and the scan below passed having read no file."""
+    root = Path(__file__).resolve().parent.parent
+    return [*(root / "backend").rglob("*.py"), *(root / "src").rglob("*.py")]
+
+
 def test_no_shell_is_ever_used_for_a_subprocess():
     """`shell=True` anywhere near a request parameter is the real hole. There
     should be none at all."""
     import re
-    for path in list(Path("backend").rglob("*.py")) + list(Path("src").rglob("*.py")):
+    files = _production_sources()
+    assert len(files) > 100, f"the scan found only {len(files)} files — it is not reading the source"
+    for path in files:
         text = path.read_text(encoding="utf-8-sig")
         assert not re.search(r"shell\s*=\s*True", text), (
             f"{path} launches a subprocess through a shell")
+
+
+def test_the_shell_scan_reads_the_source_from_any_working_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    assert len(_production_sources()) > 100
+    test_no_shell_is_ever_used_for_a_subprocess()
 
 
 def test_the_pipeline_runner_never_takes_user_text():
