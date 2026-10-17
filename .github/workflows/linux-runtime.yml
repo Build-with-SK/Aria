@@ -9,6 +9,8 @@ jobs:
   clean-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      ARIA_ACCEPTANCE_DIST: ${{ github.workspace }}/frontend/dist
     strategy:
       fail-fast: false
       matrix:
@@ -24,6 +26,18 @@ jobs:
           python -m pip install --upgrade pip setuptools
           python -m pip install -r requirements.txt -r requirements-ci.txt
           python -m pip check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Build and check the frontend used by backend/proxy acceptance
+        working-directory: frontend
+        run: |
+          npm ci --ignore-scripts
+          node scripts/verify-launch-routes.mjs
+          node scripts/verify-technical-dashboard.mjs
+          node scripts/verify-execution-status.mjs
+          node scripts/verify-shell.mjs
+          npm run build
       - name: Database, permissions, process startup, SIGTERM and restart
         run: python -m pytest tests/test_posix_runtime.py tests/test_final_runtime.py tests/test_legacy_reconciliation.py -q
       - name: Full regression

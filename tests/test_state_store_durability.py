@@ -90,7 +90,7 @@ def test_a_day_state_damaged_on_an_earlier_day_rolls_over(day):
 
 # ── desk positions ───────────────────────────────────────────────────────────
 
-def test_damaged_positions_recover_by_adoption_and_keep_a_copy(tmp_path, monkeypatch):
+def test_damaged_positions_hold_management_and_keep_a_copy(tmp_path, monkeypatch):
     from src.desk import notify
     from src.desk import position_manager as pm
     monkeypatch.setattr(pm, "POSITIONS_FILE", tmp_path / "positions.json")
@@ -98,11 +98,31 @@ def test_damaged_positions_recover_by_adoption_and_keep_a_copy(tmp_path, monkeyp
     monkeypatch.setattr(notify, "push", lambda text, cfg=None: pushed.append(text))
     pm.POSITIONS_FILE.write_text('{"AAPL": {"stop": 1', encoding="utf-8")
     mgr = pm.PositionManager({"ntfy_topic": ""})
-    assert mgr.load_positions() == {}
+    with pytest.raises(durable.StateUnreadable):
+        mgr.load_positions()
     assert pushed and "DAMAGED" in pushed[0]
     assert list(tmp_path.glob("positions.json.corrupt-*"))
     mgr.save_positions({"AAPL": {"qty": 1}})
     assert mgr.load_positions() == {"AAPL": {"qty": 1}}
+
+
+@pytest.mark.parametrize("damaged", ["positions", "pending_cancels"])
+def test_damaged_management_state_never_sends_or_cancels(tmp_path, monkeypatch, damaged):
+    from types import SimpleNamespace
+    from src.desk import position_manager as pm, auto_executor as ae
+    monkeypatch.setattr(pm, "POSITIONS_FILE", tmp_path / "positions.json")
+    monkeypatch.setattr(pm, "PENDING_CANCELS_FILE", tmp_path / "pending.json")
+    target = pm.POSITIONS_FILE if damaged == "positions" else pm.PENDING_CANCELS_FILE
+    target.write_text('{"torn":', encoding="utf-8")
+    monkeypatch.setattr(ae, "get_order_manager", lambda: SimpleNamespace())
+    monkeypatch.setattr(ae, "account_snapshot", lambda: {"connected": True, "positions": [
+        {"ticker": "AAPL", "qty": 1, "market_value": 100}], "equity": 1000})
+    mgr = pm.PositionManager({"ntfy_topic": ""})
+    for method in ("_close", "_heal_brackets", "_replace_stop_order", "save_positions"):
+        monkeypatch.setattr(mgr, method, lambda *a, **k: pytest.fail("damaged state changed protection"))
+    summary = mgr.tick()
+    assert any("management held" in e for e in summary["errors"])
+    assert target.read_text(encoding="utf-8") == '{"torn":'
 
 
 # ── desk config ──────────────────────────────────────────────────────────────

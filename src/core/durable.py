@@ -95,14 +95,17 @@ def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
         with open(tmp, "w", encoding=encoding, newline="") as f:
             f.write(text)
             f.flush()
-            try:
-                os.fsync(f.fileno())
-            except OSError:                                   # pragma: no cover
-                pass
+            os.fsync(f.fileno())
         deadline = time.monotonic() + REPLACE_RETRY_S
         while True:
             try:
                 os.replace(tmp, path)
+                if os.name != "nt":
+                    directory = os.open(path.parent, os.O_RDONLY)
+                    try:
+                        os.fsync(directory)
+                    finally:
+                        os.close(directory)
                 return
             except PermissionError:
                 # Windows: the target is open in another handle (a reader).

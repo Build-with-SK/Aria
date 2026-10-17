@@ -296,23 +296,20 @@ class PositionManager:
     def load_positions(self) -> dict:
         """The desk's tracked positions (entry, stop, target, thesis).
 
-        A damaged file is NOT silently an empty book any more: a copy is kept
-        beside it (src/core/durable), the owner is told, and the tick carries
-        on with nothing tracked — every broker position is then adopted with
-        synthetic 1×ATR / 2×ATR levels, the same recovery the desk uses on its
-        first run, so nothing sits unmanaged. The original levels and theses
-        are in the copy."""
+        A damaged file is copied aside and raises. Management holds existing
+        protection until explicit recovery; unknown prior stops/theses cannot
+        be replaced with synthetic adoption levels."""
         try:
             return read_json_state(POSITIONS_FILE, dict, expect=dict)
         except StateUnreadable as e:
-            logger.critical(f"desk positions unreadable — recovering by adoption: {e}")
+            logger.critical(f"desk positions unreadable — management held: {e}")
             try:
                 from src.desk.notify import push
                 push(f"⚠ DESK POSITIONS FILE DAMAGED — {e} Broker positions are "
-                     f"re-adopted with synthetic levels.", self.cfg)
+                     f"preserved; management held pending recovery.", self.cfg)
             except Exception:
                 pass
-            return {}
+            raise
 
     def save_positions(self, positions: dict):
         atomic_write_json(POSITIONS_FILE, positions)
@@ -332,7 +329,11 @@ class PositionManager:
             return summary
 
         signals = load_data_json("signals.json")
-        tracked = self.load_positions()
+        try:
+            tracked = self.load_positions()
+        except StateUnreadable as e:
+            summary["errors"].append(f"position state unreadable — management held: {e.path.name}")
+            return summary
         broker_positions = {p["ticker"]: p for p in (account.get("positions") or [])}
 
         # LEGACY TRIAGE / adoption — every broker position gets tracked
@@ -348,6 +349,9 @@ class PositionManager:
         # position they protected is gone, so nothing else will revisit them.
         try:
             self._retry_pending_cancels(mgr, summary)
+        except StateUnreadable as e:
+            summary["errors"].append(f"pending cancels unreadable — management held: {e.path.name}")
+            return summary
         except Exception as e:
             summary["errors"].append(f"orphaned-order retry: {e}")
 
@@ -814,10 +818,8 @@ class PositionManager:
         try:
             return list(read_json_state(PENDING_CANCELS_FILE, list, expect=list))
         except StateUnreadable as e:
-            # Nothing to rebuild it from; the copy is kept for the owner, and
-            # cancel_stale_orders still sweeps resting orders on flat tickers.
             logger.critical(f"pending sibling cancels unreadable: {e}")
-            return []
+            raise
 
     def _save_pending_cancels(self, pending: list):
         atomic_write_json(PENDING_CANCELS_FILE, pending)

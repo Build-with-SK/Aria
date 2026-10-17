@@ -42,6 +42,18 @@ def test_failed_write_keeps_the_old_content(tmp_path):
     assert [x.name for x in tmp_path.iterdir()] == ["s.json"]
 
 
+def test_fsync_failure_is_not_reported_as_a_durable_save(tmp_path, monkeypatch):
+    p = tmp_path / "s.json"
+    D.atomic_write_json(p, {"before": True})
+    def failed(fd):
+        raise OSError("storage could not commit")
+    monkeypatch.setattr(D.os, "fsync", failed)
+    with pytest.raises(OSError, match="storage could not commit"):
+        D.atomic_write_json(p, {"after": True})
+    assert json.loads(p.read_text()) == {"before": True}
+    assert [x.name for x in tmp_path.iterdir()] == ["s.json"]
+
+
 # ── fail-closed reads ───────────────────────────────────────────────────────
 
 def test_missing_file_is_the_default(tmp_path):
