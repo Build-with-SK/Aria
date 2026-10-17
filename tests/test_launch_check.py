@@ -122,6 +122,32 @@ def test_what_needs_a_look_is_a_warning(repo, change, check):
     assert by_name(lc.run(repo, None, None, now=NOW))[check]["status"] == lc.WARN
 
 
+def test_ml_is_aged_by_its_oldest_row_not_its_newest(repo):
+    """The pipeline merges ML rows a batch at a time, so a fresh first batch
+    sits beside last pass's rows. Judged by the newest row — as this check used
+    to be — a pass interrupted after one batch read PASS."""
+    _w(repo / "data" / "ml_predictions.json", {"AAPL": {"generated_at": _iso(2)},
+                                                "MSFT": {"generated_at": _iso(72)}})
+    ml = by_name(lc.run(repo, None, None, now=NOW))["ML predictions"]
+    assert ml["status"] == lc.WARN, ml
+    assert ml["age_hours"] == 72 and ml["newest_age_hours"] == 2
+    assert ml["rows_over_budget"] == 1 and "part-done" in ml["evidence"]
+
+
+def test_an_unstamped_row_among_stamped_ones_is_not_called_fresh(repo):
+    _w(repo / "data" / "ml_predictions.json", {"AAPL": {"generated_at": _iso(2)},
+                                                "OLD": {"ticker": "OLD"}})
+    ml = by_name(lc.run(repo, None, None, now=NOW))["ML predictions"]
+    assert ml["status"] == lc.WARN and ml["rows_undated"] == 1, ml
+
+
+def test_ml_with_every_row_inside_the_budget_passes(repo):
+    _w(repo / "data" / "ml_predictions.json", {"AAPL": {"generated_at": _iso(30)},
+                                                "MSFT": {"generated_at": _iso(1)}})
+    ml = by_name(lc.run(repo, None, None, now=NOW))["ML predictions"]
+    assert ml["status"] == lc.PASS and ml["age_hours"] == 30, ml
+
+
 def test_it_reads_and_never_writes(repo, tmp_path_factory):
     before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in repo.rglob("*") if p.is_file()}
     out = tmp_path_factory.mktemp("out") / "r.json"

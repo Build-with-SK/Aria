@@ -188,19 +188,44 @@ def check_signals(root: Path, now: datetime) -> dict:
 
 
 def check_ml(root: Path, now: datetime) -> dict:
+    """Aged by ROWS. The pipeline merges rows a batch at a time
+    (src/models/ml_store), so the file's mtime — and its newest row — only say
+    when the last batch landed; the predictions are as old as the oldest row.
+    PASS: every row inside the budget. WARN: a pass is part-done (some rows
+    fresh, some not). FAIL: no row is fresh. A file whose rows carry no stamp
+    was written in one piece and is aged by its mtime."""
     path = root / "data" / "ml_predictions.json"
     rows = _json(path)
     if not isinstance(rows, dict) or not rows:
         return _check("ML predictions", FAIL, "data/ml_predictions.json missing or empty")
-    gens = [_when(v.get("generated_at")) for v in rows.values() if isinstance(v, dict)]
-    gen = max((g for g in gens if g), default=None)
-    basis = "generated_at"
-    if gen is None:
-        gen, basis = datetime.fromtimestamp(path.stat().st_mtime).astimezone(), "file mtime (rows undated)"
-    age = _hours(gen, now)
-    return _check("ML predictions", FAIL if age > ML_BUDGET_H else PASS,
-                  f"{len(rows)} tickers, {basis} {gen.isoformat(timespec='minutes')} "
-                  f"({age} h, budget {ML_BUDGET_H} h)", age_hours=age)
+    rows = {k: v for k, v in rows.items() if isinstance(v, dict)}
+    ages = {k: _hours(_when(v.get("generated_at")), now) for k, v in rows.items()}
+    dated = {k: a for k, a in ages.items() if a is not None}
+    if not dated:
+        gen = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+        age = _hours(gen, now)
+        return _check("ML predictions", FAIL if age > ML_BUDGET_H else PASS,
+                      f"{len(rows)} tickers, file mtime (rows undated) "
+                      f"{gen.isoformat(timespec='minutes')} ({age} h, budget {ML_BUDGET_H} h)",
+                      age_hours=age)
+    oldest, newest = max(dated.values()), min(dated.values())
+    over = sorted(k for k, a in dated.items() if a > ML_BUDGET_H)
+    undated = len(rows) - len(dated)
+    ev = (f"{len(rows)} tickers aged by row generated_at: newest {newest} h, oldest "
+          f"{oldest} h (budget {ML_BUDGET_H} h); {len(rows) - len(over) - undated} rows "
+          f"inside the budget, {len(over)} over")
+    if undated:
+        ev += f", {undated} undated (written before per-row stamps)"
+    if newest > ML_BUDGET_H:
+        status = FAIL
+    elif over or undated:
+        status = WARN
+        ev += " — a pass is part-done or some tickers failed in it"
+    else:
+        status = PASS
+    return _check("ML predictions", status, ev, age_hours=oldest,
+                  newest_age_hours=newest, rows_over_budget=len(over),
+                  rows_undated=undated)
 
 
 def _last_run_lines(root: Path, max_bytes: int = 8_000_000) -> list[str]:

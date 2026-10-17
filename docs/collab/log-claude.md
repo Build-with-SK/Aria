@@ -2,6 +2,57 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-17 20:40–21:15 — O-2: pipeline ML step durable against interruption — on `claude/loving-gauss-c5dcd5`, NOT merged
+Branched from `claude/aria-completion` @ `125f0b8` (it holds `launch_check.py` and
+`durable.py`; its tip `659a75c` adds a docs line only). `src/models` is mine (not in the
+WORK_PLAN table). Nothing run against the live `data/`, no pipeline run, nothing restarted.
+Files: `main.py` (`run_ml`, new `_MLBatchWriter`, `--force-ml`), new `src/models/ml_store.py`,
+`src/models/model_trainer.py` (`skip=`, `on_ticker=`), `src/models/ensemble_model.py`
+(`_elasticnet`), and the readers that aged ML by file mtime: `src/core/world.py`
+(`_ml_age_block`), `src/core/launch_check.py` (`check_ml`), `src/desk/analysts/technical_agent.py`
+(`ml_made_by(ticker, body)`), `backend/main.py` (`_source_age` for ML, `_age_basis_note`).
+Tests: new `tests/test_ml_durable.py` (19), `tests/test_launch_check.py` (+3), fakes in
+`tests/test_ml_persistence.py` accept the new keywords.
+Changed:
+- Every 25 finished tickers (`ml.persist_every_tickers`) the batch's rows are merged into
+  `ml_predictions.json` via `durable.atomic_write_json` (temp + fsync + `os.replace`), and into
+  the ledger. Each row carries its own `generated_at` (when that ticker finished). A failed
+  write leaves the file as it was and the batch is retried with the next one; Ctrl+C flushes
+  the finished tickers in `finally`; a hard kill keeps the merged batches.
+- Resume: a rerun skips tickers whose row is younger than `ml.resume_max_age_hours` (default
+  20; 0 disables) unless `main.py --force-ml`. Skipped tickers stay in `featured_data`, so
+  cross-asset features of trained tickers are unchanged.
+- A pass that FINISHES drops rows it neither produced nor kept (gone from the universe, or
+  failed this pass), so the finished file means what it meant before: the last completed
+  pass. An interrupted pass prunes nothing. A run that produced nothing still leaves the file alone.
+- Readers: with batches merged into the file, its mtime no longer dates the rows — the
+  technical analyst would have cited a 130-day-old row as live once the first batch touched
+  the file. ML is now aged by rows: per ticker by its own `generated_at`; the dataset by its
+  OLDEST row (world, `/api/data/freshness`, chat context, `launch_check`). A file with no
+  stamped row (the 2026-05-31 one) is aged by mtime as before; an unstamped row beside stamped
+  ones has no knowable age and is never called fresh. `launch_check` ML: PASS = every row
+  inside 48 h, WARN = a part-done pass, FAIL = no row fresh (it used the NEWEST row before,
+  so one fresh batch would have read PASS).
+- `penalty="elasticnet"` dropped from the meta-learner on sklearn ≥ 1.8 (`l1_ratio` alone
+  selects it). Kept on < 1.8, where `l1_ratio` without it is ignored (silent pure-L2) —
+  requirements allow `scikit-learn>=1.4`, and main.py filters sklearn UserWarnings, so that
+  fallback would have been invisible.
+Measured: one synthetic ensemble fit (400 rows, 5-fold) — before 1 FutureWarning per fit
+(~1,500 per pipeline run), after 0; CV 0.7466 and P(up) 0.8208 identical. Old vs new
+LogisticRegression spelling: coef/intercept bit-identical. Hard-kill test: a subprocess
+`os._exit` at ticker 55 leaves exactly T000–T049 on disk, no temp file. Full suite
+(`venv\Scripts\python.exe -m pytest tests -q -p no:randomly`): **3480 passed, 9 skipped,
+EXIT 0** (floor on `claude/aria-completion` 3458 + 22 new). ruff F on touched files: only
+pre-existing unused imports, no F811/F821.
+Open (owner): resume helps same-day reruns only — the daily task fires every ~24 h, past the
+20 h budget, so an interrupted daily run is not resumed by the next one; it needs a same-day
+retry trigger on `TradingIntelligenceSystem`, or a larger `resume_max_age_hours`. The battery
+and InteractiveToken settings are unchanged. `src/brain/cognitive/perception.py` reads ML
+rows with no age at all (it did before; not touched).
+For Codex: `docs/DATA_LAYER.md` (yours) says `ml_predictions.json` is written by the full
+pipeline — still true, now batch-merged with per-row `generated_at`; `src/v5/modules/machine.py`
+already ages by the row's `generated_at`, no change needed.
+
 ## 2026-10-17 19:45–21:15 — ARIA completion mission (owner brief) — on `claude/aria-completion`, NOT merged
 Worktree `.claude/worktrees/aria-completion`, branched from `claude/s1.3-followup` (`6c32d98`)
 + `claude/launch-sprint`. Codex worked the same mission in parallel on

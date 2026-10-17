@@ -11,7 +11,7 @@ import os
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -109,10 +109,19 @@ class ModelTrainer:
         featured_data: Dict[str, pd.DataFrame],
         macro_snapshot=None,
         sentiment_results: Optional[dict] = None,
+        *,
+        skip: Iterable[str] = (),
+        on_ticker: Optional[Callable[[str, Dict[int, Any]], None]] = None,
     ) -> Dict[str, Dict[int, Any]]:
         """
         Train + predict for every equity ticker in featured_data.
         Returns {ticker: {horizon: EnsembleResult}}.
+
+        `skip`: tickers not to train this time (a resumed run: their rows are
+        already fresh). Features still see every ticker in featured_data, so
+        a trained ticker's cross-asset inputs do not depend on what is skipped.
+        `on_ticker(ticker, {horizon: result})` is called as each ticker
+        finishes, so the caller can persist work before the whole run ends.
         """
         from src.models.feature_engine import build_features, get_feature_names
         from src.models.targets import build_targets, get_target_col
@@ -132,9 +141,15 @@ class ModelTrainer:
             and len(featured_data[t]) >= self.min_rows
         ]
 
-        logger.info(f"ML Engine: training on {len(equity_tickers)} equities × {len(self.horizons)} horizons")
+        skip = set(skip)
+        skipped = sum(1 for t in equity_tickers if t in skip)
+        logger.info(f"ML Engine: training on {len(equity_tickers) - skipped} equities × "
+                    f"{len(self.horizons)} horizons"
+                    + (f" ({skipped} skipped: rows already fresh)" if skipped else ""))
 
         for ticker in equity_tickers:
+            if ticker in skip:
+                continue
             df = featured_data[ticker]
             self._results[ticker] = {}
 
@@ -192,6 +207,9 @@ class ModelTrainer:
                         f"cv={r.cv_mean_score:.3f} "
                         f"regime={r.regime}"
                     )
+
+            if on_ticker is not None:
+                on_ticker(ticker, self._results[ticker])
 
         logger.info(f"ML Engine complete: {len(self._results)} tickers trained.")
         return self._results
