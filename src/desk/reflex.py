@@ -203,42 +203,6 @@ def reconcile_unknown_playbooks() -> dict:
     return moved
 
 
-def reconcile_unknown_playbooks() -> dict:
-    """Settle playbooks retired as "unknown" from the approval queue's record
-    of their order, matched by client id or queue id. Reads the queue only —
-    never the broker, never an order; OrderManager.reconcile_unresolved (or
-    the owner's release) is what moves the queue row.
-
-      row executed            → "fired" (the broker accepted it)
-      row rejected / cancelled → "rejected" (the broker's answer, or the owner's)
-      row still unresolved, or no row → unchanged ("unknown", still blocking)
-
-    {ticker: new status} for each playbook it moved."""
-    from src.execution.approval_queue import ApprovalQueue
-    rows = ApprovalQueue().get_all(limit=1_000_000)
-    by_cid = {t.client_order_id: t for t in rows if t.client_order_id}
-    by_id = {t.id: t for t in rows}
-    moved = {}
-    with _PLAYBOOKS_LOCK:
-        pbs = load_playbooks()
-        for pb in pbs:
-            if pb.get("status") != "unknown":
-                continue
-            row = by_cid.get(pb.get("client_order_id") or "") or by_id.get(pb.get("trade_id") or "")
-            if row is None or row.status not in ("executed", "rejected", "cancelled"):
-                continue
-            pb["status"] = "fired" if row.status == "executed" else "rejected"
-            pb["settled"] = {"at": datetime.now().isoformat(timespec="seconds"),
-                             "queue_status": row.status, "order_status": row.order_status,
-                             "reason": (row.rejection_reason or "")[:200]}
-            moved[pb["ticker"]] = pb["status"]
-        if moved:
-            save_playbooks(pbs)
-    if moved:
-        logger.info(f"REFLEX settled unknown playbooks: {moved}")
-    return moved
-
-
 def _count(value) -> int:
     """A stored attempt counter, read without trusting it: a hand-edited or
     damaged value counts as 0 rather than raising mid-scan."""
