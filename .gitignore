@@ -57,6 +57,15 @@ data/cache/
 data/raw/
 data/reports/
 data/execution/approval_queue.json
+# The rest of the order path's runtime records: the queue's cross-process
+# lock and append-only audit (09f2158), the reconciliation lookups (S1.3),
+# quarantined copies of damaged state (src/core/durable). Trading activity,
+# never source.
+data/execution/
+*.corrupt-*
+# Runtime outputs of the pipeline and the chat stream.
+data/pipeline_run.json
+data/chat_stream_metrics.jsonl
 # The emergency stop is runtime state, not configuration. Committing it would
 # ship one machine's halt to every checkout — or, worse, ship a RELEASED
 # switch over a halt somebody meant to keep.
