@@ -256,12 +256,17 @@ def _state_unavailable(request, exc):
     state) is damaged, or its lock is held too long: say so plainly, as 503,
     rather than a bare 500. Names files, never paths (src/core/durable)."""
     from src.core.durable import StateUnreadable
+    from src.execution.approval_queue import QueueStateError
     if isinstance(exc, StateUnreadable):
         kept = exc.quarantined.name if exc.quarantined else "not made"
         detail = (f"{exc.path.name} is unreadable ({exc.why}). Nothing was sent or "
                   f"changed, and nothing will overwrite it until it is repaired "
                   f"(copy: {kept}).")
         body = {"detail": detail, "state_unreadable": exc.path.name}
+    elif isinstance(exc, QueueStateError):
+        detail = (f"{exc} Nothing was sent or changed; the file is left as it is "
+                  f"for repair.")
+        body = {"detail": detail, "state_unreadable": "approval_queue.json"}
     else:
         detail = f"state busy: {exc}. Nothing was sent or changed; try again."
         body = {"detail": detail, "state_locked": True}
@@ -271,8 +276,10 @@ def _state_unavailable(request, exc):
 
 def _register_state_handlers():
     from src.core.durable import StateLockTimeout, StateUnreadable
+    from src.execution.approval_queue import QueueStateError
     app.add_exception_handler(StateUnreadable, _state_unavailable)
     app.add_exception_handler(StateLockTimeout, _state_unavailable)
+    app.add_exception_handler(QueueStateError, _state_unavailable)
 
 
 _register_state_handlers()
