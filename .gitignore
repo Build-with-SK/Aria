@@ -56,7 +56,8 @@ data/models/
 data/cache/
 data/raw/
 data/reports/
-data/execution/approval_queue.json
+# Execution state is private: queue, OS locks, reconciliation and audit logs.
+data/execution/
 # The emergency stop is runtime state, not configuration. Committing it would
 # ship one machine's halt to every checkout — or, worse, ship a RELEASED
 # switch over a halt somebody meant to keep.
