@@ -84,7 +84,7 @@ DATASETS: dict[str, dict] = {
     "signals.json":            {"kind": "signals", "writer": "main.py step 4b (daily task from install_scheduler.ps1, or by hand)", "legacy": False},
     "macro_data.json":         {"kind": "macro", "writer": "backend _macro_loop", "legacy": False},
     "brain_state.json":        {"kind": "brain", "writer": "brain daemon (needs Ollama)", "legacy": False},
-    "ml_predictions.json":     {"kind": "ml", "writer": "main.py step 7 run_ml — hours of training; written only if the run gets that far (see pipeline_run)", "legacy": False},
+    "ml_predictions.json":     {"kind": "ml", "writer": "main.py step 7 run_ml — hours of training; rows merged every 25 tickers, each with its own generated_at, so a stopped run keeps its finished batches (see pipeline_run)", "legacy": False},
     "options_data.json":       {"kind": "options", "writer": "main_phase4_backup.py only", "legacy": True},
     "backtest_results.json":   {"kind": "backtest", "writer": "main_phase4_backup.py only", "legacy": True},
     "portfolio_analysis.json": {"kind": "model_portfolio", "writer": "main_phase4_backup.py only", "legacy": True},
@@ -109,7 +109,8 @@ def dataset_freshness(name: str) -> dict:
     body = _read_json(name) if name.endswith(".json") else None
     if isinstance(body, dict):
         stated = body.get("data_date") or body.get("date") or body.get("timestamp")
-    block = _age_block(name, spec["kind"], stated)
+    block = (_ml_age_block() if spec["kind"] == "ml"
+             else _age_block(name, spec["kind"], stated))
     status = ("UNKNOWN" if block["as_of"] is None else
               "STALE" if block["stale"] else "FRESH")
     out = {"dataset": name, "status": status,
@@ -262,6 +263,27 @@ def _age_block(name: str, kind: str, stated_date: Optional[str] = None) -> dict:
             "basis": basis}
 
 
+def _ml_age_block() -> dict:
+    """Freshness for ML predictions, judged by their rows.
+
+    Since 2026-10-17 the pipeline merges rows into ml_predictions.json a batch
+    at a time, so the file's mtime says when the LAST batch landed while most
+    rows may still be from an earlier pass. The predictions are as old as
+    their oldest row (src/models/ml_store.dataset_age). A file whose rows carry
+    no stamp was written in one piece, and is aged by its mtime as before."""
+    from src.models.ml_store import dataset_age
+    a = dataset_age(_read_json("ml_predictions.json"), _mtime("ml_predictions.json"),
+                    datetime.now(), STALE_AFTER_HOURS.get("ml", 24))
+    if a["basis"] != "row_generated_at":
+        return _age_block("ml_predictions.json", "ml")
+    return {"as_of": a["as_of"].isoformat(timespec="seconds"),
+            "age_hours": a["age_hours"], "stale": a["stale"], "why": a["why"],
+            "basis": "row_generated_at",
+            "newest_row_at": a["newest_at"].isoformat(timespec="seconds"),
+            "rows_over_budget": a["rows_over_budget"],
+            "rows_unstamped": a["rows_unstamped"]}
+
+
 # ── the blocks ──────────────────────────────────────────────────────────────
 
 def _market() -> dict:
@@ -270,7 +292,7 @@ def _market() -> dict:
     brain = _read_json("brain_state.json") or {}
 
     sig_age = _age_block("signals.json", "signals")
-    ml_age = _age_block("ml_predictions.json", "ml")
+    ml_age = _ml_age_block()
     ml_rows = _read_json("ml_predictions.json") or {}
     # `data_date` is when the snapshot was BUILT. With the keyless feeds wired
     # in, that is today on every refresh, so it alone would report a macro

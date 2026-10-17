@@ -151,7 +151,7 @@ def test_a_run_that_produced_nothing_does_not_clobber_the_last_good_file(
 
     class _Trainer:
         def __init__(self, cfg): pass
-        def train_and_predict_all(self, featured): return {}
+        def train_and_predict_all(self, featured, **kw): return {}
 
     import src.models.model_trainer as mt
     monkeypatch.setattr(mt, "ModelTrainer", _Trainer)
@@ -166,7 +166,7 @@ def test_a_successful_run_writes_the_file(tmp_path, monkeypatch):
 
     class _Trainer:
         def __init__(self, cfg): pass
-        def train_and_predict_all(self, featured):
+        def train_and_predict_all(self, featured, **kw):
             return {"AAPL": {5: _Result()}}
 
     import src.models.model_trainer as mt
@@ -418,7 +418,7 @@ def test_ml_predictions_are_stamped_with_their_data_date(tmp_path, monkeypatch):
 
     class _Trainer:
         def __init__(self, cfg): pass
-        def train_and_predict_all(self, featured):
+        def train_and_predict_all(self, featured, **kw):
             return {"AAPL": {5: _Result()}, "MSFT": {5: _Result(ticker="MSFT")}}
 
     import src.models.model_trainer as mt

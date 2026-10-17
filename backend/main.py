@@ -2831,10 +2831,28 @@ def _source_age(filename: str, kind: str) -> tuple:
         limit = 24
     age_h = (time.time() - path.stat().st_mtime) / 3600
     stale = age_h > limit
+    rows_note = ""
+    if kind == "ml":
+        # ML rows are merged a batch at a time (src/models/ml_store), so the
+        # file's mtime is when the LAST batch landed; most rows may be older.
+        # Aged by the oldest row whenever the rows carry their own stamps.
+        try:
+            from src.models.ml_store import dataset_age
+            a = dataset_age(_load_optional(filename),
+                            datetime.fromtimestamp(path.stat().st_mtime),
+                            datetime.now(), limit)
+            if a["basis"] == "row_generated_at":
+                age_h, stale = a["age_hours"], a["stale"]
+                rows_note = " by its oldest row"
+                if a["rows_over_budget"] or a["rows_unstamped"]:
+                    stale_rows = a["rows_over_budget"] + a["rows_unstamped"]
+                    rows_note += f" ({stale_rows} of {a['rows']} rows from an earlier pass)"
+        except Exception:
+            stale = True                         # unknown is never fresh
     if age_h < 36:
-        age = f"{age_h:.0f}h old"
+        age = f"{age_h:.0f}h old{rows_note}"
     else:
-        age = f"{age_h / 24:.0f} days old"
+        age = f"{age_h / 24:.0f} days old{rows_note}"
     return (f"{age}, STALE" if stale else age, stale)
 
 
@@ -2853,6 +2871,11 @@ def _age_basis_note() -> str:
         obs = f.get("observation") or {}
         if f.get("basis") == "stated_date":
             how = f"dated by the file's own data_date ({str(f.get('as_of'))[:10]})"
+        elif f.get("basis") == "row_generated_at":
+            how = (f"each row dated by when it was generated; oldest "
+                   f"{str(f.get('as_of'))[:16]}, newest {str(f.get('newest_row_at'))[:16]}")
+            if obs.get("recorded"):
+                how += f"; bars through {obs.get('latest_bar')}"
         elif f.get("basis") == "file_mtime":
             how = "age is the time the FILE was written"
             if obs.get("recorded"):

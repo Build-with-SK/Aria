@@ -497,67 +497,157 @@ def _ml_to_json(results: dict) -> dict:
     return out
 
 
-def run_ml(featured_data: Dict[str, pd.DataFrame], config: dict) -> dict:
+class _MLBatchWriter:
+    """Persists ML results a batch at a time, as the trainer finishes tickers.
+
+    PERSIST. This was missing once, and the omission was expensive: a full run
+    trains ~1,500 models over several hours, logged every prediction to the
+    console, and then dropped all of it on the floor — the only writer of
+    data/ml_predictions.json was main_phase4_backup.py, so the live file had
+    not moved since 2026-05-31 while /api/ml, the chat context, the summary
+    endpoint and the brain's perception layer all read it as current.
+
+    Then it was written once, after the LAST ticker, so anything that stopped
+    the run in its ~4 h of training — a closed console, a battery stop, the old
+    2 h task limit — still lost all of it: 1 run in 10 completed from
+    2026-07-22 to 2026-10-17. Now every `every` finished tickers are merged
+    into the file atomically (src/models/ml_store), and into the ledger; a run
+    that dies loses at most the batch in progress.
+
+    Only finished tickers are buffered (the trainer reports a ticker after its
+    last horizon), so whatever is in the buffer is safe to write at any time.
+    A batch that cannot be written stays buffered and is retried with the next.
+    """
+
+    def __init__(self, path: Path, featured_data: dict, every: int):
+        self.path = Path(path)
+        self.featured = featured_data or {}
+        self.every = max(1, int(every))
+        self.pending: dict = {}           # ticker -> (horizons, generated_at)
+        self.delivered: set = set()       # every ticker the trainer reported
+        self.written: set = set()         # tickers whose rows reached the file
+        self.reported = 0
+
+    def add(self, ticker: str, horizons: dict) -> None:
+        self.delivered.add(ticker)
+        self.reported += 1
+        if horizons:
+            # Stamped when the ticker FINISHED, so a forecast is aged against
+            # its own creation rather than against the file or the run.
+            self.pending[ticker] = (horizons,
+                                    datetime.now().isoformat(timespec="seconds"))
+        if self.reported % self.every == 0:
+            self.flush()
+
+    def add_unreported(self, results: dict) -> None:
+        """Results a trainer returned without reporting them ticker by ticker."""
+        for ticker, horizons in (results or {}).items():
+            if ticker not in self.delivered and horizons:
+                self.add(ticker, horizons)
+
+    def flush(self) -> None:
+        if not self.pending:
+            return
+        payload = _ml_to_json({t: h for t, (h, _) in self.pending.items()})
+        for t, row in payload.items():
+            # The last bar it was trained through and when it was produced, so
+            # a forecast can be aged against its own data and horizon.
+            row["data_as_of"] = _last_bar_date(self.featured.get(t))
+            row["generated_at"] = self.pending[t][1]
+        if payload:
+            try:
+                from src.models import ml_store
+                total = ml_store.merge_rows(self.path, payload)
+            except Exception as e:
+                logger.error(f"TIS: ML batch of {len(payload)} tickers not written "
+                             f"({e}) — kept in memory, retried with the next batch")
+                return
+            self.written.update(payload)
+            logger.info(f"TIS: ML predictions — {len(payload)} tickers merged "
+                        f"({len(self.written)} this run, {total} in the file) "
+                        f"-> {self.path.as_posix()}")
+            self._record(payload)
+        self.pending.clear()
+
+    def _record(self, payload: dict) -> None:
+        # ...and into the prediction ledger, so they can be graded at all
+        # (src/intelligence/recorders). Forward only; a SCORE, never a
+        # probability. Batch by batch, so the ledger holds what the file holds.
+        try:
+            from src.intelligence.recorders import record_ml_predictions
+            from src.models.model_trainer import _MODEL_VERSION
+            asof, last = {}, {}
+            for t in payload:
+                try:
+                    df = self.featured[t]
+                    asof[t] = str(df.index[-1].date())
+                    last[t] = float(df["Close"].iloc[-1])
+                except Exception:
+                    continue
+            rec = record_ml_predictions(payload, data_as_of=asof, last_close=last,
+                                        trainer_version=_MODEL_VERSION)
+            logger.info(f"TIS: ML predictions recorded in the ledger: {rec}")
+        except Exception as e:
+            logger.warning(f"TIS: ML predictions not recorded in the ledger: {e}")
+
+
+def run_ml(featured_data: Dict[str, pd.DataFrame], config: dict, *,
+           force: bool = False) -> dict:
+    """Train, predict, and persist as it goes.
+
+    A rerun skips tickers whose row is younger than `ml.resume_max_age_hours`
+    (default 20; 0 disables) unless `force` (`main.py --force-ml`). Rows are
+    merged every `ml.persist_every_tickers` (default 25) finished tickers."""
+    path = Path("data/ml_predictions.json")
+    writer = None
     try:
+        from src.models import ml_store
+        ml_cfg = config.get("ml", {}) or {}
+        writer = _MLBatchWriter(path, featured_data, ml_cfg.get(
+            "persist_every_tickers", ml_store.DEFAULT_BATCH_SIZE))
+        max_age_h = float(ml_cfg.get("resume_max_age_hours",
+                                     ml_store.DEFAULT_RESUME_MAX_AGE_HOURS))
+        skip = set() if force else ml_store.fresh_tickers(path, max_age_h)
+        if skip:
+            logger.info(f"TIS: ML resume — {len(skip)} tickers already have rows "
+                        f"younger than {max_age_h:g} h and are not retrained "
+                        f"(main.py --force-ml retrains them)")
         from src.models.model_trainer import ModelTrainer
         trainer = ModelTrainer(config)
-        results = trainer.train_and_predict_all(featured_data)
+        results = trainer.train_and_predict_all(featured_data, skip=skip,
+                                                on_ticker=writer.add)
+        writer.add_unreported(results)
+        writer.flush()
         logger.info(f"ML models trained for {len(results)} tickers.")
 
-        # PERSIST. This was missing, and the omission was expensive: a full run
-        # trains ~1,500 models over several hours, logged every prediction to
-        # the console, and then dropped all of it on the floor. The only writer
-        # of data/ml_predictions.json was main_phase4_backup.py, so the live
-        # file had not moved since 2026-05-31 while /api/ml, the chat context,
-        # the summary endpoint and the brain's perception layer all read it as
-        # current.
-        try:
-            payload = _ml_to_json(results)
-            if payload:
-                # Stamp each ticker with the last bar it was trained through and
-                # when this run produced it, so a forecast can be aged against
-                # its own data and horizon rather than against the file.
-                generated_at = datetime.now().isoformat(timespec="seconds")
-                for t, row in payload.items():
-                    row["data_as_of"] = _last_bar_date((featured_data or {}).get(t))
-                    row["generated_at"] = generated_at
-                path = Path("data/ml_predictions.json")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(json.dumps(payload, indent=1, default=str),
-                                encoding="utf-8")
-                logger.info(f"TIS: ML predictions written — {len(payload)} "
-                            f"tickers -> data/ml_predictions.json")
-                # ...and into the prediction ledger, so they can be graded at
-                # all (src/intelligence/recorders). Forward only; a SCORE, never
-                # a probability.
-                try:
-                    from src.intelligence.recorders import record_ml_predictions
-                    from src.models.model_trainer import _MODEL_VERSION
-                    asof, last = {}, {}
-                    for t, df in (featured_data or {}).items():
-                        try:
-                            asof[t] = str(df.index[-1].date())
-                            last[t] = float(df["Close"].iloc[-1])
-                        except Exception:
-                            continue
-                    rec = record_ml_predictions(payload, data_as_of=asof, last_close=last,
-                                                trainer_version=_MODEL_VERSION)
-                    logger.info(f"TIS: ML predictions recorded in the ledger: {rec}")
-                except Exception as e:
-                    logger.warning(f"TIS: ML predictions not recorded in the ledger: {e}")
-            else:
-                # Do NOT overwrite a good file with an empty one. A run that
-                # produced nothing must leave the last real predictions alone
-                # and say so.
-                logger.warning("TIS: ML produced no serialisable predictions — "
-                               "data/ml_predictions.json left untouched")
-        except Exception as e:
-            logger.error(f"TIS: ML predictions could not be written: {e}")
-
+        if writer.written or skip:
+            # The pass finished: the file is now this pass's rows. Rows it did
+            # not produce or keep (tickers gone from the universe, or that
+            # failed this time) belong to no pass that finished. A batch still
+            # waiting for a write keeps its tickers' old rows until it lands.
+            try:
+                dropped = ml_store.keep_only(path, skip | writer.written | set(writer.pending))
+                if dropped:
+                    logger.info(f"TIS: ML pass complete — {dropped} rows from earlier "
+                                f"passes dropped from {path.as_posix()}")
+            except Exception as e:
+                logger.error(f"TIS: ML rows from earlier passes not pruned: {e}")
+        elif not writer.pending:
+            # Do NOT overwrite a good file with an empty one. A run that
+            # produced nothing must leave the last real predictions alone
+            # and say so.
+            logger.warning("TIS: ML produced no serialisable predictions — "
+                           "data/ml_predictions.json left untouched")
         return results
     except Exception as e:
         logger.warning(f"ML training failed: {e}")
         return {}
+    finally:
+        # A run stopped by an exception (Ctrl+C included) keeps every ticker it
+        # finished. A run the OS kills outright runs no finally; it keeps the
+        # batches already merged.
+        if writer is not None:
+            writer.flush()
 
 
 # ── Backtester ────────────────────────────────────────────────────────────────
@@ -1099,11 +1189,12 @@ def main():
     _mark_run("sentiment")
     sentiment_results = run_sentiment(tickers, config)
 
-    # 7. ML models
+    # 7. ML models — persisted batch by batch; a rerun resumes where the last
+    # one stopped unless started with --force-ml.
     _mark_run("ml")
     ml_results = {}
     if config.get("ml", {}).get("enabled", True):
-        ml_results = run_ml(featured_data, config)
+        ml_results = run_ml(featured_data, config, force="--force-ml" in sys.argv[1:])
 
     # 8. Backtester (off by default — set run_backtest: true in universe.yaml)
     _mark_run("backtest")

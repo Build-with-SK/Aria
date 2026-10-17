@@ -18,14 +18,22 @@ SRC_ML = "data/ml_predictions.json"
 CALENDAR_PER_TRADING_DAY = 7 / 5
 
 
-def ml_made_by() -> datetime | None:
-    """The latest instant the ML predictions could have been made: the file's
-    modification time. Its rows carry no timestamp of their own."""
+def ml_made_by(ticker: str, body: dict) -> datetime | None:
+    """The latest instant `ticker`'s ML prediction could have been made.
+
+    Its row's own `generated_at`. The pipeline now merges rows into the file
+    a batch at a time (src/models/ml_store), so the file's mtime says only when
+    the last batch landed: aging a May row by it would cite a months-old 20-day
+    call as live. A file with no stamped rows was written in one piece and is
+    aged by its mtime, as before; an unstamped row among stamped ones has no
+    knowable age and is not cited."""
+    from src.models.ml_store import made_at
     path = DATA / "ml_predictions.json"
     try:
-        return datetime.fromtimestamp(path.stat().st_mtime)
+        mtime = datetime.fromtimestamp(path.stat().st_mtime)
     except OSError:
-        return None
+        mtime = None
+    return made_at(body, ticker, mtime)
 
 
 def ml_horizon_live(horizon_days, made_by: datetime | None,
@@ -50,7 +58,8 @@ def ml_horizon_live(horizon_days, made_by: datetime | None,
 
 def opine(ticker: str) -> Opinion:
     sig = load_data_json("signals.json").get(ticker) or {}
-    ml = load_data_json("ml_predictions.json").get(ticker) or {}
+    ml_all = load_data_json("ml_predictions.json")
+    ml = ml_all.get(ticker) or {}
 
     if not sig:
         return Opinion(agent="technical", ticker=ticker, view="neutral", conviction=0,
@@ -82,7 +91,7 @@ def opine(ticker: str) -> Opinion:
     # ML ensemble horizons — cite each horizon's directional score, only while
     # the horizon it was made for has not elapsed.
     horizons = (ml.get("horizons") or {})
-    made_by = ml_made_by()
+    made_by = ml_made_by(ticker, ml_all)
     for h, hd in sorted(horizons.items(), key=lambda kv: int(kv[0])):
         if not isinstance(hd, dict):
             continue

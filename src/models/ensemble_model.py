@@ -10,12 +10,14 @@ Per-regime model weighting.
 from __future__ import annotations
 import logging
 import os
+import re
 import joblib
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+import sklearn
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import ElasticNet, LogisticRegression, Ridge
@@ -187,6 +189,22 @@ def _regime_adjust(prob: float, regime: str, base_regime: str = "neutral") -> fl
 # Stacking
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _elasticnet(l1_ratio: float) -> dict:
+    """LogisticRegression arguments for an elastic-net penalty mixing L1 by
+    `l1_ratio`, on whichever sklearn is installed.
+
+    sklearn 1.8 deprecated `penalty` (removal in 1.10): `l1_ratio` alone now
+    selects the mix, and passing penalty="elasticnet" raised a FutureWarning on
+    every meta-learner fit — about 1,500 per pipeline run. Before 1.8,
+    `l1_ratio` is IGNORED unless penalty="elasticnet", so dropping it there
+    would silently make the meta-learner pure L2. requirements.txt allows
+    scikit-learn>=1.4, so both spellings stay; they fit the same model."""
+    major_minor = tuple(int(p) for p in re.findall(r"\d+", sklearn.__version__)[:2])
+    if major_minor >= (1, 8):
+        return {"l1_ratio": l1_ratio}
+    return {"penalty": "elasticnet", "l1_ratio": l1_ratio}
+
+
 def _train_meta_learner(oof_matrix: pd.DataFrame, y: pd.Series) -> object:
     """
     Train ElasticNet meta-learner on OOF predictions from base learners.
@@ -199,8 +217,8 @@ def _train_meta_learner(oof_matrix: pd.DataFrame, y: pd.Series) -> object:
     meta = Pipeline([
         ("imputer", SimpleImputer(strategy="mean")),
         ("model",   LogisticRegression(
-            C=1.0, penalty="elasticnet", solver="saga",
-            l1_ratio=0.5, max_iter=300, random_state=42,
+            C=1.0, solver="saga", max_iter=300, random_state=42,
+            **_elasticnet(0.5),
         )),
     ])
     try:
