@@ -19,8 +19,8 @@ import pytest
 
 SAMPLE = {"symbol": "AAPL", "ticker": "AAPL", "name": "momentum", "strategy": "momentum",
           "scenario_type": "rate_shock", "content_id": "x", "debate_id": "x", "prediction_id": "x"}
-# Cold-loads the long-term memory store when no brain is running; slow, not broken.
-SLOW_OK = {"/api/brain/memories", "/api/brain/recall"}
+# Semantic recall may cold-load its model. Listing must never do so.
+SLOW_OK = {"/api/brain/recall"}
 
 
 def _owner_client(monkeypatch):

@@ -207,3 +207,6 @@ Files: approval_queue, order_manager, alpaca_broker, test_legacy_reconciliation,
 
 ## 2026-10-17 — PHASE2-1 follow-up — candidate audit PASS
 Fresh full requirements+CI venv installed, compatible Plotly/Anthropic major caps retained. pip-audit 104 distributions/0 findings, pip check clean. Shared optional-heavy runtime unchanged. Full upgraded regression follows. PHASE2-2 follow-up: new pure broker lookup explicitly classified READ_METHODS; write gates unchanged.
+
+## 2026-10-17 — PHASE2-3 — reproduced and fixed
+Files: long_term_memory, lazy-loading tests, cold-process profiling test, stricter GET sweep, ARIA_COLD_MEMORY. First isolated listing76.2556s to4.2950s; warm1.5195s to0.0403s; Python tracked peak248.2 to42.3MiB. Stack samples confirm unnecessary Transformers import; no model import or response error after. Backend setup4.0787s vs4.1966s. No timeout increase or production state/model/network use. Synthetic empty-store profile with instrumentation, not production SLO; native RSS not measured.
