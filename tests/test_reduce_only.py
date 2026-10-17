@@ -78,6 +78,7 @@ class _Book:
         self._n = 0
         self.reject_next = False
         self.partial_next = None
+        self.client_orders = {}
 
     # reads
     def is_connected(self):
@@ -99,6 +100,18 @@ class _Book:
         return f"o{self._n}"
 
     def submit_order(self, req: OrderRequest):
+        result = self._submit_order(req)
+        if req.client_order_id:
+            self.client_orders[req.client_order_id] = result
+        return result
+
+    def get_order_by_client_id(self, cid):
+        result = self.client_orders.get(cid)
+        if result and result.status == OrderStatus.SUBMITTED and result.broker_order_id not in self.resting:
+            return OrderResult(result.broker_order_id, OrderStatus.CANCELLED)
+        return result
+
+    def _submit_order(self, req: OrderRequest):
         side = req.side.value if hasattr(req.side, "value") else req.side
         self.sent.append((req.order_type.value, req.ticker, side, req.qty))
         if self.reject_next:
@@ -136,6 +149,8 @@ class _OcoBook(_Book):
     def submit_oco_exit(self, ticker, qty, entry_side, stop, target, *, client_order_id=None):
         side = "sell" if entry_side in ("buy", "long") else "buy"
         pid = self._id()
+        if client_order_id:
+            self.client_orders[client_order_id] = OrderResult(pid, OrderStatus.SUBMITTED)
         self.resting[pid] = {"id": pid, "ticker": ticker, "side": side, "qty": qty,
                              "order_type": "limit", "limit_price": target}
         leg = self._id()
@@ -667,7 +682,24 @@ def test_the_exit_goes_out_after_its_own_bracket_is_cancelled(monkeypatch):
     assert [s[0] for s in book.sent] == ["oco"]
     _close(monkeypatch, book)
     assert [s for s in book.sent if s[0] == "market"] == [("market", "AAPL", "sell", 10.0)]
-    assert book.holdings["AAPL"] == 0 and book.asked, "settled by asking the broker"
+    assert book.holdings["AAPL"] == 0
+
+
+def test_the_exit_still_goes_out_when_the_client_id_lookup_is_down(monkeypatch):
+    """Codex 048f47b reconciles the cancelled bracket by client id before the
+    reduce-only check. When that lookup fails, the claim is settled by asking
+    for the order itself by broker id — the same-tick exit does not depend on
+    one read path."""
+    book = _AlpacaNamedBook({"AAPL": 10})
+    _mgr(book).place_protective_orders("AAPL", 10, "buy", stop=9.0, target=12.0)
+
+    def lookup_down(cid):
+        raise ConnectionError("client-id lookup unavailable")
+
+    book.get_order_by_client_id = lookup_down
+    _close(monkeypatch, book)
+    assert [s for s in book.sent if s[0] == "market"] == [("market", "AAPL", "sell", 10.0)]
+    assert book.holdings["AAPL"] == 0 and book.asked, "settled by asking for the order by id"
 
 
 @pytest.mark.parametrize("answer", [OrderStatus.UNKNOWN, OrderStatus.SUBMITTED,
@@ -702,3 +734,4 @@ def test_a_claim_that_filled_meanwhile_is_sized_against_the_position_after_it():
     book.get_positions = positions_then_fill
     ro = reduce_only.at_broker(book, "AAPL", "sell", 10)
     assert not ro.ok, "the first read is stale: the position is now flat"
+

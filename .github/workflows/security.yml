@@ -29,6 +29,26 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  frontend-verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: node scripts/verify-launch-routes.mjs
+      - run: node scripts/verify-technical-dashboard.mjs
+      - run: node scripts/verify-execution-status.mjs
+      - run: npm run build -- --outDir ../ci-frontend-dist
+      - run: node scripts/verify-shell.mjs ../ci-frontend-dist
+
   # The fence (docs/ARIA_NEXT_SESSION.md step 1). No ARIA-authored commit may
   # touch the auth layer, the live-money gate, these workflows, or the fence
   # itself. Needs the full history — fetch-depth: 0 — because a shallow clone

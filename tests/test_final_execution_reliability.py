@@ -233,3 +233,87 @@ def test_ibkr_reconnect_finds_completed_order_by_reference(monkeypatch):
     found = broker.get_order_by_client_id("persisted-reference")
     assert found.status is OrderStatus.FILLED and found.filled_qty == 2
     assert found.broker_order_id == "19"
+
+
+def test_unknown_exit_is_persistent_and_never_resubmitted(queue, monkeypatch):
+    from test_reduce_only import Book, _close
+    broker = Book({"AAPL": 10})
+    attempts = []
+
+    def lost(req):
+        attempts.append(req.client_order_id)
+        raise TimeoutError("exit accepted; reply lost")
+
+    broker.submit_order = lost
+    monkeypatch.setattr(OrderManager, "SETTLE_WAIT_S", 0)
+    assert _close(monkeypatch, broker) is None
+    assert queue.unresolved()[0].status == "unknown"
+    assert _close(monkeypatch, broker) is None
+    assert len(attempts) == 1 and attempts[0]
+
+
+def test_remote_negative_lookup_keeps_order_engine_halted(clean_trading_state):
+    from test_trading_orders import broker, spec
+    from src.trading.orders import OrderEngine
+    from src.trading.broker import BrokerTimeout
+    venue = broker()
+    venue.authoritative_absence = False  # model a remote API, not synchronous memory
+    venue.fail_next_submit = BrokerTimeout("reply lost")
+    assert OrderEngine().submit(spec(), venue).status == "UNKNOWN"
+    report = OrderEngine().reconcile(venue)
+    assert report["halted"] and report["still_unknown"] == ["aria-test-1"]
+    assert OrderEngine().submit(spec(client_order_id="second"), venue).status == "REFUSED"
+    assert venue.submit_calls == 1
+
+
+def test_submitting_journal_claim_survives_crash_before_halt_file(clean_trading_state):
+    from test_trading_orders import broker, spec
+    from src.trading.orders import OrderEngine
+    OrderEngine()._append("crashed", "SUBMITTING")
+    venue = broker()
+    assert OrderEngine().submit(spec(), venue).status == "REFUSED"
+    assert venue.submit_calls == 0
+
+
+def test_corrupt_order_journal_never_allows_a_new_order(clean_trading_state):
+    from test_trading_orders import broker, spec
+    from src.trading import orders
+    orders.JOURNAL.parent.mkdir(parents=True, exist_ok=True)
+    orders.JOURNAL.write_text('{"truncated":', encoding="utf-8")
+    venue = broker()
+    assert orders.OrderEngine().submit(spec(), venue).status == "REFUSED"
+    assert venue.submit_calls == 0
+
+
+def test_estimated_pnl_is_not_written_to_learning_memory(monkeypatch):
+    from src.desk.position_manager import PositionManager
+    from src.brain.cognitive import long_term_memory
+    writes = []
+    monkeypatch.setattr(long_term_memory, "LongTermMemory", lambda: SimpleNamespace(
+        record_outcome=lambda *a: writes.append(a)))
+    manager_ = PositionManager.__new__(PositionManager)
+    manager_._record_outcome_memory({"debate_id": "fixture", "estimated": True})
+    assert writes == []
+
+
+def test_cancelled_partial_fill_preserves_position_but_releases_working_remainder(queue):
+    trade = proposal(queue)
+    from src.execution import alpaca_broker as ab
+    client = SimpleNamespace(get_order_by_client_id=lambda cid: SimpleNamespace(
+        id="partial-terminal", status="canceled", filled_qty="0.5", filled_avg_price="101", filled_at=None))
+    adapter = ab.AlpacaBroker.__new__(ab.AlpacaBroker)
+    adapter._client = client
+    result = adapter.get_order_by_client_id("partial-key")
+    assert result.status is OrderStatus.PARTIAL and result.terminal
+    queue.mark_executed(trade.id, result.broker_order_id, result.avg_fill_price,
+                        order_status=result.status.value, filled_qty=result.filled_qty,
+                        order_terminal=result.terminal)
+    saved = queue.get_by_id(trade.id)
+    assert saved.filled_qty == 0.5 and saved.fill_price == 101
+    assert saved.order_terminal and queue.in_flight() == []
+
+
+def test_legacy_timeout_is_unknown_even_without_lookup_key():
+    from src.execution.alpaca_broker import _classify_submit_failure
+    request = OrderRequest("AAPL", OrderSide.BUY, 1)
+    assert _classify_submit_failure(TimeoutError("lost reply"), request) is OrderStatus.UNKNOWN

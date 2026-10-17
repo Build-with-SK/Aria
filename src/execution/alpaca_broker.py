@@ -168,9 +168,8 @@ def _classify_submit_failure(exc: Exception, req: OrderRequest,
 
     A 4xx answer to the ONLY attempt is Alpaca saying no: the order does not
     exist. Anything else — a timeout, a dropped connection, a 5xx — leaves the
-    order's existence unknown. That distinction only helps a caller who can
-    look the order up afterwards, so UNKNOWN is reported only when a
-    client_order_id was supplied; legacy callers keep the old behaviour.
+    order's existence unknown. A missing lookup key never justifies saying
+    REJECTED: it leaves an unresolved order for manual broker reconciliation.
 
     Two 4xx answers are not a refusal of the order:
       * a complaint about the client order id itself — the broker already
@@ -183,8 +182,6 @@ def _classify_submit_failure(exc: Exception, req: OrderRequest,
         through a client with retries off (`_submit_client`), where a 4xx is
         the answer to the one and only POST.
     """
-    if not req.client_order_id:
-        return OrderStatus.REJECTED
     code = getattr(exc, "status_code", None)
     if isinstance(code, int) and 400 <= code < 500:
         if "client_order_id" in str(exc).lower() or retried:
@@ -507,6 +504,7 @@ class AlpacaBroker(BrokerBase):
                 filled_qty=filled,
                 avg_fill_price=float(order.filled_avg_price or 0),
                 filled_at=order.filled_at,
+                raw={"status": str(order.status)},
             )
         except Exception as e:
             return OrderResult(

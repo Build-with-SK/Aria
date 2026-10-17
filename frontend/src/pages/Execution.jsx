@@ -1,30 +1,11 @@
 import React, { useState } from 'react'
+import { StatusPill, ExecutionReceipt } from '../components/ExecutionStatus'
 import { useCurrency } from '../currency/CurrencyContext'
 import { BBCard, SectionHeader, ScoreBadge, ActionBadge } from '../components/UI'
 import {
   useApprovalQueue, useBrokerStatus, useLivePositions,
   approveAndExecute, rejectTrade, cancelTrade
 } from '../hooks/useExecution'
-
-// ─── Status pill ─────────────────────────────────────────────────────────────
-function StatusPill({ status }) {
-  const cfg = {
-    pending:   { color: '#ffcc00', bg: 'rgba(255,204,0,0.12)',   label: '⏳ PENDING APPROVAL' },
-    approved:  { color: '#00aaff', bg: 'rgba(0,170,255,0.12)',  label: '✓ APPROVED' },
-    executed:  { color: '#00cc44', bg: 'rgba(0,204,68,0.12)',   label: '✅ EXECUTED' },
-    rejected:  { color: '#ff3333', bg: 'rgba(255,51,51,0.12)',  label: '✗ REJECTED' },
-    cancelled: { color: '#888',    bg: 'rgba(136,136,136,0.1)', label: '— CANCELLED' },
-  }
-  const c = cfg[status] || cfg.cancelled
-  return (
-    <span style={{
-      fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700,
-      color: c.color, background: c.bg,
-      border: `1px solid ${c.color}44`,
-      borderRadius: 3, padding: '2px 8px', letterSpacing: 1,
-    }}>{c.label}</span>
-  )
-}
 
 // ─── Broker status panel ──────────────────────────────────────────────────────
 function BrokerPanel() {
@@ -171,7 +152,7 @@ function TradeCard({ trade, onAction }) {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <StatusPill status={trade.status} />
+          <StatusPill trade={trade} />
           <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)' }}>
             {new Date(trade.created_at).toLocaleString()}
           </span>
@@ -232,11 +213,7 @@ function TradeCard({ trade, onAction }) {
       )}
 
       {/* Executed info */}
-      {trade.status === 'executed' && (
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--green)', marginBottom: 12 }}>
-          ✅ Filled @ ${trade.fill_price} · Order ID: {trade.broker_order_id} · {new Date(trade.executed_at).toLocaleString()}
-        </div>
-      )}
+      <ExecutionReceipt trade={trade} />
       {trade.status === 'rejected' && trade.rejection_reason && (
         <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>
           ✗ Rejected: {trade.rejection_reason}

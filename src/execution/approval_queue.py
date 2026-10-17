@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import tempfile
 import uuid
 from contextlib import contextmanager
@@ -91,6 +92,7 @@ class PendingTrade:
     # rejected | expired | unknown — and how much actually filled.
     order_status:    str = ""
     filled_qty:      float = 0.0
+    order_terminal:  bool = False
     # An unresolved order the OWNER released after checking the broker.
     released_by:     str = ""
     released_at:     str = ""
@@ -101,7 +103,8 @@ UNRESOLVED = ("submitting", "unknown")
 
 def _active(row: dict) -> bool:
     return row.get("status") in UNRESOLVED or (
-        row.get("status") == "executed" and row.get("order_status") in ("submitted", "partial"))
+        row.get("status") == "executed" and not row.get("order_terminal") and
+        row.get("order_status") in ("submitted", "partial"))
 
 
 class QueueStateError(RuntimeError):
@@ -109,16 +112,17 @@ class QueueStateError(RuntimeError):
 
 
 @contextmanager
-def _queue_guard():
+def _queue_guard(path: Optional[Path] = None):
     """Serialize readers and writers across API threads AND process restarts.
 
     The lock has its own stable inode; the snapshot is replaced atomically.
     Kernel locks are released if a worker crashes. Never lock the replaced file.
     """
     with _QUEUE_LOCK:
-        QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with QUEUE_FILE.with_suffix(".lock").open("a+b") as lock:
-            if os.name == "nt":
+        target = path if path is not None else QUEUE_FILE
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with target.with_suffix(".lock").open("a+b") as lock:
+            if sys.platform == "win32":
                 import msvcrt
                 if lock.seek(0, os.SEEK_END) == 0:
                     lock.write(b"\0")
@@ -131,7 +135,7 @@ def _queue_guard():
             try:
                 yield
             finally:
-                if os.name == "nt":
+                if sys.platform == "win32":
                     lock.seek(0)
                     msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
@@ -308,7 +312,8 @@ class ApprovalQueue:
         return None
 
     def claim_for_submit(self, trade_id: str, client_order_id: str, *,
-                         exclusive: bool = True, protection: bool = False) -> tuple[Optional[PendingTrade], str]:
+                         exclusive: bool = True, protection: bool = False,
+                         reduction: bool = False) -> tuple[Optional[PendingTrade], str]:
         """Atomically move an approved (or pending) row to "submitting" with its
         client id recorded — BEFORE anything is sent. From here the row cannot
         be cancelled as "never reached the broker".
@@ -325,12 +330,12 @@ class ApprovalQueue:
             if row is None or row["status"] not in ("pending", "approved"):
                 return None, (f"trade {trade_id} is "
                               f"{'missing' if row is None else row['status']}, not sendable")
-            if exclusive or protection:
+            if exclusive or protection or reduction:
                 busy = [d for d in items if d["id"] != trade_id and _active(d)
                         and same_symbol(d.get("ticker"), row.get("ticker"))
                         and ((exclusive and (d.get("status") in UNRESOLVED or
                                              d.get("situation") != "protective_exit")) or
-                             (protection and d.get("situation") == "protective_exit"))
+                             ((protection or reduction) and d.get("reduce_only")))
                         and d.get("broker") == row.get("broker")]
                 if busy:
                     return None, (f"another order for {row.get('ticker')} is unresolved: "
@@ -343,7 +348,7 @@ class ApprovalQueue:
 
     def mark_executed(self, trade_id: str, broker_order_id: str, fill_price: float = 0.0,
                       *, client_order_id: str = "", order_status: str = "",
-                      filled_qty: Optional[float] = None):
+                      filled_qty: Optional[float] = None, order_terminal: bool = False):
         """The broker acknowledged the order. `order_status` says how far it got
         (submitted / partial / filled); `executed` alone never meant filled."""
         with _queue_guard():
@@ -361,6 +366,7 @@ class ApprovalQueue:
                         d["client_order_id"] = client_order_id
                     if order_status:
                         d["order_status"] = order_status
+                        d["order_terminal"] = order_terminal
                     if filled_qty is not None:
                         d["filled_qty"] = float(filled_qty)
                     _save_queue(items)

@@ -298,6 +298,8 @@ class _FakeBroker:
     exit is now checked against the broker's position at the moment it is
     sent (src/execution/reduce_only), so a fake with no position is a fake
     whose exits are — correctly — refused."""
+    name = "Alpaca"
+
     def __init__(self, holdings=None):
         self.submitted = []
         self.cancelled = []

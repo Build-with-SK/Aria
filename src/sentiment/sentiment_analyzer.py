@@ -39,9 +39,22 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from typing import Dict, List, Optional, Set, Tuple
 
-import yfinance as yf
-
 logger = logging.getLogger(__name__)
+
+#: yfinance, imported on first use so a minimal CI install can collect and run
+#: the scoring tests without it (Codex 048f47b). A module attribute rather than
+#: a local import: the search fallback below read a module-level `yf` that the
+#: local import had removed — a NameError swallowed at debug level, so every
+#: ticker silently went back to "no news". Tests substitute it here.
+yf = None
+
+
+def _yfinance():
+    global yf
+    if yf is None:
+        import yfinance
+        yf = yfinance
+    return yf
 
 try:
     import feedparser
@@ -279,7 +292,7 @@ def _fetch_yfinance_search_news(ticker: str, limit: int = 15) -> List[ArticleSen
     articles: List[ArticleSentiment] = []
     want = (ticker or "").upper()
     try:
-        news = yf.Search(ticker, news_count=limit).news or []
+        news = _yfinance().Search(ticker, news_count=limit).news or []
     except Exception as e:
         logger.debug(f"yfinance search news failed for {ticker}: {e}")
         return articles
@@ -313,7 +326,7 @@ def _fetch_yfinance_ticker_news(ticker: str, limit: int = 15) -> List[ArticleSen
     """Fetch and score news from yfinance's `Ticker.news`."""
     articles: List[ArticleSentiment] = []
     try:
-        news = yf.Ticker(ticker).news or []
+        news = _yfinance().Ticker(ticker).news or []
         for item in news[:limit]:
             try:
                 content = item.get("content", {})
