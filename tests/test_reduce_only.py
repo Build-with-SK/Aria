@@ -734,4 +734,3 @@ def test_a_claim_that_filled_meanwhile_is_sized_against_the_position_after_it():
     book.get_positions = positions_then_fill
     ro = reduce_only.at_broker(book, "AAPL", "sell", 10)
     assert not ro.ok, "the first read is stale: the position is now flat"
-

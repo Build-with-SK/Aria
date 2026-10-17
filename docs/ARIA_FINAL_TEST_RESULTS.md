@@ -1,6 +1,6 @@
 # ARIA final integrated test results
 
-Runtime implementation: **89f8f4a**; final test inventory: **a079dff** on `codex/aria-final-integration`. Final report commits change documentation only. All final tests use frozen source and isolated state; primary training/backend/services and broker state are untouched.
+Runtime implementation: **89f8f4a**; final test inventory: **a079dff** on `codex/aria-final-integration`. Later commits contain reports and nonsemantic trailing-blank cleanup in test_reduce_only.py (AST unchanged). All final tests use frozen source and isolated state; primary training/backend/services and broker state are untouched.
 
 ## Final results
 
