@@ -38,11 +38,12 @@ training stack.
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Iterable, Optional
 
-from src.core.durable import StateUnreadable, atomic_write_json, read_json_state
+from src.core.durable import ProcessSharedLock, StateUnreadable, atomic_write_json, read_json_state
 
 logger = logging.getLogger(__name__)
 
@@ -176,22 +177,29 @@ def _write(path: Path, rows: dict) -> None:
     atomic_write_json(Path(path), rows, indent=1)
 
 
+@lru_cache(maxsize=128)
+def _writer_lock(path: str) -> ProcessSharedLock:
+    return ProcessSharedLock(lambda: Path(path + ".lock"))
+
+
 def merge_rows(path: Path, rows: dict) -> int:
     """Replace `rows`' tickers in the file, atomically. Returns the file's
     row count. Raises when the file cannot be read or written; the file is
     then exactly as it was."""
-    current = read_rows(path)
-    current.update(rows)
-    _write(path, current)
-    return len(current)
+    with _writer_lock(str(Path(path).resolve())):
+        current = read_rows(path)
+        current.update(rows)
+        _write(path, current)
+        return len(current)
 
 
 def keep_only(path: Path, tickers: Iterable[str]) -> int:
     """Drop every row whose ticker is not in `tickers`. Returns how many were
     dropped. Only for the end of a pass that finished."""
     keep = set(tickers)
-    current = read_rows(path)
-    kept = {t: r for t, r in current.items() if t in keep}
-    if len(kept) != len(current):
-        _write(path, kept)
-    return len(current) - len(kept)
+    with _writer_lock(str(Path(path).resolve())):
+        current = read_rows(path)
+        kept = {t: r for t, r in current.items() if t in keep}
+        if len(kept) != len(current):
+            _write(path, kept)
+        return len(current) - len(kept)

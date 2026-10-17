@@ -465,6 +465,21 @@ def test_the_meta_learner_fits_without_a_penalty_futurewarning():
     assert not [w for w in caught if "penalty" in str(w.message)], caught
 
 
+def test_concurrent_batch_merges_do_not_drop_finished_tickers(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+    path = tmp_path / "ml.json"
+    original = ml_store.read_rows
+    def slow_read(p):
+        rows = original(p)
+        time.sleep(0.01)
+        return rows
+    monkeypatch.setattr(ml_store, "read_rows", slow_read)
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda n: ml_store.merge_rows(path, {f"T{n}": {"value": n}}), range(32)))
+    assert original(path) == {f"T{n}": {"value": n} for n in range(32)}
+
+
 def test_the_elastic_net_arguments_fit_the_same_model_on_either_sklearn(monkeypatch):
     import sklearn
     from sklearn.linear_model import LogisticRegression

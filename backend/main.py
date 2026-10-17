@@ -268,7 +268,7 @@ def _state_unavailable(request, exc):
                   f"for repair.")
         body = {"detail": detail, "state_unreadable": "approval_queue.json"}
     else:
-        detail = f"state busy: {exc}. Nothing was sent or changed; try again."
+        detail = "State lock is busy. Nothing was sent or changed; try again."
         body = {"detail": detail, "state_locked": True}
     logger.error(f"{request.method} {request.url.path}: {detail}")
     return JSONResponse(status_code=503, content=body)

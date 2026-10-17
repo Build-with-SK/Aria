@@ -69,7 +69,7 @@ headers; the wrapper-shaped ones also carry a `freshness` key in the body.
 `daily_report.json` have one writer, `main_phase4_backup.py`, which nothing
 runs. They date from 2026-05-31 and are kept only because endpoints still read
 them. `signals.json` and `ml_predictions.json` are written by the full pipeline
-(`main.py`), a manual run.
+(`main.py`). ML now merges completed batches atomically and stamps each row; readers age individual rows, not a batch-refreshed file mtime. Resume defaults to rows younger than 20 hours; `--force-ml` retrains. Run only one full pipeline pass at a time; batch writes serialize, but end-of-pass pruning assumes one active universe/pass.
 
 **Stale signals gate execution.** `AutoExecutor.gates()` closes `auto_allowed`
 when `signals.json` is past its 30 h budget. The trade then goes to the human

@@ -151,3 +151,21 @@ def test_the_api_reports_a_damaged_queue_as_503_not_500(queue, monkeypatch, tmp_
     assert body["state_unreadable"] == "approval_queue.json"
     assert "Nothing was sent" in body["detail"]
     assert str(tmp_path) not in body["detail"], "no local paths in the answer"
+
+
+def test_queue_lock_timeout_response_never_discloses_local_path(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from src.auth import policy, hardening
+    from src.core.durable import StateLockTimeout
+    from src.execution import approval_queue as aq
+    monkeypatch.setenv("ARIA_OWNER_TOKEN", TOKEN)
+    monkeypatch.setattr(policy, "owner_token_hash", lambda: "")
+    hardening._limiter._hits.clear()
+    def busy(self):
+        raise StateLockTimeout(f"{tmp_path / 'private-state.lock'} held too long")
+    monkeypatch.setattr(aq.ApprovalQueue, "unresolved", busy)
+    response = TestClient(app, client=("203.0.113.44", 54100)).get(
+        "/api/execute/unresolved", headers={"Authorization": f"Bearer {TOKEN}"})
+    assert response.status_code == 503 and response.json()["state_locked"]
+    assert str(tmp_path) not in response.text and "private-state" not in response.text

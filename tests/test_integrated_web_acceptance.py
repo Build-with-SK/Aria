@@ -21,6 +21,9 @@ def test_proxy_login_built_shell_and_incremental_sse(monkeypatch):
     from src.auth import policy, hardening
     from src.inference import router
     from starlette.routing import Mount
+    # Proxy discovery is intentionally process-persistent in the application.
+    # This simulated deployment must not retire loopback inference in later tests.
+    monkeypatch.setattr(policy, '_PROXY_SEEN', dict(policy._PROXY_SEEN))
     monkeypatch.setenv('ARIA_TESTING', '1')
     monkeypatch.setenv('ARIA_OWNER_TOKEN', 'integration-fixture-owner')
     monkeypatch.delenv('ARIA_OWNER_TOKEN_HASH', raising=False)
