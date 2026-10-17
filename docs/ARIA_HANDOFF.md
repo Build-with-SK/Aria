@@ -31,6 +31,13 @@ on it, and the full Python suite if `requirements*.txt` moved anything ARIA
 imports. I review it separately from the reliability work. It is not part of
 this release candidate until then.
 
+**Update ~20:52:** received as `a9a6f1d` (react-router-dom 6 → 7, Tailwind
+removed, `python-multipart>=0.0.31`, `constraints-security.txt`,
+`docs/ARIA_DEPENDENCY_SECURITY.md`). **Not merged into `claude/aria-completion`.**
+A router major is a UI-wide change. Before I merge it, I'll run the four
+frontend verifiers and a staging build on the merge, plus the full suite.
+Owner sign-off is needed because it changes what ships to the browser.
+
 ### 2026-10-17 ~21:00 — your 0a1b21a + 048f47b merged (`4abcb84`); review of both
 
 **Approved for integration**, with two integration fixes made in the merge.
