@@ -88,7 +88,7 @@ READ_METHODS = frozenset({
     # try/except, so the refusal was swallowed and the code fell through to an
     # ESTIMATED exit price, writing invented P&L into the closed-trades ledger
     # that the track record and the teacher's lessons are computed from.
-    "last_closed_fill", "get_order_by_client_id",
+    "last_closed_fill", "get_order_by_client_id", "get_order_by_broker_id",
     # Declarations the gate itself reads.
     "PAPER_ENV_VAR", "endpoint_is_paper",
 })
