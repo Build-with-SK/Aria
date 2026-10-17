@@ -1,6 +1,12 @@
 # ARIA architecture
 
-How ARIA is put together as of `claude/aria-completion` (2026-10-17), with the
+Integrated candidate: `codex/aria-final-integration`, runtime implementation `89f8f4a`.
+The historical completion architecture below is retained with these updates: router 7;
+legacy quarantine and identity-checked read-only recovery; bounded queue/ML locks;
+lazy embedding model; Windows Python 3.14.8 candidate; ML batch persistence and row ages.
+See `ARIA_FINAL_INTEGRATION.md` for current evidence and blockers.
+
+How ARIA was put together as of `claude/aria-completion` (2026-10-17), with the
 trading path in detail. Deeper references, still current:
 `docs/TRADING_ARCHITECTURE.md` (the `src/trading` layers and the road to live),
 `docs/PORTFOLIO_RISK.md` (pre-trade gate), `docs/MARKET_SESSIONS.md`,
@@ -14,7 +20,7 @@ trading path in detail. Deeper references, still current:
 | `main.py` | `TradingIntelligenceSystem` scheduled task (visible console) | The data pipeline: download → signals → sentiment → macro → ML (~4 h) → exports to `data/*.json`. Places no orders. |
 | `chat.py` | the owner, by hand | CLI chat (a hidden entry point — check it before calling any module dead). |
 | `src/dashboard/dashboard.py` | Streamlit, by hand | Legacy dashboard (also a hidden entry point). |
-| `frontend/` | `npm run build` → `frontend/dist`, served by the backend | React 18, react-router 6, Vite 8; 19 pages, inline styles; `/app/` with a service worker. |
+| `frontend/` | `npm run build` → `frontend/dist`, served by the backend | React 18, react-router 7, Vite 8; 19 pages, inline styles; `/app/` with a service worker. |
 
 **Exactly one process may run the desk** (`data/desk/desk_daemon.lock`, held
 for the process's life; a second backend stays idle, reports
