@@ -408,3 +408,41 @@ def test_f09_healing_protects_the_whole_broker_position(monkeypatch):
     protected = max((o["qty"] for o in book.resting.values()
                      if o["order_type"] == "stop"), default=0)
     assert protected == 10, f"stop covers {protected} of 10 shares held"
+
+
+# ── F-10: the auto-execution freshness gate ages signals by file mtime ──────
+#
+# Gate 6 (AutoExecutor.gates -> desk.opinion.signals_freshness) is FRESH when
+# data/signals.json was WRITTEN in the last 30 h. data/signals.json is tracked
+# in git, so a checkout, merge or reset — including the cutover of this very
+# candidate, whose committed copy dates from 2026-09-27 — rewrites the file and
+# makes weeks-old signals pass the gate. Rows stamped by the pipeline carry
+# data_as_of / generated_at; the gate ignores them.
+
+@pytest.mark.xfail(strict=True, reason="F-10: gate 6 trusts file mtime; old rows in a "
+                                       "freshly written file pass")
+def test_f10_freshly_written_old_signals_do_not_pass_gate_6(tmp_path, monkeypatch):
+    import json
+    from datetime import timedelta
+    from src.core import world
+    from src.desk.opinion import signals_freshness
+    monkeypatch.setattr(world, "DATA", tmp_path)
+    old = datetime.now() - timedelta(days=21)
+    (tmp_path / "signals.json").write_text(json.dumps({
+        "AAPL": {"composite_score": 42.0, "current_price": 100.0,
+                 "data_as_of": old.date().isoformat(),
+                 "generated_at": old.isoformat(timespec="seconds")}}), encoding="utf-8")
+    gate = signals_freshness()
+    assert gate["fresh"] is False, f"21-day-old signals read as {gate}"
+
+
+def test_f10_unstamped_signals_written_now_pass_gate_6_today(tmp_path, monkeypatch):
+    """Documents today's contract: rows with no stamp, file written now -> FRESH.
+    This is exactly the committed candidate copy after a checkout."""
+    import json
+    from src.core import world
+    from src.desk.opinion import signals_freshness
+    monkeypatch.setattr(world, "DATA", tmp_path)
+    (tmp_path / "signals.json").write_text(json.dumps({"AAPL": {"composite_score": 42.0}}),
+                                           encoding="utf-8")
+    assert signals_freshness()["fresh"] is True
