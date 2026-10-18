@@ -2,6 +2,11 @@
 
 Only Codex edits this file. Newest entry at the top.
 
+## 2026-10-18 — operational-readiness — complete locally; release BLOCKED
+Branch codex/aria-operational-readiness from edc2796; implementation edfb5e6. Owner appointed Codex sole engineering lead. All 49 Bandit findings individually classified (7 confirmed, 23 acceptable, 10 false positive, 9 require validation). Five XML sites now reject DTD/entities via a bounded parser; research HTTP/RSS DNS+redirect policy mitigates two SSRF gaps; DNS rebinding egress remains open. Fixed ML empty/invalid/future summary freshness and backup SQLite fallback / Windows archive paths. 19 new regression cases; assertions retained.
+Measured: Windows 3543 passed/12 skipped (461.31s), Linux 3545/10 (167.20s), both exit0 on edfb5e6. Full frontend verifiers/build, 158-route GET sweep, pip check/audit (101 distributions, zero), npm zero, Ruff/mypy/compile/history fence pass. Bandit still exits1:43 (4 high/39 medium); no suppressions. Detailed findings in docs/security; four readiness reports updated, plus historical reconciliation and controlled-paper procedures.
+No production merge/push/restart, live enablement, credentials, real ML/trading data operation or broker call. External acceptance, historical original-account evidence, source egress/optional trust validation and target deployment remain BLOCKED. Original candidate/primary checkout and other agent's unfinished work preserved. Full private evidence archived under the current chat visualization directory; reproducible commands and limitations in ARIA_FINAL_TEST_RESULTS.
+
 ## 2026-10-18 — operational-readiness — started
 Owner appointed Codex sole engineering lead. Isolated branch codex/aria-operational-readiness from edc2796; primary runtime untouched. Scope: all 49 Bandit findings; research HTTP/XML, ML timestamps, backup recovery, operational fixtures, final readiness reports. No production merge/push/restart or broker calls.
 

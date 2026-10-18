@@ -1,30 +1,54 @@
-# ARIA release candidate
+# ARIA operational release candidate — 2026-10-18
 
-**Candidate for constrained review; release/deployment BLOCKED.** Branch `codex/aria-final-integration`, isolated checkout. Runtime implementation is `89f8f4a`, final test inventory `a079dff`; current source anchor is recorded in ARIA_FINAL_TEST_RESULTS; later commits are reports/CI only. No protected-branch merge, push, production restart, broker mutation or live enablement.
+**Overall verdict: BLOCKED for deployment/production release.** Authorized local implementation and validation are complete as recorded below. No merge into production, push, service restart, broker request or live enablement was performed.
 
-| Gate | Verdict | Scope |
+Review branch: `codex/aria-operational-readiness`, based on integrated candidate `edc2796`. Implementation commit: `edfb5e6`; later commits contain evidence/procedures only. The original candidate and primary deployed checkout remain untouched.
+
+## Integration verification
+
+- `claude/aria-completion` at `659a75c` is an ancestor of the candidate.
+- Claude ML commit `4ffda39` is incorporated as `1fd6426`; its `main.py`, `ml_store.py` and launch-check implementation match at incorporation. Later `24a0c36` adds batch serialization. The existing integration report records the identity/partial/state-recovery adaptations rather than silently replacing the completion branch.
+- `_MLBatchWriter` flushes every 25 finished tickers by default; rows carry their own `generated_at` and training `data_as_of`. `merge_rows` is locked and atomically replaces the snapshot. Default resume budget is 20h; `--force-ml` retrains. Completed-pass pruning is distinct from interruption recovery.
+- Tests force an actual subprocess `os._exit` after ticker 55 and verify the first 50 remain on disk; interruption/resume, force, timestamps, failed writes, mixed row ages and concurrent batch merges pass. New regressions reject empty, malformed and future-stamped dataset freshness. No real training or live data was used.
+
+## Release gates
+
+| Gate | Verdict | Evidence / boundary |
 | --- | --- | --- |
-| Claude/Codex reconciliation | PASS | Completion ancestry, Phase2 and later Claude ML work; traceability in final integration report. |
-| R1/R2/R3 and local order safety | PASS | Identity-checked bracket recovery, typed refusal, unreadable snapshots; legacy/UNKNOWN/claims/partial/concurrency/restart fixtures. |
-| Patched Windows runtime preparation | PASS | Private3.14.8, actual Expat 2.8.5/OpenSSL 3.5.9; fresh dependencies and regression. |
-| Full integrated regression | PASS | Windows 3,524 passed/12 skipped; Linux 3,526/10. Frozen runtime89f8f4a, final tests a079dff; both exit0. |
-| Dependency audits | PASS | Fresh base Windows/Linux and npm:zero advisories; optional/deployed stack excluded. |
-| Static checks | PASS | Fatal Ruff, six-module mypy, compile/fence. |
-| Source security scanner | FAIL | Bandit 49 patterns assessed; exit1 retained. This is not a clean-source security claim. |
-| Local Linux execution | PASS | Real Ubuntu WSL source/venv, install/config/db/paths/permissions/process shutdown/restart; full final result in test report. |
-| Real browser | PASS | Actual built React dashboard/scanner/approvals/UNKNOWN/risk/history/outage/recovery and real SW cache upgrade, synthetic APIs. |
-| Local backend/frontend/proxy/auth/SSE | PASS | Real ASGI listener and forwarding proxy, built shell/asset, signed session, anonymous denial, incremental SSE and clean shutdown. |
-| Approved external PAPER reads | PASS | Five GETs:active unblocked account/history, broker/client identifier agreement, positive legacy recovery in disposable queue. |
-| Historical migration, new venue orders, IBKR, fees, hosted acceptance | BLOCKED | Exact prerequisites in ARIA_REMAINING_BLOCKERS. |
-| Production/live release | BLOCKED | No edge claim; owner approval and external validation absent. |
+| Candidate identity and integration | PASS | Clean isolated source from edc2796; completion ancestry and ML cherry-pick inspected |
+| ML incremental writes/resume/freshness | PASS | Actual abrupt-exit subprocess, batch/resume/atomic-write fixtures; new timestamp regression |
+| Windows full regression | PASS | 3,543 passed, 12 skipped, exit 0; 461.31s |
+| Linux full regression | PASS | 3,545 passed, 10 skipped, exit 0; fresh source fixture, reused private Linux venv |
+| Startup/shutdown and local transport | PASS | Real ephemeral ASGI/proxy/sign-in/SSE fixtures, lifecycle shutdown; no deployed service touched |
+| Process exclusion / supervision primitives | PASS | Cross-process lock exclusion, dead-holder recovery, one desk, late model availability and stop/restart fixtures |
+| Target-host sustained supervision | BLOCKED | Actual supervisor/host and long uptime need approved deployment |
+| Backup/database restore | PASS | Synthetic WAL snapshot integrity, retained UNKNOWN queue, failed snapshot rejection and Windows traversal checks |
+| Stale signal and unavailable broker handling | PASS | Existing freshness, risk, unreadable-snapshot and disconnected-adapter regressions |
+| UNKNOWN and duplicate prevention | PASS | Durable claims/negative lookup/alias/concurrency/restart fixtures; no automatic release |
+| Risk, kill switch, reduce-only, approval | PASS | Full risk/order/session/security suites; no gates weakened |
+| Frontend/backend state consistency | PASS | Staged build/offline state verifiers plus real local backend/proxy fixture; acknowledgements distinct from fills |
+| Logs/alerts/health | PASS | Readiness failure, log isolation/redaction and reflex attempt/notification-boundary fixtures; external push delivery not measured |
+| Live disabled locally | PASS | RESEARCH default, external-switch/live-ceiling tests; no real execution calls made |
+| Deployed process live configuration | BLOCKED | Running production environment not certified by local fixtures; no credentials/services changed |
+| Static/type/compile/history fence | PASS | Fatal Ruff, six-module mypy, compileall and protected-history fence |
+| Base dependency audit | PASS | Reused Windows base: 101 distributions, zero pip findings; pip check clean; npm zero |
+| Raw source-security scanner | FAIL | Bandit 43 remaining patterns, exit 1; every original finding classified, none suppressed |
+| Manual source-security acceptance | BLOCKED | DNS rebinding egress and nine further-validation items retained |
+| Historical account reconciliation | BLOCKED | Prepared read-only procedure, including dfe2a885/AAPL; no broker call made |
+| Controlled paper venue acceptance | BLOCKED | Prepared reproducible protocol; requires new explicit owner order/cancel authorization |
+| IBKR / actual fees and cumulative net P&L | BLOCKED | External gateway, execution and fee statement evidence missing |
+| Hosted browser/TLS/optional packages | BLOCKED | Prior local browser evidence retained, no new hosted acceptance; optional packages outside base audit |
+| Independent review / data-age contracts / measured edge | BLOCKED | Unresolved requirements retained in ARIA_REMAINING_BLOCKERS |
+| Production/live release | BLOCKED | Owner authority plus unresolved security/external gates |
 
-## Controlled paper acceptance plan — not permission to execute
+PASS means the specified local fixture scope passed, not that its external venue/host equivalent was exercised. Skips are reported separately. Prior Windows 3,524/Linux 3,526 runs remain historical evidence; they are not the result of this mission.
 
-1. Owner selects a paper account, instrument, tiny size/notional ceiling, time window and exact allowed order/cancel operations. Confirm paper hostname/account, backup state, enable monitoring and abort conditions.
-2. Lost acknowledgement: allow one venue acceptance, drop only the response, restart the app; original deterministic client ID must find the same order. Assert one venue order and one durable claim, no second POST.
-3. Partial fill plus cancel: inspect executions and cumulative quantities, cancel remainder only with explicit approval, keep actual fill/price and terminal remainder. Restart/replay callbacks; position and reservations must not duplicate.
-4. Restart/disconnect: lose gateway/network during working order, preserve UNKNOWN/claims and protections, reconnect and use original/permanent identities. A404 remains unresolved.
-5. Fees: compare every execution, cumulative VWAP, commissions and final net P&L to the broker statement. Unknown fees remain explicitly unreconciled, never silently zero/estimated truth.
-6. Reconcile all created orders, positions, residuals and audit transitions before ending. Stop on any identity mismatch, unresolved acceptance, risk bypass or duplicate send. Preserve the evidence and keep automation blocked until owner review.
+## Review material and acceptance procedures
 
-Isolated mocks already exercise timeout, delayed visibility, partial/terminal/cancel, duplicate callbacks, crash and restart. The plan's external fee/venue outcomes remain BLOCKED; no external acceptance pass is inferred from mocks.
+- ARIA_SECURITY_READINESS.md and security/BANDIT_TRIAGE.md: all 49 findings, fixes and residual limits.
+- ARIA_FINAL_TEST_RESULTS.md: exact current commands, versions, outcomes and evidence location.
+- ARIA_HISTORICAL_RECONCILIATION.md: read-only account/statement evidence; no absence-to-rejection inference, no queue mutation.
+- ARIA_PAPER_ACCEPTANCE.md: approval/submission/lost-ack/partial/cancel/restart/duplicate/fee/final-account protocol, abort criteria and private evidence fields.
+- ARIA_REMAINING_BLOCKERS.md: every unresolved deployment, credentials, venue and owner decision.
+
+Before an approved cutover, stop all old queue/desk/pipeline writers and preserve claim/quarantine/audit state. Do not use rollback to erase uncertain submissions. Only one complete ML pass may prune its universe at a time. Neither this document nor a green regression result authorizes broker writes or production changes.
