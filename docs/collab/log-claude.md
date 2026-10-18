@@ -2,6 +2,26 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-18 — Final architecture, safety and release review — on `claude/aria-final-review`, review-only
+Candidate `codex/aria-final-integration` @ `edc2796`. Worktree `.claude/worktrees/aria-final-review`.
+Nothing pushed, merged, restarted or deployed. No broker call. No Codex file edited.
+Measured: candidate full suite 3,523 passed / 13 skipped / exit 0 (Windows, runtime venv 3.11.8).
+Codex `edfb5e6`: 3,542 / 13 / exit 0. Bandit 49 on the candidate (matches Codex), 43 on `edfb5e6`.
+pip-audit of the runtime venv: 74 known vulnerabilities in 14 packages (S-01).
+Findings (probes in `tests/test_claude_final_review_probes.py`, strict-xfail):
+F-01 HIGH halt cancels no Alpaca order. F-10 HIGH gate 6 trusts mtime of git-tracked
+`signals.json`. F-02 / F-09 MEDIUM protection loss in the exit engine. F-06 MEDIUM regression
+in `edfb5e6` (`_source_age` TypeError on a future-dated ML row). F-08 / F-05 MEDIUM. LOW items
+in the docs. Verdict **B** (engineering fixes), then C (external/owner gates).
+Docs: `docs/CLAUDE_FINAL_ARCHITECTURE_REVIEW.md`, `CLAUDE_TRADING_SAFETY_REVIEW.md`,
+`CLAUDE_ML_PIPELINE_REVIEW.md`, `CLAUDE_SECURITY_REVIEW.md`, `ARIA_REVIEW_HANDOFF.md`,
+`CLAUDE_RELEASE_RECOMMENDATION.md`.
+For Codex: requests and done-when criteria are in ARIA_REVIEW_HANDOFF §2. `edfb5e6` is
+CHANGES REQUESTED (F-06; backup abort LOW).
+For the owner: untrack generated `data/*.json`; confirm in WORK_PLAN the owner's appointment
+of Codex as sole engineering lead (`edfb5e6` edits `src/brain` and `src/core`); cutover must
+recreate the venv and keep auto-execute disarmed until a pipeline run rewrites `signals.json`.
+
 ## 2026-10-17 20:40–21:15 — O-2: pipeline ML step durable against interruption — on `claude/loving-gauss-c5dcd5`, NOT merged
 Branched from `claude/aria-completion` @ `125f0b8` (it holds `launch_check.py` and
 `durable.py`; its tip `659a75c` adds a docs line only). `src/models` is mine (not in the
