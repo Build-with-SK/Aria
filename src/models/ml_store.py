@@ -99,6 +99,14 @@ def dataset_age(body, file_mtime: Optional[datetime], now: datetime,
     unstamped = len(rows) - len(dated)
     out = {"rows": len(rows), "rows_unstamped": unstamped, "rows_over_budget": 0,
            "newest_at": None}
+    invalid = sum(1 for r in rows if r.get("generated_at") and stamped(r) is None)
+    future = sum(1 for t in dated if t > now)
+    if not rows or invalid or future or (not dated and file_mtime is not None and file_mtime > now):
+        return {**out, "basis": "row_generated_at" if dated else None,
+                "as_of": min(dated) if dated else None,
+                "newest_at": max(dated) if dated else None, "age_hours": None,
+                "stale": True, "why": "ML rows empty, invalidly dated, or dated in the future",
+                "rows_invalid": invalid, "rows_future": future}
     if not dated:
         if file_mtime is None:
             return {**out, "basis": None, "as_of": None, "age_hours": None,

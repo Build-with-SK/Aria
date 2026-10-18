@@ -124,7 +124,7 @@ def test_feed_entries_drop_poisoned_links(monkeypatch):
         def __exit__(self, *a): return False
 
     monkeypatch.setattr(
-        "src.research.sources.rss.urllib.request.urlopen",
+        "src.research.sources.rss.public_urlopen",
         lambda *a, **k: FakeResponse(),
     )
     entries = RSSSource().entries("https://example.com/feed.xml")

@@ -21,6 +21,8 @@ No account is driven, no HTML is scraped, nothing here risks a ban.
 """
 from __future__ import annotations
 
+from src.core.xml_security import feed_xml
+
 import base64
 import json
 import logging
@@ -108,7 +110,7 @@ def _post_doc(child: dict) -> Document:
 def _atom_docs(body: bytes) -> list[Document]:
     """Parse Reddit's Atom output. No scores exist in this format."""
     try:
-        root = ElementTree.fromstring(body)
+        root = feed_xml(body)
     except ElementTree.ParseError as exc:
         raise SourceError(f"reddit returned invalid Atom: {exc}") from exc
 

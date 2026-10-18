@@ -15,6 +15,8 @@ stories surface there hours before the wires.
 """
 from __future__ import annotations
 
+from src.core.xml_security import feed_xml
+
 from datetime import datetime, timezone
 from xml.etree import ElementTree
 
@@ -48,7 +50,7 @@ class GoogleNewsSource(Source):
 
     def _parse(self, body: bytes) -> list[Document]:
         try:
-            root = ElementTree.fromstring(body)
+            root = feed_xml(body)
         except ElementTree.ParseError as exc:
             raise SourceError(f"google news returned invalid XML: {exc}") from exc
 

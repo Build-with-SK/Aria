@@ -13,10 +13,13 @@ untrusted URL — a feed is a list of links written by someone else.
 """
 from __future__ import annotations
 
+from src.core.xml_security import feed_xml
+
 import urllib.error
 import urllib.request
 from xml.etree import ElementTree
 
+from src.research.transport import public_urlopen
 from ..base import Document, Source, SourceError
 from ..url import normalize_public_url
 
@@ -83,7 +86,7 @@ class RSSSource(Source):
         clean = normalize_public_url(url)
         req = urllib.request.Request(clean, headers={"User-Agent": UA})
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            with public_urlopen(req, timeout=TIMEOUT) as resp:
                 body = resp.read(MAX_BYTES + 1)
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             raise SourceError(f"could not fetch feed {clean}: {exc}") from exc
@@ -92,7 +95,7 @@ class RSSSource(Source):
             raise SourceError(f"feed {clean} exceeds {MAX_BYTES} bytes")
 
         try:
-            root = ElementTree.fromstring(body)
+            root = feed_xml(body)
         except ElementTree.ParseError as exc:
             raise SourceError(f"feed {clean} is not valid XML: {exc}") from exc
 

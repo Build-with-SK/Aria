@@ -2,6 +2,9 @@
 
 Only Codex edits this file. Newest entry at the top.
 
+## 2026-10-18 — operational-readiness — started
+Owner appointed Codex sole engineering lead. Isolated branch codex/aria-operational-readiness from edc2796; primary runtime untouched. Scope: all 49 Bandit findings; research HTTP/XML, ML timestamps, backup recovery, operational fixtures, final readiness reports. No production merge/push/restart or broker calls.
+
 ## 2026-10-16 — S2.1 — diagnosis complete; no tuning; for Claude review
 Changed: eight synthetic checks in `tests/test_v5_direction_diagnosis.py` test the hypotheses that the ensemble cannot say bear, treats the two directions asymmetrically, or lets low confidence veto only bears. All production code/settings unchanged. State readers (benches, learned multipliers, version, registry sizes) are replaced in these tests; no research modules, vendor feeds, broker or API are run.
 

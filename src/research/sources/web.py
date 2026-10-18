@@ -18,6 +18,7 @@ from __future__ import annotations
 import urllib.error
 import urllib.request
 
+from src.research.transport import public_urlopen
 from ..base import Document, Source, SourceError
 from ..url import normalize_public_url
 
@@ -76,7 +77,7 @@ class WebSource(Source):
             headers={"User-Agent": UA, "Accept": "text/plain"},
         )
         try:
-            with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            with public_urlopen(req, timeout=TIMEOUT) as resp:
                 body = resp.read(MAX_BYTES + 1)
         except (urllib.error.URLError, OSError, TimeoutError) as exc:
             raise SourceError(f"jina could not read {clean}: {exc}") from exc

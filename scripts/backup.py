@@ -59,7 +59,7 @@ import tarfile
 import tempfile
 import time
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 ROOT = Path(__file__).parent.parent
 
@@ -206,8 +206,11 @@ def make_backup(*, dest: Path | None = None, include_models: bool = False,
                 data = None
                 if path.suffix.lower() in SQLITE_SUFFIXES:
                     data = _sqlite_snapshot(path)
-                    if data is not None:
-                        manifest["sqlite_snapshots"].append(arc)
+                    if data is None:
+                        # A byte copy after a failed SQLite snapshot can look
+                        # backed up while being inconsistent with its WAL.
+                        raise OSError(f"database snapshot failed: {rel}")
+                    manifest["sqlite_snapshots"].append(arc)
                 if data is None:
                     try:
                         data = path.read_bytes()
@@ -276,9 +279,13 @@ def restore(archive: Path, to: Path) -> Path:
     with tarfile.open(archive, "r:gz") as tar:
         for m in tar.getmembers():
             # No absolute paths, no traversal: an archive is data, not a script.
-            if m.name.startswith("/") or ".." in Path(m.name).parts or not m.isfile():
+            windows = PureWindowsPath(m.name)
+            target = (to / m.name).resolve()
+            if (windows.drive or "\\" in m.name or m.name.startswith("/")
+                    or ".." in Path(m.name).parts or not m.isfile()
+                    or not target.is_relative_to(to.resolve())):
                 continue
-            tar.extract(m, to)
+            tar.extract(m, to, filter="data")
     return to
 
 

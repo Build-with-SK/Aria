@@ -484,7 +484,7 @@ def test_a_429_starts_a_cooldown_so_the_rest_of_the_blink_stops_asking(monkeypat
         attempts.append(req.full_url)
         raise urllib.error.HTTPError(req.full_url, 429, "Too Many", {}, None)
 
-    monkeypatch.setattr(http.urllib.request, "urlopen", always_429)
+    monkeypatch.setattr(http, "public_urlopen", always_429)
 
     with pytest.raises(http.SourceError):
         http.get("https://www.reddit.com/search.rss?q=BILL")
