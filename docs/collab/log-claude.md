@@ -2,6 +2,115 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-20 — ML ledger rows carry the identity they were priced on — on `claude/ml-ledger-identity`, NOT merged
+Built on `claude/upbeat-grothendieck-cb7e95` @ `d7e9362` (for the 3488 floor). The commit touches no
+file 4ffda39/d7e9362 changed and applies cleanly to `aria/integrity-upgrade`. `src/core` and
+`src/intelligence/recorders.py` are mine. Nothing written to the live `data/`, no pipeline, nothing
+restarted; the live ledger and symbol master were read only through `sqlite3` backup snapshots in the
+session scratchpad (the worktree's `data/` holds neither).
+Files: `src/core/ledger.py`, `src/intelligence/recorders.py`, `tests/test_identity_namespaces.py`
+(live audit), new `tests/test_ml_ledger_identity.py` (10).
+Cause, confirmed in code: the ML pass trains on signals.json keys (provider symbols fetched verbatim,
+so `AAL` is American Airlines) and `main._MLBatchWriter._record` takes `last_close` from those bars.
+`record_ml_predictions` passed only the bare ticker, and `ledger.record_prediction` stamps identity
+with `identity.describe`, the symbol master, where display `AAL` is AAL.L. The technical/v5/desk
+writers do not avoid this so much as never meet it: they analyse and price the master's instrument
+(AAL as AAL.L at 3913–4306p), so their stamp and their price agree. ML is the only ledger writer
+whose subject lives in the signals namespace.
+Changed:
+- `record_prediction(..., provider_symbol=None)`: a caller may state the instrument it priced. Where
+  that differs from the master's reading it is stamped with a new basis, `SOURCE_STATED`; where they
+  agree the master's basis stands, so a non-colliding row is identical to before (a test compares it
+  column for column with a write that states nothing). Fail-open kept: no stated symbol and an
+  unresolvable subject still writes the claim with a NULL identity, and a raising master lookup no
+  longer drops a stated symbol. Venue derives from the stamp, so a US call is filed XNYS (the
+  affected rows say XLON).
+- `record_ml_predictions` states `identity.signal_identity(ticker).provider_symbol`.
+- Grader: `resolve_due` and `_grade_next_close` price a row by its stamped `provider_symbol`
+  (`_row_price_symbol`) and ask the master only for an unstamped row, as `regrade.py` already does.
+  Without this every SOURCE_STATED row would be re-resolved to AAL.L and skipped. On the snapshot,
+  0 of 2,787 stamped rows (1,918 pending) differ from today's master reading, so no existing row is
+  graded differently.
+- `test_the_ledger_prices_are_still_london_scale` now selects by identity (a row stamped London, or
+  unstamped, must be in pence) and covers the 10 colliding roots instead of 4; the new
+  `test_the_ledger_us_listing_rows_are_dollar_scale` is its mirror. Run against the snapshot, it
+  flags exactly the 27 rows below and none of the 45 genuine London rows (technical, v5, desk). The
+  US test skips because no row is stamped US yet. Both still skip in a worktree.
+Measured: the defect is **27 rows on 10 tickers**, not 12 on 4 (snapshot of the live `aria_core.db`,
+2026-10-20 ~13:00). It is every `ml-ensemble` row created 2026-10-17 23:40:28 on AAL, AZN, BA, BP, EDV,
+GSK, JD, PRU, RIO and SHEL. The other 1,191 ML rows have `provider_symbol` = subject. All 27 are on
+venue XLON, with `data_as_of`/`information_session` 2026-10-16, and `external_ref`
+`ml:<subject>:<h>:2026-10-16`:
+
+| id | subject | stamped | basis | h | dir | score | price_at | resolve_after | state |
+|---|---|---|---|---|---|---|---|---|---|
+| `a0eeb1ca8aaa5cfe` | AAL | AAL.L | UNAMBIGUOUS | 1 | bear | 0.3776 | 11.88 | 2026-10-19 | pending |
+| `0d5d1ac1690624fa` | AAL | AAL.L | UNAMBIGUOUS | 5 | bear | 0.3699 | 11.88 | 2026-10-24 | pending |
+| `133045016c9170aa` | AAL | AAL.L | UNAMBIGUOUS | 20 | bear | 0.2532 | 11.88 | 2026-11-14 | pending |
+| `cdba055236a1886c` | AZN | AZN.L | UNAMBIGUOUS | 1 | bear | 0.3584 | 165.41 | 2026-10-19 | pending |
+| `7e620a7c70278753` | AZN | AZN.L | UNAMBIGUOUS | 5 | bear | 0.3909 | 165.41 | 2026-10-24 | pending |
+| `00db28f021c13168` | AZN | AZN.L | UNAMBIGUOUS | 20 | bear | 0.1535 | 165.41 | 2026-11-14 | pending |
+| `f4e7462893155e4b` | BA | BA.L | UNAMBIGUOUS | 1 | bear | 0.3142 | 190.21 | 2026-10-19 | pending |
+| `688a631c019f0dcd` | BA | BA.L | UNAMBIGUOUS | 5 | bear | 0.3116 | 190.21 | 2026-10-24 | pending |
+| `cc990e3d7dc9f9df` | BA | BA.L | UNAMBIGUOUS | 20 | bear | 0.1459 | 190.21 | 2026-11-14 | pending |
+| `b09665b84fcaf496` | BP | BP.L | UNAMBIGUOUS | 5 | bull | 0.5758 | 50.21 | 2026-10-24 | pending |
+| `6d35f606d4340ae1` | BP | BP.L | UNAMBIGUOUS | 20 | bull | 0.5856 | 50.21 | 2026-11-14 | pending |
+| `7e6bd3b6bde830ee` | EDV | EDV.L | MASTER_RESOLVED | 1 | bear | 0.2938 | 57.60 | 2026-10-19 | pending |
+| `77df6aab6f2336d9` | EDV | EDV.L | MASTER_RESOLVED | 5 | bear | 0.3994 | 57.60 | 2026-10-24 | pending |
+| `495551f14ef9214c` | EDV | EDV.L | MASTER_RESOLVED | 20 | bear | 0.2468 | 57.60 | 2026-11-14 | pending |
+| `5387886553ab217c` | GSK | GSK.L | UNAMBIGUOUS | 1 | bear | 0.2657 | 49.51 | 2026-10-19 | pending |
+| `aacbb212f04dd85d` | GSK | GSK.L | UNAMBIGUOUS | 5 | bear | 0.114 | 49.51 | 2026-10-24 | pending |
+| `aac5a78b581d2f57` | GSK | GSK.L | UNAMBIGUOUS | 20 | bear | 0.1233 | 49.51 | 2026-11-14 | pending |
+| `a48badc4d8a83318` | JD | JD.L | UNAMBIGUOUS | 1 | bear | 0.3014 | 27.01 | 2026-10-19 | pending |
+| `ca63df4efb4010b2` | JD | JD.L | UNAMBIGUOUS | 5 | bear | 0.405 | 27.01 | 2026-10-24 | pending |
+| `49ec85177ac70a38` | JD | JD.L | UNAMBIGUOUS | 20 | bear | 0.1201 | 27.01 | 2026-11-14 | pending |
+| `a942d13419bc2a43` | PRU | PRU.L | UNAMBIGUOUS | 1 | bear | 0.3855 | 115.91 | 2026-10-19 | resolved, correct NULL: GRADING_SKIPPED / IDENTITY_UNRESOLVED at 2026-10-20T12:08:21 |
+| `54904bd27e1b5f8b` | PRU | PRU.L | UNAMBIGUOUS | 20 | bull | 0.5751 | 115.91 | 2026-11-14 | pending |
+| `ed092c971e33bdc3` | RIO | RIO.L | MASTER_RESOLVED | 1 | bear | 0.3641 | 90.32 | 2026-10-19 | pending |
+| `11c1d04f67a7755e` | RIO | RIO.L | MASTER_RESOLVED | 20 | bull | 0.7996 | 90.32 | 2026-11-14 | pending |
+| `f93a23799759571e` | SHEL | SHEL.L | UNAMBIGUOUS | 1 | bear | 0.4281 | 106.66 | 2026-10-19 | pending |
+| `754a061b6c623b4d` | SHEL | SHEL.L | UNAMBIGUOUS | 5 | bull | 0.585 | 106.66 | 2026-10-24 | pending |
+| `c4e4716edd87bf5d` | SHEL | SHEL.L | UNAMBIGUOUS | 20 | bull | 0.9069 | 106.66 | 2026-11-14 | pending |
+
+(BP, PRU and RIO each have one horizon inside the model's dead zone, so no row was written for it.)
+Correction to my perception entry below: these rows do **not** "show absurd returns". The grader's
+reference check (`_reference_matches`, 25% tolerance) prices the stamped London line, finds a 7–300x
+gap, and records GRADING_SKIPPED / IDENTITY_UNRESOLVED with `correct` NULL. The live runtime did that
+to PRU 1d at 12:08:21 today (PRU.L 906.8 against 115.9, factor 7.8). The other eight 1-day rows are
+due and will go the same way on the next resolve ticks (291 ML rows are due; 80 are graded per tick).
+Residual risk: if the London close for the anchor day is missing while the horizon close is present,
+the check passes as "could not be re-checked", and the row is graded from the US price against a
+London close.
+**Still being written:** the live runtime (`aria/integrity-upgrade`) stamps every ML pass this way
+until this fix is merged and deployed, so up to ~30 more rows land per data day.
+Options for the 27 rows. **This is the owner's decision. Nothing has been done to the ledger.**
+1. Re-stamp the identity: `provider_symbol` = subject, venue/market_session re-derived for the US
+   listing, basis PRICE_VERIFIED after checking each `price_at` against the US close on 2026-10-16
+   (the `scripts/migrate_identity.py` mechanism). This needs the grader change here deployed first
+   (otherwise the master still prices .L and skips the row), a ledger backup, and the 1-day rows that
+   were already skipped reset to ungraded. It keeps 27 real falsifiable calls, graded on the
+   instrument they were made on. This is my recommendation.
+2. Void them: resolved=1, `correct` NULL, with a note "VOID: recorder stamped the London listing on a
+   US price". They are excluded everywhere and 27 of 1,218 ML calls are lost. Their identity stays
+   false, so the live audit test needs these ids excluded.
+3. Leave them and exclude them from grading: no write. The reference check already skips each one as
+   it comes due (`correct` NULL, so the hit rate is not affected). But the rows keep a false identity
+   and venue for every other reader (regrade, dataset, provenance by venue), the live audit test stays
+   red unless it carries a 27-id allow-list, and the residual risk above remains.
+Suite (`venv\Scripts\python.exe -m pytest tests -q -p no:randomly`): **3498 passed, 10 skipped,
+EXIT 0** (floor 3488 + 10 new). The extra skip is the new US-listing audit test, which needs
+`data/aria_core.db` like the 8 gated skips before it.
+Without the source change, 6 of the 10 new tests fail (the 4 colliding tickers, the raising lookup,
+the grader) and 4 pass (non-colliding unchanged, the two fail-open cases, the unstamped master path).
+ruff is not installed in this venv or on PATH, so lint was not run.
+Open:
+- `_grading_anchor` falls back on `sessions.resolve(subject)` for a row with no information session.
+  That lookup is shape-based, so an unstamped master row `BA` gets XNYS sessions although it is BA.L.
+  This is pre-existing (`regrade.py` passes the provider symbol instead). ML rows always carry an
+  information session, so it is not changed here.
+- `debate_eval.vendor_closes(ticker)` resolves debate tickers through the master. If desk debates run
+  on signals-namespace tickers, the same collision applies. Not checked.
+
 ## 2026-10-20 — brain perception ages ML rows — on `claude/upbeat-grothendieck-cb7e95`, NOT merged
 Built on `claude/loving-gauss-c5dcd5` @ `4ffda39` (fast-forward; `aria/integrity-upgrade` is an
 ancestor). `src/brain` is mine. Nothing run against the live `data/`, no pipeline, nothing restarted.

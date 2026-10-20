@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     -- the migration is written to repair an existing database, and a new user
     -- has nothing to repair.
     provider_symbol TEXT,
-    identity_basis  TEXT,            -- UNAMBIGUOUS | MASTER_RESOLVED | PRICE_VERIFIED | EXACT_PRICE_MATCH
+    identity_basis  TEXT,            -- UNAMBIGUOUS | MASTER_RESOLVED | PRICE_VERIFIED | EXACT_PRICE_MATCH | SOURCE_STATED
     -- Provenance (2026-10-06). See _PROVENANCE_COLUMNS for what each means.
     probability_kind    TEXT,
     p_correct           REAL,
@@ -260,7 +260,8 @@ def record_prediction(*, subject: str, claim: str, source: str = "aria",
                       feature_version: Optional[str] = None,
                       routing_decision: Optional[str] = None,
                       calibration_version: Optional[str] = None,
-                      reference_basis: Optional[str] = None) -> Optional[str]:
+                      reference_basis: Optional[str] = None,
+                      provider_symbol: Optional[str] = None) -> Optional[str]:
     """Write one falsifiable claim into the record.
 
     `external_ref` is the dedupe key. Ingesting the same source file twice must
@@ -273,7 +274,13 @@ def record_prediction(*, subject: str, claim: str, source: str = "aria",
     and `market_session` are derived from the session engine when not given;
     `model_hash` is read out of `model_version`. Nothing unknown is filled
     with a plausible value: it stays NULL, and the provenance audit says so.
+
+    `provider_symbol` is the instrument the caller actually priced, for a
+    caller whose `subject` lives outside the symbol master's namespace (a
+    signals.json key is its own provider symbol: `AAL` there is American
+    Airlines, while the master's display row `AAL` is Anglo American, AAL.L).
     """
+    stated_symbol = (provider_symbol or "").strip().upper() or None
     created = created_at or datetime.now().isoformat(timespec="seconds")
     # Horizon in trading days → calendar days. Five trading days is a week.
     resolve_after = (datetime.fromisoformat(created)
@@ -323,6 +330,14 @@ def record_prediction(*, subject: str, claim: str, source: str = "aria",
             provider_symbol, identity_basis = ident.provider_symbol, "MASTER_RESOLVED"
     except Exception as e:                      # never block a write
         logger.debug("ledger: identity unresolved for %s: %s", subject, e)
+    # A caller that says which instrument it priced is believed over the
+    # display lookup: the master answers for ITS namespace, and a bare ticker
+    # has no namespace-free meaning. The ML pass on 2026-10-17 trained on
+    # American Airlines and was stamped Anglo American (AAL.L) at $11.88.
+    # Where the two agree the master's basis stands, so a row whose identity
+    # nothing had to override reads exactly as before.
+    if stated_symbol and stated_symbol != provider_symbol:
+        provider_symbol, identity_basis = stated_symbol, "SOURCE_STATED"
 
     # ── probability semantics ──────────────────────────────────────────────
     # A p_correct outside [0, 1] or non-finite is not a probability; store
@@ -581,6 +596,22 @@ def _resolved_price_symbol(subject: str) -> tuple[Optional[str], str]:
     return ident.provider_symbol, ""
 
 
+def _row_price_symbol(r) -> tuple[Optional[str], str]:
+    """The provider symbol to grade a ledger row with, or (None, why not).
+
+    The identity stamped at write time is which instrument was evaluated, so it
+    is what gets priced; the symbol master is asked only for a row that carries
+    none. Re-resolving a stamped row through the display namespace graded a
+    signals-namespace call (`AAL`, American Airlines, SOURCE_STATED) against
+    Anglo American. src/intelligence/regrade.py already reads the stamp first.
+    """
+    keys = r.keys() if hasattr(r, "keys") else ()
+    stamped = r["provider_symbol"] if "provider_symbol" in keys else None
+    if stamped:
+        return stamped, ""
+    return _resolved_price_symbol(r["subject"])
+
+
 def _reference_matches(ticker: str, made_on: str, price_at: float,
                        got: Optional[float] = None) -> tuple[bool, str]:
     """Does the price source agree with the price the prediction was made at?
@@ -707,10 +738,10 @@ def resolve_due(*, now: Optional[datetime] = None, limit: int = 80) -> dict:
             unresolvable += 1
             continue
         # ── §8: identity, then price. Never the other way round. ──────────
-        # Step 1 — which security IS this? The symbol master knows `BA` means
-        # `BA.L`; the previous version skipped this and asked the price feed
-        # for a bare `BA`, which is Boeing.
-        provider, why_not = _resolved_price_symbol(r["subject"])
+        # Step 1 — which security IS this? The identity stamped at write time;
+        # for a row with none, the symbol master, which knows `BA` means `BA.L`
+        # (an older version asked the price feed for a bare `BA`: Boeing).
+        provider, why_not = _row_price_symbol(r)
         if provider is None:
             grade(r["id"], correct=None,
                   note=f"GRADING_SKIPPED / IDENTITY_UNRESOLVED — {why_not}")
@@ -782,7 +813,7 @@ def _grade_next_close(r, now: datetime) -> Optional[str]:
     rows. A call is never credited with a move it could have seen. Returns
     "resolved", "unresolvable", or None (not yet: try again next tick).
     """
-    provider, why_not = _resolved_price_symbol(r["subject"])
+    provider, why_not = _row_price_symbol(r)
     if provider is None:
         grade(r["id"], correct=None, announce=False,
               note=f"GRADING_SKIPPED / IDENTITY_UNRESOLVED — {why_not}")
