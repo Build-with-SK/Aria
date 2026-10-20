@@ -2,6 +2,60 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-20 — brain perception ages ML rows — on `claude/upbeat-grothendieck-cb7e95`, NOT merged
+Built on `claude/loving-gauss-c5dcd5` @ `4ffda39` (fast-forward; `aria/integrity-upgrade` is an
+ancestor). `src/brain` is mine. Nothing run against the live `data/`, no pipeline, nothing restarted.
+Files: `src/brain/cognitive/perception.py`, new `tests/test_perception_ml_age.py` (8).
+Gap closed (named open in the O-2 entry below): `MarketPerception.perceive()` loaded every
+`ml_predictions.json` row with no age, so once a fresh batch touched the file the brain daemon read
+a 130-day-old call as current — in the reasoner's ANALYSE prompt (`perception.ml.get(ticker)`) and
+in novelty's `ml_split` (`features_from`). Those two are the only readers of `PerceptionSnapshot.ml`
+(planner and `desk/portfolio_manager` read `signals`/`macro` only).
+Changed:
+- Each row is aged by `ml_store.made_at` (its own `generated_at`; the file mtime, stat'ed before the
+  read, only when no row is stamped; None for an unstamped row among stamped ones) and each horizon
+  by `technical_agent.ml_horizon_live` (7/5 calendar days per trading day). `perceive(now=None)`
+  takes an optional clock; `timestamp` is that same instant.
+- Shape kept: `snapshot.ml` is still `{ticker: MLPrediction}`, holding only rows with a horizon in
+  force; rows with none go to the new `snapshot.ml_expired` (default `{}`). `MLPrediction` gains
+  `made_at` and `expired_horizons`; `horizons` holds the live ones.
+- A part-elapsed row's `overall_bullish/overall_signal` are re-summarised from the horizons left by
+  the writer's own rule (`main._ml_to_json`: plain mean, Bullish > 0.55, Bearish < 0.45; a test pins
+  perception to that function). Without this the object would claim live horizons {5, 20} while its
+  overall still blended the expired 1-day call (a third of the mean). Rows with nothing elapsed keep
+  the file's numbers verbatim.
+Measured (read-only, `_ml_row` on the live file, no `perceive()` — it writes `last_regime.json`):
+502 rows, all stamped 2026-10-18 09:25, so at 2026-10-20 12:01 every row's 1-day horizon has elapsed
+(window 33.6 h) and 5d/20d are live; 502 perceived, 0 expired. Overall signals file → perceived:
+Bullish 96 → 154, Neutral 136 → 110, Bearish 270 → 238; 98 of 502 rows change label. That is the
+point of the change, but it is a visible shift in what the brain reasons from.
+Suite (`venv\Scripts\python.exe -m pytest tests -q -p no:randomly`): **3488 passed, 9 skipped,
+EXIT 0** (floor 3480 + 8 new). ruff F/E9 on touched files clean. The 9 skips are gated: 8 need
+`data/aria_core.db` / `data/universe.db` (absent in a worktree), 1 needs `ARIA_LAUNCH_SWEEP=1`.
+Owner asked for no skips, so a second run had read-only `sqlite3` backup snapshots of the live
+ledger and symbol master (+ the two integrity JSONs of the latest identity-migration backup)
+copied into this worktree's gitignored `data/`, and `ARIA_LAUNCH_SWEEP=1`: **3496 passed,
+0 skipped, 1 failed**. Snapshots removed afterwards.
+- FAILED `test_identity_namespaces::test_the_ledger_prices_are_still_london_scale` — a LIVE-LEDGER
+  finding, not this change (the test reads only the DB with `sqlite3`). The live ML pass
+  (`aria/integrity-upgrade` runtime) at 2026-10-17 23:40:28 wrote 12 `ml-ensemble` rows on the
+  colliding tickers AAL/BA/JD/SHEL (1/5/20d each) stamped `provider_symbol` AAL.L/BA.L/JD.L/SHEL.L,
+  `UNAMBIGUOUS`, with US-listing prices (AAL 11.88, BA 190.21, JD 27.01, SHEL 106.66). Every other
+  source has London-scale prices for them (AAL 3913–4306 etc.). Cause: `src/intelligence/recorders.py`
+  `record_ml_predictions` passes the bare signals-namespace ticker and `ledger.record_prediction`
+  stamps identity via `identity.describe` (master namespace). Graded against AAL.L these rows will
+  show absurd returns and skew the ML hit rate. Fix + what to do with the 12 rows: owner/follow-up.
+- Leak (for Codex, `scripts/` is yours): `test_identity_safety::test_dry_run_makes_zero_production_mutations`
+  runs `scripts/migrate_identity.py --dry-run` against the checkout's real `data/` by design; the
+  dry run fetched MRK and MRK.DE from yfinance and wrote `data/cache/v5/@MRK*__1d.*`. The test only
+  checks the ledger, so in the main folder every full run writes the live V5 cache. Left in this
+  worktree (deletion was refused by the permission check; it is gitignored).
+Open: novelty's history holds `ml_split` values computed from rows of any age; the first cycles
+after deploy may read that feature as unusual (capped z, per `robust_z`). Rows carry `data_as_of`
+(2026-10-16 on the live file) before `generated_at` (2026-10-18, a Sunday run): aging by
+`generated_at`, as the task and `technical_agent` do, is the more generous anchor — owner/Codex call
+whether horizons should count from `data_as_of`.
+
 ## 2026-10-17 20:40–21:15 — O-2: pipeline ML step durable against interruption — on `claude/loving-gauss-c5dcd5`, NOT merged
 Branched from `claude/aria-completion` @ `125f0b8` (it holds `launch_check.py` and
 `durable.py`; its tip `659a75c` adds a docs line only). `src/models` is mine (not in the
