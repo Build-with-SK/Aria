@@ -18,6 +18,11 @@ into the ledger the moment the pipeline produces it, with:
     information       the last feature bar the model saw (data_as_of and the
                       information session), so the grader anchors on that
                       close and never on a later one
+    identity          the provider symbol the model trained and was priced
+                      on. Its tickers are signals.json keys (configs/
+                      universe.yaml, fetched verbatim), so `AAL` is American
+                      Airlines; left to the ledger's display lookup it became
+                      AAL.L, Anglo American, carrying an $11.88 price
 
 It is forward-only: the May 2026 file carries no per-row timestamp, and a
 creation time cannot be proved for any of it, so none of it is back-filled.
@@ -48,7 +53,7 @@ def record_ml_predictions(payload: dict, *, data_as_of: Optional[dict] = None,
                           created_at: Optional[str] = None) -> dict:
     """Record every directional (ticker, horizon) call in `payload` — the
     data/ml_predictions.json contract. Returns counts. Never raises."""
-    from src.core import ledger
+    from src.core import identity, ledger
     from src.core.versioning import model_version
     from src.intelligence.dataset import model_hash
     created = created_at or datetime.now().isoformat(timespec="seconds")
@@ -76,6 +81,7 @@ def record_ml_predictions(payload: dict, *, data_as_of: Optional[dict] = None,
             try:
                 pid = ledger.record_prediction(
                     subject=ticker, source=ML_SOURCE,
+                    provider_symbol=identity.signal_identity(ticker).provider_symbol,
                     claim=f"{direction} over {int(hd.get('horizon_days', h))} trading days "
                           f"(ML stacked ensemble score {float(p_up):.3f})",
                     direction=direction, probability=float(p_up), confidence=None,

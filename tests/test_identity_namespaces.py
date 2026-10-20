@@ -206,10 +206,18 @@ def test_the_signal_prices_for_the_colliding_tickers_are_dollars():
         assert row["venue"] == "US"
 
 
-def test_the_ledger_prices_are_still_london_scale():
-    """The ledger resolved through the symbol master, so its reference prices
-    for these tickers are London pence. Fixing the SIGNAL namespace must not
-    rescale the historical record."""
+#: Bare roots whose symbol-master display row is the London listing while the
+#: signal namespace's is the US one, each with a price that separates the two:
+#: London pence above it, US dollars below. The first four were the original
+#: floors. The other six are where the 2026-10-17 ML pass stamped AAL.L-style
+#: identity on US prices (AZN 165.41, BP 50.21, GSK 49.51, PRU 115.91 against
+#: PRU.L 906.8p, RIO 90.32, EDV 57.60).
+LISTING_SPLIT = {"AAL": 1000, "BA": 1000, "JD": 50, "SHEL": 1000,
+                 "AZN": 1000, "BP": 200, "GSK": 300, "PRU": 300, "RIO": 1000,
+                 "EDV": 300}
+
+
+def _production_ledger_rows_on_colliding_roots():
     # Read the PRODUCTION ledger, read-only.
     #
     # This used to go through `ledger.connect()`, which the test harness
@@ -222,20 +230,48 @@ def test_the_ledger_prices_are_still_london_scale():
     if not db.exists():
         pytest.skip("no production ledger in this checkout")
     uri = f"file:{db.as_posix()}?mode=ro"
+    marks = ",".join("?" * len(LISTING_SPLIT))
     with sqlite3.connect(uri, uri=True) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            "SELECT subject, price_at FROM predictions "
-            "WHERE subject IN ('AAL','BA','JD','SHEL') AND price_at IS NOT NULL"
-        ).fetchall()
+        return conn.execute(
+            "SELECT id, source, subject, provider_symbol, price_at FROM predictions "
+            f"WHERE subject IN ({marks}) AND price_at IS NOT NULL",
+            tuple(LISTING_SPLIT)).fetchall()
+
+
+def _stamped_as_us_listing(r) -> bool:
+    """A row's identity is the US listing when its stamp is the bare root.
+    No stamp is the master's reading — the London row — as it always was."""
+    return (r["provider_symbol"] or "").upper() == r["subject"].upper()
+
+
+def test_the_ledger_prices_are_still_london_scale():
+    """The ledger resolved through the symbol master, so its reference prices
+    for these tickers are London pence. Fixing the SIGNAL namespace must not
+    rescale the historical record — and a row stamped as the London listing
+    must not carry a US price (the 2026-10-17 ML pass did exactly that)."""
+    rows = [r for r in _production_ledger_rows_on_colliding_roots()
+            if not _stamped_as_us_listing(r)]
     assert rows, (
-        "the ledger holds no predictions on the colliding tickers — this "
-        "assertion has stopped protecting anything")
-    floors = {"AAL": 1000, "BA": 1000, "JD": 50, "SHEL": 1000}
-    for r in rows:
-        assert r["price_at"] >= floors[r["subject"]], (
-            f"{r['subject']} reference price {r['price_at']} looks like the US "
-            f"listing — the historical record has been rescaled")
+        "the ledger holds no London-identity predictions on the colliding "
+        "tickers — this assertion has stopped protecting anything")
+    bad = [f"{r['source']} {r['subject']} ({r['provider_symbol']}) {r['price_at']:.6g} "
+           f"[{r['id']}]" for r in rows if r["price_at"] < LISTING_SPLIT[r["subject"]]]
+    assert not bad, (
+        f"{len(bad)} London-identity rows carry a US-listing price — the record "
+        f"has been rescaled, or a US price was stamped as London: {bad[:12]}")
+
+
+def test_the_ledger_us_listing_rows_are_dollar_scale():
+    """The mirror image: a row stamped as the US listing (SOURCE_STATED, from a
+    signals-namespace writer) must carry a US price, not London pence."""
+    rows = [r for r in _production_ledger_rows_on_colliding_roots()
+            if _stamped_as_us_listing(r)]
+    if not rows:
+        pytest.skip("no US-listing rows on the colliding tickers yet")
+    bad = [f"{r['source']} {r['subject']} {r['price_at']:.6g} [{r['id']}]"
+           for r in rows if r["price_at"] >= LISTING_SPLIT[r["subject"]]]
+    assert not bad, f"US-identity rows carry a London-scale price: {bad[:12]}"
 
 
 # ── half-written identity: the defect class, not just its instances ─────────
