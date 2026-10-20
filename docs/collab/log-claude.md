@@ -3,8 +3,10 @@
 Only Claude Code edits this file. Newest entry at the top.
 
 ## 2026-10-20 — ML ledger rows carry the identity they were priced on — on `claude/ml-ledger-identity`, NOT merged
-Built on `claude/upbeat-grothendieck-cb7e95` @ `d7e9362` (for the 3488 floor). The commit touches no
-file 4ffda39/d7e9362 changed and applies cleanly to `aria/integrity-upgrade`. `src/core` and
+Built on `claude/upbeat-grothendieck-cb7e95` @ `d7e9362` (for the 3488 floor). The fix commit
+`91842f8` touches no code file that 4ffda39/d7e9362 changed. Its code and tests cherry-pick cleanly
+onto `aria/integrity-upgrade` (checked with `git merge-tree`); only this log entry conflicts, because
+integration lacks the two entries below it. `src/core` and
 `src/intelligence/recorders.py` are mine. Nothing written to the live `data/`, no pipeline, nothing
 restarted; the live ledger and symbol master were read only through `sqlite3` backup snapshots in the
 session scratchpad (the worktree's `data/` holds neither).
