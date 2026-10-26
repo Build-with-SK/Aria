@@ -438,7 +438,7 @@ class PositionManager:
         for ticker, pos in tracked.items():
             if ticker in broker_positions:
                 healed = self._heal_brackets(ticker, pos, mgr,
-                                             open_orders.get(ticker, []))
+                                             open_orders.get(ticker, []), summary=summary)
                 if healed:
                     summary["healed"].append({"ticker": ticker, **healed})
 
@@ -879,7 +879,7 @@ class PositionManager:
     # ── brackets ─────────────────────────────────────────────────────────
 
     def _heal_brackets(self, ticker: str, pos: dict, mgr,
-                       open_orders: list) -> dict | None:
+                       open_orders: list, *, summary: dict | None = None) -> dict | None:
         if mgr is None or not _may_mutate_broker(mgr):
             return None
         import math
@@ -893,12 +893,24 @@ class PositionManager:
                 return None
             pos["qty"] = abs(signed)
             exit_side = "sell" if signed > 0 else "buy"
+            # Keep existing protection while an uncertain exit reserves the
+            # position. Visible non-protective exits reduce the room available
+            # for stops; repeatedly replacing a correctly sized residual stop
+            # would create avoidable unprotected intervals.
+            protection_ids = [o["id"] for o in open_orders
+                              if o.get("order_type") in ("stop", "stop_limit", "limit")]
+            room = reduce_only.at_broker(mgr._alpaca, ticker, exit_side, abs(signed),
+                                         exclude_ids=protection_ids, broker_key="alpaca")
+            if not room.ok:
+                if summary is not None:
+                    summary["errors"].append(f"{ticker}: bracket healing held — {room.reason}")
+                return None
             def coverage(types):
                 return sum(max(0.0, float(o.get("qty") or 0) - float(o.get("filled_qty") or 0))
                            for o in open_orders if o.get("order_type") in types
                            and o.get("side") == exit_side)
-            has_stop = coverage(("stop", "stop_limit")) >= abs(signed)
-            has_target = coverage(("limit",)) >= abs(signed)
+            has_stop = coverage(("stop", "stop_limit")) >= room.qty
+            has_target = coverage(("limit",)) >= room.qty
         except (ValueError, TypeError, OSError, RuntimeError):
             logger.warning("%s: protection size unreadable; healing held", ticker)
             return None
@@ -922,7 +934,11 @@ class PositionManager:
                     cancelled.add(str(o["id"]))
             if not _await_cancelled(mgr._alpaca, [o["id"] for o in open_orders
                                     if o.get("order_type") in ("stop", "stop_limit", "limit")]):
-                return None
+                if not _await_cancelled(mgr._alpaca, [o["id"] for o in open_orders
+                                        if o.get("order_type") in ("stop", "stop_limit", "limit")], timeout_s=8):
+                    if summary is not None:
+                        summary["errors"].append(f"{ticker}: protection cancellation still unconfirmed; urgent broker/owner reconciliation required")
+                    return None
             reconcile = getattr(mgr, "reconcile_unresolved", None)
             if reconcile:
                 reconcile()

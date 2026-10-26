@@ -32,7 +32,7 @@ def test_c2_unknown_order_never_reports_filled():
     b = _ibkr_with(_FakeIB(trades=[]))
     r = b.get_order_status("12345")
     assert r.status != OrderStatus.FILLED
-    assert r.status == OrderStatus.SUBMITTED
+    assert r.status == OrderStatus.UNKNOWN
     assert "cannot confirm" in r.error_message
 
 

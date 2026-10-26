@@ -271,6 +271,9 @@ def test_the_execution_gate_requires_valid_row_dates(data_dir):
     assert opinion.signals_freshness()["fresh"] is False
     from datetime import datetime
     data_dir("signals.json", {"AAPL": {"generated_at": datetime.now().isoformat()}}, age_hours=29)
+    assert opinion.signals_freshness()["fresh"] is False
+    data_dir("signals.json", {"AAPL": {"generated_at": datetime.now().isoformat(),
+                                         "data_as_of": datetime.now().isoformat()}}, age_hours=29)
     assert opinion.signals_freshness()["fresh"] is True
 
 

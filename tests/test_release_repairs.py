@@ -230,3 +230,59 @@ def test_ibkr_unreadable_or_absent_status_stays_unknown(connected, raises):
         return []
     broker._ib = SimpleNamespace(trades=trades)
     assert broker.get_order_status("unknown-order").status == OrderStatus.UNKNOWN
+
+
+def test_healing_keeps_residual_stop_while_other_exit_is_working(monkeypatch):
+    from test_claude_final_review_probes import _HaltedBook, _freeze, TUE_OPEN
+    from src.desk.position_manager import PositionManager
+    from src.execution.order_manager import OrderManager
+    from src.execution.broker_base import OrderRequest, OrderSide, OrderType
+    _freeze(monkeypatch, TUE_OPEN)
+    monkeypatch.setattr("src.execution.live_guard.paper_confirmed", lambda b: True)
+    book = _HaltedBook({"AAPL": 10})
+    manager = OrderManager(alpaca=book)
+    manager.place_protective_orders("AAPL", 4, "buy", 9, 12)
+    book.submit_order(OrderRequest(ticker="AAPL", qty=6, side=OrderSide.SELL, order_type=OrderType.MARKET))
+    before = book.get_open_orders()
+    pos = {"qty": 4, "side": "long", "stop": 9, "target": 12, "asset_class": "equity"}
+    assert PositionManager.__new__(PositionManager)._heal_brackets("AAPL", pos, manager, before) is None
+    assert book.get_open_orders() == before
+
+
+def test_healing_retains_stop_and_reports_an_invisible_exit_claim(monkeypatch):
+    from test_claude_final_review_probes import _HaltedBook
+    from src.desk.position_manager import PositionManager
+    from src.execution.order_manager import OrderManager
+    from src.execution.approval_queue import ApprovalQueue
+    from src.execution.broker_base import OrderRequest, OrderSide, OrderType
+    monkeypatch.setattr("src.execution.live_guard.paper_confirmed", lambda b: True)
+    queue = ApprovalQueue()
+    row = queue.push(OrderRequest(ticker="AAPL", qty=6, side=OrderSide.SELL, order_type=OrderType.MARKET, reduce_only=True), broker="alpaca")
+    assert queue.claim_for_submit(row.id, "uncertain-exit", exclusive=False)[0]
+    queue.mark_unknown(row.id, "fixture lost response")
+    book = _HaltedBook({"AAPL": 10})
+    book.resting["stop"] = {"id": "stop", "ticker": "AAPL", "side": "sell", "qty": 4, "order_type": "stop"}
+    before = book.get_open_orders()
+    summary = {"errors": []}
+    pos = {"qty": 4, "side": "long", "stop": 9, "asset_class": "equity"}
+    assert PositionManager.__new__(PositionManager)._heal_brackets("AAPL", pos, OrderManager(alpaca=book), before, summary=summary) is None
+    assert book.get_open_orders() == before
+    assert summary["errors"] and "durable exit claim" in summary["errors"][0]
+
+
+def test_healing_retries_slow_cancel_before_the_management_tick_ends(monkeypatch):
+    from test_claude_final_review_probes import _HaltedBook, _freeze, TUE_OPEN
+    from src.desk import position_manager as module
+    from src.execution.order_manager import OrderManager
+    from unittest.mock import Mock
+    _freeze(monkeypatch, TUE_OPEN)
+    monkeypatch.setattr("src.execution.live_guard.paper_confirmed", lambda b: True)
+    book = _HaltedBook({"AAPL": 10})
+    manager = OrderManager(alpaca=book)
+    manager.place_protective_orders("AAPL", 4, "buy", 9, 12)
+    wait = Mock(side_effect=[False, True])
+    monkeypatch.setattr(module, "_await_cancelled", wait)
+    pos = {"qty": 4, "side": "long", "stop": 9, "target": 12, "asset_class": "equity"}
+    module.PositionManager.__new__(module.PositionManager)._heal_brackets("AAPL", pos, manager, book.get_open_orders())
+    assert wait.call_count == 2
+    assert sum(o["qty"] for o in book.resting.values() if o["order_type"] == "stop") == 10

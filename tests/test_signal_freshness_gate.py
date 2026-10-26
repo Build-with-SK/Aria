@@ -36,7 +36,8 @@ def signals_file(tmp_path, monkeypatch):
         from datetime import datetime, timedelta
         stamp = (datetime.now() - timedelta(hours=age_hours)).isoformat()
         path.write_text(json.dumps({"AAPL": {"current_price": 300.0,
-                                             "composite_score": 60.0, "generated_at": stamp}}),
+                                             "composite_score": 60.0, "generated_at": stamp,
+                                             "data_as_of": stamp}}),
                         encoding="utf-8")
         t = time.time() - age_hours * 3600
         os.utime(path, (t, t))

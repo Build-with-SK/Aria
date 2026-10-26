@@ -136,6 +136,8 @@ def _signal_age_block(body) -> dict:
         if not isinstance(row, dict):
             invalid = True
             continue
+        if not row.get("data_as_of"):
+            invalid = True  # a recent score cannot establish its input bar's age
         stamps = [row[k] for k in ("data_as_of", "generated_at") if row.get(k)]
         if not stamps:
             invalid = True
