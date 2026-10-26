@@ -237,7 +237,7 @@ def test_force_retrains_every_ticker(root, monkeypatch, ledger):
 
 def test_rows_older_than_the_resume_budget_are_retrained(root, monkeypatch, ledger):
     _file(root).write_text(json.dumps({
-        "T000": {"ticker": "T000", "generated_at": _stamp(19)},
+        "T000": {"ticker": "T000", "generated_at": _stamp(19), "data_as_of": "2026-10-16"},
         "T001": {"ticker": "T001", "generated_at": _stamp(21)},
         "T002": {"ticker": "T002"},                               # unstamped
         "T003": {"ticker": "T003", "generated_at": _stamp(-2)},   # in the future

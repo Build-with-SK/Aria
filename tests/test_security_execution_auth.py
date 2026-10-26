@@ -285,10 +285,10 @@ def test_loopback_ownership_cannot_reach_a_broker(app, monkeypatch, env):
     monkeypatch.delenv("ARIA_TRUST_PROXY", raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
-    local = TestClient(app, client=("127.0.0.1", 51999))
+    local = TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 51999))
 
     from src.auth import policy
-    role, basis = policy.resolve_role_with_basis({}, "127.0.0.1", None,
+    role, basis = policy.resolve_role_with_basis({"host": "127.0.0.1"}, "127.0.0.1", None,
                                                  peer_host="127.0.0.1")
     assert (role, basis) == (policy.OWNER, policy.BASIS_LOOPBACK)
 
@@ -376,7 +376,7 @@ def test_a_proxied_request_retires_the_loopback_fallback(app):
     token_backup = os.environ.pop("ARIA_OWNER_TOKEN", None)
     policy._PROXY_SEEN.update(detected=False, how="")
     try:
-        local = TestClient(app, client=("127.0.0.1", 51994))
+        local = TestClient(app, base_url="http://127.0.0.1", client=("127.0.0.1", 51994))
         # Direct localhost: the documented single-user workflow still works.
         assert policy.loopback_owner_enabled() is True
         assert local.get("/api/vault/status").status_code == 200

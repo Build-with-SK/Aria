@@ -147,8 +147,12 @@ def halt(reason: str, *, actor: str = "owner", broker=None,
                 kept.append(o.client_order_id)
                 continue
             try:
-                (cancelled if broker.cancel_order(o.client_order_id) else kept).append(
-                    o.client_order_id)
+                cancel = getattr(broker, "cancel_open_order", None)
+                ok = cancel(o) if cancel else broker.cancel_order(o.client_order_id)
+                if ok:
+                    cancelled.append(o.client_order_id)
+                else:
+                    failed[o.client_order_id] = "broker did not confirm cancellation"
             except Exception as exc:
                 failed[o.client_order_id] = str(exc)
         report["steps"]["cancel"] = {"cancelled": cancelled, "kept_protective": kept,

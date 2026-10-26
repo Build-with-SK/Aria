@@ -326,7 +326,7 @@ def test_every_section_names_its_own_source_and_units(tmp_path, monkeypatch):
 def test_a_stale_signals_file_is_also_dated(tmp_path, monkeypatch):
     """Signals age too, and the same rule applies to them."""
     ctx = _ctx(tmp_path, monkeypatch, ml_age_days=1, sig_age_hours=96)
-    assert "SIGNALS (4 days old, STALE)" in ctx
+    assert "SIGNALS (UNKNOWN AGE, STALE)" in ctx
 
 
 def test_a_missing_file_says_so_rather_than_reading_as_empty(tmp_path, monkeypatch):

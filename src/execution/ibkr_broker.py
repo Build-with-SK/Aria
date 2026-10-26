@@ -552,7 +552,7 @@ class IBKRBroker(BrokerBase):
             # saying otherwise retires a working order from the caller's books.
             return OrderResult(
                 broker_order_id=broker_order_id,
-                status=OrderStatus.SUBMITTED,
+                status=OrderStatus.UNKNOWN,
                 error_message="IBKR not connected — order state unknown")
         assert self._ib is not None
         try:
@@ -562,11 +562,11 @@ class IBKRBroker(BrokerBase):
             for trade in self._ib.trades():
                 if str(trade.order.orderId) == broker_order_id:
                     return _reconcile(trade, broker_order_id)
-            # Unknown order id: report SUBMITTED (not filled) so pollers keep
+            # Unknown order id: preserve UNKNOWN so pollers keep
             # waiting and never place brackets on an unconfirmed position.
             return OrderResult(
                 broker_order_id=broker_order_id,
-                status=OrderStatus.SUBMITTED,
+                status=OrderStatus.UNKNOWN,
                 error_message="order not found in ib.trades() — cannot confirm fill",
             )
         except Exception as e:
@@ -574,7 +574,7 @@ class IBKRBroker(BrokerBase):
             logger.error("IBKR get_order_status(%s): %s", broker_order_id, e)
             return OrderResult(
                 broker_order_id=broker_order_id,
-                status=OrderStatus.SUBMITTED,
+                status=OrderStatus.UNKNOWN,
                 error_message=f"could not read order state: {e}",
             )
 

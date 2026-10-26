@@ -49,8 +49,9 @@ def signals_freshness() -> dict:
     2026-10-06 it was nine days old and the reflex lane had armed 44
     playbooks from it that morning — composites, trigger levels and stops
     computed on 27 September, waiting to fire against live prices. Its rows
-    carry no timestamp, so the FILE is aged, by the same policy and budget the
-    world model uses (src/core/world.py, "signals": 30 h). Unknown is stale.
+    now carry evidence timestamps. Every row must fit the world model's existing
+    budget (src/core/world.py, "signals": 30 h). Undated rows are stale; a
+    checkout or rewrite cannot make old observations fresh.
     """
     try:
         from src.core.world import dataset_freshness

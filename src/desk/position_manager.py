@@ -658,6 +658,10 @@ class PositionManager:
             # A recorded P&L must come from a REAL fill, never an estimate.
             if result.broker_order_id:
                 broker.cancel_order(result.broker_order_id)
+                _await_cancelled(broker, [result.broker_order_id])
+                # Only broker-confirmed terminal evidence releases the durable
+                # exit reservation. An ambiguous cancellation remains UNKNOWN.
+                durable_manager.reconcile_unresolved()
             logger.warning(f"exit for {ticker} did not fill in the poll window "
                            f"— cancelled, will retry next tick ({reason})")
             return None
@@ -878,9 +882,26 @@ class PositionManager:
                        open_orders: list) -> dict | None:
         if mgr is None or not _may_mutate_broker(mgr):
             return None
-        has_stop = any(o.get("order_type") in ("stop", "stop_limit")
-                       for o in open_orders)
-        has_target = any(o.get("order_type") == "limit" for o in open_orders)
+        import math
+        from src.execution import reduce_only
+        try:
+            positions = mgr._alpaca.get_positions()
+            if positions is None:
+                return None
+            signed = reduce_only.signed_position(positions, ticker)
+            if not math.isfinite(signed) or signed == 0 or (signed > 0) != _is_long(pos):
+                return None
+            pos["qty"] = abs(signed)
+            exit_side = "sell" if signed > 0 else "buy"
+            def coverage(types):
+                return sum(max(0.0, float(o.get("qty") or 0) - float(o.get("filled_qty") or 0))
+                           for o in open_orders if o.get("order_type") in types
+                           and o.get("side") == exit_side)
+            has_stop = coverage(("stop", "stop_limit")) >= abs(signed)
+            has_target = coverage(("limit",)) >= abs(signed)
+        except (ValueError, TypeError, OSError, RuntimeError):
+            logger.warning("%s: protection size unreadable; healing held", ticker)
+            return None
         need_stop = pos.get("stop") and not has_stop
         need_target = pos.get("target") and not has_target
         if not (need_stop or need_target):
@@ -888,12 +909,23 @@ class PositionManager:
         # Protections are placed as one OCO — clear partial leftovers first
         # so the fresh order can reserve the shares.
         if mgr._alpaca is not None:
+            cancelled = set()
             for o in open_orders:
+                if str(o.get("parent_id") or "") in cancelled:
+                    continue  # parent cancellation also covers its linked legs
                 if o.get("order_type") in ("stop", "stop_limit", "limit"):
                     why = _try_cancel(mgr._alpaca, o["id"])
                     if why is not None:
                         logger.warning(f"{ticker}: partial protection {o['id']} not "
                                        f"cancelled before healing ({why})")
+                        return None
+                    cancelled.add(str(o["id"]))
+            if not _await_cancelled(mgr._alpaca, [o["id"] for o in open_orders
+                                    if o.get("order_type") in ("stop", "stop_limit", "limit")]):
+                return None
+            reconcile = getattr(mgr, "reconcile_unresolved", None)
+            if reconcile:
+                reconcile()
         placed = mgr.place_protective_orders(
             ticker, float(pos.get("qty") or 0.0),
             "buy" if _is_long(pos) else "sell",

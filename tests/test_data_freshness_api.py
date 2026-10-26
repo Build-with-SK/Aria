@@ -108,7 +108,7 @@ def test_the_registry_lists_every_dataset(owner, data_dir):
     data_dir("signals.json", {}, age_hours=1)
     body = owner.get("/api/data/freshness").json()
     names = {r["dataset"]: r for r in body["datasets"]}
-    assert names["signals.json"]["status"] == "FRESH"
+    assert names["signals.json"]["status"] == "UNKNOWN"
     assert names["daily_report.json"]["status"] == "UNKNOWN"     # missing
     assert "daily_report.json" in body["stale"]
 
@@ -215,15 +215,15 @@ def test_signal_history_endpoints_carry_freshness(owner, data_dir, path):
 
 # ── which clock an age comes from ────────────────────────────────────────────
 
-def test_an_undated_signals_file_is_aged_by_its_write_time_and_says_so(data_dir):
+def test_an_undated_signals_file_is_unknown_regardless_of_write_time(data_dir):
     """signals.json recorded no date at all, so "market state 56 hours old" was
     the age of a file. The age stays — the execution gate reads it — but the
     basis is now stated and no observation date is invented."""
     from src.core import world
     data_dir("signals.json", {"AAPL": {"composite_score": 12}}, age_hours=56)
     f = world.dataset_freshness("signals.json")
-    assert f["basis"] == "file_mtime" and f["status"] == "STALE"
-    assert 55.5 < f["age_hours"] < 56.5
+    assert f["basis"] == "row_evidence" and f["status"] == "UNKNOWN"
+    assert f["age_hours"] is None
     assert f["observation"]["recorded"] is False
     assert "no data_as_of" in f["observation"]["why"]
 
@@ -239,9 +239,9 @@ def test_recorded_bar_dates_are_reported_beside_the_file_age(data_dir):
     assert obs == {"recorded": True, "rows": 3, "rows_dated": 2,
                    "earliest_bar": "2026-10-06", "latest_bar": "2026-10-07",
                    "generated_at": "2026-10-08T07:39:00"}
-    # ...and the gate's fields still mean what they meant: the FILE is 2h old.
-    assert f["basis"] == "file_mtime" and f["status"] == "FRESH"
-    assert 1.5 < f["age_hours"] < 2.5
+    # Old bars and an undated row hold execution even when the file was rewritten.
+    assert f["basis"] == "row_evidence" and f["status"] == "STALE"
+    assert f["as_of"].startswith("2026-10-06")
 
 
 def test_a_stated_data_date_is_labelled_as_such(data_dir):
@@ -260,7 +260,7 @@ def test_a_missing_file_has_no_basis_and_no_invented_date(data_dir):
     assert f["observation"]["recorded"] is False
 
 
-def test_the_execution_gate_reads_the_same_freshness_as_before(data_dir):
+def test_the_execution_gate_requires_valid_row_dates(data_dir):
     """The provenance fields are additive. `signals_freshness()` — the gate on
     auto-execution — must decide exactly as it did: on the file's age against
     the 30-hour budget, and never open on a recorded bar date alone."""
@@ -268,6 +268,9 @@ def test_the_execution_gate_reads_the_same_freshness_as_before(data_dir):
     data_dir("signals.json", {"AAPL": {"data_as_of": "2099-01-01"}}, age_hours=31)
     assert opinion.signals_freshness()["fresh"] is False
     data_dir("signals.json", {"AAPL": {"composite_score": 1}}, age_hours=29)
+    assert opinion.signals_freshness()["fresh"] is False
+    from datetime import datetime
+    data_dir("signals.json", {"AAPL": {"generated_at": datetime.now().isoformat()}}, age_hours=29)
     assert opinion.signals_freshness()["fresh"] is True
 
 
@@ -279,6 +282,6 @@ def test_the_chat_block_says_how_each_age_is_known(data_dir, monkeypatch):
                                                "data_as_of": "2026-05-29"}}, age_hours=24 * 130)
     note = bm._age_basis_note()
     assert "MACRO: dated by the file's own data_date (2026-10-08)" in note
-    assert "SIGNALS: age is the time the FILE was written; its rows record no bar date" in note
+    assert "SIGNALS: age is the oldest row evidence; missing or invalid dates are stale" in note
     assert "ML: age is the time the FILE was written; bars through 2026-05-29" in note
     assert note in bm._build_market_context()

@@ -4,11 +4,8 @@ tests/test_claude_final_review_probes.py
 Reproductions for defects found in the Claude final architecture review of
 `codex/aria-final-integration` @ edc2796 (docs/CLAUDE_TRADING_SAFETY_REVIEW.md).
 
-Each probe asserts the CORRECT behaviour and is marked xfail(strict=True):
-today it fails for the reason named in the marker, and the suite stays green.
-When the defect is fixed the probe XPASSes, strict mode turns that into a
-failure, and the marker must be removed — the probe then becomes the
-regression test. No probe touches a real broker, account or production file.
+These formerly strict-xfail probes now run as regression tests for the
+reviewed repairs. The original failing baseline is retained in release evidence. No probe touches a real broker, account or production file.
 """
 from __future__ import annotations
 
@@ -113,8 +110,6 @@ def _alpaca_with(client):
 
 
 @pytest.mark.usefixtures("clean_trading_state")
-@pytest.mark.xfail(strict=True, reason="F-01: halt passes Alpaca's broker order id to a "
-                                       "client-order-id lookup; nothing is cancelled")
 def test_f01_halt_cancels_a_resting_alpaca_entry(monkeypatch):
     pytest.importorskip("alpaca")
     from src.execution import kill_switch
@@ -268,8 +263,6 @@ def _failed_exit_then_heal(monkeypatch):
     return book, om
 
 
-@pytest.mark.xfail(strict=True, reason="F-02: stale exit claim blocks same-tick bracket "
-                                       "healing after a failed exit")
 def test_f02_failed_exit_does_not_leave_the_position_naked(monkeypatch):
     book, _ = _failed_exit_then_heal(monkeypatch)
     assert any(o["order_type"] == "stop" for o in book.resting.values()), \
@@ -280,7 +273,7 @@ def test_f02_control_reconcile_first_restores_protection(monkeypatch):
     """Control: the protection comes back once the cancelled exit is reconciled
     — which the management tick does only after PositionManager.tick()."""
     book, om = _failed_exit_then_heal(monkeypatch)
-    assert not book.resting
+    assert any(o["order_type"] == "stop" for o in book.resting.values())
     om.reconcile_unresolved()
     om.place_protective_orders("AAPL", 10, "buy", stop=9.0, target=12.0)
     assert any(o["order_type"] == "stop" for o in book.resting.values())
@@ -300,8 +293,6 @@ class _LiveIbkr:
         raise AssertionError("live order reached the broker")
 
 
-@pytest.mark.xfail(strict=True, reason="F-03: live_guard._queue_for_human hardcodes "
-                                       "broker='alpaca'")
 def test_f03_refused_ibkr_order_is_requeued_for_ibkr(monkeypatch):
     from src.execution.approval_queue import ApprovalQueue
     from src.execution.live_guard import PaperOnlyBroker
@@ -324,8 +315,6 @@ def test_f03_refused_ibkr_order_is_requeued_for_ibkr(monkeypatch):
 # keeps a prediction made from the previous bar — and stamps the whole pass as
 # fresh.
 
-@pytest.mark.xfail(strict=True, reason="F-04: resume skip ignores data_as_of; a row "
-                                       "trained before the latest bar is reused")
 def test_f04_resume_retrains_a_row_whose_bar_is_behind(tmp_path, monkeypatch):
     import json
     from datetime import timedelta
@@ -367,8 +356,6 @@ def test_f04_resume_retrains_a_row_whose_bar_is_behind(tmp_path, monkeypatch):
 # check passes because Origin and Host agree by construction. Execution routes
 # demand proven ownership; owner-only READS (vault, portfolio) do not.
 
-@pytest.mark.xfail(strict=True, reason="F-07: loopback owner fallback accepts any Host "
-                                       "(DNS rebinding)")
 def test_f07_loopback_fallback_refuses_a_foreign_host(monkeypatch):
     from fastapi.testclient import TestClient
     from backend.main import app
@@ -392,8 +379,6 @@ def test_f07_loopback_fallback_refuses_a_foreign_host(monkeypatch):
 # partial entry fills later, the stop covers the first fill only — and once a
 # stop exists, has_stop is True and healing never revisits it.
 
-@pytest.mark.xfail(strict=True, reason="F-09: healing protects the tracked qty, not the "
-                                       "broker position")
 def test_f09_healing_protects_the_whole_broker_position(monkeypatch):
     from src.desk import position_manager as pm
     from src.execution.order_manager import OrderManager
@@ -419,8 +404,6 @@ def test_f09_healing_protects_the_whole_broker_position(monkeypatch):
 # makes weeks-old signals pass the gate. Rows stamped by the pipeline carry
 # data_as_of / generated_at; the gate ignores them.
 
-@pytest.mark.xfail(strict=True, reason="F-10: gate 6 trusts file mtime; old rows in a "
-                                       "freshly written file pass")
 def test_f10_freshly_written_old_signals_do_not_pass_gate_6(tmp_path, monkeypatch):
     import json
     from datetime import timedelta
@@ -436,8 +419,8 @@ def test_f10_freshly_written_old_signals_do_not_pass_gate_6(tmp_path, monkeypatc
     assert gate["fresh"] is False, f"21-day-old signals read as {gate}"
 
 
-def test_f10_unstamped_signals_written_now_pass_gate_6_today(tmp_path, monkeypatch):
-    """Documents today's contract: rows with no stamp, file written now -> FRESH.
+def test_f10_unstamped_signals_written_now_fail_gate_6(tmp_path, monkeypatch):
+    """Rows without evidence timestamps are stale even immediately after checkout.
     This is exactly the committed candidate copy after a checkout."""
     import json
     from src.core import world
@@ -445,4 +428,4 @@ def test_f10_unstamped_signals_written_now_pass_gate_6_today(tmp_path, monkeypat
     monkeypatch.setattr(world, "DATA", tmp_path)
     (tmp_path / "signals.json").write_text(json.dumps({"AAPL": {"composite_score": 42.0}}),
                                            encoding="utf-8")
-    assert signals_freshness()["fresh"] is True
+    assert signals_freshness()["fresh"] is False

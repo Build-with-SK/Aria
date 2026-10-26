@@ -9,7 +9,7 @@ import os
 import sys
 import json
 import warnings
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -535,7 +535,7 @@ class _MLBatchWriter:
             # Stamped when the ticker FINISHED, so a forecast is aged against
             # its own creation rather than against the file or the run.
             self.pending[ticker] = (horizons,
-                                    datetime.now().isoformat(timespec="seconds"))
+                                    datetime.now(timezone.utc).isoformat(timespec="seconds"))
         if self.reported % self.every == 0:
             self.flush()
 
@@ -608,6 +608,11 @@ def run_ml(featured_data: Dict[str, pd.DataFrame], config: dict, *,
         max_age_h = float(ml_cfg.get("resume_max_age_hours",
                                      ml_store.DEFAULT_RESUME_MAX_AGE_HOURS))
         skip = set() if force else ml_store.fresh_tickers(path, max_age_h)
+        if skip:
+            rows = ml_store.read_rows(path)
+            skip = {t for t in skip if t in featured_data
+                    and rows[t].get("data_as_of") == _last_bar_date(featured_data[t])
+                    and rows[t].get("data_as_of") is not None}
         if skip:
             logger.info(f"TIS: ML resume — {len(skip)} tickers already have rows "
                         f"younger than {max_age_h:g} h and are not retrained "
@@ -1107,7 +1112,7 @@ def export_rich_signals(raw_data, config):
         signals = build_all_signals(featured, metadata)
         from src.core.identity import signal_identity
         out = {}
-        generated_at = datetime.now().isoformat(timespec="seconds")
+        generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         for ticker, sig in signals.items():
             # Identity travels WITH the price. A signal key is a provider
             # symbol — configs/universe.yaml holds exactly the strings handed to
@@ -1151,6 +1156,10 @@ def export_rich_signals(raw_data, config):
         logger.error(f"TIS: rich signal export failed: {e}")
 
 
+from src.core.pipeline_guard import PipelineAlreadyRunning, single_writer
+
+
+@single_writer
 def main():
     logger.info("=" * 70)
     logger.info("  TRADING INTELLIGENCE SYSTEM — Phase 5 / 6")
@@ -1296,4 +1305,8 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except PipelineAlreadyRunning as exc:
+        logger.error("Pipeline refused: %s", exc)
+        sys.exit(2)

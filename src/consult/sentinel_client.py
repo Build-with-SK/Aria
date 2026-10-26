@@ -163,6 +163,29 @@ def sentinel_url() -> str:
     return (os.environ.get("SENTINEL_URL") or DEFAULT_URL).rstrip("/")
 
 
+class _NoConsultRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None  # a consult credential never follows a redirect
+
+
+def _consult_endpoint(path: str) -> str:
+    import ipaddress
+    from urllib.parse import urlsplit
+    base = sentinel_url()
+    parsed = urlsplit(base)
+    host = parsed.hostname or ""
+    try:
+        local = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        local = host.lower() == "localhost"
+    if (parsed.scheme not in {"http", "https"} or not host or parsed.username is not None
+            or parsed.password is not None or parsed.query or parsed.fragment
+            or (parsed.scheme != "https" and not local)):
+        raise ValueError("Consultation requires HTTPS outside loopback and a credential-free endpoint URL")
+    _ = parsed.port
+    return base + path
+
+
 # ---------------------------------------------------------------------------
 # WHAT MAY LEAVE
 #
@@ -278,8 +301,12 @@ def _post(path: str, payload: dict, timeout: int = TIMEOUT) -> dict:
         return {"ok": False, "reason": "no_token", "status": STATUS_NO_TOKEN,
                 "detail": ("no SENTINEL_CONSULT_TOKEN configured; consultation "
                            "is unavailable and ARIA proceeds on its own analysis")}
+    try:
+        endpoint = _consult_endpoint(path)
+    except ValueError as exc:
+        return {"ok": False, "reason": "invalid_endpoint", "status": STATUS_ERROR, "detail": str(exc)}
     req = urllib.request.Request(
-        f"{sentinel_url()}{path}",
+        endpoint,
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json",
                  "X-Sentinel-Consult-Token": token})
@@ -292,7 +319,8 @@ def _post(path: str, payload: dict, timeout: int = TIMEOUT) -> dict:
         return round((time.monotonic() - started) * 1000, 1)
 
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoConsultRedirect)
+        with opener.open(req, timeout=timeout) as r:
             body = r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as exc:
         detail = exc.read()[:300].decode("utf-8", "replace")

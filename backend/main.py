@@ -2841,6 +2841,8 @@ def _source_age(filename: str, kind: str) -> tuple:
             a = dataset_age(_load_optional(filename),
                             datetime.fromtimestamp(path.stat().st_mtime),
                             datetime.now(), limit)
+            if a["stale"] and a["age_hours"] is None:
+                return ("UNKNOWN AGE, STALE", True)
             if a["basis"] == "row_generated_at":
                 age_h, stale = a["age_hours"], a["stale"]
                 rows_note = " by its oldest row"
@@ -2849,6 +2851,13 @@ def _source_age(filename: str, kind: str) -> tuple:
                     rows_note += f" ({stale_rows} of {a['rows']} rows from an earlier pass)"
         except Exception:
             stale = True                         # unknown is never fresh
+    if kind == "signals":
+        from src.core.world import _signal_age_block
+        a = _signal_age_block(_load_optional(filename))
+        age_h, stale = a["age_hours"], a["stale"]
+        rows_note = " by row evidence"
+    if age_h is None:
+        return ("UNKNOWN AGE, STALE", True)
     if age_h < 36:
         age = f"{age_h:.0f}h old{rows_note}"
     else:
@@ -2871,6 +2880,10 @@ def _age_basis_note() -> str:
         obs = f.get("observation") or {}
         if f.get("basis") == "stated_date":
             how = f"dated by the file's own data_date ({str(f.get('as_of'))[:10]})"
+        elif f.get("basis") == "row_evidence":
+            how = "age is the oldest row evidence; missing or invalid dates are stale"
+            if obs.get("recorded"):
+                how += f"; bars through {obs.get('latest_bar')}"
         elif f.get("basis") == "row_generated_at":
             how = (f"each row dated by when it was generated; oldest "
                    f"{str(f.get('as_of'))[:16]}, newest {str(f.get('newest_row_at'))[:16]}")
@@ -3485,6 +3498,7 @@ def pull_model(model: str = "llama3.1:8b"):
 # ===========================================================================
 
 _run_in_progress = False
+_run_admission = threading.Lock()
 
 def _run_pipeline(args: str = "--no-sentiment"):
     global _run_in_progress
@@ -3506,8 +3520,11 @@ def trigger_run(background_tasks: BackgroundTasks, no_sentiment: bool = True):
     Poll /health to check when data is refreshed.
     """
     global _run_in_progress
-    if _run_in_progress:
-        return {"status": "already_running", "message": "A pipeline run is already in progress"}
+    from src.core.pipeline_guard import busy
+    with _run_admission:
+        if _run_in_progress or busy():
+            return {"status": "already_running", "message": "A pipeline run is already in progress or writer locking is unavailable"}
+        _run_in_progress = True
     args = "--no-sentiment" if no_sentiment else ""
     background_tasks.add_task(_run_pipeline, args)
     return {

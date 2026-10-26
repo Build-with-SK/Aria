@@ -20,7 +20,7 @@ from src.auth import policy  # noqa: E402
 
 def test_loopback_is_owner_when_no_token_configured(monkeypatch):
     monkeypatch.delenv("ARIA_OWNER_TOKEN", raising=False)
-    assert policy.resolve_role({}, "127.0.0.1") == policy.OWNER
+    assert policy.resolve_role({"host": "127.0.0.1"}, "127.0.0.1") == policy.OWNER
 
 
 def test_remote_without_a_session_is_anonymous(monkeypatch):

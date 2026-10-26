@@ -299,7 +299,8 @@ class PaperOnlyBroker:
                 bear_case="",
                 invalidation=f"Blocked by the live-account gate. {why}",
                 current_price=0.0,
-                broker="alpaca",
+                broker=("ibkr" if getattr(_WRAPPED[self], "name", "").lower() == "ibkr"
+                        else "alpaca"),
             )
         except Exception as e:                                # pragma: no cover
             logger.error("could not queue the blocked order for approval: %s", e)
