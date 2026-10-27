@@ -271,3 +271,7 @@ Fatal Ruff/fence pass; scoped mypy passes with actual types-requests stubs after
 
 ## 2026-10-27 — canonical control integration
 Actual Claude session c9bc3e06-423d-45d0-a428-bc367f767c3a read and authored the final canonical control file; exact bytes copied without Codex edits. SHA256 b6dc7b1c88c85ff4845bb50205490ef8b6216328ab08d2bb2755e0f4ef74474b. Each agent owns only its own log. The prior failed path-pattern grant wrote nothing; the retry granted only Read/Write tools and prompt-restricted the single authorized file, with no permission-bypass mode. Both local suites/reviews complete with recorded limitations; release BLOCKED.
+
+
+## 2026-10-27 — packet review follow-up
+Actual Claude session59366e3e-607e-47e9-b6f4-75d0797bb16b: packet ADEQUATE WITH LIMITATIONS; deployment BLOCKED; read-only and did not independently run tests/check raw evidence/Git. Clarified Bandit gate, approval gates passed before cutover, exact publication/CI snapshots, rollback triggers, review-base/noise findings, browser vs native desktop opt-ins and historical artifact origins. Supplemental SENTINEL persisted-origin fixture3passed/0skips,1.18s: real model-tool/watch/owner entry points and SQLite storage, execution stubbed/no network; separate from frozen full-suite inventory. No runtime implementation change. ARIA63fd263 all12checks SUCCESS; Sentinel draftPR1 no configuredCI. Subsequent documentation/verification-artifact commits preserve implementation anchors.

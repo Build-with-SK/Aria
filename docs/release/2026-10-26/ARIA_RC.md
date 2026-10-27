@@ -13,7 +13,7 @@ candidate source, not the running installation.
   tracked data files and two untracked runtime files were preserved in place.
 - Candidate includes final integration `edc2796`, operational work `e4e4de1`,
   Claude review/probes `5270df6`, and Claude's exact perception/test change
-  from `d7e9362` (`8da6aa3`). Repairs are `7d0d3a1`; follow-up is `6c30df5`.
+  from `d7e9362` (`8da6aa3`). Repairs are `7d0d3a1`; verification freeze `39de9f6` is the final review diff base; follow-up is `6c30df5`.
 - Only isolated development branches were integrated. `main` and the primary
   integration/runtime branch were not moved. Other agents' worktrees and
   uncommitted evaluation work were not overwritten.
@@ -57,7 +57,7 @@ reduce-only check, reservation or UNKNOWN hold was relaxed.
 | Actual Chromium | Actual patched React build, synthetic read-only APIs; route/error/recovery evidence retained privately; no real broker or owner session |
 | Fatal Ruff; protected-history fence | PASS |
 | Six-module mypy | PASS after supplying missing `types-requests` stubs; initial missing-stub failure retained |
-| pip check / fresh app dependency audit | PASS / **0 known advisories** |
+| pip check / fresh app dependency audit | PASS / **0 known advisories** in the fresh app environment; optional heavy packages excluded |
 | npm audit | **0 advisories** after patching Vite to 8.2.4 and follow-redirects to 1.16.1 |
 | Bandit | **FAIL, exit 1: 42 retained findings**, 4 high / 38 medium; not suppressed or called a clean scan |
 | Reachable-history Gitleaks 8.30.1 | Exit 1, one assessed synthetic logging-redaction fixture; no unresolved credential; no suppression added |
@@ -111,6 +111,7 @@ was not upgraded or replaced.
 
 | Gate / limitation | State and closure evidence |
 | --- | --- |
+| SEC-BANDIT | BLOCKED: 42 retained findings (4 high / 38 medium); scoped prior triage is not whole-target clearance. Require reviewed dispositions and target security acceptance, with no blanket suppression |
 | Deployed runtime and optional dependency security | BLOCKED: approve and verify a patched actual target interpreter, complete optional dependency audit and target-stack regression |
 | Historical legacy/UNKNOWN reconciliation | BLOCKED: original broker/account identities and execution/statement evidence; never clear or resend on absence/404 |
 | New paper-venue acceptance | BLOCKED: separately approved account, instrument, size, time and exact order/cancel operations; actual lost-ack/partial/cancel/restart/fees evidence |
@@ -119,7 +120,7 @@ was not upgraded or replaced.
 | Unlinked reflex UNKNOWN | BLOCKED: original queue binding or an explicitly reviewed owner recovery procedure |
 | Signal availability policy | OPEN owner decision: one undated/illiquid ticker holds the universe-wide 30 h gate; weekends/holidays also fail closed. No threshold/calendar relaxation was made |
 | Protection edge cases | OPEN: oversized/partially filled protections and long venue cancellations; no claim of continuous protection during an unconfirmed cancellation |
-| Monitoring | OPEN: urgent cancellation errors currently share the ordinary tick summary; dedicated alert priority and a shared per-tick wait budget remain review findings |
+| Monitoring | OPEN: urgent cancellation errors currently share the ordinary tick summary; dedicated alert priority, noisy already-covered errors and a shared per-tick wait budget remain review findings |
 | Hosted deployment, TLS, supervision, uptime | BLOCKED: approved target and actual cutover/soak evidence; local fixtures are not hosted acceptance |
 | S2.2/S2.3 measurement integration | OPEN: preserve/review the original uncommitted source-level work before integration |
 | Historical data / model benchmark | No new research model trained. No validated point-in-time, independent, cost-adjusted edge or profitability claim |
@@ -128,7 +129,7 @@ was not upgraded or replaced.
 ## Deployment, recovery and rollback — preparation only
 
 1. Obtain explicit owner cutover approval after the open security/data/state
-   gates are reviewed. Keep live execution disabled. Do not run an external
+   gates are recorded as passed. Keep live execution disabled. Do not run an external
    paper order merely because this software suite is green.
 2. Record the running source/interpreter/dependency identities and take validated
    state/audit/database backups before the approved single-instance stop.
@@ -137,7 +138,9 @@ was not upgraded or replaced.
    migration and compatibility before touching the live stores. Start only the
    approved instance, initially with autonomy disarmed, and verify authenticated
    health/readiness, mode, risk/kill controls, identity and recovery.
-4. For rollback, stop the candidate and preserve its **current** state/audit plus
+4. Rollback triggers include a failed kill/approval/audit check, a second writer,
+   growing unresolved UNKNOWN state or unconfirmed protective cancellation.
+   For rollback, stop the candidate and preserve its **current** state/audit plus
    broker evidence. Restore only an approved compatible code/environment/build
    snapshot. Never roll a stale queue/position snapshot over later external
    effects, erase an UNKNOWN claim, or replay a legacy order to unblock a lane.
@@ -146,3 +149,21 @@ was not upgraded or replaced.
 
 These are reviewable instructions, not permission to merge, deploy, trade or
 replace a production model. This candidate is not declared 100% complete.
+
+
+## Published review snapshot and independent packet review
+
+Draft [ARIA PR4](https://github.com/Build-with-SK/Aria/pull/4) publication head
+`63fd2634a701e0ac7b7233cf048b5f7c7a4be46f` has all 12 hosted checks SUCCESS as
+observed 2026-10-27. Earlier fc01c08 also passed, but is not substituted for
+this head. Later commits only refine documentation; the current exact head and
+its hosted check state are available on the PR and in the private final handoff
+receipt. The verified implementation remains 6c30df5.
+
+Actual Claude packet review session59366e3e-607e-47e9-b6f4-75d0797bb16b judged
+packet adequacy ADEQUATE WITH LIMITATIONS and deployment BLOCKED. It read the
+assigned packets/reviews only, ran no tests and did not independently check the
+raw evidence or Git state. Its ARIA requests for an explicit Bandit gate,
+stronger passed-gates wording, review diff-base traceability, monitoring noise
+and rollback triggers are reflected above. Canonical control remains solely
+Claude-authored; hosted-CI snapshots are recorded in Codex's evidence lane.
