@@ -350,6 +350,11 @@ class AlpacaBroker(BrokerBase):
         """One-cancels-other exit: take-profit limit + stop-loss leg on the
         SAME reserved shares — the only way Alpaca allows both protections
         on one position. Returns the order id or None."""
+        # Same gate as submit_order: this calls the client directly, so
+        # without its own check it was a way past the kill switch.
+        if kill_switch.is_engaged():
+            logger.critical("Alpaca OCO exit refused — kill switch engaged")
+            return None
         if not self._client:
             return None
         try:

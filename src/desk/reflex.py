@@ -262,6 +262,11 @@ class ReflexEngine:
         self.cfg = load_config()      # pick up kill-switch / param changes
         if not self.cfg.get("reflex_enabled", True):
             return []
+        # Kill switch: paused. Playbooks stay armed and resume on release;
+        # nothing is quoted, fired or expired while halted.
+        from src.desk.desk_daemon import kill_switch_engaged
+        if kill_switch_engaged():
+            return []
         pbs = load_playbooks()
         armed = [p for p in pbs if p.get("status") == "armed"]
         if not armed:

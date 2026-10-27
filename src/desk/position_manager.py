@@ -90,6 +90,73 @@ def _may_mutate_broker(mgr) -> bool:
         return False
 
 
+def _switch_engaged() -> bool:
+    """Is the kill switch on? Asked BEFORE anything that cancels or places.
+
+    The broker adapters already refuse submissions while it is on, but
+    cancellations are allowed through on purpose — so a path that cancels a
+    protective stop and then tries to re-place it would have the cancel
+    succeed and the re-place refused: a naked position, created by the
+    emergency stop. Every such path asks here first and does nothing.
+
+    Fails closed: if the switch cannot be read, treat it as engaged.
+    """
+    try:
+        from src.execution import kill_switch
+        return kill_switch.is_engaged()
+    except Exception as e:
+        logger.error(f"kill switch unreadable ({e}) — treating as engaged")
+        return True
+
+
+_STOP_TYPES = ("stop", "stop_limit", "trailing_stop")
+
+
+def _is_protective(order: dict, held_side: str | None) -> bool:
+    """A working order that protects a held position: it is on the exit side
+    of that position. Everything else (no position, or same side as the
+    position) is an entry and may be cancelled when the desk halts."""
+    if held_side is None:
+        return False
+    exit_side = "sell" if held_side in ("long", "buy") else "buy"
+    return str(order.get("side", "")).lower() == exit_side
+
+
+def cancel_pending_entries(mgr, broker_positions: dict | None = None) -> list[dict]:
+    """Kill-switch companion: cancel every working ENTRY order, keep every
+    protective exit order (stops and targets on held positions).
+
+    Cancelling is risk-reducing and the switch allows it. Paper-gated like
+    every other broker mutation the desk makes: on a live account these are
+    the human's own orders, and the human decides.
+    """
+    if mgr is None or not _may_mutate_broker(mgr):
+        return []
+    if broker_positions is None:
+        try:
+            broker_positions = {p.ticker: {"side": p.side}
+                                for p in mgr._alpaca.get_positions()}
+        except Exception as e:
+            logger.error(f"halt: could not read positions ({e}) — "
+                         f"no orders cancelled")
+            return []
+    cancelled = []
+    for ticker, orders in (mgr.open_orders_by_ticker() or {}).items():
+        held = broker_positions.get(ticker)
+        held_side = held.get("side") if held else None
+        for o in orders:
+            if _is_protective(o, held_side):
+                continue
+            try:
+                if mgr._alpaca.cancel_order(o["id"]):
+                    cancelled.append(o)
+                    logger.warning(f"halt: cancelled pending entry {o['id']} "
+                                   f"({o.get('side')} {o.get('qty')} {ticker})")
+            except Exception as e:
+                logger.error(f"halt: cancel {o.get('id')} failed: {e}")
+    return cancelled
+
+
 def _sane_levels(stop: float | None, target: float | None, entry: float,
                  long: bool) -> tuple[float | None, float | None]:
     """Stops sit on the losing side, targets on the winning side. A level on
@@ -282,6 +349,20 @@ class PositionManager:
         tracked = self.load_positions()
         broker_positions = {p["ticker"]: p for p in (account.get("positions") or [])}
 
+        # KILL SWITCH — read once, before anything can touch the broker. While
+        # it is on, the tick still observes (adopt, prune, record closes, track
+        # high/low water) but sends nothing except cancellations of pending
+        # ENTRY orders. Protective stops already at the broker stay exactly
+        # where they are.
+        halted = _switch_engaged()
+        summary["kill_switch"] = halted
+        if halted:
+            try:
+                summary["entries_cancelled"] = [
+                    o.get("id") for o in cancel_pending_entries(mgr, broker_positions)]
+            except Exception as e:
+                summary["errors"].append(f"halt entry cancel: {e}")
+
         # LEGACY TRIAGE / adoption — every broker position gets tracked
         for ticker, bp in broker_positions.items():
             if ticker not in tracked:
@@ -306,7 +387,7 @@ class PositionManager:
         cap = equity * float(self.cfg.get("max_gross_exposure_pct", 100.0)) / 100.0
         gross = sum(abs(float(bp.get("market_value") or 0.0))
                     for bp in broker_positions.values())
-        if equity > 0 and gross > cap:
+        if equity > 0 and gross > cap and not halted:
             for ticker in self._worst_first(broker_positions):
                 if gross <= cap:
                     break
@@ -335,10 +416,16 @@ class PositionManager:
                 pos["stop"] = verdict["new_stop"]
                 summary["stops_moved"].append(
                     {"ticker": ticker, "from": old, "to": pos["stop"]})
-                # No snapshot passed — the ratchet re-reads. See the note on
-                # _replace_stop_order: `open_orders` here was captured during
-                # the prune pass, several cancellations ago.
-                self._replace_stop_order(ticker, pos, mgr)
+                # The trailing level is enforced HERE, in software (rule 1 of
+                # evaluate_exit reads pos["stop"]). The broker keeps its
+                # original stop as the disaster stop and it is never cancelled
+                # to move it — see _replace_stop_order. No snapshot passed:
+                # the ratchet re-reads open orders.
+                if not halted:
+                    self._replace_stop_order(ticker, pos, mgr)
+
+            if halted:
+                continue            # observe only — no exits while halted
 
             action = verdict["action"]
             if action == "debate":
@@ -366,8 +453,10 @@ class PositionManager:
         # BRACKET HEALING — every surviving tracked position gets its stop
         # (and target) present at the broker; A2's fix stops new nakedness,
         # this heals restarts and partial failures.
-        open_orders = mgr.open_orders_by_ticker() if mgr else {}
+        open_orders = mgr.open_orders_by_ticker() if (mgr and not halted) else {}
         for ticker, pos in tracked.items():
+            if halted:
+                break
             if ticker in broker_positions:
                 healed = self._heal_brackets(ticker, pos, mgr,
                                              open_orders.get(ticker, []))
@@ -376,7 +465,9 @@ class PositionManager:
 
         try:
             # Live account: these are the human's own orders, not the desk's.
-            if mgr and not _may_mutate_broker(mgr):
+            if halted:
+                pass                # entries were already cancelled above
+            elif mgr and not _may_mutate_broker(mgr):
                 summary["errors"].append(
                     "stale-order cleanup skipped — live account")
             else:
@@ -522,6 +613,14 @@ class PositionManager:
                             f"({reason})")
                 return None
 
+        # Kill switch BEFORE the cancel below. The exit order would be refused
+        # by the adapter; the cancel would not — so without this check a halt
+        # strips the stops off the position it was meant to protect.
+        if _switch_engaged():
+            logger.warning(f"exit for {ticker} not attempted — kill switch "
+                           f"engaged; broker stops left in place ({reason})")
+            return None
+
         # A close already in flight? Wait for it — never stack exit orders.
         exit_side = "sell" if long else "buy"
         open_for_ticker = mgr.open_orders_by_ticker().get(ticker) or []
@@ -530,9 +629,15 @@ class PositionManager:
             logger.info(f"exit for {ticker} already in flight — skipping")
             return None
 
-        # Cancel protective orders first so the GTC brackets can't double-fill
+        # Cancel protective orders first so the GTC brackets can't double-fill.
+        # Alpaca reserves shares under a working stop, so the exit cannot be
+        # placed while they stand. That makes the exit order itself the
+        # "replacement", and every path below where it does not fill puts the
+        # protection back (_restore_protection).
+        cancelled_protection = False
         for o in open_for_ticker:
-            broker.cancel_order(o["id"])
+            if broker.cancel_order(o["id"]) is not False:
+                cancelled_protection = True
 
         req = OrderRequest(
             ticker=ticker,
@@ -545,6 +650,8 @@ class PositionManager:
         result = broker.submit_order(req)
         if result.status == OrderStatus.REJECTED:
             logger.error(f"exit order rejected for {ticker}: {result.error_message}")
+            if cancelled_protection:
+                self._restore_protection(ticker, pos, bp, mgr, long)
             return None
         if result.status != OrderStatus.FILLED:
             result = mgr._await_fill(broker, result)
@@ -554,6 +661,8 @@ class PositionManager:
             broker.cancel_order(result.broker_order_id)
             logger.warning(f"exit for {ticker} did not fill in the poll window "
                            f"— cancelled, will retry next tick ({reason})")
+            if cancelled_protection:
+                self._restore_protection(ticker, pos, bp, mgr, long)
             return None
 
         exit_price = result.avg_fill_price or self._current_price(ticker, bp, {}, mgr)
@@ -589,6 +698,11 @@ class PositionManager:
         else:
             if pos:
                 pos["qty"] = round(abs(float(bp.get("qty") or 0.0)) - qty, 6)
+            # The runner lost its brackets with the cancel above; protect it now
+            # rather than leaving it to the next tick's healing pass.
+            if cancelled_protection and pos:
+                self._restore_protection(ticker, pos, {**bp, "qty": pos["qty"]},
+                                         mgr, long)
 
         from src.desk.notify import fmt_exit, push
         push(fmt_exit("buy" if long else "sell", qty, ticker, exit_price,
@@ -679,22 +793,64 @@ class PositionManager:
 
     # ── brackets ─────────────────────────────────────────────────────────
 
+    def _restore_protection(self, ticker: str, pos: dict, bp: dict, mgr,
+                            long: bool) -> bool:
+        """Put a stop (and target) back after an exit that cancelled them did
+        not go through. Loud on failure: this is the one place a position can
+        be left without a broker-side stop, and nobody should learn that from
+        a P&L line."""
+        qty = abs(float(bp.get("qty") or pos.get("qty") or 0.0))
+        stop = pos.get("stop") or pos.get("initial_stop")
+        if not qty or not stop:
+            return False
+        try:
+            placed = mgr.place_protective_orders(
+                ticker, qty, "buy" if long else "sell", stop, pos.get("target"),
+                asset_class=pos.get("asset_class", "equity"))
+        except Exception as e:
+            placed, err = {}, e
+        else:
+            err = None
+        if placed.get("stop_loss_order"):
+            logger.warning(f"{ticker}: exit did not complete — protection "
+                           f"restored at stop {stop}")
+            return True
+        msg = (f"⚠ {ticker} has NO broker stop: exit did not complete and the "
+               f"stop could not be re-placed{f' ({err})' if err else ''}. "
+               f"Software stop {stop} still checked every tick.")
+        logger.critical(msg)
+        try:
+            from src.desk.notify import push
+            push(msg, self.cfg)
+        except Exception:
+            pass
+        return False
+
     def _heal_brackets(self, ticker: str, pos: dict, mgr,
                        open_orders: list) -> dict | None:
+        """Make sure every held position has a stop at the broker.
+
+        Never cancels a stop. If a stop is already working, a missing target
+        is left missing: the target is enforced in software by evaluate_exit,
+        and adding one at the broker would mean cancelling the stop to re-place
+        both as one OCO — the cancel-then-replace that can leave a position
+        naked. Only when there is NO stop does this place one, clearing a lone
+        target first (a target is not protection) so the OCO can reserve the
+        shares.
+        """
         if mgr is None or not _may_mutate_broker(mgr):
             return None
-        has_stop = any(o.get("order_type") in ("stop", "stop_limit")
-                       for o in open_orders)
+        if _switch_engaged():
+            return None
+        has_stop = any(o.get("order_type") in _STOP_TYPES for o in open_orders)
         has_target = any(o.get("order_type") == "limit" for o in open_orders)
         need_stop = pos.get("stop") and not has_stop
-        need_target = pos.get("target") and not has_target
-        if not (need_stop or need_target):
+        need_target = pos.get("target") and not has_target and not has_stop
+        if not need_stop:
             return None
-        # Protections are placed as one OCO — clear partial leftovers first
-        # so the fresh order can reserve the shares.
         if mgr._alpaca is not None:
             for o in open_orders:
-                if o.get("order_type") in ("stop", "stop_limit", "limit"):
+                if o.get("order_type") == "limit":      # lone target, never a stop
                     try:
                         mgr._alpaca.cancel_order(o["id"])
                     except Exception:
@@ -705,9 +861,9 @@ class PositionManager:
             pos.get("stop"), pos.get("target"),
             asset_class=pos.get("asset_class", "equity"))
         healed = {}
-        if need_stop and placed.get("stop_loss_order"):
+        if placed.get("stop_loss_order"):
             healed["stop"] = pos["stop"]
-        if need_target and placed.get("take_profit_order"):
+        if (need_target or has_target) and placed.get("take_profit_order"):
             healed["target"] = pos["target"]
         if healed:
             logger.info(f"healed brackets for {ticker}: {healed}")
@@ -715,8 +871,19 @@ class PositionManager:
 
     def _replace_stop_order(self, ticker: str, pos: dict, mgr,
                             open_orders: list | None = None):
-        """Trailing ratchet: cancel the old protections, re-place the OCO
-        (or stop) at the new level.
+        """Trailing ratchet, broker side: make sure a stop stands — never
+        cancel one to move it.
+
+        This used to cancel the working stop and re-place it at the new level.
+        If the re-place failed (kill switch, broker error, reserved-shares
+        rejection) the position was left with no broker stop at all. Alpaca
+        has no confirmed place-before-cancel for a stop on the same shares, so
+        a stop is now only ever replaced by moving it in place, and no adapter
+        here offers that yet. Until one does, the tightened level lives in
+        pos["stop"] and is enforced in software by evaluate_exit every tick;
+        the broker keeps the original stop as the disaster stop.
+
+        If no stop is working at all, one is placed (via _heal_brackets).
 
         open_orders defaults to a FRESH read rather than the snapshot the
         caller happens to be holding. The exit loop's snapshot is taken during
@@ -734,17 +901,11 @@ class PositionManager:
                 logger.warning(f"could not read open orders for {ticker} ({e}) "
                                f"— stop not replaced")
                 return
-        for o in open_orders:
-            if o.get("order_type") in ("stop", "stop_limit", "limit"):
-                try:
-                    mgr._alpaca.cancel_order(o["id"])
-                except Exception:
-                    pass
-        mgr.place_protective_orders(
-            ticker, float(pos.get("qty") or 0.0),
-            "buy" if _is_long(pos) else "sell",
-            pos.get("stop"), pos.get("target"),
-            asset_class=pos.get("asset_class", "equity"))
+        if any(o.get("order_type") in _STOP_TYPES for o in open_orders):
+            logger.info(f"{ticker}: trailing stop now {pos.get('stop')} "
+                        f"(software); broker stop left in place")
+            return
+        self._heal_brackets(ticker, pos, mgr, open_orders)
 
     # ── helpers ──────────────────────────────────────────────────────────
 

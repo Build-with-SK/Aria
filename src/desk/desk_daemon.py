@@ -66,6 +66,16 @@ def _snapshot_technical_recs():
         logger.warning(f"technical recs snapshot failed: {e}")
 
 
+def kill_switch_engaged() -> bool:
+    """The desk's pause check. Fails closed: unreadable means engaged."""
+    try:
+        from src.execution import kill_switch
+        return kill_switch.is_engaged()
+    except Exception as e:
+        logger.error(f"kill switch unreadable ({e}) — desk paused")
+        return True
+
+
 def us_equities_open(now: datetime | None = None) -> bool:
     """US cash session 09:30–16:00 ET, Mon–Fri. Best-effort (holidays and
     early closes are not modelled — a closed-market order just queues at
@@ -268,6 +278,8 @@ class DeskDaemon:
         exactly the failure this system keeps finding in itself — so it logs
         loudly.
         """
+        if kill_switch_engaged():
+            return                  # paused: held intents wait for release
         try:
             from src.desk import intents
             result = intents.check_once()
@@ -290,11 +302,12 @@ class DeskDaemon:
             # Arm signal-spike playbooks for the reflex lane (cheap: cached
             # signals + a held-set read; no LLM, no broker orders).
             try:
-                from src.desk.auto_executor import account_snapshot
-                from src.desk.reflex import arm_from_signal
-                spiked = arm_from_signal(account=account_snapshot())
-                if spiked:
-                    summary["armed_signal_playbooks"] = [p["ticker"] for p in spiked]
+                if not summary.get("kill_switch"):     # no arming while halted
+                    from src.desk.auto_executor import account_snapshot
+                    from src.desk.reflex import arm_from_signal
+                    spiked = arm_from_signal(account=account_snapshot())
+                    if spiked:
+                        summary["armed_signal_playbooks"] = [p["ticker"] for p in spiked]
             except Exception as e:
                 summary.setdefault("errors", []).append(f"reflex signal-arm: {e}")
             self.tick_count += 1
@@ -376,6 +389,14 @@ class DeskDaemon:
         return self.memory
 
     def _run_cycle(self):
+        if kill_switch_engaged():
+            # Paused, not stopped: the schedule keeps running and the next
+            # cycle after a release proceeds normally. No debates, no slate.
+            logger.warning("Desk cycle skipped — kill switch engaged")
+            self.last_cycle = {"at": datetime.now().isoformat(),
+                               "halted": True, "reason": "kill switch engaged",
+                               "cycle_count": self.cycle_count}
+            return
         if not self._lock.acquire(blocking=False):
             logger.info("Desk cycle skipped — previous cycle still running")
             return

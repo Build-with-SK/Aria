@@ -1514,7 +1514,19 @@ def kill_switch_engage(payload: dict = Body(default={})):
     """Stop all new orders immediately. Existing positions stay observable."""
     from src.execution import kill_switch
     reason = (payload or {}).get("reason") or "engaged from the UI"
-    return kill_switch.engage(str(reason)[:500], actor="owner")
+    st = kill_switch.engage(str(reason)[:500], actor="owner")
+    # Pending ENTRY orders are cancelled now rather than on the next desk
+    # tick; protective stops on held positions are left exactly in place.
+    # Best-effort: the switch is already engaged whatever happens here, and the
+    # management tick repeats the sweep every few minutes while it stays on.
+    try:
+        from src.desk.auto_executor import get_order_manager
+        from src.desk.position_manager import cancel_pending_entries
+        st = {**st, "entries_cancelled": [
+            o.get("id") for o in cancel_pending_entries(get_order_manager())]}
+    except Exception as e:
+        st = {**st, "entries_cancelled": None, "entry_cancel_error": str(e)}
+    return st
 
 
 @app.post("/api/execute/kill-switch/release", tags=["Execution"],

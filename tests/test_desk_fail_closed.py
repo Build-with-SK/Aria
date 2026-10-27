@@ -245,8 +245,12 @@ def test_replace_stop_order_refetches_rather_than_trusting_a_snapshot(monkeypatc
     engine._replace_stop_order("AAPL", {"stop": 95.0, "qty": 5, "side": "long"}, mgr)
 
     assert mgr.reads == 1, "the ratchet must re-read open orders, not reuse a snapshot"
-    assert mgr._alpaca.cancelled == ["fresh"], \
-        "it cancelled from a stale list instead of the fresh read"
+    # Changed with the kill-switch fix: the ratchet used to cancel the fresh
+    # stop and re-place it, which left the position naked whenever the
+    # re-place failed. A working stop is now never cancelled to move it.
+    assert mgr._alpaca.cancelled == [], \
+        "the ratchet cancelled a working stop — protection must never be removed to move it"
+    assert mgr.placed == [], "a stop was already working; nothing should be placed"
 
 
 def test_exit_loop_passes_no_stale_snapshot_to_the_ratchet():
