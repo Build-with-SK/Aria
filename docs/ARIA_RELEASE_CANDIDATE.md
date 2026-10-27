@@ -1,3 +1,5 @@
+> Current reconciliation packet: [2026-10-26/27 ARIA RC](release/2026-10-26/ARIA_RC.md). The report below is historical and does not supersede its open gates.
+
 # ARIA operational release candidate — 2026-10-18
 
 **Overall verdict: BLOCKED for deployment/production release.** Authorized local implementation and validation are complete as recorded below. No merge into production, push, service restart, broker request or live enablement was performed.
