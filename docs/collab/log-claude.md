@@ -2,6 +2,284 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-18 — Final architecture, safety and release review — on `claude/aria-final-review`, review-only
+Candidate `codex/aria-final-integration` @ `edc2796`. Worktree `.claude/worktrees/aria-final-review`.
+Nothing pushed, merged, restarted or deployed. No broker call. No Codex file edited.
+Measured: candidate full suite 3,523 passed / 13 skipped / exit 0 (Windows, runtime venv 3.11.8).
+Codex `edfb5e6`: 3,542 / 13 / exit 0. Bandit 49 on the candidate (matches Codex), 43 on `edfb5e6`.
+pip-audit of the runtime venv: 74 known vulnerabilities in 14 packages (S-01).
+Findings (probes in `tests/test_claude_final_review_probes.py`, strict-xfail):
+F-01 HIGH halt cancels no Alpaca order. F-10 HIGH gate 6 trusts mtime of git-tracked
+`signals.json`. F-02 / F-09 MEDIUM protection loss in the exit engine. F-06 MEDIUM regression
+in `edfb5e6` (`_source_age` TypeError on a future-dated ML row). F-08 / F-05 MEDIUM. LOW items
+in the docs. Verdict **B** (engineering fixes), then C (external/owner gates).
+Docs: `docs/CLAUDE_FINAL_ARCHITECTURE_REVIEW.md`, `CLAUDE_TRADING_SAFETY_REVIEW.md`,
+`CLAUDE_ML_PIPELINE_REVIEW.md`, `CLAUDE_SECURITY_REVIEW.md`, `ARIA_REVIEW_HANDOFF.md`,
+`CLAUDE_RELEASE_RECOMMENDATION.md`.
+For Codex: requests and done-when criteria are in ARIA_REVIEW_HANDOFF §2. `edfb5e6` is
+CHANGES REQUESTED (F-06; backup abort LOW).
+For the owner: untrack generated `data/*.json`; confirm in WORK_PLAN the owner's appointment
+of Codex as sole engineering lead (`edfb5e6` edits `src/brain` and `src/core`); cutover must
+recreate the venv and keep auto-execute disarmed until a pipeline run rewrites `signals.json`.
+
+## 2026-10-17 20:40–21:15 — O-2: pipeline ML step durable against interruption — on `claude/loving-gauss-c5dcd5`, NOT merged
+Branched from `claude/aria-completion` @ `125f0b8` (it holds `launch_check.py` and
+`durable.py`; its tip `659a75c` adds a docs line only). `src/models` is mine (not in the
+WORK_PLAN table). Nothing run against the live `data/`, no pipeline run, nothing restarted.
+Files: `main.py` (`run_ml`, new `_MLBatchWriter`, `--force-ml`), new `src/models/ml_store.py`,
+`src/models/model_trainer.py` (`skip=`, `on_ticker=`), `src/models/ensemble_model.py`
+(`_elasticnet`), and the readers that aged ML by file mtime: `src/core/world.py`
+(`_ml_age_block`), `src/core/launch_check.py` (`check_ml`), `src/desk/analysts/technical_agent.py`
+(`ml_made_by(ticker, body)`), `backend/main.py` (`_source_age` for ML, `_age_basis_note`).
+Tests: new `tests/test_ml_durable.py` (19), `tests/test_launch_check.py` (+3), fakes in
+`tests/test_ml_persistence.py` accept the new keywords.
+Changed:
+- Every 25 finished tickers (`ml.persist_every_tickers`) the batch's rows are merged into
+  `ml_predictions.json` via `durable.atomic_write_json` (temp + fsync + `os.replace`), and into
+  the ledger. Each row carries its own `generated_at` (when that ticker finished). A failed
+  write leaves the file as it was and the batch is retried with the next one; Ctrl+C flushes
+  the finished tickers in `finally`; a hard kill keeps the merged batches.
+- Resume: a rerun skips tickers whose row is younger than `ml.resume_max_age_hours` (default
+  20; 0 disables) unless `main.py --force-ml`. Skipped tickers stay in `featured_data`, so
+  cross-asset features of trained tickers are unchanged.
+- A pass that FINISHES drops rows it neither produced nor kept (gone from the universe, or
+  failed this pass), so the finished file means what it meant before: the last completed
+  pass. An interrupted pass prunes nothing. A run that produced nothing still leaves the file alone.
+- Readers: with batches merged into the file, its mtime no longer dates the rows — the
+  technical analyst would have cited a 130-day-old row as live once the first batch touched
+  the file. ML is now aged by rows: per ticker by its own `generated_at`; the dataset by its
+  OLDEST row (world, `/api/data/freshness`, chat context, `launch_check`). A file with no
+  stamped row (the 2026-05-31 one) is aged by mtime as before; an unstamped row beside stamped
+  ones has no knowable age and is never called fresh. `launch_check` ML: PASS = every row
+  inside 48 h, WARN = a part-done pass, FAIL = no row fresh (it used the NEWEST row before,
+  so one fresh batch would have read PASS).
+- `penalty="elasticnet"` dropped from the meta-learner on sklearn ≥ 1.8 (`l1_ratio` alone
+  selects it). Kept on < 1.8, where `l1_ratio` without it is ignored (silent pure-L2) —
+  requirements allow `scikit-learn>=1.4`, and main.py filters sklearn UserWarnings, so that
+  fallback would have been invisible.
+Measured: one synthetic ensemble fit (400 rows, 5-fold) — before 1 FutureWarning per fit
+(~1,500 per pipeline run), after 0; CV 0.7466 and P(up) 0.8208 identical. Old vs new
+LogisticRegression spelling: coef/intercept bit-identical. Hard-kill test: a subprocess
+`os._exit` at ticker 55 leaves exactly T000–T049 on disk, no temp file. Full suite
+(`venv\Scripts\python.exe -m pytest tests -q -p no:randomly`): **3480 passed, 9 skipped,
+EXIT 0** (floor on `claude/aria-completion` 3458 + 22 new). ruff F on touched files: only
+pre-existing unused imports, no F811/F821.
+Open (owner): resume helps same-day reruns only — the daily task fires every ~24 h, past the
+20 h budget, so an interrupted daily run is not resumed by the next one; it needs a same-day
+retry trigger on `TradingIntelligenceSystem`, or a larger `resume_max_age_hours`. The battery
+and InteractiveToken settings are unchanged. `src/brain/cognitive/perception.py` reads ML
+rows with no age at all (it did before; not touched).
+For Codex: `docs/DATA_LAYER.md` (yours) says `ml_predictions.json` is written by the full
+pipeline — still true, now batch-merged with per-row `generated_at`; `src/v5/modules/machine.py`
+already ages by the row's `generated_at`, no change needed.
+
+## 2026-10-17 19:45–21:15 — ARIA completion mission (owner brief) — on `claude/aria-completion`, NOT merged
+Worktree `.claude/worktrees/aria-completion`, branched from `claude/s1.3-followup` (`6c32d98`)
++ `claude/launch-sprint`. Codex worked the same mission in parallel on
+`codex/aria-final-verification` (owner expanded its remit to execution reliability).
+Docs: `docs/ARIA_COMPLETION_AUDIT.md`, `ARIA_ARCHITECTURE.md`, `ARIA_HANDOFF.md`,
+`ARIA_RELEASE_READINESS.md`.
+Changed (mine): `src/core/durable.py` (atomic write, fail-closed read + quarantine, cross-process
+and single-instance locks); playbooks / day state / positions / pending cancels / desk config
+durable and fail-closed (`f5f2bf7`, `33eb7a0`); single-instance desk daemon (`c49217c`);
+`OrderRefused` so a refused OCO is rejected, not UNKNOWN; `account_snapshot` connected only after
+positions are read (a failed read used to close every tracked position on paper and cancel its
+stops) (`e7282f4`); reconciliation by broker id for acknowledged orders; sentiment yf fallback
+re-wired after a merge broke it silently (`4abcb84`); 503 for damaged state (`aba32e3`);
+`.gitignore` for `data/execution/` (`edf818b`); nightly backup includes the order records
+(`c133e28`); `launch_check --now` (`9c5894c`).
+Merged + reviewed Codex: `09f2158` (approve with 3 fixes), `0a1b21a` + `048f47b` (approve; 2
+integration fixes). Two merge artifacts found by ruff/tests and fixed (`dde257b`, `4abcb84`).
+Measured: baseline 3390 passed / 9 skipped; final full suite **3457 passed, 9 skipped, EXIT 0**
+(on `4abcb84`+docs; rerun on the final commit is in RELEASE_READINESS). Frontend verifiers +
+staging build EXIT 0. GET sweep 158 routes, no 5xx (1 timeout `/api/brain/memories`). Migrations
+run on DB copies: current, idempotent, integrity ok. ruff/mypy run via uvx (isolated, venv
+untouched): debt only. Live (read-only `launch_check` 20:28): PAPER, kill switch off, broker
+$10,008.38, backend gap 08:59→20:13, ML from 2026-05-31 (pipeline mid-ML, owner's console).
+Open: Codex re-review of my trading-path commits; owner's yes to merge/deploy (after the paper
+test ends 2026-10-18 17:13); paper-venue validation session; audit O-1..O-14.
+For Codex: requests are in `docs/ARIA_HANDOFF.md` (`git show claude/aria-completion:docs/ARIA_HANDOFF.md`).
+
+## 2026-10-17 ~00:50 — S1.3 follow-up for Codex's CHANGES REQUIRED — on `claude/s1.3-followup`, NOT merged, awaits re-review
+From `claude/s1.3-client-order-id` @ `9bd17f9`: `4c0a172` test-fixture isolation (same change
+as `16e603d` on the sprint branch), `4f3b18e` the fixes, `d2f5e80` atomic claim. Review
+diff: `git diff e4f01ad d2f5e80`. Codex's review: `aria-codex/docs/collab/reviews/
+S1_3_ORDER_SAFETY_REVIEW.md` — all eight findings accepted.
+- F1 a 404 never settles: `_settle_unknown` moves an UNKNOWN only on a FOUND broker answer;
+  the old test that encoded "three 404s = nothing placed" now asserts the opposite.
+- F2 orders go through a second TradingClient with retries off (`_submit_client`,
+  `_retry = 0`); any 4xx from a client that may have retried, or naming the client id, is
+  UNKNOWN; a 4xx/429 to the single attempt is a refusal; a request that failed while being
+  built, or a `ConnectTimeout`, is "nothing sent". `get_order_status` failures are UNKNOWN
+  (were REJECTED); `_await_fill` skips them.
+- F3 `AutoExecutor._after_entry` keeps a known outcome when accounting, tracking or
+  notification fails; an exception in the reflex execute stage is decided from the queue
+  row it created (none/unsent → expired; submitting/unknown → unknown with its client id;
+  executed → fired); journal failures never change outcomes. `_arm` refuses a ticker with an
+  unknown playbook OR a fired one inside its own expiry (stricter arming — flag for the owner).
+- F4 `execute()` refuses any order that could add to an instrument while another row for it
+  is submitting/unknown, all lanes, across restarts (the queue file is the state); the claim
+  re-checks under the queue lock so two lanes cannot both pass. Exits (reduce-only) exempt.
+- F5 a working order the broker then cancels/rejects/expires is ok=False and recorded
+  rejected with the broker's status; rows keep `order_status`/`filled_qty`; the desk tracks a
+  position only for filled quantity and never shows the intended price as a fill.
+- F6 the row is claimed ("submitting", client id on disk) before the POST; cancel and the
+  owner's reject refuse it from then on; a crash leaves it blocking, never resent.
+- F7 every reflex execute-stage record is journalled (`lane: "reflex"`).
+- Resolution: `OrderManager.reconcile_unresolved()` (lookups only; every lookup appended to
+  `data/execution/order_reconciliation.jsonl`) + `reflex.reconcile_unknown_playbooks()`, both on
+  the desk management tick; the owner's release (step-up, note required) is the only way an
+  order no lookup finds stops blocking. Added routes: GET `/api/execute/unresolved`, POST
+  `/api/execute/reconcile`, POST `/api/execute/unresolved/{id}/release`.
+Measured: Codex's 12 probes **12 failed on e4f01ad → 12 passed on d2f5e80** (copied into tests/
+for the run, deleted, never committed). `tests/test_order_safety_review.py` + settlement: 63
+passed. Order-path/desk/reflex/auth suites 614 passed (on 4f3b18e); route-inventory + step-up
++ auth 271 passed. Full suite on `d2f5e80`, worktree with NO production DB: **3365 passed, 9
+skipped, EXIT=0** (319 s). Fence `--require-git`: clean (also `--base e4f01ad`).
+Open: position adoption still does not link to the queue row (an adopted fill keeps synthetic
+levels; the row settles via reconciliation); `submit_oco_exit` still uses the retrying client
+with no client id (a 504 retry could duplicate an OCO exit) — both pre-existing, not in this
+change. Not deployed; the paper test is untouched.
+For Codex: **re-review request (trading path, §2.6)** — `git diff e4f01ad d2f5e80`; APPROVE or
+the objection in `log-codex.md`. F8 (`Execution.jsx` unknown→CANCELLED fallback, no client id,
+`Desk.jsx` AUTO-FILLED on unconfirmed) is yours: the queue now also has status `submitting`
+and fields `order_status`, `filled_qty`, `released_by`; `/api/execute/unresolved` lists them.
+
+## 2026-10-16 — S1.3 client_order_id + settle-on-timeout — built on `claude/s1.3-client-order-id`, NOT merged, awaits independent review
+Files: `src/execution/order_manager.py`, `src/execution/alpaca_broker.py`
+(`_classify_submit_failure` only), `src/execution/approval_queue.py` (fenced path —
+adds terminal status `unknown` and a `client_order_id` field; no approval step
+changed), `src/desk/auto_executor.py`, `src/desk/reflex.py`, `backend/main.py` (two
+response keys added, nothing renamed), new `tests/test_order_settlement.py`.
+Branched from `aria/integrity-upgrade` @ `b5b47f2`.
+Changed:
+- Every approval-queue order (owner approve, desk auto-execute, reflex) is sent with
+  `client_order_id = aria-q-<sha256(approval_queue|id|created_at)[:24]>` —
+  deterministic per queued trade, recorded on the queue row.
+- A submit the adapter reports UNKNOWN (timeout, connection drop, 5xx — already
+  classified that way when a client id is present) is settled in
+  `OrderManager._settle_unknown`: up to 3 lookups by client id, 2 s apart. Found →
+  continues as the broker's answer (a fill takes the normal path: queue executed,
+  brackets after a confirmed fill). Not found on the LAST lookup → REJECTED, nothing
+  placed. Last lookup unanswerable, or the adapter cannot look up → UNKNOWN.
+- Found in review of alpaca-py 0.43.4: `alpaca/common/rest.py` re-POSTs on 504 (3×,
+  3 s). With a client id, a retry after an accepted-but-timed-out first POST is
+  refused 422 "client_order_id must be unique" — that read as a definite refusal.
+  A 4xx naming the client order id is now UNKNOWN and settled by lookup; every
+  other 4xx stays REJECTED, unlooked-up.
+- UNKNOWN is terminal everywhere: queue status `unknown` (execute and cancel refuse
+  it — never resent); `execute` returns `ok: False, unknown: True, client_order_id`;
+  desk record `mode: "unknown"` with `client_order_id`, counted against the day's caps
+  (`record_trade`), not tracked as a position (PositionManager.tick adopts it if the
+  broker shows one), owner notified; reflex playbook status `unknown` (not
+  "expired"), and `_arm` refuses its ticker while any `unknown` playbook for it
+  stands; reflex unknown outcomes are written to `executions.jsonl` (`lane:
+  "reflex"`). `/api/desk/executions` adds `unknown` (count); `/api/desk/playbooks`
+  adds `unknown` (list). Fill/failed records also carry `client_order_id`.
+- Gates unchanged and still in front of the send: session, pre-trade risk,
+  reduce-only, mode gate, kill switch. Settlement runs after the send and only reads
+  (`get_order_by_client_id` was already a READ in `live_guard`). Tests show closed
+  market, kill switch and RESEARCH mode each send nothing and look nothing up.
+  Nothing calls `approve_and_execute`.
+Measured: `tests/test_order_settlement.py` 23 passed — real `AlpacaBroker` code over a
+fake alpaca-py client; timeout→found filled / found working / found rejected or
+cancelled / not found / lookup fails / mixed answers / duplicate-id 422 / no lookup
+support / through `gate_for_desk`; reflex end to end through the real order path
+(found → `fired`, not found → stays `armed`, lookup fails → `unknown`, second
+crossing sends nothing, re-arm refused). Against the base source, 16 of the first
+20 failed (the 4 that passed are gate tests that hold either way). Named suites
+(structure, live gate, reflex×3, desk×2, send-time, session bypass, reduce-only,
+portfolio risk, kill switch, backend reliability, execution auth, settlement):
+449 passed. Full suite on `e4f01ad` in the worktree, with a read-only copy of the
+production `universe.db` (removed after): **3322 passed, 7 skipped, exit 0**.
+Without that copy a worktree fails one test, `test_stabilization.py::
+test_the_universe_audit_reports_without_repairing` (fallback fixture 16 rows, finds
+29) — the base `b5b47f2` fails it identically in a worktree (3296 passed, 1 failed),
+and it passes alone and right after the new tests: environment, not this change.
+`scripts/check_protected_paths.py --require-git`: clean (also `--base b5b47f2`).
+Open:
+- Trading-path change: independent review BEFORE merge (Codex, or a fresh reviewer
+  if the owner says so). Not merged, not pushed, nothing restarted.
+- An `unknown` playbook blocks its ticker until the owner finds the order at Alpaca
+  by client order id and changes that playbook's status in `data/desk/playbooks.json`;
+  no endpoint does that yet (candidate: settle `unknown` playbooks by client id on
+  the next scan).
+- Residual race: a request still in flight after ~6 s of "not found" could land
+  later — an untracked order (PositionManager adopts it) while the playbook stays
+  armed.
+- Pre-existing, unchanged: `AlpacaBroker.get_order_status` returns REJECTED on a
+  transport error, so `_await_fill` can report a working order as "rejected" while
+  the queue says executed; a reflex `_fire` exception still retires as `expired`,
+  not `unknown`, so it does not block re-arming; reflex fills (other than unknown)
+  never reach `executions.jsonl`; a trade left `approved` by a crash mid-submit can
+  be approved again and resends the same id (now settled by lookup instead of a
+  second order); the deliberate desk lane does not consult `unknown` records when
+  choosing the next slate.
+For Codex: review request (trading path, §2.6) — `git diff b5b47f2
+claude/s1.3-client-order-id`; APPROVE or the objection in `log-codex.md`. Claude
+merges only after that.
+
+## 2026-10-16 23:00–00:00 — parallel completion sprint (owner directive) — on `claude/launch-sprint`, NOT merged
+Branch from `aria/integrity-upgrade` @ `b5b47f2`; S1.3 files untouched while Codex reviewed.
+Nothing merged, pushed, deployed or restarted; the paper test was not touched (all
+measurements below are reads).
+**A — sentiment.** The `main.py:369` argument defect was already fixed (`73e6e09`, merged
+`a029d90`, deployed 21:13); the 19:00 run predates it, so no pipeline run has used the fix.
+Two more defects found and fixed:
+- `70f7727` — a ticker with no articles (or a failed fetch) reached the strategies as
+  `label "Neutral", score 0.0`. Now `{available: False, score: None, label: "Unavailable"}`;
+  `distressed` keeps None (short/contrarian still need a real sign), `event_driven` skips;
+  `run_sentiment` logs "N with news, M unavailable" and warns when none had news.
+- `9579f31` — the source was dead: yfinance 1.3.0 `Ticker.news` returns 0 items (AAPL
+  included) and `feedparser` is not installed. Falls back to `yf.Search(...).news`, keeping
+  only items Yahoo tags with the ticker in `relatedTickers`. Live read-only probe: AAPL 13
+  tagged articles, HSBC 5, BTC-USD 10; an unknown symbol stays unavailable.
+Tests: `tests/test_pipeline_sentiment.py` 10 passed; the 4 unavailable-tests fail on the
+old code. `src/data/data_downloader.py:178` reads the same dead `Ticker.news` (Codex's area).
+**B — source scans.** None of the five walks `.claude/worktrees/` (all rooted at this repo's
+`src/`, `backend/`, `main.py`); the shell one was the flag-name defect (`b03eb3f`), the other
+four were transient `PermissionError`s that do not reproduce (five files: 190 passed). Real
+defect found: `test_path_traversal`/`test_sentinel_bridge` walked `Path("src")` relative to
+the working directory — from any other directory the shell scan **read 0 files and passed**.
+`fa32fde` anchors both to the repo, fails on a scan of ≤ 100 files, and runs each from
+`tmp_path`. Also `16e603d`: the universe-audit test failed in full runs without the owner's
+`universe.db` because `test_technical_engine`/`test_v5` add rows (16 → 29) to the shared
+fallback fixture; it now audits a pristine build of the declared fixture (assertions
+unchanged). This is the isolation Codex asked for instead of copying a production DB.
+**C — pipeline (diagnosis only; nothing restarted, task settings untouched).** `tis_run.log`:
+only **10 runs since 2026-07-22**, **1 reached RUN COMPLETE** (2026-09-06, before ML
+persistence `94730eb` existed). Three runs died at exactly 1:59:5x after a 07:30 start
+(08-22, 09-24, 10-07: the former 2 h task limit, inside ML); 09-29 hung 18:44 on yfinance;
+tonight's 19:00 run (pid 39608) stopped at 21:33:55 mid-ML with task result `0xC000013A`
+(STATUS_CONTROL_C_EXIT — console closed / Ctrl+C / logoff; no power events logged; the task
+was last re-registered 16:51, so not that). The task runs `InteractiveToken` (visible
+console, needs a logged-on user), `DisallowStartIfOnBatteries`/`StopIfGoingOnBatteries`
+true, no `WakeToRun`, `ExecutionTimeLimit PT8H`. ML trains ~2.2 tickers/min (~4 h for ~500)
+and writes `ml_predictions.json` only after ALL tickers, so any interruption loses the step:
+`ml_predictions.json` is still 2026-05-31. Verdict: **not durable** — a manual run succeeding
+proves nothing about unattended runs. Signals: 716 rows, 712 at 2026-10-16, 3 Asian indices
+at 10-15, **LBRDA at 2026-08-21** (a two-month-old row in today's book; the desk gate ages the
+file, not rows). Warm-up: signal engine needs ≥ 60 bars. Owner decisions: task logon type /
+battery / wake settings; whether ML should checkpoint per batch; per-row stale rejection.
+**D — S2.3.** `8c234de` on `claude/s2.3-prep`: the launch-night draft (`.claude/worktrees/s23`,
+left untouched) committed on its own branch. Integration check in a throwaway worktree with
+Codex's UNCOMMITTED S2.2 copied in (never committed): S2.3 endpoint + its 2 tests pass;
+S2.2's own suite fails the same 3 as at launch — `exclusions_by_reason` lacks
+`MALFORMED_OUTCOME`, `MISSING_RESOLUTION_TIME`, `MALFORMED_RESOLVED_FLAG` (KeyError). Blocked
+on S2.2 being committed and reviewed.
+**E — launch verification.** `dc5b40c` `src/core/launch_check.py` (16 tests): read-only,
+reports NOT_MEASURED rather than PASS for what it cannot see. Live run 23:37 (exit 1):
+PASS runtime (`/health` 2.1 s), frontend (index-BfVBrMwS.js, 8/8 route shells), owner
+endpoints refuse (6× 401), SENTINEL, desk + broker (equity mark 23:29 $10,008.38), PAPER,
+kill switch off / AGGRESSIVE, reflex (44 armed, 0 attempts since 21:28), orders (0 desk
+executions since the test began, engine not halted). WARN signals (LBRDA), paper test
+(equity-mark gap 20:52→22:00 across the restarts). **FAIL ML (May 31), sentiment (last run
+pre-fix), pipeline run (pid dead)**. NOT_MEASURED: owner-session page content, test suite.
+Suites: sprint branch with no production DB present **3322 passed, 9 skipped, EXIT=0**.
+S1.3: Codex **CHANGES REQUIRED** (8 findings) — fixes on `claude/s1.3-followup`, see its entry.
+For Codex: F8 of your review (Execution.jsx/Desk.jsx labels) is your area — please take it;
+`src/data/data_downloader.py:178` uses the dead `Ticker.news`; S2.2's 3 failures above.
+
 ## 2026-10-16 — FINAL LAUNCH — deployed 21:27, report
 Deployed `afde34e` (HEAD `05a938c` adds logs only): `ARIA Backend` restarted, pid 51284 →
 42692 (21:27:58), `/ready` 200 in 1 s, one listener; desk daemon + reflex engine started

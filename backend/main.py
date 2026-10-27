@@ -250,6 +250,40 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+
+def _state_unavailable(request, exc):
+    """A state file the order path depends on (approval queue, playbooks, day
+    state) is damaged, or its lock is held too long: say so plainly, as 503,
+    rather than a bare 500. Names files, never paths (src/core/durable)."""
+    from src.core.durable import StateUnreadable
+    from src.execution.approval_queue import QueueStateError
+    if isinstance(exc, StateUnreadable):
+        kept = exc.quarantined.name if exc.quarantined else "not made"
+        detail = (f"{exc.path.name} is unreadable ({exc.why}). Nothing was sent or "
+                  f"changed, and nothing will overwrite it until it is repaired "
+                  f"(copy: {kept}).")
+        body = {"detail": detail, "state_unreadable": exc.path.name}
+    elif isinstance(exc, QueueStateError):
+        detail = (f"{exc} Nothing was sent or changed; the file is left as it is "
+                  f"for repair.")
+        body = {"detail": detail, "state_unreadable": "approval_queue.json"}
+    else:
+        detail = "State lock is busy. Nothing was sent or changed; try again."
+        body = {"detail": detail, "state_locked": True}
+    logger.error(f"{request.method} {request.url.path}: {detail}")
+    return JSONResponse(status_code=503, content=body)
+
+
+def _register_state_handlers():
+    from src.core.durable import StateLockTimeout, StateUnreadable
+    from src.execution.approval_queue import QueueStateError
+    app.add_exception_handler(StateUnreadable, _state_unavailable)
+    app.add_exception_handler(StateLockTimeout, _state_unavailable)
+    app.add_exception_handler(QueueStateError, _state_unavailable)
+
+
+_register_state_handlers()
+
 @on_startup
 async def _startup():
     """Pre-warm the order manager on startup (runs in the asyncio thread — safe for ib_insync).
@@ -1782,6 +1816,66 @@ def cancel_trade(trade_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/execute/unresolved", tags=["Execution"], dependencies=[Depends(require_owner)])
+def execute_unresolved(audit: int = 50):
+    """Orders that may be at the broker without an answer (queue rows
+    "submitting" / "unknown"), the reflex playbooks waiting on them, and the
+    latest reconciliation lookups. While one stands for an instrument, no other
+    order that could add to it is sent from any lane."""
+    from src.desk.reflex import load_playbooks
+    from src.execution.approval_queue import ApprovalQueue
+    from src.execution.order_manager import RECONCILE_LOG
+    rows = [t.__dict__ for t in ApprovalQueue().unresolved()]
+    lookups = []
+    if RECONCILE_LOG.exists():
+        for line in RECONCILE_LOG.read_text(encoding="utf-8").splitlines()[-max(0, min(audit, 500)):]:
+            try:
+                lookups.append(json.loads(line))
+            except ValueError:
+                continue
+    return _sanitize({
+        "count": len(rows),
+        "orders": rows,
+        "playbooks": [p for p in load_playbooks() if p.get("status") == "unknown"],
+        "recent_lookups": list(reversed(lookups)),
+    })
+
+
+@app.post("/api/execute/reconcile", tags=["Execution"], dependencies=[Depends(require_owner)])
+def execute_reconcile():
+    """Look every unresolved order up by its client id now and record the
+    broker's answer — the same pass the desk's management tick runs. Reads only:
+    nothing is submitted, cancelled or replaced, and a lookup that finds
+    nothing changes nothing."""
+    from src.desk.reflex import reconcile_unknown_playbooks
+    mgr = _get_order_manager()
+    if not mgr:
+        raise HTTPException(status_code=503, detail="Execution engine not available.")
+    report = mgr.reconcile_unresolved()
+    report["playbooks_settled"] = reconcile_unknown_playbooks()
+    return _sanitize(report)
+
+
+@app.post("/api/execute/unresolved/{trade_id}/release", tags=["Execution"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def execute_release_unresolved(trade_id: str, note: str):
+    """The OWNER's decision, after checking the broker for the order's client
+    id, that an unresolved order was never placed. The only way an order that
+    no lookup can find stops blocking its instrument: absence at the broker is
+    not proof, so nothing automatic does this. Requires a note saying what was
+    checked; never touches the broker."""
+    from src.desk.reflex import reconcile_unknown_playbooks
+    from src.execution.approval_queue import ApprovalQueue
+    if not (note or "").strip():
+        raise HTTPException(status_code=400, detail="say what you checked at the broker")
+    trade = ApprovalQueue().release_unresolved(trade_id, by="owner", note=note)
+    if not trade:
+        raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found or not unresolved")
+    _record_verdict(trade_id, "released", f"unresolved order released by the owner: {note.strip()}")
+    return _sanitize({"ok": True, "trade": trade.__dict__,
+                      "playbooks_settled": reconcile_unknown_playbooks()})
+
+
 @app.get("/api/execute/brokers", tags=["Execution"], dependencies=[Depends(require_owner)])
 def get_broker_status():
     """Connection status and account info for all brokers."""
@@ -1797,7 +1891,15 @@ def get_live_positions():
     mgr = _get_order_manager()
     if not mgr:
         return {"positions": []}
-    return {"count": len(p := mgr.get_all_positions()), "positions": p}
+    try:
+        p = mgr.get_all_positions()
+    except Exception as e:
+        # Since 09f2158 an adapter RAISES on a failed read instead of returning
+        # []: say "unreadable", never "no positions".
+        raise HTTPException(status_code=503,
+                            detail=f"positions unreadable at the broker ({type(e).__name__}: "
+                                   f"{e}); this is not an empty book")
+    return {"count": len(p), "positions": p}
 
 
 # ===========================================================================
@@ -2557,6 +2659,7 @@ def aria_chat(body: ChatRequest, request: Request):
     decision 1). The Anthropic key gate that used to stand here is gone with
     it: a missing vendor key is no longer a reason she cannot think, and its
     presence is no longer a reason she reaches for one."""
+    from src.inference.policy import BrainUnreachable
     system, msgs, fitted = _prepare_aria_chat(body, request)
 
     try:
@@ -2728,10 +2831,37 @@ def _source_age(filename: str, kind: str) -> tuple:
         limit = 24
     age_h = (time.time() - path.stat().st_mtime) / 3600
     stale = age_h > limit
+    rows_note = ""
+    if kind == "ml":
+        # ML rows are merged a batch at a time (src/models/ml_store), so the
+        # file's mtime is when the LAST batch landed; most rows may be older.
+        # Aged by the oldest row whenever the rows carry their own stamps.
+        try:
+            from src.models.ml_store import dataset_age
+            a = dataset_age(_load_optional(filename),
+                            datetime.fromtimestamp(path.stat().st_mtime),
+                            datetime.now(), limit)
+            if a["stale"] and a["age_hours"] is None:
+                return ("UNKNOWN AGE, STALE", True)
+            if a["basis"] == "row_generated_at":
+                age_h, stale = a["age_hours"], a["stale"]
+                rows_note = " by its oldest row"
+                if a["rows_over_budget"] or a["rows_unstamped"]:
+                    stale_rows = a["rows_over_budget"] + a["rows_unstamped"]
+                    rows_note += f" ({stale_rows} of {a['rows']} rows from an earlier pass)"
+        except Exception:
+            stale = True                         # unknown is never fresh
+    if kind == "signals":
+        from src.core.world import _signal_age_block
+        a = _signal_age_block(_load_optional(filename))
+        age_h, stale = a["age_hours"], a["stale"]
+        rows_note = " by row evidence"
+    if age_h is None:
+        return ("UNKNOWN AGE, STALE", True)
     if age_h < 36:
-        age = f"{age_h:.0f}h old"
+        age = f"{age_h:.0f}h old{rows_note}"
     else:
-        age = f"{age_h / 24:.0f} days old"
+        age = f"{age_h / 24:.0f} days old{rows_note}"
     return (f"{age}, STALE" if stale else age, stale)
 
 
@@ -2750,6 +2880,15 @@ def _age_basis_note() -> str:
         obs = f.get("observation") or {}
         if f.get("basis") == "stated_date":
             how = f"dated by the file's own data_date ({str(f.get('as_of'))[:10]})"
+        elif f.get("basis") == "row_evidence":
+            how = "age is the oldest row evidence; missing or invalid dates are stale"
+            if obs.get("recorded"):
+                how += f"; bars through {obs.get('latest_bar')}"
+        elif f.get("basis") == "row_generated_at":
+            how = (f"each row dated by when it was generated; oldest "
+                   f"{str(f.get('as_of'))[:16]}, newest {str(f.get('newest_row_at'))[:16]}")
+            if obs.get("recorded"):
+                how += f"; bars through {obs.get('latest_bar')}"
         elif f.get("basis") == "file_mtime":
             how = "age is the time the FILE was written"
             if obs.get("recorded"):
@@ -3359,6 +3498,7 @@ def pull_model(model: str = "llama3.1:8b"):
 # ===========================================================================
 
 _run_in_progress = False
+_run_admission = threading.Lock()
 
 def _run_pipeline(args: str = "--no-sentiment"):
     global _run_in_progress
@@ -3380,8 +3520,11 @@ def trigger_run(background_tasks: BackgroundTasks, no_sentiment: bool = True):
     Poll /health to check when data is refreshed.
     """
     global _run_in_progress
-    if _run_in_progress:
-        return {"status": "already_running", "message": "A pipeline run is already in progress"}
+    from src.core.pipeline_guard import busy
+    with _run_admission:
+        if _run_in_progress or busy():
+            return {"status": "already_running", "message": "A pipeline run is already in progress or writer locking is unavailable"}
+        _run_in_progress = True
     args = "--no-sentiment" if no_sentiment else ""
     background_tasks.add_task(_run_pipeline, args)
     return {
@@ -3883,6 +4026,9 @@ def desk_executions(n: int = 100):
         "auto_fills_confirmed": sum(1 for r in records
                                     if r.get("mode") == "auto" and r.get("fill_confirmed")),
         "queued": sum(1 for r in records if r.get("mode") == "queued"),
+        # Sent, never settled: the broker may hold these orders (S1.3). Each
+        # record carries the client_order_id to look it up by.
+        "unknown": sum(1 for r in records if r.get("mode") == "unknown"),
         "executions": records,
     })
 
@@ -3943,6 +4089,9 @@ def desk_playbooks():
         "poll_seconds": cfg.get("reflex_poll_seconds", 3),
         "min_prob": cfg.get("reflex_min_prob", 0.70),
         "armed": [p for p in pbs if p.get("status") == "armed"],
+        # Fired with an order state that never settled; each blocks re-arming
+        # its ticker until the owner settles it at the broker (S1.3).
+        "unknown": [p for p in pbs if p.get("status") == "unknown"],
         "recent": list(reversed(pbs))[:30],
     })
 

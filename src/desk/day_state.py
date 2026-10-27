@@ -6,10 +6,11 @@ notional spent against the daily budget, and trade count. Resets on date roll.
 """
 from __future__ import annotations
 
-import json
 import logging
 from datetime import date
 from pathlib import Path
+
+from src.core.durable import StateUnreadable, atomic_write_json, read_json_state
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +69,24 @@ def load_day_state(current_equity: float | None = None) -> dict:
     real reading.
     """
     today = market_day()
-    state = {}
-    if STATE_FILE.exists():
-        try:
-            state = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            state = {}
+    try:
+        state = read_json_state(STATE_FILE, dict, expect=dict)
+    except StateUnreadable as e:
+        # A damaged file used to read as {} — a fresh day with nothing spent,
+        # so a crash mid-write reset the daily notional and trade caps. If the
+        # damaged file was written TODAY, today's usage is unknown: report it
+        # as such (no budget, no start equity — both gates then hold new
+        # entries) and leave the file alone. Written on an earlier day, its
+        # contents no longer matter: roll over as on any new day (a copy of
+        # the damaged file is kept beside it).
+        written = _file_market_day(STATE_FILE)
+        if written is None or written >= today:
+            logger.critical(f"desk day state unreadable and written today — new "
+                            f"entries held for the day: {e}")
+            return {"date": today, "start_equity": None, "notional_used": 0.0,
+                    "trades_count": 0, "usage_unknown": True, "unreadable": str(e)}
+        logger.error(f"desk day state from {written} unreadable; rolling over: {e}")
+        state = {}
     equity = _real_equity(current_equity)
     if state.get("date") != today:
         state = {"date": today,
@@ -89,11 +102,27 @@ def load_day_state(current_equity: float | None = None) -> dict:
 
 def record_trade(notional: float):
     state = load_day_state()
+    if state.get("usage_unknown"):
+        # Saving here would write a count that starts from zero over the
+        # damaged file — exactly the reset this guards against.
+        logger.error(f"trade of notional {notional} not counted: today's usage is "
+                     f"unknown (day state unreadable); entries stay held")
+        return
     state["notional_used"] = round(state.get("notional_used", 0.0) + abs(notional), 2)
     state["trades_count"] = state.get("trades_count", 0) + 1
     _save(state)
 
 
 def _save(state: dict):
-    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    atomic_write_json(STATE_FILE, state, default=None)
+
+
+def _file_market_day(path: Path) -> str | None:
+    """The US market date on which `path` was last written, or None."""
+    try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        ts = path.stat().st_mtime
+        return datetime.fromtimestamp(ts, ZoneInfo("America/New_York")).date().isoformat()
+    except Exception:
+        return None

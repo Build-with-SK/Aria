@@ -21,15 +21,43 @@ logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).parent.parent.parent
 DESK_DIR = ROOT / "data" / "desk"
+#: The approval queue, its append-only audit and the reconciliation log —
+#: backed up nightly beside the desk state (see _backup_desk_state).
+EXECUTION_DIR = ROOT / "data" / "execution"
 STATE_FILE = DESK_DIR / "last_cycle.json"
 SLATE_FILE = DESK_DIR / "slate.json"
+
+
+def _instance_lock_path() -> Path:
+    return DESK_DIR / "desk_daemon.lock"
+
+
+#: How often an idle backend asks again for the desk (seconds).
+INSTANCE_RETRY_S = 300
+
+#: Only ONE process may run the desk. Two backends at once (an orphaned
+#: uvicorn beside a fresh one — a trap this machine has hit more than once)
+#: each ran a hunt cycle, a management tick and a reflex loop against the same
+#: broker account; every in-process lock the desk has is per process. The OS
+#: drops this lock when the holder dies, so a crash never wedges it.
+_INSTANCE = None
+
+
+def _instance():
+    global _INSTANCE
+    if _INSTANCE is None:
+        from src.core.durable import SingleInstance
+        _INSTANCE = SingleInstance(_instance_lock_path)
+    return _INSTANCE
 EQUITY_FILE = DESK_DIR / "equity_curve.jsonl"
 
 
 def _backup_desk_state():
-    """Zip data/desk/ JSON state to data/backups/, keeping the last 14.
-    A corrupted positions.json or scorecard.json is then one file-copy away
-    from recovery."""
+    """Zip data/desk/ JSON state — and the order records in data/execution/
+    (approval queue, its audit, reconciliation lookups) — to data/backups/,
+    keeping the last 14. A corrupted positions.json, playbooks.json or
+    approval_queue.json is then one file-copy away from recovery; the queue
+    used to be left out, though it is the record that blocks a second order."""
     import zipfile
     try:
         backup_dir = ROOT / "data" / "backups"
@@ -41,6 +69,9 @@ def _backup_desk_state():
                 z.write(p, p.name)
             for p in DESK_DIR.glob("*.jsonl"):
                 z.write(p, p.name)
+            for pattern in ("*.json", "*.jsonl"):
+                for p in EXECUTION_DIR.glob(pattern):
+                    z.write(p, f"execution/{p.name}")
         backups = sorted(backup_dir.glob("desk_*.zip"))
         for old in backups[:-14]:
             old.unlink()
@@ -113,6 +144,18 @@ class DeskDaemon:
     def start(self):
         if self.running:
             return
+        if not _instance().acquire():
+            self.instance_conflict = (f"another process already runs the desk "
+                                      f"(lock holder: {_instance().holder()}); this one "
+                                      f"stays idle so two desks never trade one account")
+            logger.critical(f"Desk daemon NOT started — {self.instance_conflict}")
+            # Ask again later: when the other process exits, the OS frees the
+            # lock and this one takes the desk over instead of staying idle.
+            retry = threading.Timer(INSTANCE_RETRY_S, self.start)
+            retry.daemon = True
+            retry.start()
+            return
+        self.instance_conflict = ""
         from src.desk.config import load_config
         from apscheduler.schedulers.background import BackgroundScheduler
         cfg = load_config()
@@ -243,6 +286,12 @@ class DeskDaemon:
             except Exception:
                 pass
             self.scheduler = None
+        try:
+            from src.desk.reflex import get_reflex
+            get_reflex().stop()
+        except Exception:
+            pass
+        _instance().release()
 
     def set_interval(self, minutes: int):
         if self.scheduler is not None and self.running:
@@ -261,6 +310,8 @@ class DeskDaemon:
         return {
             "running": self.running,
             "working": self.working,
+            # Non-empty when another process holds the desk and this one is idle.
+            "instance_conflict": getattr(self, "instance_conflict", ""),
             "cycle_count": self.cycle_count,
             "tick_count": self.tick_count,
             "last_tick": self.last_tick,
@@ -304,6 +355,23 @@ class DeskDaemon:
         try:
             from src.desk.position_manager import PositionManager
             summary = PositionManager().tick()
+            # Unresolved orders (submitting / unknown): look each up by its
+            # client id — reads only, never a submit or cancel — and settle the
+            # reflex playbooks that waited on them. A lookup that finds nothing
+            # changes nothing; only the broker's answer or the owner does.
+            try:
+                from src.desk.auto_executor import get_order_manager
+                from src.desk.reflex import reconcile_unknown_playbooks
+                mgr = get_order_manager()
+                if mgr is not None:
+                    rec = mgr.reconcile_unresolved()
+                    if rec.get("checked"):
+                        summary["order_reconciliation"] = rec
+                moved = reconcile_unknown_playbooks()
+                if moved:
+                    summary["playbooks_settled"] = moved
+            except Exception as e:
+                summary.setdefault("errors", []).append(f"order reconciliation: {e}")
             # Arm signal-spike playbooks for the reflex lane (cheap: cached
             # signals + a held-set read; no LLM, no broker orders).
             try:

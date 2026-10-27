@@ -84,7 +84,6 @@ def account_snapshot() -> dict:
             from src.execution.live_guard import paper_status
             acct = mgr._alpaca.get_account()
             snap["equity"] = acct.portfolio_value or acct.cash
-            snap["connected"] = True
             # Three separate facts, not one flag reported twice: the operator's
             # env var, the adapter's flag, and the endpoint the client will
             # actually call. `paper` stays the adapter's view of the ACCOUNT
@@ -99,13 +98,26 @@ def account_snapshot() -> dict:
                              else bool(mgr._alpaca.paper))
             snap["cash"] = acct.cash
             snap["buying_power"] = acct.buying_power
-            for p in mgr._alpaca.get_positions():
-                snap["positions"].append({
-                    "ticker": p.ticker, "qty": p.qty, "side": p.side,
-                    "avg_cost": p.avg_cost, "market_value": p.market_value,
-                    "unrealized_pl": p.unrealized_pl,
-                })
+            # Connected only once the POSITIONS are read too. Marked connected
+            # before this read, a failure here left "connected, holding
+            # nothing": the management tick then recorded every tracked
+            # position as closed at the broker and cancelled its protective
+            # orders while the position still existed.
+            try:
+                positions = [{"ticker": p.ticker, "qty": p.qty, "side": p.side,
+                              "avg_cost": p.avg_cost, "market_value": p.market_value,
+                              "unrealized_pl": p.unrealized_pl}
+                             for p in mgr._alpaca.get_positions()]
+            except Exception as e:
+                snap["error"] = f"positions unreadable: {type(e).__name__}: {e}"
+                logger.warning(f"account snapshot: {snap['error']} — treated as unavailable")
+                return snap
+            snap["positions"] = positions
+            snap["connected"] = True
     except Exception as e:
+        snap["connected"] = False
+        snap["positions"] = []
+        snap.setdefault("error", f"{type(e).__name__}: {e}")
         logger.warning(f"account snapshot failed: {e}")
     return snap
 
@@ -125,6 +137,10 @@ class AutoExecutor:
         armed = bool(self.cfg.get("auto_execute"))
         budget_left = self.cfg["daily_notional_budget"] - day.get("notional_used", 0.0)
         trades_left = self.cfg["max_trades_per_day"] - day.get("trades_count", 0)
+        if day.get("usage_unknown"):
+            # The day state could not be read (src/desk/day_state): what has
+            # been spent today is unknown, so nothing is left to spend.
+            budget_left, trades_left = 0.0, 0
         g = {
             "env_paper": env_paper,                       # gate 1
             "armed": armed,                               # gate 2
@@ -135,6 +151,8 @@ class AutoExecutor:
             "account": "paper" if broker_paper else
                        ("live" if broker_paper is False else "disconnected"),
         }
+        if day.get("usage_unknown"):
+            g["day_state"] = f"unreadable — today's usage unknown: {day.get('unreadable')}"
         # paper_confirmed folds in the endpoint check. It is absent when the
         # broker never connected, and its absence must not read as True.
         confirmed = account.get("paper_confirmed")
@@ -171,7 +189,10 @@ class AutoExecutor:
                 logger.exception(f"desk execution failed for {entry.get('ticker')}")
                 results.append({**self._base_record(entry), "mode": "error", "reason": str(e)})
         for r in results:
-            self._log(r)
+            try:
+                self._log(r)
+            except Exception as e:      # the journal must never break the cycle
+                logger.error(f"executions journal write failed: {e} — {r.get('ticker')}")
         return results
 
     def _handle(self, entry: dict, transcript: dict) -> dict:
@@ -232,31 +253,40 @@ class AutoExecutor:
         # All gates green — execute on the PAPER account, inform after.
         mgr = get_order_manager()
         result = mgr.execute(queued.id)
+        # The idempotency key the order went out with: how it is found at the
+        # broker, whatever happened next. Absent when nothing was sent.
+        if result.get("client_order_id"):
+            record["client_order_id"] = result["client_order_id"]
         if result.get("ok"):
-            fill = result.get("fill_price") or entry.get("price", 0.0)
+            # "auto" means the broker accepted the order, not that it filled:
+            # Alpaca acks market orders as accepted. fill_price and filled_qty
+            # are the broker's, or absent — the intended price is recorded
+            # apart and is never presented as a fill.
+            status = str(result.get("status") or "")
+            price = float(result.get("fill_price") or 0)    # Alpaca: 0.0 when none
+            filled_qty = result.get("filled_qty")
+            filled_qty = (float(filled_qty) if filled_qty is not None
+                          else (float(entry["qty"]) if status == "filled" else 0.0))
+            got_fill = price > 0 and filled_qty > 0 and status in ("filled", "partial")
             record["mode"] = "auto"
             record["action"] = "entry"
-            record["fill_price"] = fill
+            record["order_status"] = status
             record["broker_order_id"] = result.get("broker_order_id", "")
-            # "auto" means the broker accepted the order, not that it filled:
-            # Alpaca acks market orders as accepted, and when the fill is not
-            # confirmed in the poll window fill_price above is the intended
-            # entry. These two fields say which one this record is.
-            record["order_status"] = str(result.get("status") or "")
-            # Alpaca reports a missing average price as 0.0, never None.
-            record["fill_confirmed"] = (record["order_status"] == "filled"
-                                        and float(result.get("fill_price") or 0) > 0)
-            record_trade(entry.get("notional", 0.0))
-            # Hand lifecycle ownership to the exit engine
-            try:
-                from src.desk.position_manager import PositionManager
-                PositionManager(self.cfg).track_entry(entry, fill, queued.id)
-            except Exception as e:
-                logger.warning(f"could not track entry for {entry['ticker']}: {e}")
-            from src.desk.notify import fmt_entry, push
-            push(fmt_entry(entry["side"], entry["qty"], entry["ticker"], fill,
-                           entry.get("stop"), entry.get("target")), self.cfg)
-            self._alert_feed(entry, fill)
+            record["intended_price"] = entry.get("price")
+            record["fill_price"] = price if got_fill else None
+            record["filled_qty"] = filled_qty if got_fill else 0.0
+            record["fill_confirmed"] = got_fill and status == "filled"
+            # From here on the outcome is KNOWN and recorded above. Accounting,
+            # tracking and notification can fail without changing it: an
+            # exception here used to escape to the reflex lane, which retired a
+            # filled playbook as "expired" and let the ticker re-arm.
+            self._after_entry(record, entry, queued.id, got_fill, price, filled_qty)
+        elif result.get("blocked"):
+            # An earlier order for this instrument is unresolved: nothing sent.
+            record["mode"] = "blocked"
+            record["reason"] = result.get("error", "an earlier order is unresolved")
+            self._notify(f"⏸ BLOCKED {entry['side'].upper()} {entry['qty']:g} {entry['ticker']}",
+                         record["reason"])
         elif result.get("session_closed"):
             # The market closed (or became unknown) between the cycle's check
             # and the send. Not a failure: the trade waits in the queue for
@@ -265,12 +295,67 @@ class AutoExecutor:
             record["reason"] = result.get("error", "market not in continuous trading")
             self._notify(f"⏸ QUEUED {entry['side'].upper()} {entry['qty']:g} {entry['ticker']}",
                          f"Awaiting your approval — {record['reason']}")
+        elif result.get("unknown"):
+            # Sent, and the broker's answer never settled: the order may exist.
+            # Not "failed" — a failure invites another attempt, and the reflex
+            # lane re-arms on one. Counted against the day's caps as if it
+            # traded, because it may have; not tracked as a position, because
+            # nothing confirmed one — if the broker shows one, the next
+            # management tick adopts it (PositionManager.tick).
+            record["mode"] = "unknown"
+            record["order_status"] = "unknown"
+            record["fill_confirmed"] = False
+            record["reason"] = result.get("error", "order state unknown")
+            try:
+                record_trade(entry.get("notional", 0.0))
+            except Exception as e:
+                logger.error(f"day-state count failed for unknown {entry['ticker']}: {e}")
+            self._notify(f"⚠ ORDER STATE UNKNOWN {entry['side'].upper()} "
+                         f"{entry['qty']:g} {entry['ticker']}",
+                         f"{record['reason']}")
         else:
             record["mode"] = "failed"
+            record["order_status"] = str(result.get("status") or "")
             record["reason"] = result.get("error", "broker rejected")
             self._notify(f"✕ ORDER FAILED {entry['ticker']}",
                          f"{record['reason']} — nothing was executed.")
         return record
+
+    def _after_entry(self, record: dict, entry: dict, trade_id: str,
+                     got_fill: bool, price: float, filled_qty: float) -> None:
+        """Accounting, position tracking and notification for an accepted
+        entry. Each step is independent and none may raise: the order's
+        outcome is already decided and recorded. A position is tracked only
+        for quantity the broker reports FILLED — a working order with nothing
+        filled is not a position (if it fills later, the management tick
+        adopts it)."""
+        errors = []
+        try:
+            record_trade(entry.get("notional", 0.0))
+        except Exception as e:
+            errors.append(f"day-state count: {e}")
+        if got_fill:
+            try:
+                from src.desk.position_manager import PositionManager
+                PositionManager(self.cfg).track_entry({**entry, "qty": filled_qty}, price, trade_id)
+            except Exception as e:
+                errors.append(f"track entry: {e}")
+        try:
+            if got_fill:
+                from src.desk.notify import fmt_entry, push
+                push(fmt_entry(entry["side"], filled_qty, entry["ticker"], price,
+                               entry.get("stop"), entry.get("target")), self.cfg)
+                self._alert_feed(entry, price)
+            else:
+                self._notify(f"→ SUBMITTED {entry['side'].upper()} {entry['qty']:g} "
+                             f"{entry['ticker']}",
+                             f"Accepted by the broker ({record.get('order_status')}); fill not "
+                             f"confirmed yet. Intended price {entry.get('price')}.")
+        except Exception as e:
+            errors.append(f"notify: {e}")
+        if errors:
+            record["after_entry_errors"] = errors
+            logger.error(f"entry {entry['ticker']} recorded; follow-ups failed: {errors}")
 
     # ── helpers ───────────────────────────────────────────────────────────
 
@@ -305,9 +390,11 @@ class AutoExecutor:
             reasons.append("auto-execute is not armed")
         if not g["broker_connected"]:
             reasons.append("broker not connected")
-        if g["trades_left"] <= 0:
+        if g.get("day_state"):
+            reasons.append(f"desk day state {g['day_state']}")
+        elif g["trades_left"] <= 0:
             reasons.append("max trades/day reached")
-        if g["budget_left"] <= 0:
+        if g["budget_left"] <= 0 and not g.get("day_state"):
             reasons.append("daily notional budget spent")
         if g.get("signals_fresh") is not True:
             age = g.get("signals_age_hours")

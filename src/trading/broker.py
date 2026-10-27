@@ -94,6 +94,9 @@ class OrderAck:
 class BrokerAdapter(ABC):
     name: str = "broker"
     is_live: bool = False
+    # Only an in-process synchronous simulator can prove that no request is
+    # still in flight. A remote 404 never authorizes a retry after a timeout.
+    authoritative_absence: bool = False
 
     @abstractmethod
     def get_account(self) -> dict: ...
@@ -112,6 +115,10 @@ class BrokerAdapter(ABC):
     @abstractmethod
     def get_open_orders(self) -> list[OrderAck]: ...
 
+    def cancel_open_order(self, order: OrderAck) -> bool:
+        """Cancel an observed resting order using this adapter's identity contract."""
+        return self.cancel_order(order.client_order_id)
+
 
 # ── the paper broker ─────────────────────────────────────────────────────────
 
@@ -122,6 +129,7 @@ class SimulatedBroker(BrokerAdapter):
     plus `slippage_bps`, fees follow a real schedule, and cash is enforced. A
     simulator that fills at mid for free makes every strategy look viable.
     """
+    authoritative_absence = True
     name = "simulated"
     is_live = False
 
@@ -317,6 +325,20 @@ class LegacyBrokerAdapter(BrokerAdapter):
         if a is None or not a.broker_order_id:
             return False
         return bool(self._b.cancel_order(a.broker_order_id))
+
+    def cancel_open_order(self, order: OrderAck) -> bool:
+        # A venue may omit the client ID from its open-order representation.
+        # Never feed its broker ID into a client-ID lookup. Re-observe the exact
+        # pair before cancellation, through the same mode-gated broker.
+        if not order.broker_order_id:
+            return False
+        for row in self._b.get_open_orders():
+            broker_id = str(row.get("id") or "")
+            client_id = str(row.get("client_order_id") or broker_id)
+            if (broker_id == order.broker_order_id and
+                    client_id == order.client_order_id):
+                return bool(self._b.cancel_order(broker_id))
+        return False
 
     def get_order(self, client_order_id: str) -> Optional[OrderAck]:
         lookup = getattr(self._b, "get_order_by_client_id", None)

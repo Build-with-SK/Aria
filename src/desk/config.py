@@ -154,11 +154,12 @@ def save_config(updates: dict) -> dict:
     a known key."""
     cfg = load_config()
     cfg.update(_sanitise(updates, "incoming update"))
-    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     # allow_nan=False so a non-finite value can never be written even if one
-    # reaches this line by a path the sanitiser does not cover.
-    CONFIG_FILE.write_text(json.dumps(cfg, indent=2, allow_nan=False),
-                           encoding="utf-8")
+    # reaches this line by a path the sanitiser does not cover. Atomic: a
+    # crash mid-save used to leave a torn file, which loads as the defaults
+    # (auto_execute off — safe, but every setting the owner made is gone).
+    from src.core.durable import atomic_write_text
+    atomic_write_text(CONFIG_FILE, json.dumps(cfg, indent=2, allow_nan=False))
     return cfg
 
 

@@ -50,6 +50,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -436,8 +437,17 @@ def resolve_role_with_basis(headers, client_host: str | None,
         return ANON, BASIS_NONE
 
     host = peer_host if peer_host is not None else client_host
+    try:
+        authority = headers.get("host") or headers.get("Host") or ""
+        parsed = urlsplit("//" + authority)
+        local_authority = (parsed.hostname in LOOPBACK and not parsed.username
+                           and not parsed.password and not parsed.path
+                           and not parsed.query and not parsed.fragment)
+        _ = parsed.port  # malformed ports must not grant inferred ownership
+    except (ValueError, TypeError):
+        local_authority = False
     if (not owner_is_configured() and loopback_owner_enabled()
-            and (host or "") in LOOPBACK):
+            and (host or "") in LOOPBACK and local_authority):
         return OWNER, BASIS_LOOPBACK
 
     return ANON, BASIS_NONE

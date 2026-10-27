@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from src.research.transport import public_urlopen
 from .base import SourceError
 from .url import normalize_public_url
 
@@ -154,7 +155,7 @@ def get(url: str, headers: dict | None = None, timeout: int = TIMEOUT,
         _throttle(clean)
         req = urllib.request.Request(clean, headers=request_headers)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with public_urlopen(req, timeout=timeout) as resp:
                 body = resp.read(MAX_BYTES + 1)
             break
         except urllib.error.HTTPError as exc:

@@ -28,6 +28,8 @@ Trading Intelligence System — Phase 4/5
 Research and educational purposes only.
 """
 
+from src.core.xml_security import feed_xml
+
 import json
 import logging
 import time
@@ -386,7 +388,7 @@ def _parse_ptr_xml(
     """
     records = []
     try:
-        root = ET.fromstring(xml_content)
+        root = feed_xml(xml_content)
     except ET.ParseError as e:
         logger.warning(f"XML parse error for filing {filing_meta.get('id', '?')}: {e}")
         return []

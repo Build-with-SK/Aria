@@ -151,3 +151,41 @@ def test_restore_ignores_path_traversal(tree, tmp_path):
     out = backup.restore(evil, tmp_path / "r")
     assert (out / "ok" / "fine.txt").exists()
     assert not (tmp_path / "escape.txt").exists()
+
+
+def test_failed_sqlite_snapshot_never_falls_back_to_a_byte_copy(tree, monkeypatch):
+    monkeypatch.setattr(backup, "_sqlite_snapshot", lambda path: None)
+    with pytest.raises(OSError, match="database snapshot failed"):
+        backup.make_backup(dest=tree["out"], stamp="failed")
+    assert not list(tree["out"].glob("*.tar.gz"))
+
+
+def test_backup_recovers_committed_wal_and_execution_quarantine(tree, tmp_path):
+    execution = tree["aria"] / "execution"
+    execution.mkdir()
+    (execution / "approval_queue.json").write_text('[{"id":"fixture","status":"unknown","client_order_id":"fixture-key"}]')
+    dbpath = tree["aria"] / "ledger.db"
+    with sqlite3.connect(dbpath) as live:
+        live.execute("pragma journal_mode=wal")
+        live.execute("create table fills (id text primary key)")
+        live.execute("insert into fills values ('fixture-fill')")
+        live.commit()
+        archive = backup.make_backup(dest=tree["out"], stamp="wal")
+        assert backup.verify(archive)["ok"]
+        restored = backup.restore(archive, tmp_path / "wal-restored")
+    with sqlite3.connect(restored / "aria/data/ledger.db") as recovered:
+        assert recovered.execute("pragma integrity_check").fetchone()[0] == "ok"
+        assert recovered.execute("select id from fills").fetchall() == [("fixture-fill",)]
+    assert '"status":"unknown"' in (restored / "aria/data/execution/approval_queue.json").read_text()
+
+
+@pytest.mark.parametrize("name", ["C:/escape.txt", "C:escape.txt", r"..\escape.txt", r"\\host\share\escape.txt"])
+def test_restore_rejects_windows_drive_and_backslash_paths(tree, tmp_path, name):
+    import io
+    archive = tmp_path / "hostile.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        member = tarfile.TarInfo(name)
+        member.size = 1
+        tar.addfile(member, io.BytesIO(b"x"))
+    out = backup.restore(archive, tmp_path / "fresh-restore")
+    assert list(out.rglob("*")) == []

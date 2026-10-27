@@ -1,30 +1,11 @@
 import React, { useState } from 'react'
+import { StatusPill, ExecutionReceipt, QueueNotice } from '../components/ExecutionStatus'
 import { useCurrency } from '../currency/CurrencyContext'
 import { BBCard, SectionHeader, ScoreBadge, ActionBadge } from '../components/UI'
 import {
   useApprovalQueue, useBrokerStatus, useLivePositions,
   approveAndExecute, rejectTrade, cancelTrade
 } from '../hooks/useExecution'
-
-// ─── Status pill ─────────────────────────────────────────────────────────────
-function StatusPill({ status }) {
-  const cfg = {
-    pending:   { color: '#ffcc00', bg: 'rgba(255,204,0,0.12)',   label: '⏳ PENDING APPROVAL' },
-    approved:  { color: '#00aaff', bg: 'rgba(0,170,255,0.12)',  label: '✓ APPROVED' },
-    executed:  { color: '#00cc44', bg: 'rgba(0,204,68,0.12)',   label: '✅ EXECUTED' },
-    rejected:  { color: '#ff3333', bg: 'rgba(255,51,51,0.12)',  label: '✗ REJECTED' },
-    cancelled: { color: '#888',    bg: 'rgba(136,136,136,0.1)', label: '— CANCELLED' },
-  }
-  const c = cfg[status] || cfg.cancelled
-  return (
-    <span style={{
-      fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700,
-      color: c.color, background: c.bg,
-      border: `1px solid ${c.color}44`,
-      borderRadius: 3, padding: '2px 8px', letterSpacing: 1,
-    }}>{c.label}</span>
-  )
-}
 
 // ─── Broker status panel ──────────────────────────────────────────────────────
 function BrokerPanel() {
@@ -113,7 +94,7 @@ function PositionsTable() {
 }
 
 // ─── Single trade card ────────────────────────────────────────────────────────
-function TradeCard({ trade, onAction }) {
+function TradeCard({ trade, onAction, actionsAvailable = true }) {
   const { price } = useCurrency()
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
@@ -171,7 +152,7 @@ function TradeCard({ trade, onAction }) {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <StatusPill status={trade.status} />
+          <StatusPill trade={trade} />
           <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)' }}>
             {new Date(trade.created_at).toLocaleString()}
           </span>
@@ -232,11 +213,7 @@ function TradeCard({ trade, onAction }) {
       )}
 
       {/* Executed info */}
-      {trade.status === 'executed' && (
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--green)', marginBottom: 12 }}>
-          ✅ Filled @ ${trade.fill_price} · Order ID: {trade.broker_order_id} · {new Date(trade.executed_at).toLocaleString()}
-        </div>
-      )}
+      <ExecutionReceipt trade={trade} />
       {trade.status === 'rejected' && trade.rejection_reason && (
         <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>
           ✗ Rejected: {trade.rejection_reason}
@@ -251,7 +228,7 @@ function TradeCard({ trade, onAction }) {
       )}
 
       {/* Action buttons — only for pending */}
-      {isPending && (
+      {isPending && actionsAvailable && (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <button
             onClick={() => handle('approve')}
@@ -352,10 +329,11 @@ function StatsBar({ stats }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function Execution() {
   const [filter, setFilter] = useState('pending')
-  const { data, loading, refetch } = useApprovalQueue(3000)
+  const { data, loading, error, refetch } = useApprovalQueue(3000)
 
   const trades = data?.trades || []
-  const filtered = filter === 'all' ? trades : trades.filter(t => t.status === filter)
+  const unresolved = trades.filter(t => ['unknown', 'submitting'].includes(t.status))
+  const filtered = filter === 'all' ? trades : filter === 'unresolved' ? unresolved : trades.filter(t => t.status === filter)
   const pendingCount = trades.filter(t => t.status === 'pending').length
 
   return (
@@ -391,10 +369,14 @@ export default function Execution() {
       {/* Stats */}
       <StatsBar stats={data?.stats} />
 
+      <QueueNotice error={error} hasData={!!data} unresolved={unresolved.length}
+        onRetry={refetch} onReview={() => setFilter('unresolved')} />
+
       {/* Filter tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
         {[
           ['pending', 'PENDING', pendingCount],
+          ['unresolved', 'UNRESOLVED', unresolved.length],
           ['executed', 'EXECUTED', null],
           ['rejected', 'REJECTED', null],
           ['cancelled', 'CANCELLED', null],
@@ -429,7 +411,7 @@ export default function Execution() {
         <div style={{ fontFamily: 'var(--mono)', color: 'var(--text-dim)', padding: 40, textAlign: 'center' }}>
           LOADING QUEUE...
         </div>
-      ) : filtered.length === 0 ? (
+      ) : error && !data ? null : filtered.length === 0 ? (
         <div style={{
           fontFamily: 'var(--mono)', color: 'var(--text-dim)', padding: 60,
           textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 8,
@@ -444,7 +426,7 @@ export default function Execution() {
         </div>
       ) : (
         filtered.map(trade => (
-          <TradeCard key={trade.id} trade={trade} onAction={refetch} />
+          <TradeCard key={trade.id} trade={trade} onAction={refetch} actionsAvailable={!error} />
         ))
       )}
 

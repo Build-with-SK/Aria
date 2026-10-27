@@ -28,6 +28,8 @@ approves). Backtests are simulations of the past, not promises.
 
 from __future__ import annotations
 
+from src.core.xml_security import feed_xml
+
 import json
 import logging
 import threading
@@ -297,7 +299,7 @@ class QuantLab:
             xml_text = resp.read().decode("utf-8", errors="replace")
         ns = {"a": "http://www.w3.org/2005/Atom"}
         out = []
-        for entry in ET.fromstring(xml_text).findall("a:entry", ns):
+        for entry in feed_xml(xml_text).findall("a:entry", ns):
             pid = (entry.findtext("a:id", "", ns) or "").rsplit("/", 1)[-1]
             out.append({
                 "id": pid,

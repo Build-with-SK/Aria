@@ -84,7 +84,7 @@ DATASETS: dict[str, dict] = {
     "signals.json":            {"kind": "signals", "writer": "main.py step 4b (daily task from install_scheduler.ps1, or by hand)", "legacy": False},
     "macro_data.json":         {"kind": "macro", "writer": "backend _macro_loop", "legacy": False},
     "brain_state.json":        {"kind": "brain", "writer": "brain daemon (needs Ollama)", "legacy": False},
-    "ml_predictions.json":     {"kind": "ml", "writer": "main.py step 7 run_ml — hours of training; written only if the run gets that far (see pipeline_run)", "legacy": False},
+    "ml_predictions.json":     {"kind": "ml", "writer": "main.py step 7 run_ml — hours of training; rows merged every 25 tickers, each with its own generated_at, so a stopped run keeps its finished batches (see pipeline_run)", "legacy": False},
     "options_data.json":       {"kind": "options", "writer": "main_phase4_backup.py only", "legacy": True},
     "backtest_results.json":   {"kind": "backtest", "writer": "main_phase4_backup.py only", "legacy": True},
     "portfolio_analysis.json": {"kind": "model_portfolio", "writer": "main_phase4_backup.py only", "legacy": True},
@@ -109,7 +109,9 @@ def dataset_freshness(name: str) -> dict:
     body = _read_json(name) if name.endswith(".json") else None
     if isinstance(body, dict):
         stated = body.get("data_date") or body.get("date") or body.get("timestamp")
-    block = _age_block(name, spec["kind"], stated)
+    block = (_signal_age_block(body) if spec["kind"] == "signals" else
+             _ml_age_block() if spec["kind"] == "ml"
+             else _age_block(name, spec["kind"], stated))
     status = ("UNKNOWN" if block["as_of"] is None else
               "STALE" if block["stale"] else "FRESH")
     out = {"dataset": name, "status": status,
@@ -120,11 +122,50 @@ def dataset_freshness(name: str) -> dict:
     return out
 
 
+def _signal_age_block(body) -> dict:
+    """Age every signal by its evidence, never by a checkout's file mtime.
+
+    When both timestamps exist the older governs: regenerating a score cannot
+    refresh the bar it used. An undated/invalid/future row holds the whole lane.
+    """
+    now = datetime.now()
+    dates = []
+    rows = list(body.values()) if isinstance(body, dict) else []
+    invalid = not rows
+    for row in rows:
+        if not isinstance(row, dict):
+            invalid = True
+            continue
+        if not row.get("data_as_of"):
+            invalid = True  # a recent score cannot establish its input bar's age
+        stamps = [row[k] for k in ("data_as_of", "generated_at") if row.get(k)]
+        if not stamps:
+            invalid = True
+        for stamp in stamps:
+            try:
+                when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+                if when.tzinfo:
+                    when = when.astimezone().replace(tzinfo=None)
+                if when > now:
+                    invalid = True
+                dates.append(when)
+            except (ValueError, TypeError, OverflowError):
+                invalid = True
+    oldest = min(dates) if dates else None
+    age = (now - oldest).total_seconds() / 3600 if oldest else None
+    stale = invalid or age is None or age > STALE_AFTER_HOURS["signals"]
+    return {"as_of": oldest.isoformat(timespec="seconds") if oldest else None,
+            "age_hours": round(age, 1) if age is not None else None,
+            "stale": stale, "basis": "row_evidence", "rows": len(rows),
+            "why": ((f"signal evidence is {round(age / 24, 1)} days old (fresh under "
+                     f"{STALE_AFTER_HOURS['signals']}h)") if not invalid and age is not None
+                    else "signal rows missing, undated, invalid or future-dated") if stale else None}
+
+
 def _observation_dates(body) -> dict:
     """What a ticker-keyed file's own rows say about when their data was observed.
 
-    Separate from `as_of` / `age_hours` / `status`, which keep their meaning
-    (the auto-execution gate reads those and must not move). A file's write
+    Separate from `as_of` / `age_hours` / `status`. A file's write
     time is not a market observation time, and until 2026-10-10 signals.json
     recorded nothing else — so "market state 56 hours old" really meant "the
     file was written 56 hours ago". Never inferred: rows without `data_as_of`
@@ -262,6 +303,25 @@ def _age_block(name: str, kind: str, stated_date: Optional[str] = None) -> dict:
             "basis": basis}
 
 
+def _ml_age_block() -> dict:
+    """Freshness for ML predictions, judged by their rows.
+
+    Since 2026-10-17 the pipeline merges rows into ml_predictions.json a batch
+    at a time, so the file's mtime says when the LAST batch landed while most
+    rows may still be from an earlier pass. The predictions are as old as
+    their oldest row (src/models/ml_store.dataset_age). A file whose rows carry
+    no stamp was written in one piece, and is aged by its mtime as before."""
+    from src.models.ml_store import dataset_age
+    a = dataset_age(_read_json("ml_predictions.json"), _mtime("ml_predictions.json"),
+                    datetime.now(), STALE_AFTER_HOURS.get("ml", 24))
+    return {"as_of": a["as_of"].isoformat(timespec="seconds") if a["as_of"] else None,
+            "age_hours": a["age_hours"], "stale": a["stale"], "why": a["why"],
+            "basis": a["basis"],
+            "newest_row_at": a["newest_at"].isoformat(timespec="seconds") if a["newest_at"] else None,
+            "rows_over_budget": a["rows_over_budget"],
+            "rows_unstamped": a["rows_unstamped"]}
+
+
 # ── the blocks ──────────────────────────────────────────────────────────────
 
 def _market() -> dict:
@@ -269,8 +329,8 @@ def _market() -> dict:
     macro = _read_json("macro_data.json") or {}
     brain = _read_json("brain_state.json") or {}
 
-    sig_age = _age_block("signals.json", "signals")
-    ml_age = _age_block("ml_predictions.json", "ml")
+    sig_age = _signal_age_block(signals)
+    ml_age = _ml_age_block()
     ml_rows = _read_json("ml_predictions.json") or {}
     # `data_date` is when the snapshot was BUILT. With the keyless feeds wired
     # in, that is today on every refresh, so it alone would report a macro

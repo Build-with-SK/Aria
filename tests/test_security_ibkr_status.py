@@ -335,7 +335,7 @@ def test_unknown_order_is_not_reported_filled_or_dead():
     """Absence proves nothing. It must not read as FILLED (audit C2) and must
     not read as REJECTED either — the order may be working right now."""
     r = broker_with(FakeIB([])).get_order_status("999")
-    assert r.status == OrderStatus.SUBMITTED
+    assert r.status == OrderStatus.UNKNOWN
     assert "cannot confirm" in r.error_message
 
 
@@ -348,7 +348,7 @@ def test_disconnection_is_not_a_rejection():
     b.is_connected = lambda: False
     r = b.get_order_status("303")
     assert r.status != OrderStatus.REJECTED
-    assert r.status == OrderStatus.SUBMITTED
+    assert r.status == OrderStatus.UNKNOWN
     assert "not connected" in r.error_message
 
 

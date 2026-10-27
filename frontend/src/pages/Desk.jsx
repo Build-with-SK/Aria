@@ -305,7 +305,9 @@ function Slate({ slate }) {
 function FillsFeed({ execs }) {
   const rows = execs?.executions || []
   const modeColor = m => m === 'auto' ? 'var(--green)' : m === 'queued' ? 'var(--yellow)' : 'var(--red)'
-  const modeLabel = m => m === 'auto' ? 'AUTO-FILLED' : m === 'queued' ? 'QUEUED FOR APPROVAL' : m.toUpperCase()
+  const modeLabel = r => r.mode === 'auto'
+    ? (r.fill_confirmed ? 'AUTO-FILLED' : r.order_status === 'partial' ? 'PARTIALLY FILLED' : 'WORKING — FILL UNCONFIRMED')
+    : r.mode === 'queued' ? 'QUEUED FOR APPROVAL' : (r.mode || 'STATUS UNAVAILABLE').toUpperCase()
   return (
     <div className="bb-card" style={{ maxHeight: 340, overflowY: 'auto' }}>
       <div className="bb-card-header">FILLS FEED — EVERY ACTION, EXPLAINED</div>
@@ -317,9 +319,10 @@ function FillsFeed({ execs }) {
             <span style={{ color: r.side === 'buy' ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>
               {r.side === 'buy' ? '▲' : '▼'} {r.side?.toUpperCase()} {r.qty} {r.ticker}
             </span>
-            {r.fill_price ? <span className="white"> @ ${Number(r.fill_price).toFixed(2)}</span> : null}
+            {Number(r.filled_qty) > 0 && Number(r.fill_price) > 0
+              ? <span className="white"> · filled {r.filled_qty} @ ${Number(r.fill_price).toFixed(2)}</span> : null}
             <span style={{ color: modeColor(r.mode), marginLeft: 8, fontSize: 9, fontWeight: 700 }}>
-              [{modeLabel(r.mode || '?')}]</span>
+              [{modeLabel(r)}]</span>
           </div>
           <div style={{ fontSize: 10, color: 'var(--text-dim)', margin: '3px 0', lineHeight: 1.4 }}>
             {r.mode === 'queued' ? `⏸ ${r.reason} · ` : ''}thesis: {(r.thesis || '').slice(0, 120)}

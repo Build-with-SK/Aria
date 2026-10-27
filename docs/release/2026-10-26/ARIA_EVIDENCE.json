@@ -1,0 +1,982 @@
+{
+  "product": "ARIA",
+  "source_commit": "6c30df588b552e21bf8166f81f5963ca799b7d2f",
+  "source_sha256": "83b973fd327dfa7bca47bc3264e940a25ac9ad65ab88c72e4d3c6e9ceb0f5215",
+  "source_unchanged_during_full_run": true,
+  "python": "3.14.3 (tags/v3.14.3:323c59a, Feb  3 2026, 16:04:56) [MSC v.1944 64 bit (AMD64)]",
+  "openssl": "OpenSSL 3.0.18 30 Sep 2025",
+  "packages": [
+    [
+      "APScheduler",
+      "3.11.3"
+    ],
+    [
+      "Jinja2",
+      "3.1.6"
+    ],
+    [
+      "MarkupSafe",
+      "3.0.4"
+    ],
+    [
+      "PyYAML",
+      "6.0.3"
+    ],
+    [
+      "Pygments",
+      "2.21.0"
+    ],
+    [
+      "alpaca-py",
+      "0.44.0"
+    ],
+    [
+      "altair",
+      "6.3.0"
+    ],
+    [
+      "annotated-doc",
+      "0.0.5"
+    ],
+    [
+      "annotated-types",
+      "0.8.0"
+    ],
+    [
+      "anthropic",
+      "0.125.0"
+    ],
+    [
+      "anyio",
+      "4.15.1"
+    ],
+    [
+      "attrs",
+      "26.1.0"
+    ],
+    [
+      "beautifulsoup4",
+      "4.15.0"
+    ],
+    [
+      "certifi",
+      "2026.10.23"
+    ],
+    [
+      "cffi",
+      "2.1.1"
+    ],
+    [
+      "charset-normalizer",
+      "3.5.2"
+    ],
+    [
+      "click",
+      "8.5.0"
+    ],
+    [
+      "cloudpickle",
+      "3.1.2"
+    ],
+    [
+      "colorama",
+      "0.4.6"
+    ],
+    [
+      "contourpy",
+      "1.4.0"
+    ],
+    [
+      "curl_cffi",
+      "0.17.0"
+    ],
+    [
+      "cycler",
+      "0.12.1"
+    ],
+    [
+      "distro",
+      "1.9.0"
+    ],
+    [
+      "docstring_parser",
+      "0.18.0"
+    ],
+    [
+      "eventkit",
+      "1.0.3"
+    ],
+    [
+      "exchange_calendars",
+      "4.13.2"
+    ],
+    [
+      "fastapi",
+      "0.162.0"
+    ],
+    [
+      "fonttools",
+      "4.67.0"
+    ],
+    [
+      "formulaic",
+      "1.2.2"
+    ],
+    [
+      "h11",
+      "0.16.0"
+    ],
+    [
+      "httpcore",
+      "1.0.9"
+    ],
+    [
+      "httptools",
+      "0.9.0"
+    ],
+    [
+      "httpx",
+      "0.28.1"
+    ],
+    [
+      "ib-insync",
+      "0.9.86"
+    ],
+    [
+      "idna",
+      "3.20"
+    ],
+    [
+      "iniconfig",
+      "2.3.1"
+    ],
+    [
+      "interface_meta",
+      "2.0.1"
+    ],
+    [
+      "itsdangerous",
+      "2.2.0"
+    ],
+    [
+      "jiter",
+      "0.18.0"
+    ],
+    [
+      "joblib",
+      "1.6.0"
+    ],
+    [
+      "jsonschema",
+      "4.26.0"
+    ],
+    [
+      "jsonschema-specifications",
+      "2025.9.1"
+    ],
+    [
+      "kiwisolver",
+      "1.5.1"
+    ],
+    [
+      "korean_lunar_calendar",
+      "0.4.0"
+    ],
+    [
+      "lxml",
+      "6.1.3"
+    ],
+    [
+      "matplotlib",
+      "3.11.2"
+    ],
+    [
+      "msgpack",
+      "1.2.4"
+    ],
+    [
+      "multitasking",
+      "0.0.13"
+    ],
+    [
+      "narwhals",
+      "2.27.1"
+    ],
+    [
+      "nest-asyncio",
+      "1.6.0"
+    ],
+    [
+      "numpy",
+      "2.5.4"
+    ],
+    [
+      "opentelemetry-api",
+      "1.45.1"
+    ],
+    [
+      "packaging",
+      "26.3"
+    ],
+    [
+      "pandas",
+      "3.1.0"
+    ],
+    [
+      "patsy",
+      "1.0.3"
+    ],
+    [
+      "peewee",
+      "4.5.3"
+    ],
+    [
+      "pillow",
+      "13.0.0"
+    ],
+    [
+      "pip",
+      "26.2.2"
+    ],
+    [
+      "platformdirs",
+      "4.13.5"
+    ],
+    [
+      "plotly",
+      "6.9.0"
+    ],
+    [
+      "pluggy",
+      "1.7.0"
+    ],
+    [
+      "protobuf",
+      "7.36.2"
+    ],
+    [
+      "pyarrow",
+      "26.0.0"
+    ],
+    [
+      "pycparser",
+      "3.12"
+    ],
+    [
+      "pydantic",
+      "2.14.1"
+    ],
+    [
+      "pydantic_core",
+      "2.50.1"
+    ],
+    [
+      "pydeck",
+      "0.9.3"
+    ],
+    [
+      "pyluach",
+      "2.3.0"
+    ],
+    [
+      "pyparsing",
+      "3.3.3"
+    ],
+    [
+      "pytest",
+      "9.1.1"
+    ],
+    [
+      "python-dateutil",
+      "3.0.0"
+    ],
+    [
+      "python-dotenv",
+      "1.2.4"
+    ],
+    [
+      "python-multipart",
+      "0.0.32"
+    ],
+    [
+      "pytz",
+      "2026.5"
+    ],
+    [
+      "referencing",
+      "0.37.0"
+    ],
+    [
+      "requests",
+      "2.34.2"
+    ],
+    [
+      "rpds-py",
+      "2026.9.1"
+    ],
+    [
+      "scikit-learn",
+      "1.9.1"
+    ],
+    [
+      "scipy",
+      "1.18.1"
+    ],
+    [
+      "setuptools",
+      "84.2.1"
+    ],
+    [
+      "six",
+      "1.17.0"
+    ],
+    [
+      "sniffio",
+      "1.3.1"
+    ],
+    [
+      "soupsieve",
+      "2.10"
+    ],
+    [
+      "sseclient-py",
+      "1.9.0"
+    ],
+    [
+      "starlette",
+      "1.10.0"
+    ],
+    [
+      "statsmodels",
+      "0.15.0"
+    ],
+    [
+      "streamlit",
+      "1.66.1"
+    ],
+    [
+      "ta",
+      "0.11.0"
+    ],
+    [
+      "threadpoolctl",
+      "3.7.0"
+    ],
+    [
+      "toolz",
+      "1.2.0"
+    ],
+    [
+      "typing-inspection",
+      "0.4.4"
+    ],
+    [
+      "typing_extensions",
+      "4.16.0"
+    ],
+    [
+      "tzdata",
+      "2026.5"
+    ],
+    [
+      "tzlocal",
+      "5.4.5"
+    ],
+    [
+      "urllib3",
+      "2.8.0"
+    ],
+    [
+      "uvicorn",
+      "0.54.0"
+    ],
+    [
+      "watchdog",
+      "6.0.0"
+    ],
+    [
+      "watchfiles",
+      "1.3.0"
+    ],
+    [
+      "websockets",
+      "17.3"
+    ],
+    [
+      "wrapt",
+      "2.5.2rc1"
+    ],
+    [
+      "yfinance",
+      "1.7.0"
+    ]
+  ],
+  "final_result": {
+    "passed": 3585,
+    "skipped": 12,
+    "failed": 0,
+    "warnings": 2475
+  },
+  "test_runs": [
+    {
+      "artifact": "final-followup.xml",
+      "tests": 101,
+      "exceptional": []
+    },
+    {
+      "artifact": "focus.xml",
+      "tests": 224,
+      "exceptional": []
+    },
+    {
+      "artifact": "full-first.xml",
+      "tests": 3576,
+      "exceptional": [
+        {
+          "test": "tests.test_auth_policy::test_loopback_is_owner_when_no_token_configured",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_cold_memory_profile::test_profile_cold_listing",
+          "outcome": "skipped",
+          "reason": "opt-in cold subprocess profile"
+        },
+        {
+          "test": "tests.test_data_freshness_api::test_the_registry_lists_every_dataset",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_data_freshness_api::test_an_undated_signals_file_is_aged_by_its_write_time_and_says_so",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_data_freshness_api::test_recorded_bar_dates_are_reported_beside_the_file_age",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_data_freshness_api::test_the_execution_gate_reads_the_same_freshness_as_before",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_data_freshness_api::test_the_chat_block_says_how_each_age_is_known",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_docs_match_code::test_the_symbol_and_venue_counts_are_not_overstated",
+          "outcome": "skipped",
+          "reason": "no symbol master in this checkout"
+        },
+        {
+          "test": "tests.test_docs_match_code::test_the_readme_verdict_matches_what_calibration_actually_says",
+          "outcome": "skipped",
+          "reason": "no ledger in this checkout"
+        },
+        {
+          "test": "tests.test_identity_namespaces::test_the_ledger_prices_are_still_london_scale",
+          "outcome": "skipped",
+          "reason": "no production ledger in this checkout"
+        },
+        {
+          "test": "tests.test_identity_safety::test_dry_run_makes_zero_production_mutations",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_integrated_web_acceptance::test_proxy_login_built_shell_and_incremental_sse",
+          "outcome": "skipped",
+          "reason": "set ARIA_ACCEPTANCE_DIST to the staged production build"
+        },
+        {
+          "test": "tests.test_launch_get_sweep::test_every_get_route_answers_without_a_server_error",
+          "outcome": "skipped",
+          "reason": "set ARIA_LAUNCH_SWEEP=1 to run the full GET sweep"
+        },
+        {
+          "test": "tests.test_live_news::test_the_company_name_also_establishes_relevance",
+          "outcome": "skipped",
+          "reason": "BNO is not in this checkout's symbol master"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_production_ledger_carries_an_identity_for_every_prediction",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_migration_only_ever_added_columns",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_live_ledger_has_not_accumulated_unidentified_predictions",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_ml_durable::test_rows_older_than_the_resume_budget_are_retrained",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_ml_persistence::test_a_stale_signals_file_is_also_dated",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_posix_runtime::test_real_process_shutdown_and_restart_retains_uncertainty",
+          "outcome": "skipped",
+          "reason": "POSIX process/permissions protocol"
+        },
+        {
+          "test": "tests.test_posix_runtime::test_database_configuration_unicode_paths_and_permission_failure",
+          "outcome": "skipped",
+          "reason": "POSIX process/permissions protocol"
+        },
+        {
+          "test": "tests.test_release_repairs::test_chat_context_and_world_reject_bad_ml_dates[row0]",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_security_execution_auth::test_loopback_ownership_cannot_reach_a_broker[env0]",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_security_execution_auth::test_loopback_ownership_cannot_reach_a_broker[env1]",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_security_execution_auth::test_a_proxied_request_retires_the_loopback_fallback",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_session_bypass::test_exits_wait_for_continuous_trading[when0-AAPL-equity-True]",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_signal_freshness_gate::test_fresh_signals_read_as_fresh",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_signal_freshness_gate::test_signals_past_the_world_budget_are_stale",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_signal_freshness_gate::test_fresh_signals_leave_the_gate_to_the_others",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_signal_freshness_gate::test_reflex_arms_from_fresh_signals",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        }
+      ]
+    },
+    {
+      "artifact": "get-sweep.xml",
+      "tests": 3,
+      "exceptional": []
+    },
+    {
+      "artifact": "lock-perception.xml",
+      "tests": 106,
+      "exceptional": []
+    },
+    {
+      "artifact": "repairs-final.xml",
+      "tests": 39,
+      "exceptional": []
+    },
+    {
+      "artifact": "repairs.xml",
+      "tests": 21,
+      "exceptional": [
+        {
+          "test": "tests.test_release_repairs::test_healing_enlarges_an_existing_partial_stop",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        }
+      ]
+    },
+    {
+      "artifact": "review-baseline.xml",
+      "tests": 9,
+      "exceptional": [
+        {
+          "test": "tests.test_claude_final_review_probes::test_f01_halt_cancels_a_resting_alpaca_entry",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_claude_final_review_probes::test_f02_failed_exit_does_not_leave_the_position_naked",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_claude_final_review_probes::test_f03_refused_ibkr_order_is_requeued_for_ibkr",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_claude_final_review_probes::test_f04_resume_retrains_a_row_whose_bar_is_behind",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_claude_final_review_probes::test_f07_loopback_fallback_refuses_a_foreign_host",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_claude_final_review_probes::test_f09_healing_protects_the_whole_broker_position",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        },
+        {
+          "test": "tests.test_claude_final_review_probes::test_f10_freshly_written_old_signals_do_not_pass_gate_6",
+          "outcome": "failure",
+          "reason": "Retained in private original JUnit/log; see remediation journal"
+        }
+      ]
+    },
+    {
+      "artifact": "review-repairs.xml",
+      "tests": 9,
+      "exceptional": []
+    },
+    {
+      "artifact": "transport-unknown.xml",
+      "tests": 83,
+      "exceptional": []
+    },
+    {
+      "artifact": "final-existing/full.xml",
+      "tests": 3594,
+      "passed": 3579,
+      "exceptional": [
+        {
+          "test": "tests.test_audit_fixes::test_c2_unknown_order_never_reports_filled",
+          "outcome": "failure",
+          "reason": "Retained in original private JUnit/log"
+        },
+        {
+          "test": "tests.test_cold_memory_profile::test_profile_cold_listing",
+          "outcome": "skipped",
+          "reason": "opt-in cold subprocess profile"
+        },
+        {
+          "test": "tests.test_docs_match_code::test_the_symbol_and_venue_counts_are_not_overstated",
+          "outcome": "skipped",
+          "reason": "no symbol master in this checkout"
+        },
+        {
+          "test": "tests.test_docs_match_code::test_the_readme_verdict_matches_what_calibration_actually_says",
+          "outcome": "skipped",
+          "reason": "no ledger in this checkout"
+        },
+        {
+          "test": "tests.test_identity_namespaces::test_the_ledger_prices_are_still_london_scale",
+          "outcome": "skipped",
+          "reason": "no production ledger in this checkout"
+        },
+        {
+          "test": "tests.test_identity_safety::test_dry_run_makes_zero_production_mutations",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_launch_get_sweep::test_every_get_route_answers_without_a_server_error",
+          "outcome": "skipped",
+          "reason": "set ARIA_LAUNCH_SWEEP=1 to run the full GET sweep"
+        },
+        {
+          "test": "tests.test_live_news::test_the_company_name_also_establishes_relevance",
+          "outcome": "skipped",
+          "reason": "BNO is not in this checkout's symbol master"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_production_ledger_carries_an_identity_for_every_prediction",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_migration_only_ever_added_columns",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_live_ledger_has_not_accumulated_unidentified_predictions",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_posix_runtime::test_real_process_shutdown_and_restart_retains_uncertainty",
+          "outcome": "skipped",
+          "reason": "POSIX process/permissions protocol"
+        },
+        {
+          "test": "tests.test_posix_runtime::test_database_configuration_unicode_paths_and_permission_failure",
+          "outcome": "skipped",
+          "reason": "POSIX process/permissions protocol"
+        },
+        {
+          "test": "tests.test_security_ibkr_status::test_unknown_order_is_not_reported_filled_or_dead",
+          "outcome": "failure",
+          "reason": "Retained in original private JUnit/log"
+        },
+        {
+          "test": "tests.test_security_ibkr_status::test_disconnection_is_not_a_rejection",
+          "outcome": "failure",
+          "reason": "Retained in original private JUnit/log"
+        }
+      ]
+    },
+    {
+      "artifact": "final-fresh/full.xml",
+      "tests": 3594,
+      "passed": 3579,
+      "exceptional": [
+        {
+          "test": "tests.test_audit_fixes::test_c2_unknown_order_never_reports_filled",
+          "outcome": "failure",
+          "reason": "Retained in original private JUnit/log"
+        },
+        {
+          "test": "tests.test_cold_memory_profile::test_profile_cold_listing",
+          "outcome": "skipped",
+          "reason": "opt-in cold subprocess profile"
+        },
+        {
+          "test": "tests.test_docs_match_code::test_the_symbol_and_venue_counts_are_not_overstated",
+          "outcome": "skipped",
+          "reason": "no symbol master in this checkout"
+        },
+        {
+          "test": "tests.test_docs_match_code::test_the_readme_verdict_matches_what_calibration_actually_says",
+          "outcome": "skipped",
+          "reason": "no ledger in this checkout"
+        },
+        {
+          "test": "tests.test_identity_namespaces::test_the_ledger_prices_are_still_london_scale",
+          "outcome": "skipped",
+          "reason": "no production ledger in this checkout"
+        },
+        {
+          "test": "tests.test_identity_safety::test_dry_run_makes_zero_production_mutations",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_launch_get_sweep::test_every_get_route_answers_without_a_server_error",
+          "outcome": "skipped",
+          "reason": "set ARIA_LAUNCH_SWEEP=1 to run the full GET sweep"
+        },
+        {
+          "test": "tests.test_live_news::test_the_company_name_also_establishes_relevance",
+          "outcome": "skipped",
+          "reason": "BNO is not in this checkout's symbol master"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_production_ledger_carries_an_identity_for_every_prediction",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_migration_only_ever_added_columns",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_live_ledger_has_not_accumulated_unidentified_predictions",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_posix_runtime::test_real_process_shutdown_and_restart_retains_uncertainty",
+          "outcome": "skipped",
+          "reason": "POSIX process/permissions protocol"
+        },
+        {
+          "test": "tests.test_posix_runtime::test_database_configuration_unicode_paths_and_permission_failure",
+          "outcome": "skipped",
+          "reason": "POSIX process/permissions protocol"
+        },
+        {
+          "test": "tests.test_security_ibkr_status::test_unknown_order_is_not_reported_filled_or_dead",
+          "outcome": "failure",
+          "reason": "Retained in original private JUnit/log"
+        },
+        {
+          "test": "tests.test_security_ibkr_status::test_disconnection_is_not_a_rejection",
+          "outcome": "failure",
+          "reason": "Retained in original private JUnit/log"
+        }
+      ]
+    },
+    {
+      "artifact": "final-patched/full.xml",
+      "tests": 3597,
+      "passed": 3585,
+      "exceptional": [
+        {
+          "test": "tests.test_cold_memory_profile::test_profile_cold_listing",
+          "outcome": "skipped",
+          "reason": "opt-in cold subprocess profile"
+        },
+        {
+          "test": "tests.test_docs_match_code::test_the_symbol_and_venue_counts_are_not_overstated",
+          "outcome": "skipped",
+          "reason": "no symbol master in this checkout"
+        },
+        {
+          "test": "tests.test_docs_match_code::test_the_readme_verdict_matches_what_calibration_actually_says",
+          "outcome": "skipped",
+          "reason": "no ledger in this checkout"
+        },
+        {
+          "test": "tests.test_identity_namespaces::test_the_ledger_prices_are_still_london_scale",
+          "outcome": "skipped",
+          "reason": "no production ledger in this checkout"
+        },
+        {
+          "test": "tests.test_identity_safety::test_dry_run_makes_zero_production_mutations",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_launch_get_sweep::test_every_get_route_answers_without_a_server_error",
+          "outcome": "skipped",
+          "reason": "set ARIA_LAUNCH_SWEEP=1 to run the full GET sweep"
+        },
+        {
+          "test": "tests.test_live_news::test_the_company_name_also_establishes_relevance",
+          "outcome": "skipped",
+          "reason": "BNO is not in this checkout's symbol master"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_production_ledger_carries_an_identity_for_every_prediction",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_migration_only_ever_added_columns",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_migration_freeze::test_the_live_ledger_has_not_accumulated_unidentified_predictions",
+          "outcome": "skipped",
+          "reason": "no production ledger present"
+        },
+        {
+          "test": "tests.test_posix_runtime::test_real_process_shutdown_and_restart_retains_uncertainty",
+          "outcome": "skipped",
+          "reason": "POSIX process/permissions protocol"
+        },
+        {
+          "test": "tests.test_posix_runtime::test_database_configuration_unicode_paths_and_permission_failure",
+          "outcome": "skipped",
+          "reason": "POSIX process/permissions protocol"
+        }
+      ]
+    }
+  ],
+  "audit": {
+    "pip_advisories": 0,
+    "npm_advisories": 0,
+    "bandit_findings": 42,
+    "bandit_exit": 1,
+    "secret_assessment": {
+      "scanner": "gitleaks 8.30.1, official release SHA256 verified",
+      "scope": "all commits reachable from scanned HEAD",
+      "raw_exit_code": 1,
+      "findings": [
+        {
+          "rule": "generic-api-key",
+          "file": "tests/test_ownerauth.py",
+          "line": 522,
+          "commit": "deb8da5eefa22a57cef589a64201808c5250306c",
+          "assessment": "FALSE_POSITIVE",
+          "reason": "Synthetic vendor-URL logging redaction fixture under tests/test_ownerauth.py"
+        }
+      ],
+      "unresolved_credentials": 0,
+      "suppression_added": false
+    }
+  },
+  "release_recommendation": "BLOCKED",
+  "generated_utc": "2026-10-27T00:18:04.019395+00:00",
+  "browser_result": {
+    "scope": "actual patched React build with synthetic read-only API origin",
+    "routes": [
+      {
+        "route": "brain",
+        "status": 200,
+        "body_characters": 2073,
+        "headings": []
+      },
+      {
+        "route": "research",
+        "status": 200,
+        "body_characters": 497,
+        "headings": []
+      },
+      {
+        "route": "market",
+        "status": 200,
+        "body_characters": 1286,
+        "headings": []
+      },
+      {
+        "route": "portfolio",
+        "status": 200,
+        "body_characters": 3083,
+        "headings": [
+          "TRADE EXECUTION",
+          "Portfolio"
+        ]
+      },
+      {
+        "route": "strategies",
+        "status": 200,
+        "body_characters": 350,
+        "headings": []
+      },
+      {
+        "route": "daily-report",
+        "status": 200,
+        "body_characters": 548,
+        "headings": []
+      },
+      {
+        "route": "track-record",
+        "status": 200,
+        "body_characters": 337,
+        "headings": []
+      },
+      {
+        "route": "system",
+        "status": 200,
+        "body_characters": 449,
+        "headings": []
+      }
+    ],
+    "page_errors": [],
+    "blocked_external": [],
+    "mutations": [],
+    "failure_state_characters": 2984,
+    "recovery_state_characters": 3083
+  }
+}

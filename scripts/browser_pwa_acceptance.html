@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8"><title>ARIA isolated PWA acceptance</title>
+<h1>Isolated PWA acceptance</h1>
+<p>This fixture origin contains synthetic data only. No broker or production app is contacted.</p>
+<button id="prepare">Prepare old cache</button><button id="upgrade">Check upgrade</button>
+<pre id="result">Ready</pre>
+<script type="module">
+const result = document.querySelector('#result')
+async function activated(reg) {
+  for (let i = 0; i < 100; i++) {
+    if (reg.active?.state === 'activated' && !reg.installing && !reg.waiting) return
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  throw new Error('Worker activation did not complete')
+}
+async function run(fn) {
+  result.textContent = 'Running'
+  try { result.textContent = JSON.stringify(await fn(), null, 2) }
+  catch (error) { result.textContent = `FAIL: ${error.message}` }
+}
+document.querySelector('#prepare').onclick = () => run(async () => {
+  const reg = await navigator.serviceWorker.register('/app/acceptance-worker.js', {scope:'/app/'})
+  await activated(reg)
+  return {phase:'old', caches:await caches.keys()}
+})
+document.querySelector('#upgrade').onclick = () => run(async () => {
+  const reg = await navigator.serviceWorker.getRegistration('/app/')
+  if (!reg) throw new Error('Prepare the old worker first')
+  await reg.update()
+  await activated(reg)
+  const keys = await caches.keys()
+  const probe = await (await fetch('/api/acceptance-probe')).json()
+  const apiCached = (await Promise.all(keys.map(async key =>
+    (await (await caches.open(key)).keys()).some(r => new URL(r.url).pathname.startsWith('/api/'))))).some(Boolean)
+  if (!keys.includes('aria-shell-v2') || keys.includes('aria-shell-acceptance-old') || apiCached || probe.source !== 'network')
+    throw new Error('Cache upgrade or API network-only contract failed')
+  return {phase:'upgraded', caches:keys, apiSource:probe.source, apiCached, verdict:'PASS'}
+})
+</script>

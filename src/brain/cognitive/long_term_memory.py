@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -73,14 +74,30 @@ class LongTermMemory:
     """
 
     DB_PATH = ROOT / "data" / "brain_memory" / "chromadb"
+    _embedding_lock = threading.Lock()
+    _shared_embedder = None
 
     def __init__(self):
         import chromadb
-        from sentence_transformers import SentenceTransformer
         self.DB_PATH.mkdir(parents=True, exist_ok=True)
         self.client = chromadb.PersistentClient(path=str(self.DB_PATH))
-        self.collection = self.client.get_or_create_collection("aria_memories")
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")  # 80MB, CPU is fine
+        # All vector operations below supply embeddings explicitly. Listing,
+        # metadata and stats need no model (nor Chroma's default embedder).
+        self.collection = self.client.get_or_create_collection("aria_memories", embedding_function=None)
+
+    @property
+    def embedder(self):
+        """Load only for an actual embedding operation, once per process.
+
+        In particular, a cold GET /memories must not import PyTorch/Transformers
+        or download a model. Concurrent first semantic requests share one load.
+        A failed load is not cached as success, so later provisioning can retry.
+        """
+        with LongTermMemory._embedding_lock:
+            if LongTermMemory._shared_embedder is None:
+                from sentence_transformers import SentenceTransformer
+                LongTermMemory._shared_embedder = SentenceTransformer("all-MiniLM-L6-v2")
+            return LongTermMemory._shared_embedder
 
     # ── store ────────────────────────────────────────────────────────────
 

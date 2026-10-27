@@ -31,6 +31,7 @@ import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
+from src.core.durable import StateUnreadable, atomic_write_json, read_json_state
 from src.desk.config import load_config
 from src.desk.opinion import load_data_json
 from src.risk.profiles import EXECUTABLE_ASSET_CLASSES
@@ -293,17 +294,25 @@ class PositionManager:
     # ── state ────────────────────────────────────────────────────────────
 
     def load_positions(self) -> dict:
-        if POSITIONS_FILE.exists():
+        """The desk's tracked positions (entry, stop, target, thesis).
+
+        A damaged file is copied aside and raises. Management holds existing
+        protection until explicit recovery; unknown prior stops/theses cannot
+        be replaced with synthetic adoption levels."""
+        try:
+            return read_json_state(POSITIONS_FILE, dict, expect=dict)
+        except StateUnreadable as e:
+            logger.critical(f"desk positions unreadable — management held: {e}")
             try:
-                return json.loads(POSITIONS_FILE.read_text(encoding="utf-8"))
-            except Exception as e:
-                logger.warning(f"positions.json unreadable: {e}")
-        return {}
+                from src.desk.notify import push
+                push(f"⚠ DESK POSITIONS FILE DAMAGED — {e} Broker positions are "
+                     f"preserved; management held pending recovery.", self.cfg)
+            except Exception:
+                pass
+            raise
 
     def save_positions(self, positions: dict):
-        POSITIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        POSITIONS_FILE.write_text(json.dumps(positions, indent=2, default=str),
-                                  encoding="utf-8")
+        atomic_write_json(POSITIONS_FILE, positions)
 
     # ── the tick ─────────────────────────────────────────────────────────
 
@@ -320,7 +329,11 @@ class PositionManager:
             return summary
 
         signals = load_data_json("signals.json")
-        tracked = self.load_positions()
+        try:
+            tracked = self.load_positions()
+        except StateUnreadable as e:
+            summary["errors"].append(f"position state unreadable — management held: {e.path.name}")
+            return summary
         broker_positions = {p["ticker"]: p for p in (account.get("positions") or [])}
 
         # LEGACY TRIAGE / adoption — every broker position gets tracked
@@ -336,6 +349,9 @@ class PositionManager:
         # position they protected is gone, so nothing else will revisit them.
         try:
             self._retry_pending_cancels(mgr, summary)
+        except StateUnreadable as e:
+            summary["errors"].append(f"pending cancels unreadable — management held: {e.path.name}")
+            return summary
         except Exception as e:
             summary["errors"].append(f"orphaned-order retry: {e}")
 
@@ -422,7 +438,7 @@ class PositionManager:
         for ticker, pos in tracked.items():
             if ticker in broker_positions:
                 healed = self._heal_brackets(ticker, pos, mgr,
-                                             open_orders.get(ticker, []))
+                                             open_orders.get(ticker, []), summary=summary)
                 if healed:
                     summary["healed"].append({"ticker": ticker, **healed})
 
@@ -585,6 +601,11 @@ class PositionManager:
         for o in open_for_ticker:
             broker.cancel_order(o["id"])
         _await_cancelled(broker, [o["id"] for o in open_for_ticker])
+        # Refresh durable protection claims after cancellation. A hidden or
+        # ambiguous exit remains reserved and prevents a second reducing order.
+        from src.execution.order_manager import OrderManager
+        durable_manager = OrderManager(alpaca=broker)
+        durable_manager.reconcile_unresolved()
 
         # REDUCE-ONLY, at the moment of sending: the snapshot this tick began
         # with can be stale — a stop may have filled, a human may have closed
@@ -593,7 +614,7 @@ class PositionManager:
         # the cancels; send at most what is held, net of anything still
         # resting on the exit side. Unreadable = nothing sent, retry next tick.
         from src.execution import reduce_only
-        ro = reduce_only.at_broker(broker, ticker, exit_side, qty)
+        ro = reduce_only.at_broker(broker, ticker, exit_side, qty, broker_key="alpaca")
         if not ro.ok:
             logger.warning(f"exit for {ticker} not sent — {ro.reason}")
             return None
@@ -612,21 +633,47 @@ class PositionManager:
             asset_class=AssetClass(held_class),   # guarded above
             reduce_only=True,
         )
-        result = broker.submit_order(req)
-        if result.status == OrderStatus.REJECTED:
-            logger.error(f"exit order rejected for {ticker}: {result.error_message}")
+        # The same durable claim and timeout settlement as every approved
+        # entry; a lost exit acknowledgement must never invite a fresh POST.
+        from src.execution.approval_queue import ApprovalQueue
+        from src.execution.broker_base import OrderResult
+        queued = ApprovalQueue().push(req, broker="alpaca")
+        response = durable_manager.execute(queued.id)
+        if not response.get("ok"):
+            if response.get("unknown"):
+                self._log_execution({"at": datetime.now().isoformat(), "action": "exit",
+                                     "ticker": ticker, "side": exit_side, "qty": qty,
+                                     "mode": "unknown", "trade_id": queued.id,
+                                     "client_order_id": response.get("client_order_id"),
+                                     "reason": response.get("error")})
+            logger.warning("exit for %s deferred: %s", ticker, response.get("error"))
             return None
+        result = OrderResult(response["broker_order_id"], OrderStatus(response["status"]),
+                             filled_qty=response.get("filled_qty", 0),
+                             avg_fill_price=response.get("fill_price", 0))
         if result.status != OrderStatus.FILLED:
             result = mgr._await_fill(broker, result)
         if result.status != OrderStatus.FILLED:
             # No fill, no exit: cancel so orders never stack, retry next tick.
             # A recorded P&L must come from a REAL fill, never an estimate.
-            broker.cancel_order(result.broker_order_id)
+            if result.broker_order_id:
+                broker.cancel_order(result.broker_order_id)
+                _await_cancelled(broker, [result.broker_order_id])
+                # Only broker-confirmed terminal evidence releases the durable
+                # exit reservation. An ambiguous cancellation remains UNKNOWN.
+                durable_manager.reconcile_unresolved()
             logger.warning(f"exit for {ticker} did not fill in the poll window "
                            f"— cancelled, will retry next tick ({reason})")
             return None
 
-        exit_price = result.avg_fill_price or self._current_price(ticker, bp, {}, mgr)
+        import math
+        if (not math.isfinite(result.avg_fill_price) or result.avg_fill_price <= 0 or
+                not math.isfinite(result.filled_qty) or abs(result.filled_qty - qty) > 1e-6):
+            logger.error("exit for %s has an incomplete fill/price; P&L withheld pending reconciliation", ticker)
+            return None
+        ApprovalQueue().mark_executed(queued.id, result.broker_order_id, result.avg_fill_price,
+                                      order_status=result.status.value, filled_qty=result.filled_qty)
+        exit_price = result.avg_fill_price
         entry = float(pos.get("entry_price") or bp.get("avg_cost") or 0.0)
         direction = 1 if long else -1
         pnl = round((exit_price - entry) * qty * direction, 2)
@@ -651,6 +698,10 @@ class PositionManager:
             "entry_at": pos.get("entry_at", ""),
             "mode": "auto",
             "broker_order_id": result.broker_order_id,
+            "client_order_id": response.get("client_order_id"),
+            "trade_id": queued.id,
+            "filled_qty": result.filled_qty,
+            "fill_confirmed": True,
         }
         self._log_execution(record)
         self._log_closed(record)
@@ -768,17 +819,14 @@ class PositionManager:
     # ── orphaned sibling orders ──────────────────────────────────────────
 
     def _load_pending_cancels(self) -> list:
-        if PENDING_CANCELS_FILE.exists():
-            try:
-                return list(json.loads(PENDING_CANCELS_FILE.read_text(encoding="utf-8")))
-            except Exception as e:
-                logger.error(f"pending_cancels.json unreadable: {e}")
-        return []
+        try:
+            return list(read_json_state(PENDING_CANCELS_FILE, list, expect=list))
+        except StateUnreadable as e:
+            logger.critical(f"pending sibling cancels unreadable: {e}")
+            raise
 
     def _save_pending_cancels(self, pending: list):
-        PENDING_CANCELS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PENDING_CANCELS_FILE.write_text(json.dumps(pending, indent=2, default=str),
-                                        encoding="utf-8")
+        atomic_write_json(PENDING_CANCELS_FILE, pending)
 
     def _retry_pending_cancels(self, mgr, summary: dict):
         """Retry every saved sibling cancel. An order the broker no longer
@@ -831,12 +879,41 @@ class PositionManager:
     # ── brackets ─────────────────────────────────────────────────────────
 
     def _heal_brackets(self, ticker: str, pos: dict, mgr,
-                       open_orders: list) -> dict | None:
+                       open_orders: list, *, summary: dict | None = None) -> dict | None:
         if mgr is None or not _may_mutate_broker(mgr):
             return None
-        has_stop = any(o.get("order_type") in ("stop", "stop_limit")
-                       for o in open_orders)
-        has_target = any(o.get("order_type") == "limit" for o in open_orders)
+        import math
+        from src.execution import reduce_only
+        try:
+            positions = mgr._alpaca.get_positions()
+            if positions is None:
+                return None
+            signed = reduce_only.signed_position(positions, ticker)
+            if not math.isfinite(signed) or signed == 0 or (signed > 0) != _is_long(pos):
+                return None
+            pos["qty"] = abs(signed)
+            exit_side = "sell" if signed > 0 else "buy"
+            # Keep existing protection while an uncertain exit reserves the
+            # position. Visible non-protective exits reduce the room available
+            # for stops; repeatedly replacing a correctly sized residual stop
+            # would create avoidable unprotected intervals.
+            protection_ids = [o["id"] for o in open_orders
+                              if o.get("order_type") in ("stop", "stop_limit", "limit")]
+            room = reduce_only.at_broker(mgr._alpaca, ticker, exit_side, abs(signed),
+                                         exclude_ids=protection_ids, broker_key="alpaca")
+            if not room.ok:
+                if summary is not None:
+                    summary["errors"].append(f"{ticker}: bracket healing held — {room.reason}")
+                return None
+            def coverage(types):
+                return sum(max(0.0, float(o.get("qty") or 0) - float(o.get("filled_qty") or 0))
+                           for o in open_orders if o.get("order_type") in types
+                           and o.get("side") == exit_side)
+            has_stop = coverage(("stop", "stop_limit")) >= room.qty
+            has_target = coverage(("limit",)) >= room.qty
+        except (ValueError, TypeError, OSError, RuntimeError):
+            logger.warning("%s: protection size unreadable; healing held", ticker)
+            return None
         need_stop = pos.get("stop") and not has_stop
         need_target = pos.get("target") and not has_target
         if not (need_stop or need_target):
@@ -844,12 +921,27 @@ class PositionManager:
         # Protections are placed as one OCO — clear partial leftovers first
         # so the fresh order can reserve the shares.
         if mgr._alpaca is not None:
+            cancelled = set()
             for o in open_orders:
+                if str(o.get("parent_id") or "") in cancelled:
+                    continue  # parent cancellation also covers its linked legs
                 if o.get("order_type") in ("stop", "stop_limit", "limit"):
                     why = _try_cancel(mgr._alpaca, o["id"])
                     if why is not None:
                         logger.warning(f"{ticker}: partial protection {o['id']} not "
                                        f"cancelled before healing ({why})")
+                        return None
+                    cancelled.add(str(o["id"]))
+            if not _await_cancelled(mgr._alpaca, [o["id"] for o in open_orders
+                                    if o.get("order_type") in ("stop", "stop_limit", "limit")]):
+                if not _await_cancelled(mgr._alpaca, [o["id"] for o in open_orders
+                                        if o.get("order_type") in ("stop", "stop_limit", "limit")], timeout_s=8):
+                    if summary is not None:
+                        summary["errors"].append(f"{ticker}: protection cancellation still unconfirmed; urgent broker/owner reconciliation required")
+                    return None
+            reconcile = getattr(mgr, "reconcile_unresolved", None)
+            if reconcile:
+                reconcile()
         placed = mgr.place_protective_orders(
             ticker, float(pos.get("qty") or 0.0),
             "buy" if _is_long(pos) else "sell",
@@ -960,7 +1052,7 @@ class PositionManager:
         """Realized P&L → ChromaDB keyed by the entry's debate_id, so future
         debates on similar setups recall what this thesis actually did."""
         debate_id = record.get("debate_id")
-        if not debate_id:
+        if not debate_id or record.get("estimated"):
             return
         try:
             from src.brain.cognitive.long_term_memory import LongTermMemory

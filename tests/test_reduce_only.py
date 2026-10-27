@@ -45,6 +45,12 @@ TUE_OPEN = datetime(2026, 10, 6, 15, 0, tzinfo=UTC)
 SATURDAY = datetime(2026, 10, 10, 15, 0, tzinfo=UTC)
 
 
+@pytest.fixture(autouse=True)
+def isolated_approval_queue(tmp_path, monkeypatch):
+    from src.execution import approval_queue as aq
+    monkeypatch.setattr(aq, "QUEUE_FILE", tmp_path / "queue.json")
+
+
 # ── a broker that keeps a book ──────────────────────────────────────────────
 
 class _Book:
@@ -72,6 +78,7 @@ class _Book:
         self._n = 0
         self.reject_next = False
         self.partial_next = None
+        self.client_orders = {}
 
     # reads
     def is_connected(self):
@@ -93,6 +100,18 @@ class _Book:
         return f"o{self._n}"
 
     def submit_order(self, req: OrderRequest):
+        result = self._submit_order(req)
+        if req.client_order_id:
+            self.client_orders[req.client_order_id] = result
+        return result
+
+    def get_order_by_client_id(self, cid):
+        result = self.client_orders.get(cid)
+        if result and result.status == OrderStatus.SUBMITTED and result.broker_order_id not in self.resting:
+            return OrderResult(result.broker_order_id, OrderStatus.CANCELLED)
+        return result
+
+    def _submit_order(self, req: OrderRequest):
         side = req.side.value if hasattr(req.side, "value") else req.side
         self.sent.append((req.order_type.value, req.ticker, side, req.qty))
         if self.reject_next:
@@ -127,9 +146,11 @@ class _Book:
 
 
 class _OcoBook(_Book):
-    def submit_oco_exit(self, ticker, qty, entry_side, stop, target):
+    def submit_oco_exit(self, ticker, qty, entry_side, stop, target, *, client_order_id=None):
         side = "sell" if entry_side in ("buy", "long") else "buy"
         pid = self._id()
+        if client_order_id:
+            self.client_orders[client_order_id] = OrderResult(pid, OrderStatus.SUBMITTED)
         self.resting[pid] = {"id": pid, "ticker": ticker, "side": side, "qty": qty,
                              "order_type": "limit", "limit_price": target}
         leg = self._id()
@@ -620,3 +641,96 @@ def test_flatten_is_the_kill_switchs_only_sender():
     assert src.count("submit_order(") == 1
     flat = inspect.getsource(killswitch._flatten)
     assert 'side="sell"' in flat and "reduce_only.check(" in flat
+
+
+# ── a durable exit claim that the broker has finished is not resting ─────────
+#
+# Codex 09f2158 made reduce_only refuse an exit while an earlier exit's queue
+# claim is not visible at the broker. The exit engine cancels the bracket OCO
+# first and then checks — so the just-cancelled OCO was "not visible" and the
+# stop-loss exit was refused, leaving the position with no bracket and no exit
+# until reconciliation ran on the next tick. The tests above use a broker named
+# "book", which never matched the queue's "alpaca" route, so they could not see
+# it. The broker's own answer about that order settles it; nothing else does.
+
+class _AlpacaNamedBook(_OcoBook):
+    name = "Alpaca"
+
+    def __init__(self, holdings=None):
+        super().__init__(holdings)
+        self.status_of = {}                 # id -> OrderStatus the broker reports
+        self.asked = []
+
+    def cancel_order(self, oid):
+        o = self.resting.pop(oid, None)
+        if o is None:
+            return False
+        for k in [k for k, v in self.resting.items() if v.get("parent_id") == oid]:
+            self.resting.pop(k, None)       # cancelling an OCO parent takes its leg
+        self.status_of[oid] = OrderStatus.CANCELLED
+        return True
+
+    def get_order_status(self, oid):
+        self.asked.append(oid)
+        return OrderResult(broker_order_id=oid,
+                           status=self.status_of.get(oid, OrderStatus.UNKNOWN))
+
+
+def test_the_exit_goes_out_after_its_own_bracket_is_cancelled(monkeypatch):
+    book = _AlpacaNamedBook({"AAPL": 10})
+    _mgr(book).place_protective_orders("AAPL", 10, "buy", stop=9.0, target=12.0)
+    assert [s[0] for s in book.sent] == ["oco"]
+    _close(monkeypatch, book)
+    assert [s for s in book.sent if s[0] == "market"] == [("market", "AAPL", "sell", 10.0)]
+    assert book.holdings["AAPL"] == 0
+
+
+def test_the_exit_still_goes_out_when_the_client_id_lookup_is_down(monkeypatch):
+    """Codex 048f47b reconciles the cancelled bracket by client id before the
+    reduce-only check. When that lookup fails, the claim is settled by asking
+    for the order itself by broker id — the same-tick exit does not depend on
+    one read path."""
+    book = _AlpacaNamedBook({"AAPL": 10})
+    _mgr(book).place_protective_orders("AAPL", 10, "buy", stop=9.0, target=12.0)
+
+    def lookup_down(cid):
+        raise ConnectionError("client-id lookup unavailable")
+
+    book.get_order_by_client_id = lookup_down
+    _close(monkeypatch, book)
+    assert [s for s in book.sent if s[0] == "market"] == [("market", "AAPL", "sell", 10.0)]
+    assert book.holdings["AAPL"] == 0 and book.asked, "settled by asking for the order by id"
+
+
+@pytest.mark.parametrize("answer", [OrderStatus.UNKNOWN, OrderStatus.SUBMITTED,
+                                    OrderStatus.PARTIAL])
+def test_an_unseen_claim_the_broker_cannot_call_finished_still_blocks(answer):
+    from src.execution import reduce_only
+    book = _AlpacaNamedBook({"AAPL": 10})
+    _mgr(book).place_protective_orders("AAPL", 10, "buy", stop=9.0, target=12.0)
+    oco = next(iter(book.resting))
+    book.resting.clear()                     # not listed — but not known to be gone
+    book.status_of[oco] = answer
+    ro = reduce_only.at_broker(book, "AAPL", "sell", 10)
+    assert not ro.ok and "not visible" in ro.reason
+
+
+def test_a_claim_that_filled_meanwhile_is_sized_against_the_position_after_it():
+    from src.execution import reduce_only
+    book = _AlpacaNamedBook({"AAPL": 10})
+    _mgr(book).place_protective_orders("AAPL", 10, "buy", stop=9.0, target=12.0)
+    oco = next(iter(book.resting))
+    real_positions = book.get_positions
+    calls = {"n": 0}
+
+    def positions_then_fill():
+        calls["n"] += 1
+        out = real_positions()
+        if calls["n"] == 1:                  # the OCO's stop fills right after this read
+            book.fill_resting(oco)
+            book.status_of[oco] = OrderStatus.FILLED
+        return out
+
+    book.get_positions = positions_then_fill
+    ro = reduce_only.at_broker(book, "AAPL", "sell", 10)
+    assert not ro.ok, "the first read is stale: the position is now flat"

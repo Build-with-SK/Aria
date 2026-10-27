@@ -14,21 +14,61 @@ Flow:
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+import math
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 
 from .approval_queue import ApprovalQueue, PendingTrade
+from .reduce_only import same_symbol
 from .broker_base import (
-    AssetClass, OrderRequest, OrderResult, OrderSide,
+    AssetClass, OrderRefused, OrderRequest, OrderResult, OrderSide,
     OrderStatus, OrderType, BrokerBase
 )
 
 logger = logging.getLogger(__name__)
 
+#: Append-only record of every reconciliation lookup and what it found.
+RECONCILE_LOG = Path(__file__).parent.parent.parent / "data" / "execution" / "order_reconciliation.jsonl"
+
+
+def _audit(row: dict) -> None:
+    """One reconciliation lookup, appended. A failure to write is logged,
+    never raised: the audit trail must not decide the order state."""
+    try:
+        RECONCILE_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with RECONCILE_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                                **row}, default=str) + "\n")
+    except Exception as e:
+        logger.error(f"order reconciliation audit not written: {e} — {row}")
+
+
+def queue_client_order_id(trade: PendingTrade) -> str:
+    """The broker idempotency key for one approval-queue trade.
+
+    Derived from the trade's own id and creation time, so the same queued
+    trade always sends the same key: the broker refuses a second order with
+    it, and after a timeout the order can be looked up by it. Without one, a
+    submit that timed out after Alpaca accepted the order was recorded
+    REJECTED — and a reflex playbook that read "failed" stayed armed for a
+    second order (S1.3)."""
+    h = hashlib.sha256(f"approval_queue|{trade.id}|{trade.created_at}".encode()).hexdigest()[:24]
+    return f"aria-q-{h}"
+
 
 class OrderManager:
+    # After a submit whose outcome is unknown, how many times to ask the broker
+    # for the order by its client id, and how long to wait before each ask. The
+    # wait gives a request still in flight time to land: "not found" one
+    # millisecond after a timeout says little.
+    SETTLE_LOOKUPS = 3
+    SETTLE_WAIT_S = 2.0
+
     def __init__(self, alpaca: Optional[BrokerBase] = None, ibkr: Optional[BrokerBase] = None,
                  *, market_data=None, portfolio_limits=None):
         self._alpaca = alpaca
@@ -68,6 +108,7 @@ class OrderManager:
             signal_score=trade.signal_score,
             situation=trade.situation,
             thesis_summary=trade.thesis_summary,
+            client_order_id=queue_client_order_id(trade),
         )
 
     @staticmethod
@@ -105,6 +146,24 @@ class OrderManager:
         the position has gone — an exit approved late must not open a new
         position. Protective brackets go through place_protective_orders,
         which enforces the same invariant.
+
+        Every order carries a client_order_id (queue_client_order_id), written
+        to the queue row with status "submitting" BEFORE the POST, so a cancel
+        racing the send, or a crash during it, cannot leave a row that claims
+        nothing was sent. After a submit whose outcome is unknown — a timeout,
+        a dropped connection, a 5xx — the order is looked up by that id: found,
+        it continues as whatever the broker says it is; not found, or the
+        lookup fails, it stays UNKNOWN. Absence is not proof: an order accepted
+        behind a timeout can become visible later (Codex review of e4f01ad), so
+        only the broker's own answer (reconcile_unresolved) or the owner's
+        release resolves an UNKNOWN row; execute() never resends it.
+
+        While an order for an instrument is unresolved (submitting / unknown),
+        no other order that could add to it is sent, from any lane — owner,
+        desk or reflex — across restarts, because the state is the queue file.
+        Exits (reduce-only) still go: they are clipped to the broker's position
+        and cannot add exposure. The guard and the settlement only read; every
+        gate above still decides what is sent.
         """
         trade = self._queue.get_by_id(trade_id)
         if not trade:
@@ -132,11 +191,24 @@ class OrderManager:
             return {"ok": False, "error": f"{broker.name} is not connected"}
 
         req    = self._build_order_request(trade)
+        if not getattr(trade, "reduce_only", False):
+            blockers = self.unresolved_for(trade)
+            if blockers:
+                held = ", ".join(f"{b.id} ({b.status}, client id {b.client_order_id or 'n/a'})"
+                                 for b in blockers)
+                why = (f"an earlier order for {trade.ticker} is unresolved — {held}. It may "
+                       f"be at the broker; settle it (reconcile, or the owner's release) "
+                       f"before sending another. Nothing was sent.")
+                self._queue.reject(trade_id, why)
+                logger.warning(f"Trade {trade_id} blocked: {why}")
+                return {"ok": False, "blocked": True, "unresolved": [b.id for b in blockers],
+                        "error": why}
         ro = None
         risk = None
         if getattr(trade, "reduce_only", False):
             from src.execution import reduce_only
-            ro = reduce_only.at_broker(broker, trade.ticker, trade.side, trade.qty)
+            ro = reduce_only.at_broker(broker, trade.ticker, trade.side, trade.qty,
+                                      broker_key="alpaca" if broker is self._alpaca else "ibkr")
             if not ro.ok:
                 self._queue.reject(trade_id, f"reduce-only exit refused: {ro.reason}")
                 return {"ok": False, "reduce_only": ro.to_dict(),
@@ -159,13 +231,51 @@ class OrderManager:
                 logger.warning(f"Trade {trade_id} reduced by portfolio risk "
                                f"{req.qty:g} -> {risk.approved_qty:g} ({risk.binding})")
                 req.qty = risk.approved_qty
-        result = broker.submit_order(req)
+
+        # The send. Claim the row first: from here it is "submitting", with its
+        # client id on disk, and cannot be cancelled as never sent. The claim
+        # re-checks, under the queue lock, that no other order for this
+        # instrument is in flight — the guard above cannot see one claimed a
+        # moment ago by another lane.
+        claimed, why = self._queue.claim_for_submit(trade_id, req.client_order_id,
+                                                    exclusive=not req.reduce_only,
+                                                    reduction=req.reduce_only)
+        if claimed is None:
+            blocked = "unresolved" in why
+            if blocked:
+                self._queue.reject(trade_id, f"{why}. Nothing was sent.")
+            return {"ok": False, "blocked": blocked,
+                    "error": f"Trade {trade_id} not sent: {why}. Nothing was sent."}
+        if req.reduce_only:
+            # A competing exit may have filled while this caller was checking
+            # the book. Re-read AFTER the exclusive durable reducing claim.
+            ro = reduce_only.at_broker(broker, trade.ticker, trade.side, req.qty,
+                                      broker_key="alpaca" if broker is self._alpaca else "ibkr",
+                                      exclude_trade_id=trade_id)
+            if not ro.ok:
+                self._queue.reject(trade_id, ro.reason, after_send=True)
+                return {"ok": False, "reduce_only": ro.to_dict(),
+                        "error": f"reduce-only exit not sent: {ro.reason}"}
+            req.qty = ro.qty
+        try:
+            result = broker.submit_order(req)
+        except Exception as exc:
+            # The adapter may raise after writing the request to its socket.
+            # The durable claim must survive; only a broker lookup can settle it.
+            result = OrderResult("", OrderStatus.UNKNOWN,
+                                 error_message=f"{type(exc).__name__}: {exc}")
+        settled = None
+        if result.status == OrderStatus.UNKNOWN:
+            result, settled = self._settle_unknown(broker, req, result)
 
         if result.status in (OrderStatus.SUBMITTED, OrderStatus.FILLED, OrderStatus.PARTIAL):
             self._queue.mark_executed(
                 trade_id,
                 broker_order_id=result.broker_order_id,
                 fill_price=result.avg_fill_price,
+                client_order_id=req.client_order_id,
+                order_status=result.status.value,
+                filled_qty=result.filled_qty, order_terminal=result.terminal,
             )
             logger.info(
                 f"Order executed [{trade_id}]: {trade.side.upper()} {trade.qty} {trade.ticker} "
@@ -177,6 +287,21 @@ class OrderManager:
             # A position must never sit naked because the ack was async.
             if result.status != OrderStatus.FILLED and (trade.stop_loss or trade.take_profit):
                 result = self._await_fill(broker, result)
+
+            if result.status in (OrderStatus.CANCELLED, OrderStatus.REJECTED,
+                                 OrderStatus.EXPIRED):
+                # Acknowledged, then ended by the broker with nothing filled
+                # (a part-fill reads PARTIAL). Not a success, and not "executed".
+                why = (f"the broker acknowledged order {result.broker_order_id}, then "
+                       f"{result.status.value} it with nothing filled"
+                       + (f": {result.error_message}" if result.error_message else ""))
+                self._queue.mark_ended_unfilled(trade_id, result.status.value, why)
+                logger.warning(f"Trade {trade_id}: {why}")
+                return {"ok": False, "ended_after_ack": True, "broker": broker.name,
+                        "status": result.status.value,
+                        "broker_order_id": result.broker_order_id,
+                        "client_order_id": req.client_order_id, "settled": settled,
+                        "filled_qty": 0.0, "fill_price": None, "error": why}
 
             sl_result = None
             tp_result = None
@@ -198,16 +323,21 @@ class OrderManager:
                 logger.warning(f"{trade.ticker} entry not confirmed filled within poll "
                                f"window — brackets deferred to reconciliation")
 
-            # Refresh queue with the real fill price once known
-            if result.avg_fill_price:
-                self._queue.mark_executed(trade_id,
-                                          broker_order_id=result.broker_order_id,
-                                          fill_price=result.avg_fill_price)
+            # Refresh the queue with what the broker last said: status, real
+            # fill price and filled quantity.
+            self._queue.mark_executed(trade_id,
+                                      broker_order_id=result.broker_order_id,
+                                      fill_price=result.avg_fill_price,
+                                      client_order_id=req.client_order_id,
+                                      order_status=result.status.value,
+                                      filled_qty=result.filled_qty, order_terminal=result.terminal)
 
             return {
                 "ok": True,
                 "broker": broker.name,
                 "broker_order_id": result.broker_order_id,
+                "client_order_id": req.client_order_id,
+                "settled": settled,
                 "status": result.status.value,
                 "fill_price": result.avg_fill_price,
                 "filled_qty": result.filled_qty,
@@ -221,13 +351,219 @@ class OrderManager:
                 "risk": risk.to_dict() if risk else None,
                 "sent_qty": req.qty,
             }
+        elif result.status == OrderStatus.UNKNOWN:
+            # The broker may hold this order. Not rejected (that invites a
+            # retry, and a retry is how one trade becomes two) and not
+            # executed (nothing confirmed it): the queue says "unknown",
+            # execute() refuses it, and it blocks this instrument until the
+            # broker's answer is found or the owner releases it.
+            why = (f"order state UNKNOWN after {result.error_message or 'an unanswered submit'}; "
+                   f"{settled}. It may have been placed — {trade.ticker} is blocked until "
+                   f"client order id {req.client_order_id} is found at the broker or the "
+                   f"owner releases it. Not resent.")
+            self._queue.mark_unknown(trade_id, why, client_order_id=req.client_order_id)
+            logger.critical(f"Trade {trade_id}: {why}")
+            return {
+                "ok": False,
+                "unknown": True,
+                "broker": broker.name,
+                "status": OrderStatus.UNKNOWN.value,
+                "client_order_id": req.client_order_id,
+                "settled": settled,
+                "sent_qty": req.qty,
+                "error": why,
+            }
         else:
-            self._queue.reject(trade_id, result.error_message)
+            why = result.error_message or (
+                f"Order rejected with status {result.status.value}"
+                + (f" ({settled})" if settled else ""))
+            self._queue.reject(trade_id, why, client_order_id=req.client_order_id,
+                               after_send=True)
             return {
                 "ok": False,
                 "broker": broker.name,
-                "error": result.error_message or f"Order rejected with status {result.status.value}",
+                "status": result.status.value,
+                "client_order_id": req.client_order_id,
+                "settled": settled,
+                "error": why,
             }
+
+    def _settle_unknown(self, broker: BrokerBase, req: OrderRequest,
+                        first: OrderResult) -> tuple[OrderResult, str]:
+        """Try to settle a submit whose outcome is unknown by asking the broker
+        for the order by its client id. Only reads; never sends anything.
+
+          found        → the broker's own answer (filled, working, rejected…)
+          not found    → stays UNKNOWN
+          can't ask    → stays UNKNOWN
+
+        "Not found" is NOT "never placed": a request accepted behind a timeout
+        can become visible after the last lookup. Codex's review of e4f01ad
+        reproduced exactly that — three 404s, the order visible on the fourth
+        look, and a second order under a new id. More lookups or a longer wait
+        cannot prove absence, so only a found answer settles here; the rest is
+        left to reconcile_unresolved() and the owner. Returns the result and a
+        short account of what was tried."""
+        cid = req.client_order_id
+        lookup = getattr(broker, "get_order_by_client_id", None)
+        if not cid or lookup is None:
+            return first, (f"{getattr(broker, 'name', 'the broker')} cannot look orders "
+                           f"up by client id, so it could not be settled")
+        misses, errors = 0, []
+        for _ in range(max(1, int(self.SETTLE_LOOKUPS))):
+            if self.SETTLE_WAIT_S > 0:
+                time.sleep(self.SETTLE_WAIT_S)
+            try:
+                found = lookup(cid)
+            except Exception as e:
+                errors.append(f"{type(e).__name__}: {e}")
+                continue
+            if found is not None:
+                logger.warning(f"order {cid} found after an unknown submit: "
+                               f"{found.status.value} (broker id {found.broker_order_id})")
+                return found, f"found by client id as {found.status.value}"
+            misses += 1
+        tried = []
+        if misses:
+            tried.append(f"not found in {misses} lookup(s) — absence is not proof it was "
+                         f"never placed")
+        if errors:
+            tried.append("lookup failed (" + "; ".join(errors[-2:]) + ")")
+        return first, "; ".join(tried)
+
+    def unresolved_for(self, trade) -> list:
+        """Other queue rows for the same broker and instrument whose order may
+        be at the broker without an answer (approval_queue.UNRESOLVED)."""
+        from .reduce_only import same_symbol
+        return [t for t in self._queue.in_flight()
+                if t.id != trade.id and same_symbol(t.ticker, trade.ticker)
+                and (t.status in ("submitting", "unknown") or t.situation != "protective_exit")
+                and t.broker == trade.broker]
+
+    def reconcile_unresolved(self) -> dict:
+        """Look every unresolved queue row (submitting / unknown) up by its
+        client id and record the broker's answer. READ-ONLY toward the broker:
+        lookups only — no submit, cancel or replace — and the id never changes.
+
+          found working / partial / filled → executed, with the broker's
+                                             status, order id, price and qty
+          found cancelled / rejected / expired with nothing filled
+                                           → rejected, the broker's word
+          not found, lookup failed, or no lookup at this broker → unchanged
+
+        A 404 resolves nothing (see _settle_unknown); the owner's release does
+        that. Every lookup is appended to RECONCILE_LOG with its result."""
+        report: dict = {"checked": 0, "settled": {}, "still_unresolved": [], "errors": {}}
+        persisted = self._queue.get_all(limit=2**31)
+        for t in self._queue.in_flight():
+            report["checked"] += 1
+            broker = self._broker_for(t)
+            lookup = getattr(broker, "get_order_by_client_id", None) if broker else None
+            row = {"trade_id": t.id, "ticker": t.ticker, "client_order_id": t.client_order_id,
+                   "was": t.status, "broker": getattr(broker, "name", None)}
+            found = None
+            invalid_evidence = False
+            legacy_lookup = getattr(broker, "get_order_by_broker_id", None) if broker else None
+            legacy = t.legacy_original is not None or not t.client_order_id
+            if legacy and t.broker_order_id and any(
+                    other.id != t.id and other.broker == t.broker and
+                    other.broker_order_id == t.broker_order_id for other in persisted):
+                report["errors"][t.id] = "broker identity shared by multiple queue rows; manual reconciliation required"
+                report["still_unresolved"].append(t.id)
+                _audit({**row, "result": "conflicting identity — unchanged"})
+                continue
+            if not t.client_order_id and t.broker_order_id and t.broker in ("alpaca", "ibkr"):
+                lookup = legacy_lookup
+                key = t.broker_order_id
+                row["lookup_by"] = "broker_order_id"
+            else:
+                key = t.client_order_id
+                row["lookup_by"] = "client_order_id"
+            if not key or lookup is None:
+                row["result"] = "cannot look up — unchanged"
+            else:
+                try:
+                    found = lookup(key)
+                    if found is None:
+                        row["result"] = "not found — not proof; unchanged"
+                    elif legacy and (
+                            (t.broker_order_id and found.broker_order_id != t.broker_order_id) or
+                            not same_symbol(found.raw.get("symbol"), t.ticker) or
+                            str(found.raw.get("side", "")).lower() != t.side or
+                            not math.isclose(float(found.raw.get("qty", -1)), t.qty,
+                                             rel_tol=1e-9, abs_tol=1e-8)):
+                        found = None
+                        raise ValueError("legacy broker identity/intent mismatch; manual reconciliation required")
+                    if found is not None and t.broker_order_id and found.broker_order_id != t.broker_order_id:
+                        found = None
+                        raise ValueError("broker order id conflicts with persisted identity")
+                    if found is not None and (
+                            not found.broker_order_id or not math.isfinite(float(found.filled_qty)) or
+                            not 0 <= found.filled_qty <= t.qty + 1e-8 or
+                            not math.isfinite(float(found.avg_fill_price)) or found.avg_fill_price < 0 or
+                            (legacy and found.status in (OrderStatus.FILLED, OrderStatus.PARTIAL)
+                             and found.filled_qty <= 0)):
+                        found = None
+                        raise ValueError("invalid broker fill evidence; unchanged")
+                except Exception as e:
+                    found = None
+                    invalid_evidence = isinstance(e, (ValueError, TypeError, OverflowError))
+                    row["result"] = "lookup failed — unchanged"
+                    row["error"] = f"{type(e).__name__}: {e}"
+                    report["errors"][t.id] = row["error"]
+            if (found is None and not legacy and t.broker_order_id and broker is not None
+                    and not invalid_evidence):
+                # The broker ACKNOWLEDGED this one — it has a broker order id —
+                # so its own status, read by that id, is the broker's answer
+                # even when the client-id lookup failed or lags behind. Without
+                # this, a bracket the exit engine had just cancelled stayed
+                # "working" in the queue and its exclusive reducing claim held
+                # the stop-loss exit back until a later tick. UNKNOWN (a failed
+                # read) settles nothing.
+                try:
+                    by_id = broker.get_order_status(t.broker_order_id)
+                except Exception as e:
+                    by_id = None
+                    row["status_error"] = f"{type(e).__name__}: {e}"
+                if by_id is not None and by_id.status != OrderStatus.UNKNOWN:
+                    if (by_id.broker_order_id != t.broker_order_id or
+                            not math.isfinite(float(by_id.filled_qty)) or
+                            not 0 <= by_id.filled_qty <= t.qty + 1e-8 or
+                            not math.isfinite(float(by_id.avg_fill_price)) or
+                            by_id.avg_fill_price < 0):
+                        report["errors"][t.id] = "invalid broker-id status evidence; unchanged"
+                        row["result"] = report["errors"][t.id]
+                    else:
+                        found = by_id
+                        row["via"] = "broker order id"
+            if found is not None:
+                row.update(result=found.status.value, broker_order_id=found.broker_order_id,
+                           filled_qty=found.filled_qty, fill_price=found.avg_fill_price)
+                if found.status in (OrderStatus.SUBMITTED, OrderStatus.PARTIAL,
+                                    OrderStatus.FILLED):
+                    self._queue.mark_executed(
+                        t.id, broker_order_id=found.broker_order_id,
+                        fill_price=found.avg_fill_price, client_order_id=t.client_order_id,
+                        order_status=found.status.value, filled_qty=found.filled_qty, order_terminal=found.terminal)
+                    report["settled"][t.id] = found.status.value
+                elif found.status in (OrderStatus.CANCELLED, OrderStatus.REJECTED,
+                                      OrderStatus.EXPIRED):
+                    if found.filled_qty > 0:
+                        self._queue.mark_executed(
+                            t.id, found.broker_order_id, found.avg_fill_price,
+                            client_order_id=t.client_order_id, filled_qty=found.filled_qty,
+                            order_status="filled" if found.filled_qty >= t.qty else "partial",
+                            order_terminal=True)
+                    else:
+                        self._queue.mark_ended_unfilled(
+                            t.id, found.status.value,
+                            f"reconciled by {row.get('via', 'client id')}: the broker "
+                            f"{found.status.value} order {found.broker_order_id}; nothing filled")
+                    report["settled"][t.id] = found.status.value
+            if t.id not in report["settled"]:
+                report["still_unresolved"].append(t.id)
+            _audit(row)
+        return report
 
     def portfolio_risk(self, trade, broker, now: Optional[datetime] = None):
         """src/risk/pretrade.assess for a queued entry, against the broker's
@@ -286,7 +622,13 @@ class OrderManager:
         latest = result
         while time.monotonic() < deadline:
             time.sleep(poll_s)
-            latest = broker.get_order_status(result.broker_order_id)
+            try:
+                got = broker.get_order_status(result.broker_order_id)
+            except Exception:
+                continue  # a failed read cannot turn an acknowledged order into a rejection
+            if got.status == OrderStatus.UNKNOWN:
+                continue        # a failed read says nothing about the order
+            latest = got
             if latest.status == OrderStatus.FILLED:
                 return latest
             if latest.status in (OrderStatus.CANCELLED, OrderStatus.REJECTED,
@@ -310,11 +652,12 @@ class OrderManager:
         full-size exits can both fill and turn a long into a short."""
         from src.execution import reduce_only
         broker = broker or self._alpaca
-        out = {"stop_loss_order": None, "take_profit_order": None}
+        out: dict = {"stop_loss_order": None, "take_profit_order": None}
         if not broker or not broker.is_connected():
             return out
         exit_side = OrderSide.SELL if entry_side in ("buy", "long") else OrderSide.BUY
-        ro = reduce_only.at_broker(broker, ticker, exit_side.value, qty)
+        ro = reduce_only.at_broker(broker, ticker, exit_side.value, qty,
+                                  broker_key="alpaca" if broker is self._alpaca else "ibkr")
         out["reduce_only"] = ro.to_dict()
         if not ro.ok:
             logger.warning(f"protective orders for {ticker} not placed — {ro.reason}")
@@ -329,43 +672,67 @@ class OrderManager:
             qty = float(int(qty))
             if qty <= 0:
                 return out
+        if not stop and not target:
+            return out
+        from . import kill_switch
+        if kill_switch.is_engaged():
+            out["error"] = "kill switch engaged; no protection submitted"
+            return out
+        route = "alpaca" if broker is self._alpaca else "ibkr"
+        active = [t for t in self._queue.in_flight() if t.situation == "protective_exit"
+                  and t.broker == route and reduce_only.same_symbol(t.ticker, ticker)]
+        if active:
+            out.update(protection_pending=True, client_order_id=active[0].client_order_id)
+            return out
+        use_oco = bool(stop and target and hasattr(broker, "submit_oco_exit"))
+        req = OrderRequest(ticker=ticker, side=exit_side, qty=qty,
+                           order_type=OrderType.STOP if stop else OrderType.LIMIT,
+                           stop_price=stop, limit_price=target, time_in_force="gtc",
+                           asset_class=AssetClass(asset_class), reduce_only=True,
+                           situation="protective_exit")
+        queued = self._queue.push(req, broker=route)
+        req.client_order_id = queue_client_order_id(queued)
+        claimed, why = self._queue.claim_for_submit(queued.id, req.client_order_id,
+                                                    exclusive=False, protection=True)
+        out["client_order_id"] = req.client_order_id
+        if claimed is None:
+            self._queue.reject(queued.id, why)
+            out["protection_pending"] = True
+            return out
         # Both protections on one position need ONE OCO order — separate
         # stop + limit sells fight over the same reserved shares (40310000),
         # and at a broker that does not reserve them, both could fill.
-        if stop and target:
-            if hasattr(broker, "submit_oco_exit"):
-                oid = broker.submit_oco_exit(ticker, qty, entry_side, stop, target)
-                if oid:
-                    out["stop_loss_order"] = {"broker_order_id": oid, "stop_price": stop}
-                    out["take_profit_order"] = {"broker_order_id": oid, "limit_price": target}
-                    return out
-                logger.warning(f"OCO exit failed for {ticker} — falling back to stop-only")
-                out["target_skipped"] = "OCO refused; stop only rather than two independent exits"
-            else:
-                out["target_skipped"] = (f"{getattr(broker, 'name', 'broker')} has no OCO: a "
-                                         f"separate target and stop could both fill")
-            target = None       # protect the downside at minimum
         try:
-            if stop:
-                r = broker.submit_order(OrderRequest(
-                    ticker=ticker, side=exit_side, qty=qty,
-                    order_type=OrderType.STOP, stop_price=stop,
-                    time_in_force="gtc", asset_class=AssetClass(asset_class),
-                    reduce_only=True))
-                if r.status not in (OrderStatus.REJECTED,):
-                    out["stop_loss_order"] = {"broker_order_id": r.broker_order_id,
-                                              "stop_price": stop}
-            elif target:
-                r = broker.submit_order(OrderRequest(
-                    ticker=ticker, side=exit_side, qty=qty,
-                    order_type=OrderType.LIMIT, limit_price=target,
-                    time_in_force="gtc", asset_class=AssetClass(asset_class),
-                    reduce_only=True))
-                if r.status not in (OrderStatus.REJECTED,):
-                    out["take_profit_order"] = {"broker_order_id": r.broker_order_id,
-                                                "limit_price": target}
+            if use_oco:
+                oid = broker.submit_oco_exit(ticker, qty, entry_side, stop, target,
+                                             client_order_id=req.client_order_id)
+                r = OrderResult(oid or "", OrderStatus.SUBMITTED if oid else OrderStatus.UNKNOWN)
+            else:
+                if stop and target:
+                    out["target_skipped"] = (f"{broker.name} has no OCO: a separate "
+                                              "target and stop could both fill")
+                r = broker.submit_order(req)
+        except OrderRefused as e:
+            # Definitely refused (kill switch, mode gate, a 4xx to the one
+            # POST): nothing exists, so nothing must block the symbol.
+            r = OrderResult("", OrderStatus.REJECTED, error_message=str(e))
         except Exception as e:
-            logger.error(f"place_protective_orders({ticker}) failed: {e}")
+            r = OrderResult("", OrderStatus.UNKNOWN, error_message=str(e))
+        if r.status in (OrderStatus.SUBMITTED, OrderStatus.PARTIAL, OrderStatus.FILLED):
+            self._queue.mark_executed(queued.id, r.broker_order_id, r.avg_fill_price,
+                                      client_order_id=req.client_order_id,
+                                      order_status=r.status.value, filled_qty=r.filled_qty, order_terminal=r.terminal)
+            if stop:
+                out["stop_loss_order"] = {"broker_order_id": r.broker_order_id, "stop_price": stop}
+            if use_oco or not stop:
+                out["take_profit_order"] = {"broker_order_id": r.broker_order_id, "limit_price": target}
+        elif r.status in (OrderStatus.REJECTED, OrderStatus.CANCELLED, OrderStatus.EXPIRED):
+            self._queue.mark_ended_unfilled(queued.id, r.status.value, r.error_message)
+        else:
+            self._queue.mark_unknown(queued.id, r.error_message or "protection acknowledgement lost",
+                                     client_order_id=req.client_order_id)
+            out.update(unknown=True, protection_pending=True)
+            logger.critical("Protection for %s is UNKNOWN; no fallback or blind retry", ticker)
         return out
 
     def _connected_brokers(self) -> list[BrokerBase]:
@@ -447,7 +814,7 @@ class OrderManager:
             },
         }
 
-        if alpaca_connected:
+        if alpaca_connected and self._alpaca is not None:
             try:
                 acct = self._alpaca.get_account()
                 result["alpaca"]["account"] = {
@@ -458,7 +825,7 @@ class OrderManager:
             except Exception:
                 pass
 
-        if ibkr_connected:
+        if ibkr_connected and self._ibkr is not None:
             try:
                 acct = self._ibkr.get_account()
                 result["ibkr"]["account"] = {

@@ -61,7 +61,7 @@ from __future__ import annotations
 import logging
 import os
 
-from .broker_base import OrderRequest, OrderResult, OrderStatus
+from .broker_base import OrderRefused, OrderRequest, OrderResult, OrderStatus
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ READ_METHODS = frozenset({
     # try/except, so the refusal was swallowed and the code fell through to an
     # ESTIMATED exit price, writing invented P&L into the closed-trades ledger
     # that the track record and the teacher's lessons are computed from.
-    "last_closed_fill", "get_order_by_client_id",
+    "last_closed_fill", "get_order_by_client_id", "get_order_by_broker_id",
     # Declarations the gate itself reads.
     "PAPER_ENV_VAR", "endpoint_is_paper",
 })
@@ -285,7 +285,7 @@ class PaperOnlyBroker:
                       "close_all_positions", "replace_order"):
             return False
         if method == "submit_oco_exit":
-            return None
+            raise OrderRefused(detail)
         raise LiveAccountBlocked(detail)
 
     def _queue_for_human(self, req: OrderRequest, why: str):
@@ -299,7 +299,8 @@ class PaperOnlyBroker:
                 bear_case="",
                 invalidation=f"Blocked by the live-account gate. {why}",
                 current_price=0.0,
-                broker="alpaca",
+                broker=("ibkr" if getattr(_WRAPPED[self], "name", "").lower() == "ibkr"
+                        else "alpaca"),
             )
         except Exception as e:                                # pragma: no cover
             logger.error("could not queue the blocked order for approval: %s", e)

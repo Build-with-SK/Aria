@@ -474,13 +474,17 @@ def test_pending_cancels_are_reported_not_touched_on_a_live_account(
     assert any("o1" in e and "human" in e for e in summary["errors"])
 
 
-def test_unreadable_pending_cancels_never_abort_the_tick_section(tmp_path, monkeypatch):
+def test_unreadable_pending_cancels_hold_management_and_preserve_evidence(tmp_path, monkeypatch):
     from src.desk import position_manager as pm
+    from src.core.durable import StateUnreadable
 
     engine = _quiet_engine(pm, monkeypatch, tmp_path)
     (tmp_path / "pending_cancels.json").write_text("{not json", encoding="utf-8")
 
-    assert engine._load_pending_cancels() == []
+    with pytest.raises(StateUnreadable):
+        engine._load_pending_cancels()
+    assert (tmp_path / "pending_cancels.json").read_text(encoding="utf-8") == "{not json"
+    assert list(tmp_path.glob("pending_cancels.json.corrupt-*"))
 
 
 # ── F-02 through a whole tick: position state AND order state ────────────────

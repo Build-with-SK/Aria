@@ -1,0 +1,40 @@
+{
+  "baseline": {
+    "source": "edc2796",
+    "sha256": "4a6046624e544247846b265b878043b46a98971c6c3b8eae7d02ed8d62afee0d",
+    "exit_code": 1,
+    "reported_findings": 49,
+    "rules": {
+      "B310": 32,
+      "B608": 6,
+      "B314": 5,
+      "B301": 2,
+      "B324": 4
+    },
+    "severity": {
+      "MEDIUM": 45,
+      "HIGH": 4
+    },
+    "scan_errors": []
+  },
+  "after": {
+    "source": "edfb5e6",
+    "sha256": "71432476245531c7c3a649b09d1ab51a58cc8b68815e6489e5ff8b5817504044",
+    "exit_code": 1,
+    "reported_findings": 43,
+    "rules": {
+      "B310": 29,
+      "B608": 6,
+      "B301": 2,
+      "B324": 4,
+      "B314": 2
+    },
+    "severity": {
+      "MEDIUM": 39,
+      "HIGH": 4
+    },
+    "scan_errors": []
+  },
+  "command": "python -m bandit -r src backend main.py -ll -f json",
+  "bandit_version": "1.9.4"
+}

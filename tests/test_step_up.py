@@ -44,6 +44,9 @@ HIGH_RISK = [
     ("POST", "/api/trading/limits", {"changes": {"max_order_value": 50}}),
     ("POST", "/api/trading/kill-policy", {"positions": "PRESERVE"}),
     ("POST", "/api/trading/strategies/none/stage", {"stage": "RESEARCH"}),
+    # Releasing an unresolved order unblocks its instrument for new orders —
+    # the owner's judgement that a lookup could not prove (S1.3 review).
+    ("POST", "/api/execute/unresolved/no-such-trade/release?note=checked", None),
 ]
 
 #: Reduces risk. Must NEVER be held behind a step-up.

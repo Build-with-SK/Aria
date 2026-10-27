@@ -17,6 +17,8 @@ Requires:
 from __future__ import annotations
 
 import logging
+import asyncio
+import atexit
 import os
 from typing import Optional
 
@@ -28,8 +30,34 @@ from .broker_base import (
 
 logger = logging.getLogger(__name__)
 
+
+def _ensure_sdk_loop():
+    """ib_insync's synchronous API needs a thread-local loop.
+
+    Python 3.14 removed implicit creation. Preserve an existing/running loop;
+    own and close only loops created here. This neither connects nor sends.
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+    if loop is None or loop.is_closed():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        def close_owned():
+            if not loop.is_closed() and not loop.is_running():
+                loop.close()
+        atexit.register(close_owned)
+    return loop
+
 try:
-    import ib_insync as ibi
+    try:
+        import ib_insync as ibi
+    except RuntimeError as exc:
+        if "no current event loop" not in str(exc).lower():
+            raise
+        _ensure_sdk_loop()
+        import ib_insync as ibi
     IBKR_AVAILABLE = True
 except ImportError:
     IBKR_AVAILABLE = False
@@ -324,6 +352,7 @@ class IBKRBroker(BrokerBase):
 
         if IBKR_AVAILABLE:
             try:
+                _ensure_sdk_loop()
                 self._ib = ibi.IB()
                 self._ib.connect(self._host, self._port, clientId=self._client_id, timeout=3)
                 logger.info(f"IBKR connected ({'PAPER' if self._is_paper else 'LIVE'}) on port {self._port}")
@@ -345,6 +374,7 @@ class IBKRBroker(BrokerBase):
     def get_account(self) -> AccountInfo:
         if not self.is_connected():
             return AccountInfo(broker="IBKR", cash=0, portfolio_value=0, buying_power=0)
+        assert self._ib is not None
         try:
             vals = self._ib.accountValues()
             def _get(tag: str) -> float:
@@ -365,7 +395,8 @@ class IBKRBroker(BrokerBase):
 
     def get_positions(self) -> list[Position]:
         if not self.is_connected():
-            return []
+            raise ConnectionError("IBKR positions unavailable: not connected")
+        assert self._ib is not None
         try:
             result = []
             for p in self._ib.positions():
@@ -386,7 +417,7 @@ class IBKRBroker(BrokerBase):
             return result
         except Exception as e:
             logger.error(f"IBKR get_positions: {e}")
-            return []
+            raise ConnectionError("IBKR positions unreadable") from e
 
     def get_position(self, ticker: str) -> Optional[Position]:
         for p in self.get_positions():
@@ -410,6 +441,7 @@ class IBKRBroker(BrokerBase):
                 status=OrderStatus.REJECTED,
                 error_message="IBKR not connected. Start TWS or IB Gateway.",
             )
+        assert self._ib is not None
         try:
             contract = _make_contract(req.ticker, req.asset_class)
             self._ib.qualifyContracts(contract)
@@ -428,15 +460,23 @@ class IBKRBroker(BrokerBase):
                 order = ibi.MarketOrder(side, req.qty)
 
             order.tif = req.time_in_force.upper()
-            trade = self._ib.placeOrder(contract, order)
+            order.orderRef = req.client_order_id or ""
         except Exception as e:
-            # Nothing reached IBKR: REJECTED is the truth here.
+            # Contract/request construction failed before placeOrder.
             logger.error(f"IBKR submit_order: {e}")
             return OrderResult(
                 broker_order_id="",
                 status=OrderStatus.REJECTED,
                 error_message=str(e),
             )
+
+        try:
+            trade = self._ib.placeOrder(contract, order)
+        except Exception as e:
+            # placeOrder can write to the socket BEFORE raising. Never infer
+            # rejection from a transport error, even without a lookup key.
+            return OrderResult("", OrderStatus.UNKNOWN, error_message=str(e),
+                               raw={"orderRef": req.client_order_id})
 
         # Past this line the order EXISTS at IBKR. Anything that goes wrong now
         # is a failure to read it, not a failure to place it — and reporting
@@ -467,6 +507,7 @@ class IBKRBroker(BrokerBase):
         """
         if not self.is_connected():
             return False
+        assert self._ib is not None
         try:
             for trade in self._ib.trades():
                 if str(trade.order.orderId) != broker_order_id:
@@ -487,14 +528,33 @@ class IBKRBroker(BrokerBase):
             logger.error(f"IBKR cancel_order: {e}")
             return False
 
+    def get_order_by_client_id(self, client_order_id: str) -> Optional[OrderResult]:
+        """Find the persisted orderRef after a lost reply or a reconnect.
+
+        IBKR orderRef is a reference, not broker-enforced deduplication. The
+        queue's durable claim prevents resends. A missing result NEVER clears
+        that claim; gateway history can be incomplete after a long outage.
+        """
+        if not self.is_connected() or self._ib is None:
+            raise ConnectionError("IBKR order lookup unavailable: not connected")
+        trades = list(self._ib.trades())
+        trades.extend(self._ib.reqAllOpenOrders())
+        trades.extend(self._ib.reqCompletedOrders(apiOnly=False))
+        matches = [t for t in trades if getattr(t.order, "orderRef", "") == client_order_id]
+        if not matches:
+            return None
+        # Completed/server snapshots follow connection-local cache entries.
+        return _reconcile(matches[-1])
+
     def get_order_status(self, broker_order_id: str) -> OrderResult:
         if not self.is_connected():
             # Disconnected is not rejected. The order is still live at IBKR;
             # saying otherwise retires a working order from the caller's books.
             return OrderResult(
                 broker_order_id=broker_order_id,
-                status=OrderStatus.SUBMITTED,
+                status=OrderStatus.UNKNOWN,
                 error_message="IBKR not connected — order state unknown")
+        assert self._ib is not None
         try:
             # Audit C2: an order absent from openTrades() may be filled,
             # cancelled, OR rejected — absence must never imply FILLED.
@@ -502,11 +562,11 @@ class IBKRBroker(BrokerBase):
             for trade in self._ib.trades():
                 if str(trade.order.orderId) == broker_order_id:
                     return _reconcile(trade, broker_order_id)
-            # Unknown order id: report SUBMITTED (not filled) so pollers keep
+            # Unknown order id: preserve UNKNOWN so pollers keep
             # waiting and never place brackets on an unconfirmed position.
             return OrderResult(
                 broker_order_id=broker_order_id,
-                status=OrderStatus.SUBMITTED,
+                status=OrderStatus.UNKNOWN,
                 error_message="order not found in ib.trades() — cannot confirm fill",
             )
         except Exception as e:
@@ -514,7 +574,7 @@ class IBKRBroker(BrokerBase):
             logger.error("IBKR get_order_status(%s): %s", broker_order_id, e)
             return OrderResult(
                 broker_order_id=broker_order_id,
-                status=OrderStatus.SUBMITTED,
+                status=OrderStatus.UNKNOWN,
                 error_message=f"could not read order state: {e}",
             )
 
@@ -529,7 +589,8 @@ class IBKRBroker(BrokerBase):
         from stacking.
         """
         if not self.is_connected():
-            return []
+            raise ConnectionError("IBKR open orders unavailable: not connected")
+        assert self._ib is not None
         out = []
         try:
             for trade in self._ib.openTrades():
@@ -555,12 +616,13 @@ class IBKRBroker(BrokerBase):
                 })
         except Exception as e:
             logger.error(f"IBKR get_open_orders: {e}")
-            return []
+            raise ConnectionError("IBKR open orders unreadable") from e
         return out
 
     def get_quote(self, ticker: str) -> dict:
         if not self.is_connected():
             return {}
+        assert self._ib is not None
         try:
             contract = ibi.Stock(ticker, "SMART", "USD")
             self._ib.qualifyContracts(contract)

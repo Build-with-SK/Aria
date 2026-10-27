@@ -26,7 +26,6 @@ auto_execute AND a separate reflex_enabled kill switch.
 """
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -34,6 +33,8 @@ from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
 
+from src.core.durable import (ProcessSharedLock, atomic_write_json,
+                              read_json_state, rows_with)
 from src.desk.config import load_config
 from src.desk.opinion import load_data_json, signals_freshness
 from src.desk.position_manager import _sane_levels
@@ -62,7 +63,10 @@ class Playbook:
     expires_at: str
     asset_class: str = "equity"
     thesis: str = ""
-    status: str = "armed"     # armed | fired | expired | rejected
+    # armed | fired | expired | rejected | unknown. "unknown": it fired and the
+    # order's state never settled — terminal, and it blocks re-arming its
+    # ticker (_arm) until the owner settles it at the broker.
+    status: str = "armed"
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -135,12 +139,14 @@ def is_expired(pb: dict, now: datetime | None = None) -> bool:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def load_playbooks() -> list[dict]:
-    if PLAYBOOKS_FILE.exists():
-        try:
-            return json.loads(PLAYBOOKS_FILE.read_text(encoding="utf-8"))
-        except Exception as e:
-            logger.warning(f"playbooks.json unreadable: {e}")
-    return []
+    """Every playbook. A missing file is none. A file that exists but cannot be
+    read raises StateUnreadable (src/core/durable) — it used to read as NO
+    playbooks, and the next save wrote that over it: every "fired" and
+    "unknown" playbook gone, and with them the block on re-arming a ticker
+    whose order may be at the broker. Now the scan fires nothing and arming
+    refuses until the file is repaired (a copy is kept beside it)."""
+    return read_json_state(PLAYBOOKS_FILE, list, expect=list,
+                           validate=rows_with("ticker", "status"))
 
 
 #: One load → modify → save at a time. The reflex loop's scan, a manual
@@ -148,13 +154,53 @@ def load_playbooks() -> list[dict]:
 #: without this a scan holding a stale copy could write a fired playbook back
 #: as armed, and the next crossing would send a second order (independent
 #: review of ab78b1d, 2026-10-16). Re-entrant so a locked caller may arm.
-_PLAYBOOKS_LOCK = threading.RLock()
+#: It also excludes other processes: the per-process RLock it replaced did not
+#: cover two backends running at once (final-launch log, 2026-10-16). A scan
+#: holds it through a fire (quote, veto, submit), hence the long timeout.
+_PLAYBOOKS_LOCK = ProcessSharedLock(
+    lambda: PLAYBOOKS_FILE.with_name(PLAYBOOKS_FILE.name + ".lock"), timeout_s=120.0)
 
 
 def save_playbooks(pbs: list[dict]):
-    PLAYBOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    PLAYBOOKS_FILE.write_text(json.dumps(pbs, indent=2, default=str),
-                              encoding="utf-8")
+    # Atomic: a crash mid-write leaves the previous playbooks, never a
+    # truncated file that the next load would have to refuse.
+    atomic_write_json(PLAYBOOKS_FILE, pbs)
+
+
+def reconcile_unknown_playbooks() -> dict:
+    """Settle playbooks retired as "unknown" from the approval queue's record
+    of their order, matched by client id or queue id. Reads the queue only —
+    never the broker, never an order; OrderManager.reconcile_unresolved (or
+    the owner's release) is what moves the queue row.
+
+      row executed            → "fired" (the broker accepted it)
+      row rejected / cancelled → "rejected" (the broker's answer, or the owner's)
+      row still unresolved, or no row → unchanged ("unknown", still blocking)
+
+    {ticker: new status} for each playbook it moved."""
+    from src.execution.approval_queue import ApprovalQueue
+    rows = ApprovalQueue().get_all(limit=1_000_000)
+    by_cid = {t.client_order_id: t for t in rows if t.client_order_id}
+    by_id = {t.id: t for t in rows}
+    moved = {}
+    with _PLAYBOOKS_LOCK:
+        pbs = load_playbooks()
+        for pb in pbs:
+            if pb.get("status") != "unknown":
+                continue
+            row = by_cid.get(pb.get("client_order_id") or "") or by_id.get(pb.get("trade_id") or "")
+            if row is None or row.status not in ("executed", "rejected", "cancelled"):
+                continue
+            pb["status"] = "fired" if row.status == "executed" else "rejected"
+            pb["settled"] = {"at": datetime.now().isoformat(timespec="seconds"),
+                             "queue_status": row.status, "order_status": row.order_status,
+                             "reason": (row.rejection_reason or "")[:200]}
+            moved[pb["ticker"]] = pb["status"]
+        if moved:
+            save_playbooks(pbs)
+    if moved:
+        logger.info(f"REFLEX settled unknown playbooks: {moved}")
+    return moved
 
 
 def _count(value) -> int:
@@ -253,6 +299,28 @@ def arm_from_signal(cfg: dict | None = None, account: dict | None = None) -> lis
     return out
 
 
+def _arm_blocker(playbooks: list[dict], ticker: str) -> str:
+    """Why this ticker must not get a new playbook now, or "".
+
+    * an "unknown" playbook: its order may be at the broker with no position
+      showing yet — arming again is how one trade becomes two. It leaves
+      "unknown" only when the order is settled (reconcile_unknown_playbooks).
+    * a "fired" playbook still inside its own expiry: the trade it authorised
+      has been sent; a second playbook for the same name in the same window is
+      the same idea placed twice (Codex review of e4f01ad reproduced a fresh
+      playbook armed straight after a confirmed fill).
+    """
+    for p in playbooks:
+        if p.get("ticker") != ticker:
+            continue
+        if p.get("status") == "unknown":
+            return (f"an earlier order's state is unknown (client order id "
+                    f"{p.get('client_order_id') or 'n/a'}) — settle it first")
+        if p.get("status") == "fired" and not is_expired(p):
+            return f"a playbook for it fired and stays live until {p.get('expires_at')}"
+    return ""
+
+
 def _arm(ticker, side, trigger, stop, target, conviction, debate_id,
          source, sig, cfg, thesis) -> dict | None:
     ok, aclass, why = executable(ticker)
@@ -276,7 +344,12 @@ def _arm(ticker, side, trigger, stop, target, conviction, debate_id,
         asset_class=aclass,
         thesis=thesis).to_dict()
     with _PLAYBOOKS_LOCK:
-        pbs = [p for p in load_playbooks()
+        existing = load_playbooks()
+        why = _arm_blocker(existing, ticker)
+        if why:
+            logger.warning("REFLEX not arming %s: %s", ticker, why)
+            return None
+        pbs = [p for p in existing
                if not (p["ticker"] == ticker and p.get("status") == "armed")]
         pbs.append(pb)
         save_playbooks(pbs)
@@ -379,9 +452,14 @@ class ReflexEngine:
                 results.append(outcome)
                 # Status first: nothing below may stand between an executed
                 # order and the playbook leaving "armed".
-                if outcome.get("executed") or outcome.get("terminal"):
+                if outcome.get("order_unknown"):
+                    pb["status"] = "unknown"
+                elif outcome.get("executed") or outcome.get("terminal"):
                     pb["status"] = "fired" if outcome.get("executed") else "expired"
                 changed = True
+                for key in ("client_order_id", "trade_id"):
+                    if outcome.get(key):
+                        pb[key] = outcome[key]
                 # Record every attempt on the playbook itself. A gate that stops a
                 # crossed trigger is not terminal, so the playbook stays armed and
                 # later reads "expired" — 1,073 of them did, and nothing anywhere
@@ -492,7 +570,21 @@ class ReflexEngine:
         from src.desk.auto_executor import AutoExecutor
         transcript = {"id": pb.get("debate_id", ""), "judge": {},
                       "rounds": []}
-        record = AutoExecutor(self.cfg)._handle(entry, transcript)
+        executor = AutoExecutor(self.cfg)
+        started = datetime.utcnow().isoformat()
+        try:
+            record = executor._handle(entry, transcript)
+        except Exception as e:
+            # The order may or may not have left: decide from the queue row
+            # this attempt created, never from the exception.
+            return self._execute_raised(pb, price, ticker, started, e, lat)
+        # Every reflex execution is journalled — the desk's slate always was,
+        # this lane never was (Codex review of e4f01ad: a confirmed reflex fill
+        # left zero rows). A journal failure must not change the outcome.
+        try:
+            executor._log({**record, "lane": "reflex", "source": entry.get("source")})
+        except Exception as e:
+            logger.error(f"REFLEX {ticker}: executions journal write failed: {e}")
         lat["submit"] = _ms(t3)
         lat["total"] = _ms(t0)
         # executed = the broker accepted the order; filled = it confirmed a fill.
@@ -505,11 +597,59 @@ class ReflexEngine:
                "order_status": record.get("order_status"), "mode": record.get("mode"),
                "fill_price": record.get("fill_price") if filled else None,
                "latency_ms": lat}
+        if record.get("client_order_id"):
+            out["client_order_id"] = record["client_order_id"]
+        if record.get("trade_id"):
+            out["trade_id"] = record["trade_id"]
+        if record.get("mode") == "unknown":
+            # Sent and never settled: the broker may hold the order. Terminal —
+            # the scan retires the playbook as "unknown" and no new playbook
+            # arms on this ticker while it stands (_arm).
+            out.update({"terminal": True, "uncertain": True, "order_unknown": True})
         logger.info(f"REFLEX {'FIRED' if executed else 'stopped at exec'} "
                     f"{pb['side'].upper()} {ticker} — total {lat['total']}ms "
                     f"({record.get('mode')}, order {record.get('order_status') or 'n/a'}, "
                     f"fill {'confirmed' if filled else 'unconfirmed'})")
         return out
+
+    def _execute_raised(self, pb, price, ticker, started_iso, exc, lat) -> dict:
+        """The execute stage raised. Whether an order left is read from the
+        queue row this attempt pushed (created at or after `started_iso`):
+
+          no row, or pending / approved / cancelled / rejected
+              → nothing reached the broker: terminal, not blocking ("expired")
+          executed → the broker accepted it: fired
+          submitting / unknown → it may be at the broker: "unknown", carrying
+              the row's id and client id so reconciliation can settle it
+          queue unreadable → "unknown": when in doubt, block.
+
+        Before this, any exception here retired the playbook as "expired" and
+        the ticker could re-arm (Codex review of e4f01ad)."""
+        logger.error("REFLEX %s: execute stage raised: %s: %s", ticker, type(exc).__name__, exc)
+        base = {**self._base(pb, price), "stage": "execute", "terminal": True,
+                "latency_ms": lat, "reason": f"execute raised: {type(exc).__name__}: {exc}"}
+        try:
+            from src.execution.approval_queue import ApprovalQueue
+            rows = [t for t in ApprovalQueue().get_all(limit=500)
+                    if t.ticker == ticker and (t.created_at or "") >= started_iso]
+        except Exception as e:
+            return {**base, "executed": None, "filled": None, "uncertain": True,
+                    "order_unknown": True,
+                    "reason": base["reason"] + f"; queue unreadable ({e}) — held unknown"}
+        row = rows[-1] if rows else None
+        if row is None or row.status in ("pending", "approved", "cancelled", "rejected"):
+            said = "no queue row" if row is None else f"queue row {row.id} is {row.status}"
+            return {**base, "executed": False, "filled": False,
+                    "reason": base["reason"] + f"; {said} — nothing reached the broker"}
+        ids = {"trade_id": row.id, "client_order_id": row.client_order_id}
+        if row.status == "executed":
+            return {**base, **ids, "executed": True,
+                    "filled": row.order_status == "filled", "order_status": row.order_status,
+                    "reason": base["reason"] + f"; queue row {row.id} executed — order accepted"}
+        return {**base, **ids, "executed": None, "filled": None, "uncertain": True,
+                "order_unknown": True,
+                "reason": base["reason"] + f"; queue row {row.id} is {row.status} — it may "
+                                           f"be at the broker"}
 
     # ── stage helpers ────────────────────────────────────────────────────
 

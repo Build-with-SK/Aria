@@ -34,8 +34,8 @@ class OrderStatus(str, Enum):
     EXPIRED   = "expired"
     # The broker may or may not have the order — a timeout after sending, a
     # connection drop before the reply. NOT the same as rejected: retrying an
-    # UNKNOWN order is how one trade becomes two. Only reported when the caller
-    # supplied a client_order_id, so the order can be looked up to settle it.
+    # UNKNOWN order is how one trade becomes two. A missing lookup key never
+    # makes a timeout a rejection; it requires manual broker reconciliation.
     UNKNOWN   = "unknown"
 
 
@@ -74,6 +74,13 @@ class OrderRequest:
     reduce_only: bool = False
 
 
+class OrderRefused(RuntimeError):
+    """A write the broker (or a gate in front of it) DEFINITELY refused:
+    nothing exists under the request. Raised only where the method's normal
+    return cannot say so — `submit_oco_exit` returns an order id or None, and
+    None must stay "outcome unknown", or a timeout would read as a refusal."""
+
+
 @dataclass
 class OrderResult:
     """Broker's response after order submission."""
@@ -85,6 +92,15 @@ class OrderResult:
     filled_at:       Optional[datetime] = None
     error_message:   str    = ""
     raw:             dict   = field(default_factory=dict)
+
+    @property
+    def terminal(self) -> bool:
+        """A cancelled partial fill holds shares but has no working remainder."""
+        if self.status in (OrderStatus.FILLED, OrderStatus.CANCELLED,
+                           OrderStatus.REJECTED, OrderStatus.EXPIRED):
+            return True
+        token = str(self.raw.get("status") or self.raw.get("ibkr_status") or "").rsplit(".", 1)[-1].lower()
+        return token in ("filled", "canceled", "cancelled", "expired", "rejected", "inactive", "apicancelled")
 
 
 @dataclass
