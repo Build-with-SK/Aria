@@ -665,9 +665,13 @@ def _grading_anchor(r) -> tuple[Optional[str], str]:
 
     The anchor is the session the call was built on: a 07:40-London call on
     Monday was built on Friday's close, and anchoring it on Monday's close
-    would credit it with a move it never saw. Calls made inside the US session
-    window, and anything without a US session (crypto, other venues), have no
-    such close and keep the recorded reference price.
+    would credit it with a move it never saw. Calls made inside their venue's
+    session window, and anything with no exchange session (crypto, FX), have
+    no such close and keep the recorded reference price.
+
+    `r["subject"]` is read as a PROVIDER symbol — its shape picks the venue,
+    so a bare `BA` is New York and `BA.L` is London. Callers pass the symbol
+    they price.
     """
     keys = r.keys() if hasattr(r, "keys") else r
     if "information_session" in keys and r["information_session"]:
@@ -756,7 +760,11 @@ def resolve_due(*, now: Optional[datetime] = None, limit: int = 80) -> dict:
         # Step 2 — does the resolved instrument agree with the price the
         # prediction was recorded at? Catches a correct-looking resolution that
         # nonetheless prices a different line (ADR vs local, unit mismatch).
-        anchor, anchor_why = _grading_anchor(r)
+        # The anchor session is found on the venue of the symbol being priced:
+        # a `BA` row stamped BA.L is BAE Systems, and the bare subject's shape
+        # would give it New York's sessions. src/intelligence/regrade.py
+        # anchors the same way.
+        anchor, anchor_why = _grading_anchor({**dict(r), "subject": provider})
         ref_day = anchor or (r["created_at"] or "")[:10]
         ref_px = _price_on(provider, ref_day)
         same, why = _reference_matches(provider, ref_day, r["price_at"], got=ref_px)

@@ -2,6 +2,68 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-27 — `resolve_due` anchors on the listing it prices — `claude/charming-dhawan-aa191f`
+Follow-up to finding 4 of the entry below. That finding was LOW: `resolve_due` anchors on `subject`,
+while `regrade.py` anchors on the provider. Built on `c2ffa8b`. Files: `src/core/ledger.py`,
+`src/desk/debate.py` (comment only), `tests/test_ml_ledger_identity.py`.
+Change:
+- `resolve_due` calls `_grading_anchor({**row, "subject": provider})`, as `regrade.py` does, so the
+  anchor session comes from the priced listing's venue: `BA` stamped BA.L is BAE Systems, which is XLON.
+- The `_grading_anchor` docstring now says it reads `subject` as a provider symbol. It no longer says
+  non-US venues get no anchor: any exchange venue does.
+- New tests. A `BA` row stamped BA.L, made at 07:40 London on 2026-09-01 (the day after the UK bank
+  holiday), anchors on XLON's 2026-08-28, not XNYS's 2026-08-31. A second test reproduces the live rows:
+  made during London hours, the row keeps its recorded price. Both fail with the fix reverted.
+- `debate.py` comment: tickers come from `focus.py`, v5 watchlist names first and signals.json keys as
+  the fallback. The analysts read signals.json and ml_predictions.json by that ticker, so the debate (and
+  any order) is on the US listing, and the stamp follows what was debated. The comment also says that V5
+  prices its own `BA` as BA.L (see "Found" below).
+Measured on read-only `sqlite3` backups (`?mode=ro` + backup API) of the live `data/aria_core.db` and
+`data/universe.db`, 13:32. The real `resolve_due` was run over a scratch copy, before and after the
+change, with prices, `grade()` and the bus stubbed.
+- 74 pending rows have no information session, and 2,944 pending rows reach the pricing step. **Exactly 2
+  change.** No unstamped row changes.
+
+| id | made (local) | subject → stamp | call | before | after |
+| --- | --- | --- | --- | --- | --- |
+| `3b3f90a6f953a1b0` | 2026-10-06 13:04:39 | BA → BA.L | v5 neutral, 48 d, due 2026-12-12, recorded 1876.5p | anchor 2026-10-05 (XNYS); start = BA.L close 2026-10-05, 1933.85 | no anchor (inside XLON session); start = recorded 1876.5 |
+| `87c131498563df34` | 2026-10-20 11:37:50 | BA → BA.L | v5 neutral, 45 d, due 2026-12-22, recorded 1948.0p | anchor 2026-10-19 (XNYS); start 1952.35 | no anchor; start = recorded 1948.0 |
+
+What it does to their grades. **This is the owner's call; nothing in the ledger was written.**
+- `3b3f`: the recorded price is 2.97% below the previous close, and the neutral band is ±3.02%, so the
+  anchor nearly decides the grade. Before the fix, the return included the morning's fall, which the
+  call had already seen.
+  - Correct-neutral range for the 2026-12-12 close: 1875–1992p before the fix, 1820–1933p after it.
+  - The 2026-10-27 close is 2018p, outside both ranges.
+- `87c1`: the gap is −0.22%, so its grade will almost certainly not change.
+- After the fix, a `resolve_due` grade starts from the recorded price. `dataset.price_basis` labels that
+  RECORDED_REFERENCE, and because BAE pays dividends, the regrade view finds no anchor and excludes both
+  rows from the evaluation. Before the fix both would have counted.
+- V5's own grader may write first: `ingest_v5` carries its grade, and `grade()` only writes rows with
+  `resolved=0`.
+  - V5's log treats `v5-74134f5b6d` (= `87c1`) as intraday, the same as after the fix.
+  - It timed `v5-bf7741eec5` (= `3b3f`) against New York (information_session 2026-10-05,
+    in_session_window False), the same as before the fix.
+  - That ledger row has no information session although the V5 log has one. Not investigated.
+Found while fixing the comment (not changed): **V5 analyses `BA` as BAE Systems.**
+- All 25 V5 predictions on `BA` are priced 1826–2236p, and the 13 that are stamped say BA.L. The
+  watchlist intends Boeing (it lists BA under "industrials" with CAT, GE and HON).
+- `focus.recommended` reads V5's bare `ticker` and ignores its `provider_symbol`, so a V5 view on BAE
+  can nominate Boeing for the desk.
+- Not observed yet: there are 0 desk ledger rows on BA, and the largest edge on a V5 `BA` call was 0.0332
+  (MIN_EDGE is 0.03). BA is the only V5 name whose stamp differs from its ticker.
+- So the claim that the watchlist names are "bare US names, so the stamp is right" holds only for the
+  stamp, not for the view that nominates a name.
+Suite (`venv\Scripts\python.exe -m pytest tests -q -p no:randomly`, worktree): **3314 passed, 1
+failed, 10 skipped**. The reference on `c2ffa8b` is 3312 / 1 / 10, and the +2 are the new tests. The
+failure is the known order-dependent `test_stabilization::test_the_universe_audit_reports_without_repairing`.
+Not done: no merge, push, restart, pipeline run, or live write. The running backend keeps the old
+grader until it is restarted. The two rows come due 2026-12-12 and 2026-12-22.
+Open:
+- Whether the two grades should move (the owner's call).
+- V5 pricing `BA` as BA.L and timing some calls by New York (`src/v5`, Codex's area).
+- `focus.py` ignoring V5's `provider_symbol` (`src/desk`, Claude's area).
+
 ## 2026-10-27 — ledger identity fix (ML + desk) onto integration — `claude/integration-ml-identity`
 Owner's order (2026-10-27): independent review of `91842f8`, then cherry-pick it alone onto
 `aria/integrity-upgrade` and run the full suite there, with no restart. The full first write-up (cause,

@@ -189,15 +189,73 @@ def test_a_next_close_row_is_priced_on_its_stamp(spine, monkeypatch):
     assert r["correct"] == 1 and r["price_end"] < 100
 
 
+def _london_row(spine, made: datetime, price_at: float) -> dict:
+    """A master-namespace call on `BA` with no information session, written
+    the way src/core/ingest.ingest_v5 writes one: the master stamps BA.L."""
+    pid = spine.record_prediction(subject="BA", claim="bull", direction="bull",
+                                  horizon_days=10, price_at=price_at, source="v5",
+                                  created_at=made.isoformat(), announce=False)
+    r = next(r for r in spine.predictions(limit=5) if r["id"] == pid)
+    assert (r["provider_symbol"], r["information_session"]) == ("BA.L", None)
+    return r
+
+
+def test_a_stamped_london_row_anchors_on_a_london_session(spine, monkeypatch):
+    """`BA` stamped BA.L is BAE Systems, so its anchor is found on XLON, the
+    venue the grader prices. 07:40 London on Tue 1 Sep 2026 follows the UK
+    summer bank holiday: the last London close is Fri 28 Aug, while New York
+    traded on Mon 31 Aug — the anchor the bare subject's shape gives."""
+    from zoneinfo import ZoneInfo
+    r = _london_row(spine, datetime(2026, 9, 1, 7, 40, tzinfo=ZoneInfo("Europe/London")),
+                    2200.0)
+    assert spine._grading_anchor(r)[0] == "2026-08-31"        # the trap: New York
+    asked = []
+
+    def prices(ticker, on):
+        asked.append((ticker, on))
+        return 2210.0 if on == "2026-08-28" else 2300.0
+    monkeypatch.setattr(spine, "_price_on", prices)
+    assert spine.resolve_due(now=datetime(2026, 12, 1))["resolved"] == 1
+    assert asked[0] == ("BA.L", "2026-08-28"), asked
+    r = next(x for x in spine.predictions(limit=5) if x["id"] == r["id"])
+    assert "adjusted close 2026-08-28" in r["outcome_note"]
+    assert "derived from creation time at XLON" in r["outcome_note"]
+    assert r["actual_return"] == pytest.approx((2300.0 - 2210.0) / 2210.0, abs=1e-4)
+
+
+def test_a_london_call_made_in_london_hours_keeps_its_recorded_price(spine, monkeypatch):
+    """The two live v5 rows (2026-10-27): BA stamped BA.L, made at 13:04
+    London, before New York opened. New York's shape anchored them on the
+    previous day's close, crediting a move made before the call; on XLON the
+    call is intraday and its recorded reference is the start."""
+    from zoneinfo import ZoneInfo
+    r = _london_row(spine, datetime(2026, 10, 6, 13, 4, 39, tzinfo=ZoneInfo("Europe/London")),
+                    1876.5)
+    assert spine._grading_anchor(r)[0] == "2026-10-05"        # the trap: New York
+    asked = []
+
+    def prices(ticker, on):
+        asked.append((ticker, on))
+        return 1880.0 if on == "2026-10-06" else 1900.0
+    monkeypatch.setattr(spine, "_price_on", prices)
+    assert spine.resolve_due(now=datetime(2026, 12, 1))["resolved"] == 1
+    assert asked[0] == ("BA.L", "2026-10-06"), asked
+    r = next(x for x in spine.predictions(limit=5) if x["id"] == r["id"])
+    assert "recorded reference price" in r["outcome_note"]
+    assert "inside the session window" in r["outcome_note"]
+    assert r["actual_return"] == pytest.approx((1900.0 - 1876.5) / 1876.5, abs=1e-4)
+
+
 @pytest.mark.parametrize("ticker,stamp,basis,venue", [
     ("BA", "BA", "SOURCE_STATED", "XNYS"),        # Boeing, not BAE Systems
     ("AAPL", "AAPL", "UNAMBIGUOUS", "XNYS"),      # nothing to override: as before
 ])
 def test_a_desk_debate_is_recorded_on_the_listing_it_debated(spine, ticker, stamp, basis,
                                                              venue):
-    """The desk debates signals.json keys and records next-close rows, which
-    carry no reference price — so a wrong stamp there would be graded, not
-    skipped. Same fix as the ML recorder: state the signals identity."""
+    """The desk debates bare tickers (v5 watchlist names, then signals.json
+    keys) on signals.json evidence, and records next-close rows, which carry
+    no reference price — so a wrong stamp there would be graded, not skipped.
+    Same fix as the ML recorder: state the signals identity."""
     from src.desk import debate as debate_mod
     t = {"id": "dbt-00000001", "ticker": ticker, "at": "2026-10-08T10:00:00",
          "judge": {"view": "bull", "conviction": 70, "verdict": "BUY"}}

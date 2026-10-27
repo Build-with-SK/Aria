@@ -366,9 +366,15 @@ def record_in_ledger(transcript: dict) -> str | None:
         version = model_version("desk-debate", "src/desk",
                                 llm=transcript.get("llm") or None)
         from src.intelligence.dataset import model_hash
-        # The desk debates signals.json keys, which are their own provider
-        # symbols: `BA` is Boeing. Left to the symbol master it is BAE Systems
-        # (BA.L), and a next-close row has no reference price to catch that.
+        # The ticker comes from src/desk/focus.py: v5 watchlist names first,
+        # signals.json keys as the fallback. Both are bare tickers, and the
+        # analysts read the debate's evidence from signals.json and
+        # ml_predictions.json by that ticker, so the debate (and any order)
+        # is about the US listing: `BA` is Boeing. Left to the symbol master
+        # it is BAE Systems (BA.L), and a next-close row has no reference
+        # price to catch that. V5 itself prices its `BA` as BA.L, so the view
+        # that nominated a name can be about another listing; the stamp
+        # follows what was debated.
         try:
             from src.core import identity
             priced_on = identity.signal_identity(ticker).provider_symbol or ticker
