@@ -374,7 +374,11 @@ class ReflexEngine:
         from src.desk.capital_allocator import allocate_for_account
         regime = sig.get("regime") or ""
         alloc = allocate_for_account(account, regime, self.cfg)
-        equity = float(account.get("equity") or 0.0) or 100_000.0
+        # Same single base as the cycle's planner and risk officer.
+        from src.desk.capital import sizing_base
+        equity = float(sizing_base(account, self.cfg).get("equity") or 0.0)
+        if equity <= 0:
+            return None
         risk_amt = equity * alloc.risk_per_trade_pct / 100.0 * alloc.size_multiplier
         stop = pb.get("stop") or (price * 0.97 if pb["side"] == "buy" else price * 1.03)
         per_share_risk = abs(price - stop) or (price * 0.02)

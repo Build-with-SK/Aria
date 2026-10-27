@@ -96,15 +96,20 @@ class RiskOfficer:
         # would make the next real reading look like a 90% collapse.
         reported_equity = float(account.get("equity") or 0.0)
         broker_equity = reported_equity or 100_000.0
+        # Sizing equity is min(broker, declared) — src/desk/capital.py — and
+        # the planner was handed the same number (self.sizing, set by the
+        # portfolio manager). It used to fall back to broker_equity, whose own
+        # fallback is a $100k fiction; an unknown base now sizes nothing.
         try:
-            from src.desk.capital import sizing_base
-            base = sizing_base(account, getattr(self, "cfg", None))
+            base = getattr(self, "sizing", None)
+            if not base:
+                from src.desk.capital import sizing_base
+                base = sizing_base(account, getattr(self, "cfg", None))
             equity = float(base.get("equity") or 0.0)
             capital_note = base.get("note", "")
-        except Exception as e:                  # sizing must never be blocked
-            logger.warning("capital base unavailable, using broker equity: %s", e)
+        except Exception as e:
+            logger.warning("capital base unavailable — nothing sized: %s", e)
             equity, capital_note = 0.0, f"capital base unavailable: {e}"
-        equity = equity or broker_equity
 
         positions = account.get("positions") or []
         day = load_day_state(current_equity=reported_equity or None)
@@ -145,6 +150,12 @@ class RiskOfficer:
             return [], [{"trade": c, "reason":
                          f"CIRCUIT BREAKER — account down {dd:.2f}% today "
                          f"(halt at {self.cfg['drawdown_halt_pct']}%)"}
+                        for c in candidates], checks
+
+        if equity <= 0:
+            checks["sizing_unavailable"] = True
+            return [], [{"trade": c, "reason":
+                         f"SIZING BASE UNAVAILABLE — {capital_note}"}
                         for c in candidates], checks
 
         # Existing exposure maps

@@ -58,7 +58,24 @@ class PortfolioManager:
         if not decisions:
             return {"slate": [], "rejected": [], "checks": {"note": "no BUY/SELL verdicts"}}
 
-        equity = float(account.get("equity") or 0.0) or 100_000.0
+        # ONE sizing base for the planner and the risk officer:
+        # min(broker equity, declared capital). It used to be the broker's
+        # figure here (or a $100k fallback) while the risk officer capped
+        # against the declared capital — two numbers that disagreed by up to
+        # three orders of magnitude, so the planner sized trades the officer
+        # then had to trim or reject.
+        from src.desk.capital import sizing_base
+        base = sizing_base(account, self.cfg)
+        equity = float(base.get("equity") or 0.0)
+        if equity <= 0:
+            reason = f"SIZING BASE UNAVAILABLE — {base.get('note', '')}"
+            logger.warning(f"slate: {reason}")
+            return {"slate": [], "rejected": [
+                        {"trade": {"ticker": d.ticker,
+                                   "debate_id": by_ticker[d.ticker].get("id", ""),
+                                   "side": "buy" if d.action == "PROPOSE_BUY" else "sell"},
+                         "reason": reason} for d in decisions],
+                    "checks": {"sizing_base": base}}
         perception = MarketPerception().perceive()
         planned = TradePlanner().plan(decisions, perception, account_equity=equity)
 
@@ -117,7 +134,9 @@ class PortfolioManager:
 
         officer = RiskOfficer(self.cfg, self.conditioner)
         officer.allocation = alloc          # portfolio-mindful position cap
+        officer.sizing = base               # the SAME base the planner used
         approved, rejected, checks = officer.review(candidates, account)
         checks["allocation"] = alloc.to_dict()
+        checks["sizing_base"] = base
         approved.sort(key=lambda c: -c["conviction"])
         return {"slate": approved, "rejected": rejected, "checks": checks}

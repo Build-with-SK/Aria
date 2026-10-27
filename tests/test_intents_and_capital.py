@@ -214,7 +214,10 @@ def test_a_missing_rate_is_refused_not_guessed(monkeypatch):
     monkeypatch.setattr("src.data.currency.convert", lambda *a: None)
     b = C.sizing_base({"equity": 10000.0},
                       {"capital_base": 100.0, "capital_currency": "GBP"})
-    assert b["source"] == "broker"
+    # Changed with the single-base rule: min(broker, declared) cannot be taken
+    # with the declared side unknown, so nothing is sized — it no longer falls
+    # back to the (much larger) broker figure.
+    assert b["source"] == "unavailable" and b["equity"] == 0.0
     assert "could not be read" in b["note"]
 
 

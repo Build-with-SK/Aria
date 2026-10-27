@@ -104,21 +104,42 @@ def sizing_base(account: dict | None = None, cfg: dict | None = None) -> dict:
 
     converted, fx = convert_to_account(base, currency)
     if converted is None:
+        # min(broker, declared) cannot be taken with one side unknown. Falling
+        # back to the broker would size a £100 intention against a $10k (or
+        # $100k) paper account — the fiction this module exists to remove — so
+        # nothing is sized until the rate is readable.
         return {
-            "equity": broker_equity,
+            "equity": 0.0,
             "currency": ACCOUNT_CURRENCY,
-            "source": "broker",
+            "source": "unavailable",
             "fx": fx,
+            "broker_equity": round(broker_equity, 2),
             "note": (f"capital_base is {base} {currency} but the rate could "
                      f"not be read ({fx.get('error')}). Refusing to guess a "
-                     f"rate; sizing against the broker until it is available."),
+                     f"rate; nothing is sized until it is available."),
         }
 
-    # Never size above what the account can actually cover. If he sets £100
-    # against an account holding $10, the account wins — otherwise the caps
-    # describe money that is not there.
-    effective = min(converted, broker_equity) if broker_equity else converted
-    capped = broker_equity and converted > broker_equity
+    if broker_equity <= 0:
+        # Same rule from the other side: without the broker's figure there is
+        # no proof the account covers the declared capital.
+        return {
+            "equity": 0.0,
+            "currency": ACCOUNT_CURRENCY,
+            "source": "unavailable",
+            "declared": {"amount": base, "currency": currency},
+            "converted": round(converted, 2),
+            "broker_equity": 0.0,
+            "fx": fx,
+            "note": ("The broker reported no equity, so min(broker, declared) "
+                     "cannot be taken. Nothing is sized until it reports."),
+        }
+
+    # THE single sizing base: min(broker equity, declared capital). The
+    # planner, the risk officer and the reflex lane all size from this one
+    # number. If he sets £100 against an account holding $10, the account
+    # wins — otherwise the caps describe money that is not there.
+    effective = min(converted, broker_equity)
+    capped = converted > broker_equity
 
     return {
         "equity": round(effective, 2),
