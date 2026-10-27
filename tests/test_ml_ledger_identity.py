@@ -189,6 +189,24 @@ def test_a_next_close_row_is_priced_on_its_stamp(spine, monkeypatch):
     assert r["correct"] == 1 and r["price_end"] < 100
 
 
+@pytest.mark.parametrize("ticker,stamp,basis,venue", [
+    ("BA", "BA", "SOURCE_STATED", "XNYS"),        # Boeing, not BAE Systems
+    ("AAPL", "AAPL", "UNAMBIGUOUS", "XNYS"),      # nothing to override: as before
+])
+def test_a_desk_debate_is_recorded_on_the_listing_it_debated(spine, ticker, stamp, basis,
+                                                             venue):
+    """The desk debates signals.json keys and records next-close rows, which
+    carry no reference price — so a wrong stamp there would be graded, not
+    skipped. Same fix as the ML recorder: state the signals identity."""
+    from src.desk import debate as debate_mod
+    t = {"id": "dbt-00000001", "ticker": ticker, "at": "2026-10-08T10:00:00",
+         "judge": {"view": "bull", "conviction": 70, "verdict": "BUY"}}
+    assert debate_mod.record_in_ledger(t)
+    r = spine.predictions(limit=5, source="desk")[0]
+    assert (r["subject"], r["provider_symbol"], r["identity_basis"]) == (ticker, stamp, basis)
+    assert r["venue"] == venue and r["reference_basis"] == "next_close"
+
+
 def test_a_failing_signal_lookup_falls_back_to_the_ticker_itself(spine, monkeypatch):
     """A signals key IS its provider symbol, so a lookup that raises must not
     cost the row: the ticker is stated as it is."""
@@ -200,6 +218,58 @@ def test_a_failing_signal_lookup_falls_back_to_the_ticker_itself(spine, monkeypa
     assert _record("AAL", 11.88)["recorded"] == 1
     r = _row(spine, "AAL")
     assert (r["provider_symbol"], r["identity_basis"]) == ("AAL", "SOURCE_STATED")
+
+
+# ── the identity migration tolerates two namespaces it did not write ────────
+
+def _migration(tmp_path, monkeypatch, rows):
+    import sqlite3
+    import sys
+    script = Path(__file__).resolve().parent.parent / "scripts" / "migrate_identity.py"
+    spec = importlib.util.spec_from_file_location("migrate_identity", script)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["migrate_identity"] = mod
+    spec.loader.exec_module(mod)
+    db = tmp_path / "migration.db"
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute("""CREATE TABLE predictions(
+            id TEXT PRIMARY KEY, created_at TEXT, source TEXT, subject TEXT,
+            price_at REAL, resolved INTEGER DEFAULT 0, correct INTEGER,
+            provider_symbol TEXT, identity_basis TEXT)""")
+        conn.execute("CREATE TABLE decisions(id TEXT PRIMARY KEY)")
+        conn.executemany(
+            "INSERT INTO predictions(id, created_at, source, subject, price_at, "
+            "provider_symbol, identity_basis) VALUES(?,?,?,?,?,?,?)", rows)
+    monkeypatch.setattr(mod, "_db_path", lambda: db)
+    return mod
+
+
+def test_rows_already_stamped_in_two_namespaces_do_not_block_the_migration(
+        tmp_path, monkeypatch):
+    """A technical row stamped AAL.L and an ML row stamped AAL (SOURCE_STATED)
+    are both established identities; the migration writes neither."""
+    mod = _migration(tmp_path, monkeypatch, [
+        ("t", "2026-10-17T16:30:00", "technical", "AAL", 3913.0, "AAL.L", "UNAMBIGUOUS"),
+        ("m", "2026-10-21T09:26:00", "ml-ensemble", "AAL", 11.88, "AAL", "SOURCE_STATED")])
+    plan = mod.build_plan()
+    assert plan["counts"] == {"ALREADY_SET": 2}
+    assert plan["conflicting_subjects"] == {}
+
+
+def test_the_migration_still_refuses_to_write_one_subject_two_ways(tmp_path, monkeypatch):
+    """The guard itself stays: if the rows it WOULD write disagree about what
+    a subject denotes, --apply refuses."""
+    mod = _migration(tmp_path, monkeypatch, [
+        ("a", "2026-08-13T00:00:00", "v5", "BA", 2200.0, None, None),
+        ("b", "2026-08-14T00:00:00", "v5", "BA", 215.0, None, None)])
+    decided = {"a": "BA.L", "b": "BA"}
+    monkeypatch.setattr(mod, "plan_row", lambda row: {
+        "id": row["id"], "subject": row["subject"], "provider_symbol": decided[row["id"]],
+        "status": mod.PRICE_VERIFIED, "reason": "test", "verification": "test"})
+    plan = mod.build_plan()
+    assert plan["conflicting_subjects"] == {"BA": ["BA", "BA.L"]}
+    with pytest.raises(SystemExit, match="more than one provider symbol"):
+        mod.apply(plan)
 
 
 def test_an_unstamped_row_is_still_resolved_through_the_master(spine, monkeypatch):

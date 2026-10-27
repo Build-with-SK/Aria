@@ -366,8 +366,16 @@ def record_in_ledger(transcript: dict) -> str | None:
         version = model_version("desk-debate", "src/desk",
                                 llm=transcript.get("llm") or None)
         from src.intelligence.dataset import model_hash
+        # The desk debates signals.json keys, which are their own provider
+        # symbols: `BA` is Boeing. Left to the symbol master it is BAE Systems
+        # (BA.L), and a next-close row has no reference price to catch that.
+        try:
+            from src.core import identity
+            priced_on = identity.signal_identity(ticker).provider_symbol or ticker
+        except Exception:
+            priced_on = ticker
         return ledger.record_prediction(
-            subject=ticker, source="desk",
+            subject=ticker, source="desk", provider_symbol=priced_on,
             claim=f"{view} view over 1 day (desk judge verdict {judge.get('verdict')})",
             direction=view, probability=mapped, confidence=mapped,
             probability_kind="mapped" if mapped is not None else "none",
