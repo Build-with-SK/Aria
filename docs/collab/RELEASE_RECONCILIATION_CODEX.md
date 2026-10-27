@@ -30,3 +30,16 @@ into this isolated branch. Integration b5b47f2 is already an ancestor.
 External venue acceptance, historical UNKNOWN reconciliation, IBKR, net fees,
 hosted acceptance, optional dependency security and measured ARIA edge remain
 open as specified by prior reports. Historical test counts are not fresh passes.
+
+
+## Final local defect disposition — 2026-10-27
+The table above is the initial reconciliation inventory, not current repair
+status. ARIA F-01/F-02/F-03/F-04/F-05/F-06/F-07/F-08/F-09/F-10/F-15 and S-04
+repairs are verified at 6c30df5 with3585 passed / 12 skipped. SENTINEL reviewed
+network/approval/recovery/provenance repairs are verified at f3a0a8d with
+2243 passed / 16 skipped. Both scoped Claude verdicts APPROVE WITH LIMITATIONS.
+See the respective docs/release/2026-10-26 packet for remaining defects and
+acceptance gates. SENTINEL dependency audit41 advisories/13 packages remains a
+blocker; no-fix advisories are not silently waived. University/desktop sessions,
+model qualification, external venue/state/fees/host acceptance and owner release
+approval remain open. The local suites do not establish whole-project 100%.

@@ -29,3 +29,14 @@ sole edit ownership of future canonical PROJECT_CONTROL.md on 2026-10-26.
 Codex owns this lane, its logs/reconciliation and isolated branches. Neither
 file can override frozen schema/catalog/dataset contracts. No concurrent source
 edits occurred: the review used read-only tools and made no changes.
+
+
+## 2026-10-27 review handoff
+The owner's explicit pull-request/commit/handoff mission authorizes publishing
+new draft review branches for these isolated candidates. This updates the
+earlier blanket no-push wording only for those review branches; protected merge,
+deployment/restart, financial execution and model replacement remain prohibited
+without the owner's separate explicit approval. Each agent edits only its own
+log. Final verified implementation anchors: ARIA 6c30df5, SENTINEL f3a0a8d.
+Local suites3585 passed / 12 skipped and2243 passed / 16 skipped respectively; both scoped
+Claude reviews APPROVE WITH LIMITATIONS. Full acceptance and release BLOCKED.
