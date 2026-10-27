@@ -2,6 +2,93 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-27 — ledger identity fix (ML + desk) onto integration — `claude/integration-ml-identity`
+Owner's order (2026-10-27): independent review of `91842f8`, then cherry-pick it alone onto
+`aria/integrity-upgrade` and run the full suite there, with no restart. The full first write-up (cause,
+code path, options) is the 2026-10-20 entry on `claude/ml-ledger-identity`; this entry is complete
+without it.
+Candidate: `b5b47f2` + `170405f` (cherry-pick of 91842f8; code and tests byte-identical, the log hunk
+dropped) + `e37887d` + `521edc1` (review fixes) + this log. It does not include 4ffda39/d7e9362.
+Defect: the ML pass trains on signals.json keys (provider symbols fetched verbatim, so `AAL` is
+American Airlines), but `ledger.record_prediction` stamped identity through the symbol master,
+where display `AAL` is AAL.L (Anglo American). The result was London identity and venue on a US price.
+Change (`src/core/ledger.py`, `src/intelligence/recorders.py`, `src/desk/debate.py`,
+`scripts/migrate_identity.py`, tests):
+- `record_prediction(provider_symbol=)`: a caller's stated instrument is stamped `SOURCE_STATED`
+  where it differs from the master's reading. Where they agree the master's basis stands, and fail-open
+  is unchanged.
+- The ML recorder and the desk debate writer both state the signals identity, falling back to the
+  ticker itself if the lookup raises.
+- `resolve_due` and `_grade_next_close` price the stamped `provider_symbol`, and use the master only
+  for unstamped rows (`regrade.py` already did this).
+- `migrate_identity.build_plan` checks one-subject-one-symbol only among rows it would write.
+- The live audit test now selects rows by identity, covers 10 roots, and has a US-listing mirror.
+Independent review (fresh Claude reviewer, the owner's fallback when Codex is unavailable):
+REQUEST CHANGES on 170405f, then **APPROVE on 521edc1**. The re-review's non-blocking notes:
+- The migration's cross-row check is narrower. It no longer flags a row it writes against a stamp
+  already in another namespace, which is legitimate data, and rows already stamped are never
+  rewritten.
+- The `debate.py` comment says the desk debates "signals.json keys", but `focus.py` takes v5 watchlist
+  names first. Those are bare US names too, so the stamp is right. A future non-US display symbol in
+  `data/v5/watchlist.json` would be stamped as the US listing. Follow-up: comment fix.
+- A ticker absent from the symbol master is now graded on its stated string instead of skipped as
+  IDENTITY_UNRESOLVED. The live ledger has 1 unstamped row.
+Handling of each finding from the first review:
+1. MEDIUM: `migrate_identity --apply` would refuse after the first correct ML row. Fixed in
+   521edc1, owner-approved although `scripts/` is Codex's area. **Codex: please re-read
+   `scripts/migrate_identity.py` build_plan.**
+2. LOW: the `_grade_next_close` change was untested. Test added (e37887d).
+3. MEDIUM, pre-existing: the desk debate writer has the same defect, and next-close rows have no
+   reference price, so a desk call on BA would be graded on BAE Systems' closes. 0 of 114 live desk
+   next-close rows were on a colliding root. Fixed in 521edc1, owner-approved.
+4. LOW: `resolve_due` anchors on `subject` while `regrade.py` anchors on the provider. Fixing it would
+   move 2 pending v5 rows (no information session, stamp ≠ subject), so it is NOT in this change.
+   Follow-up.
+5 and 6: the existing bad rows, and the live audit test that is red because of them, wait on the
+   owner's decision below.
+7. NIT: a raising signal lookup could cost an ML row. Fallback added (e37887d).
+Every new test was checked to fail with its fix reverted and pass with it.
+Suite on the candidate (`venv\Scripts\python.exe -m pytest tests -q -p no:randomly`, worktree):
+**3312 passed, 1 failed, 10 skipped**.
+- Plain `b5b47f2` in a throwaway worktree, earlier today: 3295 passed, 2 failed, 9 skipped.
+- The failure common to both is `test_stabilization::test_the_universe_audit_reports_without_repairing`.
+  It passes alone and fails only in suite order. It was fixed on `claude/aria-completion` (2aad950),
+  which is not on integration.
+- The baseline's second failure, `test_data_freshness_api::test_an_undated_signals_file_is_aged_by_its_write_time_and_says_so`,
+  is a daylight-saving bug, not the test. Its 56-hour-old file crossed the 2026-10-25 clock change and
+  read 55.0 h, so `world.dataset_freshness` computes ages in naive local time. It passed again once 56 h
+  no longer spanned the change. Follow-up: production ages are an hour off across every DST change.
+- The difference: +16 new tests, +1 skip (the US mirror needs `data/aria_core.db`).
+- The suite was not run in the main folder: there it reads the live ledger, and
+  `test_identity_safety`'s dry run writes the live V5 cache (known leak).
+Live ledger, read-only `sqlite3` backup snapshot taken 2026-10-27 ~00:20:
+- **83 mis-stamped ML rows** from the passes of 10-17 23:40 (27), 10-21 09:26 (29), 10-24 23:57 (26)
+  and 10-25 08:27 (1), all on AAL/AZN/BA/BP/EDV/GSK/JD/PRU/RIO/SHEL.
+- 27 have been skipped by the grader (GRADING_SKIPPED / IDENTITY_UNRESOLVED, `correct` NULL) and 56 are
+  pending. **None has been graded right or wrong**: the reference check holds.
+- The first pass's 20-day rows come due 2026-11-14.
+- The options are unchanged from the 2026-10-20 entry (re-stamp, which I recommend / void / leave), but
+  the set is now selected by pattern rather than by id: `ml-ensemble`, stamp `<subject>.L`, price below
+  the test's LISTING_SPLIT. **This is the owner's decision; nothing has been written.**
+Pipeline: the run started 2026-10-26 22:46 stopped abruptly at 00:35:05 during the ML step, with no
+error logged, `pipeline_run.json` still `completed: false`, and `ml_predictions.json` unchanged since
+10-25 08:27. It wrote no ledger rows. This is O-2 (an interrupted ML step keeps nothing); 4ffda39 fixes
+it but is unmerged.
+Deployment state:
+- `aria/integrity-upgrade` was fast-forwarded from `b5b47f2` to the commit carrying this entry, in
+  the main folder, after checking that no pipeline run was in progress. A run that has already
+  imported the old ledger must not lazily import the new recorder: the stated-symbol keyword would
+  make every ML row fail to record. Not pushed.
+- **No restart.** The running backend (`scripts/serve.py`, started 10-26 22:08; uvicorn without
+  `--reload`) keeps the old grader and the old desk writer in memory until it is restarted.
+- The next scheduled pipeline run imports the new ML recorder, so its rows on the 10 roots will be
+  stamped with the US symbol. Their 1-day horizons come due about 1.4 days later.
+- If the backend has not been restarted by then, the old grader re-resolves those rows through the
+  master and skips them (`correct` NULL; they can be reset). So restart within a day of the next
+  ML pass.
+Open: finding 4 (anchor on provider); the DST age bug in `world.dataset_freshness`; the owner's
+decision on the bad rows; the backend restart.
+
 ## 2026-10-16 — FINAL LAUNCH — deployed 21:27, report
 Deployed `afde34e` (HEAD `05a938c` adds logs only): `ARIA Backend` restarted, pid 51284 →
 42692 (21:27:58), `/ready` 200 in 1 s, one listener; desk daemon + reflex engine started
