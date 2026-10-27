@@ -112,6 +112,7 @@ class PortfolioManager:
                 "debate_id": t.get("id", ""),
                 "regime": self.conditioner.regime,
                 "risk_multiplier": mult,
+                "sentinel": getattr(p, "second_opinion", None),
             })
 
         officer = RiskOfficer(self.cfg, self.conditioner)

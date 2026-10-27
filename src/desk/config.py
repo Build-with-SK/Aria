@@ -54,6 +54,10 @@ DEFAULTS = {
     "time_stop_min_r": 0.5,         # time stop only if progress below this many R
     "scale_out_at_target": False,   # True: 50% off at target, trail the rest
     "max_gross_exposure_pct": 100.0,  # flatten worst-first above this — no margin
+    # ── estimated trading costs, bps PER SIDE (fee + spread + slippage) ──
+    # Used for the journal's after-cost P&L. Estimates, not broker invoices.
+    "cost_bps_equity": 5.0,
+    "cost_bps_crypto": 30.0,
     # ── REFLEX fast lane (v4 — the 2-5s path) ──
     "reflex_enabled": True,          # separate kill switch (auto_execute still rules)
     "reflex_poll_seconds": 3,        # armed-ticker quote poll cadence

@@ -39,6 +39,10 @@ OLLAMA_BASE = ollama_base()   # env OLLAMA_BASE overrides (mini -> laptop)
 WEIGHTS = {"technical": 0.5, "fundamental": 0.3, "sentiment": 0.2}
 CONTRADICTION_PENALTY = 8       # conviction points per flagged contradiction
 
+#: Bump whenever the researcher/judge prompts or the verdict math change, so
+#: the journal can compare decisions made under one version with another.
+PROMPT_VERSION = "desk-debate-v1"
+
 
 def _ollama_available() -> bool:
     try:
@@ -98,6 +102,7 @@ class DebateEngine:
             "ticker": ticker,
             "at": datetime.now().isoformat(),
             "llm": self.model if self.use_llm else "deterministic (Ollama offline)",
+            "prompt_version": PROMPT_VERSION,
             "opinions": [o.to_dict() for o in per_ticker] + [macro_op.to_dict()],
             "memory_context": recall,
             "contradictions": contradictions,

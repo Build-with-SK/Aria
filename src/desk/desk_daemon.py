@@ -66,6 +66,14 @@ def _snapshot_technical_recs():
         logger.warning(f"technical recs snapshot failed: {e}")
 
 
+def _journal_track():
+    try:
+        from src.desk import journal
+        journal.track_once()
+    except Exception as e:
+        logger.warning(f"journal tracker failed: {e}")
+
+
 def kill_switch_engaged() -> bool:
     """The desk's pause check. Fails closed: unreadable means engaged."""
     try:
@@ -177,6 +185,11 @@ class DeskDaemon:
         # every 15 minutes turns that from invisible into logged and repaired.
         self.scheduler.add_job(self._watchdog, "interval", minutes=15,
                                id="desk_watchdog", replace_existing=True)
+        # Journal outcome tracker — hourly: samples prices for open decisions
+        # (worst/best price, stop/target touches) and copies back the
+        # ledger's 1-day and 1-week grades. Runs while halted too: it only reads.
+        self.scheduler.add_job(_journal_track, "interval", hours=1,
+                               id="journal_track", replace_existing=True)
         # Nightly state backup (cheap insurance against a corrupted JSON file)
         self.scheduler.add_job(_backup_desk_state, "cron", hour=2, minute=0,
                                id="desk_backup", replace_existing=True)
@@ -458,6 +471,9 @@ class DeskDaemon:
                                 sentiment_agent.opine(ticker)]
                     t = engine.debate(ticker, opinions, conditioner)
                     transcripts.append(t)
+                    # Journal every verdict, NO_TRADE included. Never raises.
+                    from src.desk import journal
+                    journal.log_decision(t, conditioner, cfg)
                     summary["debates"].append({
                         "id": t["id"], "ticker": ticker,
                         "verdict": t["judge"]["verdict"],
@@ -489,6 +505,8 @@ class DeskDaemon:
             executor = AutoExecutor(cfg)
             exec_results = executor.execute_slate(slate_result["slate"], transcripts)
             summary["executions"] = exec_results
+            from src.desk import journal
+            journal.record_slate(slate_result, exec_results)
 
             # 7. REFLECT — store each debate in ChromaDB tagged with debate_id,
             #    linked to its trade ids so outcomes flow back into future recalls

@@ -31,6 +31,10 @@ class PlannedTrade:
     thesis:        str          # the brain's reasoning, for display in the UI
     broker:        str = "alpaca"
     current_price: float = 0.0
+    # SENTINEL's second opinion as data (the thesis text carries it for the
+    # human; the journal needs the status without parsing prose). None when
+    # the consultation path was never reached.
+    second_opinion: dict | None = None
 
 
 def _map_asset_class(sig) -> str:
@@ -111,6 +115,7 @@ class TradePlanner:
             # decision makers and the approval queue would no longer be the
             # place where a human decides. What it can do is put its objections
             # in front of that human, attached to the thesis they are reading.
+            second = None
             try:
                 from src.consult.bridge import consider_trade
                 second = consider_trade(
@@ -153,6 +158,7 @@ class TradePlanner:
                 thesis=thesis,
                 broker="alpaca",
                 current_price=price,
+                second_opinion=second if isinstance(second, dict) else None,
             ))
         return planned
 

@@ -411,6 +411,11 @@ class PositionManager:
             verdict = evaluate_exit(pos, price, signal, self.cfg)
             if verdict["new_high_water"] is not None:
                 pos["high_water"] = verdict["new_high_water"]
+            # Low-water: the WORST price since entry (lowest for a long,
+            # highest for a short) — the journal's max adverse excursion.
+            if price > 0:
+                lw = float(pos.get("low_water") or pos.get("entry_price") or price)
+                pos["low_water"] = min(lw, price) if _is_long(pos) else max(lw, price)
             if verdict["new_stop"] is not None:
                 old = pos.get("stop")
                 pos["stop"] = verdict["new_stop"]
@@ -531,12 +536,15 @@ class PositionManager:
             "debate_id": entry.get("debate_id", ""),
             "thesis": (entry.get("thesis") or "")[:300],
             "high_water": float(fill_price or entry.get("price") or 0.0),
+            "low_water": float(fill_price or entry.get("price") or 0.0),
             "scaled_out": False,
             "adopted": False,
             "asset_class": entry.get("asset_class", "equity"),
             "trade_id": trade_id,
         }
         self.save_positions(tracked)
+        from src.desk import journal
+        journal.mark_executed(entry.get("debate_id", ""), eff_entry, trade_id)
 
     def _worst_first(self, broker_positions: dict) -> list[str]:
         """Triage order for exposure flattening: worst unrealized P&L% first."""
@@ -691,8 +699,10 @@ class PositionManager:
             "mode": "auto",
             "broker_order_id": result.broker_order_id,
         }
+        self._add_costs(record, pos)
         self._log_execution(record)
         self._log_closed(record)
+        self._journal_outcome(record, pos)
         if fraction >= 1.0:
             tracked.pop(ticker, None)
         else:
@@ -783,8 +793,11 @@ class PositionManager:
             "mode": "broker",
             "estimated": estimated,
         }
+        if exit_price:
+            self._add_costs(record, pos)
         self._log_execution(record)
         self._log_closed(record)
+        self._journal_outcome(record, pos)
         from src.desk.notify import fmt_exit, push
         push(fmt_exit("buy" if long else "sell", qty, ticker,
                       exit_price or entry, pnl, pnl_pct, reason), self.cfg)
@@ -958,6 +971,30 @@ class PositionManager:
             }, indent=2, default=str), encoding="utf-8")
         except Exception as e:
             logger.warning(f"could not persist exit debate: {e}")
+
+    def _add_costs(self, record: dict, pos: dict):
+        """Estimated round-trip costs and the P&L after them. `pnl`/`pnl_pct`
+        stay GROSS — the scorecard and the teacher read them and their meaning
+        must not shift underneath them; the net figures sit beside them."""
+        try:
+            from src.desk.journal import trade_costs
+            c = trade_costs(pos.get("asset_class") or (
+                                "crypto" if "-USD" in record["ticker"] else "equity"),
+                            record["entry_price"], record["exit_price"],
+                            record["qty"], self.cfg)
+            record["costs"] = round(c["costs"], 2)
+            record["cost_bps_per_side"] = c["cost_bps_per_side"]
+            record["pnl_net"] = round(record["pnl"] - c["costs"], 2)
+            record["pnl_pct_net"] = round(record["pnl_pct"] - c["cost_pct"], 2)
+        except Exception as e:
+            logger.debug(f"cost estimate failed: {e}")
+
+    def _journal_outcome(self, record: dict, pos: dict):
+        try:
+            from src.desk import journal
+            journal.log_outcome(record, pos, self.cfg)
+        except Exception as e:
+            logger.debug(f"journal outcome failed: {e}")
 
     def _update_scorecard(self, record: dict):
         try:

@@ -176,7 +176,9 @@ def ingest_closed_trades() -> dict:
         if not ticker or not at:
             continue
         ref = f"desk-trade:{r.get('debate_id') or ''}:{at}"
-        pnl = r.get("pnl")
+        # After estimated costs when the desk recorded them (journal era);
+        # older rows only ever carried the gross figure.
+        pnl = r.get("pnl_net", r.get("pnl"))
         did = ledger.record_decision(
             kind="trade", subject=ticker,
             action=(f"{r.get('entry_side', '?')} {r.get('qty')} @ {r.get('entry_price')} → "
@@ -189,7 +191,10 @@ def ingest_closed_trades() -> dict:
         if did:
             ledger.close_decision(
                 ref, status="executed",
-                outcome=(f"closed {r.get('pnl_pct')}% ({r.get('reason')}), "
+                outcome=(f"closed {r.get('pnl_pct')}% gross"
+                         + (f", {r.get('pnl_pct_net')}% after est. costs"
+                            if r.get("pnl_pct_net") is not None else "")
+                         + f" ({r.get('reason')}), "
                          f"R={r.get('r_multiple')}, mode={r.get('mode')}"),
                 pnl=float(pnl) if pnl is not None else None)
             n += 1
