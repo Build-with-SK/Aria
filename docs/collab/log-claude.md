@@ -2,6 +2,58 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-27 — data ages are elapsed time across a clock change — `claude/confident-clarke-d89d80`
+Follow-up from the entry below. On `c2ffa8b`, about 00:30 UK time,
+`test_data_freshness_api::test_an_undated_signals_file_is_aged_by_its_write_time_and_says_so` read a
+56-hour-old signals.json as 55.0 h. Branch is `c2ffa8b` + one commit. Not merged, not pushed, backend not
+restarted, live `data/` not touched.
+Cause: the readers below subtracted two naive local wall-clock readings (`datetime.now()` minus
+`datetime.fromtimestamp(mtime)`, or minus a naive `datetime.now().isoformat()` stamp). That measures how
+far the clock moved, not elapsed time. Across a DST change it is an hour out: short in autumn, long in
+spring. The gate and the UI compare these ages with FRESH/STALE budgets, so near a budget the verdict
+flips. In autumn the error is in the unsafe direction: a 30.5 h signals.json read 29.5 h, FRESH, and
+opened the auto-execution gate.
+Change: new `src/core/clock.py` (stdlib only). `now()` is aware UTC and is the one seam tests pin.
+`instant()` reads a naive stamp as this machine's local time, which is what wrote it, and falls back to
+UTC where Windows cannot convert (before 1970). `from_mtime()` keeps a file's instant. `local_wall()`
+gives `as_of` its old form. No basis, threshold, field name or `as_of` string changed.
+Readers affected and fixed:
+- `src/core/world.py` `_age_block`. This feeds `dataset_freshness`, so also
+  `desk/opinion.signals_freshness` (the auto-execution gate), `/api/data/freshness`, the backend's
+  `_freshness`/`_mark_freshness` `X-ARIA-Data-*` headers, and the world blocks' ages (signals, ML, macro,
+  brain, desk positions, research observations).
+- `src/core/world.py` `pipeline_run`: the 8 h IN_PROGRESS / DID_NOT_FINISH line.
+- `src/brain/self_state.py` `_age_hours`: the brain cycle's age, from the worker registry's naive `last_ok`.
+- `src/intelligence/registry.py` `_file_age`: the model card's ML and signals file `age_days`.
+- `src/intelligence/evidence.py` `age_hours`: the evidence snapshot the order path reads, rebuilt past 6 h.
+- `src/desk/focus.py` `_age_days`: v5 predictions dropped past 4 days.
+Checked and not affected:
+- backend `_source_age` and `self_state.sense_data` already use epoch seconds.
+- `_age_basis_note` reports basis and `as_of`, not an age.
+- `intelligence/conviction` and `research/engine` already age with aware datetimes.
+- No reader parses `generated_at` into an age in my areas; `_observation_dates` only reports it.
+Tests: `tests/test_dst_elapsed_ages.py`, 13 cases. The clock is pinned and every interval spans
+2026-10-25 01:00 UTC; one case spans 2027-03-28. Each asserts the exact age. Cases cover file mtimes,
+naive stated and ISO stamps (brain_state `timestamp`, `started_at`, `last_ok`, `built_at`, v5 `at`), the
+gate's 30.5 h case, and a pre-1970 stated date that must not raise. A guard test shows the window crosses
+a change on this machine (55 h on the wall clock, 56 h elapsed); a UTC machine skips it.
+Mutation check: with wall-clock arithmetic restored inside `clock.seconds_since` and the pin still honoured,
+12 of the 13 cases fail; only the guard passes. The pre-1970 case fails for its own reason. The original
+flaky test now passes regardless of date.
+Suite (`venv\Scripts\python.exe -m pytest tests -q -p no:randomly`, worktree): **3325 passed, 1 failed,
+10 skipped**. The reference on `c2ffa8b` is 3312 / 1 / 10, so this is +13, the new cases. The one failure
+is the known order-dependent `test_stabilization::test_the_universe_audit_reports_without_repairing`.
+Not fixed (same bug class, outside "data-set age"):
+- `src/core/workers.py` `_state_of`: worker late/stalled is naive. After spring-forward a 15-min worker
+  reads 80 min, "stalled", for an hour; after autumn its age can go negative.
+- `src/desk/analysts/technical_agent.py` `ml_horizon_live`: a calendar-day horizon on naive times.
+- `src/core/ledger.py` `resolve_after`, and `bus` `since`/cutoff strings: windows, not ages.
+- Latent: `_age_block` truncates a stated stamp to `[:19]`, which would drop an offset. No current writer
+  writes one (macro `data_date` is a date, brain `timestamp` is naive).
+**For Codex (your area):** `src/v5/marketdata.py` `_age_days` (raw CSV, naive mtime) and
+`src/v5/modules/machine.py` `_age_days` (ML `as_of`/`generated_at`, `[:19]` + naive now) have the same
+defect. `src.core.clock.seconds_since(...)` is the fix if you want it.
+
 ## 2026-10-27 — ledger identity fix (ML + desk) onto integration — `claude/integration-ml-identity`
 Owner's order (2026-10-27): independent review of `91842f8`, then cherry-pick it alone onto
 `aria/integrity-upgrade` and run the full suite there, with no restart. The full first write-up (cause,

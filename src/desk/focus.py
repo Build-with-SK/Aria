@@ -50,8 +50,10 @@ MIN_EDGE = 0.03
 
 
 def _age_days(at: str) -> float | None:
+    """Elapsed days since a stamp; a naive stamp is local time (src/core/clock)."""
+    from src.core import clock
     try:
-        return (datetime.now() - datetime.fromisoformat(at)).total_seconds() / 86400
+        return clock.seconds_since(datetime.fromisoformat(at)) / 86400
     except (TypeError, ValueError):
         return None
 

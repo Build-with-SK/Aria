@@ -51,6 +51,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from src.core import clock
 from src.intelligence import evaluation, semantics, walkforward
 from src.intelligence.multiple_testing import holm
 
@@ -220,9 +221,12 @@ def ml_metadata() -> dict:
 def _file_age(path: Path) -> dict:
     if not path.exists():
         return {"exists": False}
-    ts = datetime.fromtimestamp(path.stat().st_mtime)
-    return {"exists": True, "modified": ts.isoformat(timespec="seconds"),
-            "age_days": round((datetime.now() - ts).total_seconds() / 86400, 1)}
+    # Elapsed time from the file's instant; `modified` stays a local wall-clock
+    # reading (src/core/clock).
+    ts = clock.from_mtime(path.stat().st_mtime)
+    return {"exists": True,
+            "modified": clock.local_wall(ts).isoformat(timespec="seconds"),
+            "age_days": round(clock.seconds_since(ts) / 86400, 1)}
 
 
 # ── the owner's record ──────────────────────────────────────────────────────

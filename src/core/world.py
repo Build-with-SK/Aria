@@ -44,6 +44,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+from src.core import clock
+
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -168,8 +170,7 @@ def pipeline_run() -> dict:
     if body.get("completed"):
         return {"state": "COMPLETED", **out, "why": None}
     try:
-        age = (datetime.now() - datetime.fromisoformat(str(body["started_at"]))
-               ).total_seconds() / 3600
+        age = clock.hours_since(datetime.fromisoformat(str(body["started_at"])))
     except Exception:
         return {"state": "UNKNOWN", **out, "why": "unreadable started_at"}
     if age < PIPELINE_MAX_HOURS:
@@ -223,9 +224,10 @@ def _read_json(name: str) -> Optional[Any]:
 
 
 def _mtime(name: str) -> Optional[datetime]:
+    """When the file was last written, as an aware instant (see src/core/clock)."""
     p = DATA / name
     try:
-        return datetime.fromtimestamp(p.stat().st_mtime) if p.exists() else None
+        return clock.from_mtime(p.stat().st_mtime) if p.exists() else None
     except Exception:
         return None
 
@@ -250,11 +252,16 @@ def _age_block(name: str, kind: str, stated_date: Optional[str] = None) -> dict:
     if when is None:
         return {"as_of": None, "age_hours": None, "stale": True,
                 "why": f"{name} is missing", "basis": None}
-    age = (datetime.now() - when).total_seconds() / 3600
+    # Elapsed time, not the wall clock's movement: the two differ by an hour
+    # whenever the interval spans a daylight-saving change (src/core/clock).
+    age = clock.hours_since(when)
     limit = STALE_AFTER_HOURS.get(kind, 24)
+    # `as_of` keeps its old form: the stated stamp as parsed, or the file's
+    # write time as a naive local wall-clock reading.
+    shown = when if basis == "stated_date" else clock.local_wall(when)
     # `basis` says what `as_of` IS: a date the contents state, or only the time
     # the file was last written. The second is not when the data was observed.
-    return {"as_of": when.isoformat(timespec="seconds"),
+    return {"as_of": shown.isoformat(timespec="seconds"),
             "age_hours": round(age, 1),
             "stale": age > limit,
             "why": (f"{name} is {round(age / 24, 1)} days old (fresh under "

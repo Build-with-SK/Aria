@@ -78,9 +78,9 @@ def load() -> Optional[dict]:
 def age_hours(snapshot: Optional[dict]) -> Optional[float]:
     if not snapshot or not snapshot.get("built_at"):
         return None
+    from src.core import clock          # elapsed time, not wall-clock movement
     try:
-        return round((datetime.now() - datetime.fromisoformat(snapshot["built_at"]))
-                     .total_seconds() / 3600, 2)
+        return round(clock.hours_since(datetime.fromisoformat(snapshot["built_at"])), 2)
     except ValueError:
         return None
 
