@@ -2,6 +2,25 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-27 — backend restarted onto `c2ffa8b` (owner's yes, 13:32)
+The owner said to restart once no pipeline was running. Pre-checks: `data/pipeline_run.json` still
+says step `ml`, `completed: false`, pid 41780 (the run that died at 00:35). That pid no longer
+exists, and no `main.py` process was running. The `TradingIntelligenceSystem` task's next run is
+2026-10-28 06:30. Desk `positions.json` was `{}`, the heartbeat was fresh (13:29, no errors), and the
+main folder was at `c2ffa8b` with no code changes (only runtime data files modified).
+Restart: `Stop-ScheduledTask "ARIA Backend"` at 13:32:29. pids 10560 (venv launcher) and 12588 both
+exited, so no orphan, and nothing was left listening on 8000. `Start-ScheduledTask` at 13:32:40
+gave launcher 47120 and server **39856**, the only listener on 8000.
+Checks: `/ready` 200 after 9.2 s; `/health` and `/api/auth/status` 200; guarded `/api/status`,
+`/api/ledger` and `/api/desk/executions` 401 anonymous (guard up). The owner token was not used.
+Startup log: brain daemon, quant lab, desk daemon and REFLEX all started; desk heartbeat tick 1
+with no errors. The only error is the IBKR refusal (TWS not running), which also appeared at the
+previous start. The new grader (prices the stamped identity) and the desk writer (`provider_symbol`)
+are now what runs. The owner may need to sign in to the UI again.
+Still open: the 83 mis-stamped rows (owner's choice); Codex reconcile branch 4 commits behind; the
+two follow-ups now running in their own sessions (DST ages; anchor on provider + debate comment).
+This entry is on `claude/integration-ml-identity` only, not yet on integration.
+
 ## 2026-10-27 — ledger identity fix (ML + desk) onto integration — `claude/integration-ml-identity`
 Owner's order (2026-10-27): independent review of `91842f8`, then cherry-pick it alone onto
 `aria/integrity-upgrade` and run the full suite there, with no restart. The full first write-up (cause,
