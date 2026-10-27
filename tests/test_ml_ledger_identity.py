@@ -164,6 +164,44 @@ def test_the_grader_prices_the_us_listing_a_us_call_was_made_on(spine, monkeypat
     assert set(asked) == {"AAL"}, f"the grader priced {set(asked)}"
 
 
+def test_a_next_close_row_is_priced_on_its_stamp(spine, monkeypatch):
+    """The next-close path has no reference price to cross-check, so pricing
+    the wrong listing there would grade silently. It prices the stamp too."""
+    import pandas as pd
+    from src.v5 import marketdata as md
+    made = datetime.now() - timedelta(days=40)
+    spine.record_prediction(subject="AAL", claim="bull over 1 day", source="desk",
+                            direction="bull", horizon_days=1, price_at=None,
+                            reference_basis="next_close", provider_symbol="AAL",
+                            created_at=made.isoformat(timespec="seconds"), announce=False)
+    days = pd.bdate_range(made.date() - timedelta(days=5), periods=20)
+    asked = []
+
+    def closes(ticker):
+        asked.append(ticker)
+        base = 4000.0 if ticker == "AAL.L" else 12.0
+        return pd.Series([base + i * 0.1 for i in range(len(days))], index=days)
+    monkeypatch.setattr(md, "provider_closes", closes)
+    assert spine.resolve_due()["resolved"] == 1
+    r = spine.predictions(limit=5, source="desk")[0]
+    assert (r["provider_symbol"], r["identity_basis"]) == ("AAL", "SOURCE_STATED")
+    assert asked == ["AAL"], f"the next-close grader priced {asked}"
+    assert r["correct"] == 1 and r["price_end"] < 100
+
+
+def test_a_failing_signal_lookup_falls_back_to_the_ticker_itself(spine, monkeypatch):
+    """A signals key IS its provider symbol, so a lookup that raises must not
+    cost the row: the ticker is stated as it is."""
+    from src.core import identity
+
+    def boom(*a, **k):
+        raise RuntimeError("universe.db unreadable")
+    monkeypatch.setattr(identity, "signal_identity", boom)
+    assert _record("AAL", 11.88)["recorded"] == 1
+    r = _row(spine, "AAL")
+    assert (r["provider_symbol"], r["identity_basis"]) == ("AAL", "SOURCE_STATED")
+
+
 def test_an_unstamped_row_is_still_resolved_through_the_master(spine, monkeypatch):
     """Rows written before identity was stamped keep the old rule: the master
     says `BA` is BA.L, and that is what gets priced."""

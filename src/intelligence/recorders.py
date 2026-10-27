@@ -71,6 +71,12 @@ def record_ml_predictions(payload: dict, *, data_as_of: Optional[dict] = None,
         regime = {"regime_at": None, "regime_basis": f"unavailable: {e}"[:200]}
     recorded = skipped = 0
     for ticker, entry in (payload or {}).items():
+        # A signals key IS its provider symbol, so a lookup that fails still
+        # leaves the identity known: never let it cost the row.
+        try:
+            priced_on = identity.signal_identity(ticker).provider_symbol or ticker
+        except Exception:
+            priced_on = ticker
         for h, hd in ((entry or {}).get("horizons") or {}).items():
             p_up = (hd or {}).get("bullish_prob")
             direction = ml_direction(p_up)
@@ -81,7 +87,7 @@ def record_ml_predictions(payload: dict, *, data_as_of: Optional[dict] = None,
             try:
                 pid = ledger.record_prediction(
                     subject=ticker, source=ML_SOURCE,
-                    provider_symbol=identity.signal_identity(ticker).provider_symbol,
+                    provider_symbol=priced_on,
                     claim=f"{direction} over {int(hd.get('horizon_days', h))} trading days "
                           f"(ML stacked ensemble score {float(p_up):.3f})",
                     direction=direction, probability=float(p_up), confidence=None,
