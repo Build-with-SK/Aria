@@ -2,6 +2,51 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-30 — re-stamp of the 83 mis-stamped ML rows: dry run only, awaiting the owner
+The owner asked for a re-stamp plan as a dry run, with nothing written until approved.
+New: `src/core/ledger_restamp.py` (`python -m src.core.ledger_restamp --db PATH`) and
+`tests/test_ledger_restamp.py` (16 tests).
+Selection is by rule, not by id: `ml-ensemble` rows written before the fix went live
+(2026-10-27 13:32:40) whose stamp differs from the identity the fixed recorder states
+(`identity.signal_identity`).
+- The rule finds 83 rows of 4,888 ML rows, exactly the set found on 10-27 by price pattern. Rows from
+  the 10-29 pass are all stamped correctly (29 rows, `SOURCE_STATED`, XNYS), so the fix is working live.
+Per row the write is `provider_symbol` = stated symbol, `identity_basis` = SOURCE_STATED, and
+`venue`/`market_session` re-derived from that symbol at `created_at`.
+- A row the grader skipped for this reason (GRADING_SKIPPED / IDENTITY_UNRESOLVED) is also reset to
+  pending, so the grader regrades it on the US listing from historical closes.
+- Claim, direction, price, horizon, `information_session` (the US bar the model saw) and timestamps
+  are not touched. A row graded right or wrong is never touched.
+Evidence gate: a row is written only if the grader's own anchor and price path finds the recorded
+price on the stated listing within the grader's tolerance, and the old stamp does not also match.
+- The dry run deliberately shows no regrade outcome: the decision must not depend on how the repair
+  scores.
+Apply refuses unless:
+- a fresh plan matches the approved hash;
+- the backend's ledger loop is neither mid-pass nor within 5 min of its next pass (from the `workers`
+  heartbeat; the loop reads due rows before grading them, so a pass could write a stale skip over a
+  re-stamped row).
+Then it takes a WAL-safe backup (sqlite backup API) into `data/backups/ledger-restamp-<stamp>/` with
+`plan.json`, makes compare-and-set updates in one `BEGIN IMMEDIATE` transaction, reads back, and
+checks integrity. Each guard was checked by breaking it: 6 mutations, each failed at least one test.
+Dry run against the live ledger (read-only; file mtime and size unchanged), 2026-10-30 ~14:15:
+- 83 candidates: **44 RESTAMP_AND_RESET** (26 one-day and 18 five-day rows, skipped), **39 RESTAMP**
+  (pending: 9 five-day, 30 twenty-day), **0 left**.
+- The stated US close equals the recorded price on every row (largest gap 0.00%); the London close
+  is 3.4x to 340x off.
+- Venue XLON → XNYS on all 83. Session state CLOSED → CLOSED on 54, OPEN → PRE_OPEN on 29 (the
+  10-21 09:26 pass).
+- Plan hash `b056eddc92aa1600…`. It stays valid until the grader's first pass on 2026-11-01, which
+  will skip 8 pending rows due 10-31; after that, re-run the dry run, and those rows move to
+  RESTAMP_AND_RESET.
+Backend: restarted again on 2026-10-30 13:14 (pids 11704/13056, not by me); still `c2ffa8b`.
+Nightly pipeline 10-29 completed (06:30 → 08:29).
+Suite (worktree, `-p no:randomly`): **3328 passed, 1 failed, 10 skipped**, which is the c2ffa8b
+reference plus the 16 new tests. The one failure is the known order-dependent
+`test_stabilization::test_the_universe_audit_reports_without_repairing`.
+Not done: no write to the live ledger, no merge, no push. The tool is on
+`claude/integration-ml-identity` only.
+
 ## 2026-10-27 — backend restarted onto `c2ffa8b` (owner's yes, 13:32)
 The owner said to restart once no pipeline was running. Pre-checks: `data/pipeline_run.json` still
 says step `ml`, `completed: false`, pid 41780 (the run that died at 00:35). That pid no longer
