@@ -193,6 +193,89 @@ def test_the_evidence_snapshot_age_is_elapsed_time(pin):
     assert evidence.age_hours({"built_at": _wall(now - timedelta(hours=6.5))}) == 6.5
 
 
+def test_the_brain_cycle_age_reads_a_repeated_hour_tick_as_a_heartbeat(pin, monkeypatch):
+    """A tick at 01:15 GMT, in the hour that repeats, is 15 minutes old at
+    01:30 GMT. Read as 01:15 BST it would be 1 h 15 min."""
+    from src.brain import self_state
+    from src.core import workers
+    now = pin(AUTUMN_CHANGE + timedelta(minutes=30))
+    last = _wall(AUTUMN_CHANGE + timedelta(minutes=15))
+    monkeypatch.setattr(workers, "status", lambda: {"workers": [
+        {"name": "brain", "state": "ok", "last_ok": last}]})
+    assert self_state.brain_cycle()["age_hours"] == 0.25
+
+
+# ── the worker registry: late / stalled / failing ──────────────────────────
+
+def _row(last_ok: str, interval_s: int = 900, last_error_at: str | None = None) -> dict:
+    return {"enabled": 1, "last_ok": last_ok, "interval_s": interval_s,
+            "last_error_at": last_error_at}
+
+
+def test_a_worker_ticking_up_to_clocks_going_forward_is_not_stalled():
+    """15-minute worker, last tick 00:55 GMT, read at 02:00 BST: 5 minutes.
+    As wall-clock readings that is 65 minutes, past 3 x 900 s: stalled."""
+    from src.core import workers
+    now = SPRING_CHANGE
+    state, age = workers._state_of(_row(_wall(now - timedelta(minutes=5))), now)
+    assert (state, age) == ("ok", 300)
+
+
+def test_a_worker_ticking_through_the_repeated_hour_is_not_stalled():
+    """Ticks at 01:15 GMT, the second 01:15 of the night. Read as the first
+    (BST) it is an hour older, and every fast worker would show stalled for
+    the whole repeated hour."""
+    from src.core import workers
+    now = AUTUMN_CHANGE + timedelta(minutes=20)
+    state, age = workers._state_of(_row(_wall(now - timedelta(minutes=5))), now)
+    assert (state, age) == ("ok", 300)
+
+
+def test_a_worker_that_stopped_before_clocks_went_back_is_stalled():
+    """Last tick 01:20 BST, read at 01:10 GMT: 50 minutes. As wall-clock
+    readings that is minus 10 minutes, so the stall went unseen for an hour."""
+    from src.core import workers
+    now = AUTUMN_CHANGE + timedelta(minutes=10)
+    state, age = workers._state_of(_row(_wall(now - timedelta(minutes=50))), now)
+    assert (state, age) == ("stalled", 3000)
+
+
+def test_a_failure_after_clocks_went_back_is_later_than_the_success_before():
+    """Success 01:50 BST, failure 01:10 GMT, 20 minutes later. As strings
+    the failure looks 40 minutes earlier, so the worker read `ok`."""
+    from src.core import workers
+    now = AUTUMN_CHANGE + timedelta(minutes=12)
+    ok_at = _wall(AUTUMN_CHANGE - timedelta(minutes=10))
+    failed_at = _wall(AUTUMN_CHANGE + timedelta(minutes=10))
+    state, _ = workers._state_of(_row(ok_at, last_error_at=failed_at), now)
+    assert state == "failing"
+
+
+@pytest.fixture
+def registry(tmp_path, monkeypatch):
+    """A throwaway worker registry (see test_core_spine.spine on why the
+    environment variable, not bus.DB_PATH, is what isolates it)."""
+    monkeypatch.setenv("ARIA_CORE_DB", str(tmp_path / "spine.db"))
+    from src.core import bus, workers
+    monkeypatch.setattr(bus, "_initialised", False)
+    monkeypatch.setattr(bus, "_subscribers", [])
+    monkeypatch.setattr(workers, "_ready", False)
+    return workers
+
+
+def test_next_expected_is_one_interval_of_elapsed_time_later(pin, registry):
+    """30-minute worker, last tick 01:50 BST: next due 01:20 GMT, not 02:20."""
+    now = pin(AUTUMN_CHANGE + timedelta(minutes=5))
+    last = AUTUMN_CHANGE - timedelta(minutes=10)
+    registry.register("w", "Worker", interval_s=1800)
+    with registry._db() as conn:
+        conn.execute("UPDATE workers SET last_ok=? WHERE name='w'", (_wall(last),))
+    row = registry.status()["workers"][0]
+    assert row["state"] == "ok" and row["age_seconds"] == 900
+    assert row["next_expected"] == _wall(last + timedelta(minutes=30))
+    assert row["last_ok"] == _wall(last)              # stored stamp unchanged
+
+
 def test_a_v5_prediction_past_four_days_is_not_a_current_view(pin):
     """focus drops predictions older than 4 days; 4 days and 30 minutes read
     3.98 days across the change and stayed on the desk's list."""

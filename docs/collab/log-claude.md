@@ -2,6 +2,41 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-10-30 — worker health is elapsed time across a clock change — `claude/confident-clarke-d89d80`
+Owner's yes (2026-10-30, "Yes, fix it here") to the follow-up the entry below listed first. This is a
+second commit on the same branch, still on `c2ffa8b` (integration has not moved). Not merged, not pushed,
+backend not restarted.
+Defect: `src/core/workers.py` `_state_of` derived late/stalled/failing from naive local stamps
+(`last_ok`, `last_error_at`) subtracted from naive `datetime.now()`.
+- After clocks go forward, a 15-minute worker read 65 minutes old for up to one interval: stalled, and
+  `sweep()` can publish WORKER_FAILED.
+- After clocks go back, ages ran negative, so a worker that stopped just before the change read `ok`
+  for an hour.
+- A failure in the repeated hour compared earlier than a success before it, so the worker read `ok`.
+- `next_expected` added the interval as wall-clock time: 02:20 instead of 01:20.
+Change:
+- `_state_of`, `status()` and `next_expected` now go through `src/core/clock`. The stored stamps,
+  thresholds and field names are unchanged.
+- New `clock.recent_instant` reads a heartbeat in the repeated hour as the later of its two instants,
+  unless that is in the future. Read as the earlier instant, as data stamps are, every fast worker ticking
+  normally through that hour would show stalled for the whole hour.
+- The remaining ambiguity: a worker that stopped in the first 01:xx is seen as stalled up to an hour late,
+  which is better than the old code. Data stamps keep the first-instant reading, which errs toward STALE.
+- `self_state._age_hours`, which only ages the brain worker's heartbeat, reads it the same way.
+Tests: 6 more in `tests/test_dst_elapsed_ages.py` (19 in total).
+- `_state_of` on its own: spring forward, normal ticking through the repeated hour, a stall that crosses
+  the change, failure ordering.
+- `status()` against a throwaway registry: `next_expected`, and the stored stamp unchanged.
+- The brain cycle in the repeated hour.
+Mutation checks:
+- Wall-clock arithmetic put back in `workers` fails the 4 cases the old code got wrong.
+- Reading heartbeats as the first instant fails the 3 repeated-hour cases.
+Every new case fails under at least one of the two.
+Suite (`venv\Scripts\python.exe -m pytest tests -q -p no:randomly`, worktree): **3331 passed, 1 failed,
+10 skipped**. That is the `c2ffa8b` reference (3312) plus the 19 new cases. The failure is the same
+order-dependent `test_stabilization::test_the_universe_audit_reports_without_repairing`.
+Still open from the list below: `technical_agent.ml_horizon_live`, and the v5 readers (Codex).
+
 ## 2026-10-27 — data ages are elapsed time across a clock change — `claude/confident-clarke-d89d80`
 Follow-up from the entry below. On `c2ffa8b`, about 00:30 UK time,
 `test_data_freshness_api::test_an_undated_signals_file_is_aged_by_its_write_time_and_says_so` read a

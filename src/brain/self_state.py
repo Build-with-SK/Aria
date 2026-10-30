@@ -65,12 +65,13 @@ class Sense:
 
 
 def _age_hours(iso: str | None) -> float | None:
-    """Elapsed hours since a stamp; a naive stamp is local time (src/core/clock)."""
+    """Elapsed hours since a worker heartbeat; a naive stamp is local time and
+    is read as a heartbeat in the repeated hour (src/core/clock)."""
     if not iso:
         return None
     from src.core import clock
     try:
-        return round(clock.hours_since(datetime.fromisoformat(str(iso))), 2)
+        return round(clock.hours_since(datetime.fromisoformat(str(iso)), recent=True), 2)
     except (ValueError, TypeError):
         return None
 

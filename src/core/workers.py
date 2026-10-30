@@ -51,6 +51,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Optional
 
+from src.core import clock
 from src.core.bus import connect as _connect, publish
 
 logger = logging.getLogger(__name__)
@@ -203,22 +204,32 @@ def heartbeat(name: str):
 
 
 def _state_of(row: dict, now: datetime) -> tuple[str, Optional[float]]:
-    """Derive health from the timestamps. Returns (state, age_seconds)."""
+    """Derive health from the timestamps. Returns (state, age_seconds).
+
+    The stamps are naive local time. Ages and order are taken between instants
+    (src/core/clock), not wall-clock readings: across a clock change those
+    differ by an hour, which made a 15-minute worker read 80 minutes old, so
+    stalled, after clocks went forward, and ages run negative after they went
+    back. In the hour that repeats, a stamp is read as a heartbeat
+    (`clock.recent_instant`).
+    """
     if not row.get("enabled"):
         return "disabled", None
     last = row.get("last_ok")
     if not last:
         # Never reported. If it failed on its first attempt, say so.
         return ("failing" if row.get("last_error_at") else "unknown"), None
+    now = clock.instant(now)
     try:
-        age = (now - datetime.fromisoformat(last)).total_seconds()
+        last_at = clock.recent_instant(datetime.fromisoformat(last), now)
+        age = (now - last_at).total_seconds()
     except Exception:
         return "unknown", None
 
     err_at = row.get("last_error_at")
     if err_at:
         try:
-            if datetime.fromisoformat(err_at) > datetime.fromisoformat(last):
+            if clock.recent_instant(datetime.fromisoformat(err_at), now) > last_at:
                 return "failing", age
         except Exception:
             pass
@@ -240,7 +251,7 @@ def status() -> dict:
     merely because a slow-loop worker has not run today — that is what a slow
     loop means.
     """
-    now = datetime.now()
+    now = clock.now()
     try:
         with _db() as conn:
             rows = [dict(r) for r in conn.execute(
@@ -255,8 +266,11 @@ def status() -> dict:
         nxt = None
         if r.get("last_ok") and r.get("interval_s"):
             try:
-                nxt = (datetime.fromisoformat(r["last_ok"])
-                       + timedelta(seconds=r["interval_s"])).isoformat(timespec="seconds")
+                # Elapsed interval from the tick's instant, shown as local wall
+                # time like the stamps themselves.
+                due = (clock.recent_instant(datetime.fromisoformat(r["last_ok"]), now)
+                       + timedelta(seconds=r["interval_s"]))
+                nxt = clock.local_wall(due).isoformat(timespec="seconds")
             except Exception:
                 pass
         if r.get("last_result"):
