@@ -1,0 +1,7 @@
+{"t": "13:03:32", "model": "saluki-27b-iq2", "num_ctx": 4096, "load_s": 11.07, "total_s": 12.78, "err": ""}
+{"t": "13:03:45", "model": "gemma3:4b", "num_ctx": 8192, "load_s": 7.27, "total_s": 13.39, "err": ""}
+{"t": "13:03:59", "model": "saluki-27b-iq2", "num_ctx": 4096, "load_s": 11.18, "total_s": 12.99, "err": ""}
+{"t": "13:04:07", "model": "qwen2.5:7b-instruct-q4_K_M", "num_ctx": 8192, "load_s": 8.13, "total_s": 8.32, "err": ""}
+{"t": "13:04:20", "model": "saluki-27b-iq2", "num_ctx": 4096, "load_s": 11.24, "total_s": 13.17, "err": ""}
+{"t": "13:04:30", "model": "qwen2.5-coder:7b", "num_ctx": 8192, "load_s": 9.2, "total_s": 9.44, "err": ""}
+{"t": "13:04:47", "model": "saluki-27b-iq2", "num_ctx": 4096, "load_s": 14.55, "total_s": 16.54, "err": ""}

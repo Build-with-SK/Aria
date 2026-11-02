@@ -1,0 +1,7 @@
+{"model": "saluki-27b-iq2", "who": "aria", "i": 3, "ok": false, "error": "ModelBusy: model busy: 2 request(s) already waiting", "start": 0.18, "end": 0.18}
+{"model": "saluki-27b-iq2", "who": "aria", "i": 0, "ok": true, "chars": 258, "start": 0.03, "end": 10.69}
+{"model": "saluki-27b-iq2", "who": "aria", "i": 1, "ok": true, "chars": 248, "start": 0.08, "end": 32.45}
+{"model": "saluki-27b-iq2", "who": "aria", "i": 2, "ok": true, "chars": 237, "start": 0.13, "end": 47.63}
+{"model": "saluki-27b-iq2", "who": "sentinel", "i": 0, "ok": true, "chars": 247, "start": 0.42, "end": 21.95}
+{"model": "saluki-27b-iq2", "who": "sentinel", "i": 1, "ok": true, "chars": 245, "start": 0.47, "end": 40.23}
+{"summary": true, "model": "saluki-27b-iq2", "n_aria": 4, "n_sentinel": 2, "ok": 5, "busy": 1, "other_errors": [], "wall_s": 47.6, "resident_before": [{"name": "saluki-27b-iq2:latest", "size": 8559767058, "size_vram": 6309816565, "context_length": 4096}], "resident_after": [{"name": "saluki-27b-iq2:latest", "size": 8559767058, "size_vram": 6309816565, "context_length": 4096}]}

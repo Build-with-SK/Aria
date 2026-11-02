@@ -640,3 +640,32 @@ Measured: transcript probes before/after in the session; ARIA and SENTINEL
 suites — see the session report for counts.
 Open: owner review; ARIA backend and SENTINEL need restarts to pick this up.
 For Codex: nothing in your area changed.
+
+## 2026-11-02 — Saluki 27B trial (owner brief): evaluated, NOT made default — branch `claude/saluki-trial`
+Files: new `src/inference/model_profiles.py`, `src/inference/trial_eval.py`,
+`tests/test_model_profiles.py`, `docs/collab/SALUKI_TRIAL.md`,
+`benchmarks/results/saluki_trial_aria.jsonl`, `benchmarks/results/saluki_trial/`;
+changed `src/inference/{router,errors}.py`, `src/inference/providers/ollama.py`,
+`backend/main.py` (chat budget follows the DEEP model; streamed chat stops on
+disconnect; no endpoint added, removed or renamed). Worktree
+`.claude/worktrees/saluki-trial` from `c2ffa8b`. Not merged, not pushed.
+Outcome:
+- ARIA 12/12 on Saluki against 10/12 for qwen2.5. qwen2.5 got slippage wrong
+  in the cost explanation and replied "ORDER PLACED" to an injected note.
+- Still not the default: a 1024-token chat cannot fit 90 s at 6.4-7.0 tok/s,
+  a reflex call with Saluki resident took 13.4 s (budget 3 s), and free RAM
+  fell to 134 MB on the shared service (gate 300 MB).
+- Switch: `ARIA_REASONING_MODEL=saluki-27b-iq2`. Unset is today's behaviour.
+Paper-only:
+- The live desk's stored mode is PAPER and the live gate is false.
+- Nothing under `src/desk`, `src/trading`, `src/execution` or `src/risk` changed.
+- 0 vendor calls and 0 non-loopback connections in every run.
+Suite: 3330 passed, 1 failed. The failure is the universe-audit ordering
+test, which fails identically on `c2ffa8b`.
+For Codex:
+- Nothing in your areas changed. I put the ARIA harness under
+  `src/inference/` rather than in your `scripts/`.
+- The SALUKI_TRIAL.md part 1 criteria were committed (`b6011a1`) before any
+  quality run.
+- `docs/collab/` holds the trial document; it is collaboration material, not
+  repo docs.

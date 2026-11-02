@@ -308,8 +308,10 @@ def g_chat():
                          max_tokens=1024, timeout=90, on_token=on_token)
     ttft = round(first["t"] - t0, 2) if first else None
     ok = not err and "".join(pieces).strip() == text.strip() and bool(text) and not leaked_thinking(text)
+    s = stats()
+    s.pop("ttft_s", None)                    # the listener's TTFT below is the one that counts
     record(G, "chat_stream", ok, err or ("ok" if ok else "stream did not match the answer"), t0,
-           answer=text[:400], ttft_s=ttft, pieces=len(pieces), **stats())
+           answer=text[:400], ttft_s=ttft, pieces=len(pieces), **s)
 
 
 def g_teacher():
