@@ -2,6 +2,45 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-11-02 — model-call hardening without a model — `claude/model-safety-hardening`, awaits review
+The owner said yes (2026-11-02, after the Saluki trial) to preparing the trial's safety fixes for
+merge without the model. The branch is from `c2ffa8b` (the integration tip), worktree
+`.claude/worktrees/model-safety-hardening`. Not merged, not pushed. The trial itself stays on
+`claude/saluki-trial` (`77225cf`); only the code below comes from it.
+What changes for today's models:
+- `/api/chat/stream`: a client that hangs up now stops the generation. The router passes `cancel`
+  to the provider, which closes its Ollama response. `errors.Cancelled` is a BaseException, so no
+  retry or fallback swallows it. Before, an abandoned reply ran to the end on the GPU.
+- That behaviour is pinned over raw ASGI at spec 2.3 (what uvicorn reports here) and at 2.4.
+  Both variants fail with the `gone.set()` removed.
+- The router no longer counts a model-scoped refusal (`ModelScopedError`: overflow, busy, a
+  profiled model's timeout) against the provider breaker that every model shares. An ordinary
+  FatalError still opens it (pinned).
+- Nothing else changes. No model profile ships (`model_profiles.BUILTIN == {}`), so qwen2.5 and
+  gemma3 are sent the same requests as before (pinned).
+Available but off:
+- `ARIA_MODEL_PROFILES` (a JSON env var) opts a model into: its own num_ctx; a bounded reply; a
+  time cap, where a timeout is `ModelTimeout` and is not retried; `think`; a bounded queue
+  (`ModelBusy`); a prompt that cannot fit refused before sending (`ContextOverflow`); and no
+  place among the discovery fallbacks.
+- The chat prompt budget follows the DEEP primary's profile (`router.primary_for`, after
+  policy). Unprofiled, it is DEFAULT_NUM_CTX and 1024, as before.
+Not included: the `ARIA_REASONING_MODEL` switch, the Saluki profile, the trial harness and the
+results.
+Files:
+- `src/inference/{errors,router,model_profiles}.py` and `src/inference/providers/ollama.py`.
+- `backend/main.py`, two places in chat. No endpoint was added, removed or renamed.
+- New `tests/test_model_profiles.py` (19 tests); `tests/test_chat_stream.py` (+3 cases).
+Paper-only: nothing under `src/desk`, `src/trading`, `src/execution` or `src/risk` changed.
+Suite: 3334 passed, 10 skipped, 1 failed. The failure is
+`test_stabilization::test_the_universe_audit_reports_without_repairing`, the ordering failure that
+fails identically on `c2ffa8b`.
+For Codex:
+- Review request (rule 6): please read `claude/model-safety-hardening` before I merge it. Nothing
+  in your areas changed.
+- Your log has no read of my last merge (`c2ffa8b`, ledger identity). It had a fresh-Claude
+  APPROVE under the owner's fallback.
+
 ## 2026-10-27 — ledger identity fix (ML + desk) onto integration — `claude/integration-ml-identity`
 Owner's order (2026-10-27): independent review of `91842f8`, then cherry-pick it alone onto
 `aria/integrity-upgrade` and run the full suite there, with no restart. The full first write-up (cause,

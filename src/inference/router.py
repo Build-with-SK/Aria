@@ -79,11 +79,14 @@ def load_tier_config() -> dict:
     # Extend local fallbacks from the discovery registry when present
     try:
         from src.inference.ollama_discovery import registry_candidates
+        from src.inference.model_profiles import auto_pick_allowed
         extras = registry_candidates()
         for tier, cands in cfg.items():
             known = {tuple(c) for c in cands}
             for c in extras.get(tier, []):
-                if tuple(c) not in known:
+                # a model profiled auto_pick false is used only when named,
+                # never added as a fallback
+                if tuple(c) not in known and auto_pick_allowed(c[1]):
                     cands.append(list(c))
     except Exception:
         pass
@@ -184,25 +187,28 @@ class InferenceRouter:
                  temperature: float = 0.4, timeout: float = 120.0,
                  local_only: bool = False,
                  degrade: str | None = None,
-                 on_token=None, on_reset=None) -> Completion:
+                 on_token=None, on_reset=None, cancel=None) -> Completion:
         """`on_token` receives the reply in pieces as it is generated, when the
         answering provider can stream; otherwise the whole text, once, at the
         end. `on_reset` is called before a retry or a fallback candidate, so a
         listener can discard a draft rather than glue two together. Both are
-        optional and change nothing when absent."""
+        optional and change nothing when absent. `cancel` (a threading.Event)
+        stops a streamed reply once set: the provider raises errors.Cancelled,
+        which no retry or fallback catches."""
         tier_name = tier.value if isinstance(tier, Tier) else str(tier).upper()
         candidates = list(self.tiers.get(tier_name) or [])
         return self._run(tier_name, candidates, messages, system=system,
                          max_tokens=max_tokens, temperature=temperature,
                          timeout=timeout, local_only=local_only,
-                         degrade=degrade, on_token=on_token, on_reset=on_reset)
+                         degrade=degrade, on_token=on_token, on_reset=on_reset,
+                         cancel=cancel)
 
     def _run(self, tier_name: str, candidates: list, messages: list[dict], *,
              system: str = "", max_tokens: int = 400,
              temperature: float = 0.4, timeout: float = 120.0,
              local_only: bool = False,
              degrade: str | None = None,
-             on_token=None, on_reset=None) -> Completion:
+             on_token=None, on_reset=None, cancel=None) -> Completion:
         # ── the two standing decisions, applied before anything is called ──
         # 1. Her brain is weights she runs herself: vendor providers are
         #    filtered out of every tier, by locality rather than by name, so a
@@ -247,6 +253,8 @@ class InferenceRouter:
                 try:
                     streaming = on_token is not None and getattr(provider, "streams", False)
                     extra = {"on_token": on_token} if streaming else {}
+                    if streaming and cancel is not None:
+                        extra["cancel"] = cancel
                     text = provider.complete(
                         model, messages, system=system, max_tokens=max_tokens,
                         temperature=temperature, timeout=timeout, **extra)
@@ -265,7 +273,11 @@ class InferenceRouter:
                 except FatalError as e:
                     logger.warning(f"router[{tier_name}] fatal from "
                                    f"{provider_name}/{model}: {e}")
-                    breaker.record_failure()
+                    # A model-scoped refusal (overflow, busy, a profiled
+                    # model's timeout) says nothing about the provider: it
+                    # must not open the breaker every other model shares.
+                    if not getattr(e, "model_scoped", False):
+                        breaker.record_failure()
                     errors.append(e)
                     break               # straight to the next candidate
                 except RetryableError as e:
@@ -295,6 +307,14 @@ class InferenceRouter:
                          system=system, max_tokens=max_tokens,
                          temperature=temperature, timeout=timeout)
 
+    def primary_for(self, tier: Tier | str) -> tuple[str, str] | None:
+        """The (provider, model) that would answer `tier` first, after
+        policy: what a caller budgets its prompt against."""
+        tier_name = tier.value if isinstance(tier, Tier) else str(tier).upper()
+        allowed, _ = policy.filter_candidates(list(self.tiers.get(tier_name) or []),
+                                              self.providers)
+        return (allowed[0][0], allowed[0][1]) if allowed else None
+
     def _sleep(self, seconds: float):
         time.sleep(seconds)     # patchable in tests
 
@@ -305,9 +325,15 @@ class InferenceRouter:
             permitted[tier] = {"permitted": allowed, "refused_by_policy": refused,
                                "primary": (f"{allowed[0][0]}/{allowed[0][1]}"
                                            if allowed else None)}
+        try:
+            from src.inference.model_profiles import describe as _profiles
+            profiles = _profiles()
+        except Exception:
+            profiles = {}
         return {
             "tiers": self.tiers,
             "policy": policy.describe(),
+            "model_profiles": profiles,
             "routing": permitted,
             "breakers": {n: {"state": b.state.value, "failures": b.failures}
                          for n, b in self.breakers.items()},

@@ -243,3 +243,113 @@ def test_ollama_reader_never_passes_thinking_on():
                        got.append)
     assert got == ["Hel", "lo"]
     assert out["message"]["content"] == "Hello"
+
+
+# ── the prompt budget ────────────────────────────────────────────────────────
+
+def test_the_chat_budget_follows_the_model_that_will_answer(app, model, monkeypatch):
+    """A profiled model with a 4096 window budgeted against 8192 is how a
+    question gets cut off the end of the prompt. Unprofiled: unchanged."""
+    from src.inference import context as ctx, model_profiles as mp, router as r
+    from src.inference.providers.ollama import DEFAULT_NUM_CTX
+    budgets, real = [], ctx.bound
+    monkeypatch.setattr(ctx, "bound", lambda s, msgs, blocks=None, budget=None:
+                        budgets.append(budget) or real(s, msgs, blocks, budget))
+    inner = r.get_router
+
+    class Answering:
+        def complete(self, *a, **k):
+            return inner().complete(*a, **k)
+
+        def primary_for(self, tier):
+            return ("ollama", "big-test-model")
+
+    monkeypatch.setattr(r, "get_router", lambda: Answering())
+    monkeypatch.setenv(mp.PROFILES_ENV, json.dumps(
+        {"big-test-model": {"num_ctx": 4096, "max_predict": 768}}))
+    _stream(TestClient(app, client=REMOTE))
+    assert (budgets[-1].context_tokens, budgets[-1].reply_tokens) == (4096, 768)
+
+    monkeypatch.delenv(mp.PROFILES_ENV)
+    _stream(TestClient(app, client=REMOTE))
+    assert (budgets[-1].context_tokens, budgets[-1].reply_tokens) == (DEFAULT_NUM_CTX, 1024)
+
+
+# ── a client that goes away ──────────────────────────────────────────────────
+
+def _asgi_post(app, path, body, hang_up_after, spec="2.3"):
+    """POST over raw ASGI, the way uvicorn drives the app. TestClient reads
+    the whole stream before returning, so it cannot hang up halfway.
+
+    uvicorn here reports spec 2.3: Starlette listens for http.disconnect. At
+    2.4 it stops listening and learns of a hang-up only when a send fails,
+    which is what a 2.4 server does, so that is simulated too."""
+    import asyncio
+    from starlette.requests import ClientDisconnect
+
+    async def run():
+        hung_up = asyncio.Event()
+        state = {"requested": False}
+
+        async def receive():
+            if not state["requested"]:
+                state["requested"] = True
+                return {"type": "http.request", "body": body, "more_body": False}
+            await hung_up.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            if hung_up.is_set() and spec >= "2.4":
+                raise OSError("the client went away")
+            if message["type"] == "http.response.body" and \
+                    hang_up_after(message.get("body", b"")):
+                hung_up.set()
+
+        scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": spec},
+                 "http_version": "1.1", "method": "POST", "scheme": "http",
+                 "path": path, "raw_path": path.encode(), "root_path": "",
+                 "query_string": b"", "client": REMOTE, "server": ("testserver", 80),
+                 "headers": [(b"host", b"testserver"),
+                             (b"content-type", b"application/json"),
+                             (b"authorization", f"Bearer {TOKEN}".encode())]}
+        try:
+            await asyncio.wait_for(app(scope, receive, send), timeout=30)
+        except (ClientDisconnect, OSError):
+            pass                        # how a 2.4 app reports the hang-up
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("spec", ["2.3", "2.4"])
+def test_a_client_that_hangs_up_stops_the_model(app, monkeypatch, spec):
+    """Nobody reading means nothing generating. Before, an abandoned reply
+    ran to the end and held the GPU for nobody."""
+    import threading
+    import time
+    from src.inference import router as r
+    from src.inference.errors import Cancelled
+    stopped, emitted = threading.Event(), []
+
+    class Slow:
+        def complete(self, tier, msgs, *, on_token=None, cancel=None, **kw):
+            for i in range(500):
+                if cancel is not None and cancel.is_set():
+                    stopped.set()
+                    raise Cancelled("the listener went away")
+                on_token(f"t{i} ")
+                emitted.append(i)
+                time.sleep(0.01)
+            raise AssertionError("generated to the end for nobody")
+
+    monkeypatch.setattr(r, "get_router", lambda: Slow())
+    seen = []
+
+    def after_three_tokens(chunk):
+        if b"event: token" in chunk:
+            seen.append(chunk)
+        return len(seen) >= 3
+
+    body = json.dumps({"messages": [{"role": "user", "content": "How do markets look?"}]})
+    _asgi_post(app, "/api/chat/stream", body.encode(), after_three_tokens, spec=spec)
+    assert stopped.wait(10), "the model kept generating after the client left"
+    assert len(emitted) < 500
