@@ -27,6 +27,36 @@ class FatalError(InferenceError):
     """Permanent for this candidate: bad auth, bad request, missing model."""
 
 
+class ModelScopedError(FatalError):
+    """Wrong for this MODEL and this request, not a sign the provider is
+    down: the router does not count it against the provider's breaker, so a
+    slow 27B model timing out cannot open the breaker the 4B reflex lane
+    shares. Raised only for profiled models (src/inference/model_profiles.py)."""
+    model_scoped = True
+
+
+class ContextOverflow(ModelScopedError):
+    """The prompt and the reply cannot fit the model's window. Refused before
+    anything is sent: Ollama would truncate and answer anyway."""
+
+
+class ModelBusy(ModelScopedError):
+    """The model is serving someone else and the bounded queue is full, or
+    the bounded wait ran out."""
+
+
+class ModelTimeout(ModelScopedError):
+    """A profiled model ran past its time cap. Not retried: the same request
+    on the same slow model times out again, holding the GPU while it does."""
+
+
+class Cancelled(BaseException):
+    """The caller stopped listening. BaseException on purpose, as in SENTINEL
+    (sentinel/stream.py GenerationCancelled): nothing that catches Exception
+    — retries, fallbacks, "a dead listener never costs the answer" — may
+    swallow it and keep generating for nobody."""
+
+
 class AllProvidersFailed(InferenceError):
     """Every candidate in the tier failed. Carries the per-candidate errors."""
     def __init__(self, tier: str, errors: list):

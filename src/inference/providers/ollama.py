@@ -9,7 +9,11 @@ import os
 import urllib.error
 import urllib.request
 
-from src.inference.errors import FatalError, RetryableError, classify_http
+import time
+
+from src.inference import model_profiles
+from src.inference.errors import (Cancelled, FatalError, ModelTimeout,
+                                  RetryableError, classify_http)
 from src.inference.providers import Provider
 
 logger = logging.getLogger(__name__)
@@ -30,16 +34,26 @@ OLLAMA_BASE = ollama_base()   # env OLLAMA_BASE overrides (mini -> laptop)
 DEFAULT_NUM_CTX = int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
 
 
-def _read_stream(resp, on_token) -> dict:
+def _read_stream(resp, on_token, deadline: float | None = None,
+                 cancel=None, model: str = "") -> dict:
     """Ollama's streaming reply: one JSON object per line, the last carrying
     `done: true`. Each content delta goes to `on_token`; the whole text is
     returned in the same shape as the non-streaming call, so everything after
     this — the empty-content check, the error handling — is unchanged.
 
     `thinking` deltas are never passed on: they are the model's working, and
-    ARIA does not publish her chain of thought."""
+    ARIA does not publish her chain of thought.
+
+    `deadline` (monotonic seconds) bounds the whole reply for a profiled
+    model; `cancel` (a threading.Event) stops reading as soon as it is set.
+    Either way the response is closed, and Ollama stops generating when its
+    client goes away."""
     content = []
     for raw in resp:
+        if cancel is not None and cancel.is_set():
+            raise Cancelled("the listener went away")
+        if deadline is not None and time.monotonic() > deadline:
+            raise ModelTimeout("streamed reply ran past its time cap", "ollama", model)
         line = raw.strip()
         if not line:
             continue
@@ -52,6 +66,8 @@ def _read_stream(resp, on_token) -> dict:
             content.append(delta)
             try:
                 on_token(delta)
+            except Cancelled:
+                raise                   # the listener said stop: stop generating
             except Exception:           # a dead listener never costs the answer
                 pass
         if chunk.get("done"):
@@ -74,7 +90,7 @@ class OllamaProvider(Provider):
     def complete(self, model: str, messages: list[dict], *,
                  system: str = "", max_tokens: int = 400,
                  temperature: float = 0.4, timeout: float = 120.0,
-                 on_token=None) -> str:
+                 on_token=None, cancel=None) -> str:
         # A message may carry `images`: a list of base64 PNG/JPEG strings, which
         # Ollama's chat API accepts on any vision-capable model. This is what
         # lets her LOOK at something — a chart, a screenshot, a filing page —
@@ -84,17 +100,30 @@ class OllamaProvider(Provider):
         msgs = ([{"role": "system", "content": system}] if system else []) + [
             {k: v for k, v in m.items() if k in ("role", "content", "images")}
             for m in messages]
-        payload = json.dumps({
+        # A profiled model (model_profiles.BUILTIN) gets its own window, a
+        # bounded reply, a time cap, thinking off and a bounded queue. Any
+        # other model is sent exactly what it was sent before.
+        num_ctx = model_profiles.num_ctx_for(model, self.num_ctx)
+        max_tokens = model_profiles.reply_tokens_for(model, max_tokens)
+        timeout = model_profiles.timeout_for(model, timeout)
+        model_profiles.check_fits(model, system, msgs, max_tokens, num_ctx)
+        body = {
             "model": model, "stream": bool(on_token), "messages": msgs,
             "options": {"temperature": temperature, "top_p": 0.9,
-                        "num_predict": max_tokens, "num_ctx": self.num_ctx},
-        }).encode()
+                        "num_predict": max_tokens, "num_ctx": num_ctx},
+        }
+        think = model_profiles.think_for(model)
+        if think is not None:
+            body["think"] = think
+        payload = json.dumps(body).encode()
         req = urllib.request.Request(
             f"{self.base_url}/api/chat", data=payload,
             headers={"Content-Type": "application/json"})
+        cap = model_profiles.stream_deadline_for(model)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                out = (_read_stream(r, on_token) if on_token
+            with model_profiles.gate(model),                     urllib.request.urlopen(req, timeout=timeout) as r:
+                deadline = time.monotonic() + cap if (cap and on_token) else None
+                out = (_read_stream(r, on_token, deadline, cancel, model) if on_token
                        else json.loads(r.read()))
         except urllib.error.HTTPError as e:
             body = ""
@@ -108,6 +137,9 @@ class OllamaProvider(Provider):
             raise RetryableError(f"connection failed: {e.reason}",
                                  self.name, model) from e
         except TimeoutError as e:
+            if model_profiles.profile(model):
+                raise ModelTimeout(f"timeout after {timeout:.0f}s (not retried: a slow "
+                                   f"model times out again)", self.name, model) from e
             raise RetryableError("timeout", self.name, model) from e
         except OSError as e:
             raise RetryableError(f"socket error: {e}", self.name, model) from e

@@ -2543,7 +2543,21 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
         _ctx.Block("OWNER'S VAULT NOTES", vault_ctx, priority=60, order=3),
     ) if (b.text or "").strip()]
 
-    budget = _ctx.Budget(context_tokens=DEFAULT_NUM_CTX, reply_tokens=1024)
+    # The window and reply of the model that will actually answer: a
+    # profiled model (src/inference/model_profiles.py) has a smaller one than
+    # DEFAULT_NUM_CTX, and budgeting a 4096 model against 8192 is how a
+    # question gets cut off the end of the prompt.
+    _win, _reply = DEFAULT_NUM_CTX, 1024
+    try:
+        from src.inference import model_profiles as _mp
+        from src.inference.router import Tier as _Tier, get_router as _get_router
+        _primary = _get_router().primary_for(_Tier.DEEP)
+        if _primary and _primary[0] == "ollama":
+            _win = _mp.num_ctx_for(_primary[1], DEFAULT_NUM_CTX)
+            _reply = _mp.reply_tokens_for(_primary[1], 1024)
+    except Exception as _e:
+        logger.debug(f"chat budget uses the default window: {_e}")
+    budget = _ctx.Budget(context_tokens=_win, reply_tokens=_reply)
     system, msgs, fitted = _ctx.bound(system, msgs, blocks, budget)
     return system, msgs, fitted
 
@@ -2615,6 +2629,10 @@ def aria_chat_stream(body: ChatRequest, request: Request):
     started = _time.monotonic()
     marks: dict = {}
     counts = {"tokens": 0, "status": 0}
+    #: Set when the client stops reading. The provider then closes its Ollama
+    #: response and Ollama stops generating. Before this, an abandoned reply
+    #: ran to the end and held the GPU for nobody.
+    gone = _threading.Event()
 
     def put(kind, data):
         q.put((kind, data))
@@ -2629,6 +2647,7 @@ def aria_chat_stream(body: ChatRequest, request: Request):
         put("token", t)
 
     def work():
+        from src.inference.errors import Cancelled
         try:
             from src.inference.policy import BrainUnreachable
             from src.inference.router import Tier, get_router
@@ -2637,10 +2656,14 @@ def aria_chat_stream(body: ChatRequest, request: Request):
             try:
                 result = get_router().complete(
                     Tier.DEEP, msgs, system=system, max_tokens=1024, timeout=90,
-                    on_token=on_token, on_reset=lambda: put("reset", "retrying"))
+                    on_token=on_token, on_reset=lambda: put("reset", "retrying"),
+                    cancel=gone)
             except BrainUnreachable as e:
                 logger.warning(f"chat abstained — {e}")
                 put("error", {"status": 503, "detail": e.spoken()})
+                return
+            except Cancelled:
+                logger.info("streamed chat cancelled: the client went away")
                 return
             put("done", {"content": result.text, "model": result.model,
                          "provider": result.provider, "degraded": result.degraded,
@@ -2654,6 +2677,12 @@ def aria_chat_stream(body: ChatRequest, request: Request):
         return f"event: {event}\ndata: {_json.dumps(_sanitize(payload), default=str)}\n\n"
 
     def events():
+        try:
+            yield from _events()
+        finally:
+            gone.set()      # finished, or the client went away: stop either way
+
+    def _events():
         yield sse("ack", {"t": 0.0})
         _threading.Thread(target=work, daemon=True, name="aria-chat-stream").start()
         last = _time.monotonic()
