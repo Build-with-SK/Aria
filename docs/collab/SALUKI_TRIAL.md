@@ -258,19 +258,19 @@ Suites on the trial code:
 | | |
 | --- | --- |
 | Runtime | Ollama 0.40.13 (the existing install), bundled llama.cpp `llama-server` 0.8.0-dev, commit 39febd2ad. No second inference server was installed: Ollama passed native tool calls, tool-result turns, parallel calls and thinking separation on this model (`results/compat_saluki.jsonl`). |
-| Model file | `C:\Users\sound\llm-models\Underdog-Saluki-27B-1.0\Underdog-Saluki-27B-1.0-IQ2-mix.gguf`, outside both repositories. 7,898,369,152 bytes, SHA-256 `4a673518b11b1c4445f9b9a9d3c40356f5ba39f6a6260dcb25f3fbfd475d9efb`, matching the Hugging Face LFS hash at revision `5acfd9218fa54731f237eea8b3243d430dd85a69`. |
+| Model file | `%USERPROFILE%\llm-models\Underdog-Saluki-27B-1.0\Underdog-Saluki-27B-1.0-IQ2-mix.gguf`, outside both repositories. 7,898,369,152 bytes, SHA-256 `4a673518b11b1c4445f9b9a9d3c40356f5ba39f6a6260dcb25f3fbfd475d9efb`, matching the Hugging Face LFS hash at revision `5acfd9218fa54731f237eea8b3243d430dd85a69`. |
 | Ollama name | `saluki-27b-iq2:latest`, id `5fb23b9fc0e4`. Reported: family `qwen35`, 26.9B parameters, IQ2_XS, 64 blocks with full attention every 4th, trained context 262,144, capabilities tools / thinking / completion. |
 | Binding | Ollama listens where the owner configured it (`OLLAMA_HOST=0.0.0.0`, set for the Mac mini split deployment). Not changed by this trial; see open decisions. |
 
 Install (already done on this laptop; repeat on another machine):
 
 ```
-mkdir C:\Users\sound\llm-models\Underdog-Saluki-27B-1.0
+mkdir %USERPROFILE%\llm-models\Underdog-Saluki-27B-1.0
 # download Underdog-Saluki-27B-1.0-IQ2-mix.gguf into it, check the SHA-256 above
-# Modelfile next to it:
-#   FROM C:/Users/sound/llm-models/Underdog-Saluki-27B-1.0/Underdog-Saluki-27B-1.0-IQ2-mix.gguf
+# Modelfile next to it (FROM takes the full path; Ollama does not expand %USERPROFILE%):
+#   FROM <full path of that folder>/Underdog-Saluki-27B-1.0-IQ2-mix.gguf
 #   PARAMETER num_ctx 4096
-ollama create saluki-27b-iq2 -f C:\Users\sound\llm-models\Underdog-Saluki-27B-1.0\Modelfile
+ollama create saluki-27b-iq2 -f %USERPROFILE%\llm-models\Underdog-Saluki-27B-1.0\Modelfile
 ```
 
 No `num_gpu` anywhere, deliberately: with a layer count pinned (request or
