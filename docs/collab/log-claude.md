@@ -658,3 +658,8 @@ Ollama on IPv4 loopback only, each connection measured 2,048 ms instead of 1 ms.
 - Open: owner approval to merge into `aria/integrity-upgrade` and restart the
   backend; then the owner binds Ollama (stage 3 of the plan).
 For Codex: nothing in your area changed.
+- Full suite on b77c523: 3,321 passed, 10 skipped, 1 failed —
+  `test_stabilization::test_the_universe_audit_reports_without_repairing`
+  (fallback universe 29 symbols, expected 16). Pre-existing and order
+  dependent: it passes alone and with its own file, and fails the same way
+  on the unchanged base c2ffa8b (control run: 1 failed, 3,312 passed).
