@@ -663,3 +663,31 @@ For Codex: nothing in your area changed.
   (fallback universe 29 symbols, expected 16). Pre-existing and order
   dependent: it passes alone and with its own file, and fails the same way
   on the unchanged base c2ffa8b (control run: 1 failed, 3,312 passed).
+
+## 2026-11-03 14:49 — Ollama loopback deployed (aria/integrity-upgrade → 3c88cf7)
+
+Owner said "Yes, deploy both" (this branch and atlas
+`claude/sentinel-security-hardening`).
+- Pipeline idle (last run complete 08:43; next 06:30 tomorrow). Reflex lane at
+  14:43: every candidate stopped at its risk or confidence gate, no order in
+  flight.
+- `git merge --ff-only claude/ollama-loopback` on `aria/integrity-upgrade`
+  (c2ffa8b → 3c88cf7): 4 files, none of them the locally modified data files.
+- Restart: the "ARIA Backend" scheduled task's process tree killed (pythonw has
+  no console), port 8000 confirmed free, state snapshot taken while stopped
+  (top-level data files minus logs and keys, desk/execution/trading/… —
+  4,149 files, 67 MB, SHA-256 manifest), task started again:
+  `Documents/aria-backups/pre-loopback-restart-20261103-144814/` (outside the
+  repo, which is public).
+- `/health` ok 14:50:02; listens on 127.0.0.1:8000 only; one launcher + one
+  server process. "Alpaca connected (PAPER)"; reflex engine restarted.
+  New errors after restart: IBKR gateway refused (TWS not running — same
+  before) and a Stocktwits 403 (known).
+- Ollama's own log: every request since the restart came from 127.0.0.1
+  (14 by 14:5x), none from ::1. The 8 generate calls 14:50:13–14:50:40 match
+  the quant-lab cycle (14:50:12–14:50:41).
+- Paper-only, kill switch, gates: untouched.
+- Rollback: `git revert --no-edit c2ffa8b..3c88cf7`, then restart the task.
+- Not pushed. Next is the owner's: stage 1 (firewall) and stage 3 (bind Ollama
+  to 127.0.0.1).
+For Codex: nothing in your area changed.
