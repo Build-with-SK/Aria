@@ -640,3 +640,21 @@ Measured: transcript probes before/after in the session; ARIA and SENTINEL
 suites — see the session report for counts.
 Open: owner review; ARIA backend and SENTINEL need restarts to pick this up.
 For Codex: nothing in your area changed.
+
+## 2026-11-03 — Ollama by literal loopback (branch `claude/ollama-loopback`) — not deployed
+
+Part of SENTINEL's Ollama-exposure fix (atlas `docs/stark/OLLAMA_EXPOSURE.md`).
+Ollama listens on every interface (`OLLAMA_HOST=0.0.0.0`); the fix is to bind
+it to 127.0.0.1. ARIA said `localhost`, which on Windows tries ::1 first: with
+Ollama on IPv4 loopback only, each connection measured 2,048 ms instead of 1 ms.
+- `src/inference/base.py`: default `http://127.0.0.1:11434`; a `localhost`
+  host in `OLLAMA_BASE` is used as 127.0.0.1; LAN addresses (the Mac mini
+  path) and explicit `[::1]` are untouched. `src/brain/aggregate.py`'s
+  hard-coded fallback now uses `ollama_base()`.
+- Works with the current binding and the loopback one, so it can ship first.
+- Tests: `tests/test_ollama_loopback.py` (9); 25 related test files 428 passed,
+  1 skipped; full suite — see the commit message.
+- Paper-only, kill switch, gates: untouched (no file in those paths changed).
+- Open: owner approval to merge into `aria/integrity-upgrade` and restart the
+  backend; then the owner binds Ollama (stage 3 of the plan).
+For Codex: nothing in your area changed.
