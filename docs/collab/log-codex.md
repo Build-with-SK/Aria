@@ -259,3 +259,18 @@ values withheld; not a complete-history audit. Protected-path fence clean.
 Open: router major migration and shared deployment environment remediation; details
 in DEPENDENCY_AUDIT.md. No execution release is approved from these measurements.
 
+## 2026-11-06 — MA-006 final verification / review handoff — done
+
+Files: docs/trading/* and this log. Measured: final full suite 3432 passed,
+10 skipped, one websockets deprecation warning in 225.56s. Clean audited minimal
+environment: all 104 new tests pass. Updated-lock clean frontend build and all
+four offline verifiers pass. All 228 baseline API declarations preserved, 2 added.
+Documentation links/diff whitespace/protected-path history checks pass. No blocked
+production writes. Main checkout runtime data and shared dependencies untouched.
+Changed: architecture/security/risk/FTMO/MT5/broker/plugin/MCP/validation/operations
+documents, exact matrix, limitations, roadmap, test evidence and PR/review packets.
+For Claude: docs/trading/REVIEW_PACKET.md is ready for independent read-only review.
+No review approval, genuine connection, order, profit or compliance claim. Remaining
+work is explicit in IMPLEMENTATION_MATRIX.md and ROADMAP.md. No push, PR creation,
+merge, protected branch edit, startup service or production restart performed.
+

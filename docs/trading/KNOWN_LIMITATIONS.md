@@ -1,0 +1,43 @@
+# Known limitations and release boundaries
+
+This is a tested research/read-only extension, not the completed production target.
+
+- No actual FTMO account/profile is configured or confirmed. Exact account entity,
+  product/phase, restrictions and creation/merge evidence are external requirements.
+- MT5 SDK/terminal absent; only SDK fixtures ran. No connectivity, send, fill,
+  partial fill, modification, cancellation or broker reconciliation is claimed.
+  Mutation methods intentionally refuse rather than implement a latent live sender.
+- Review library has no web approval endpoint, dedicated execution process,
+  authenticated IPC or send-time worker. No broker-state transitions can be
+  produced by this release. Full state vocabulary is declared; tested persisted
+  paths cover review/reservation/recovery, not actual broker outcomes.
+- Risk supports linear contracts with explicit FX conversion; inverse/nonlinear
+  products require broker calculators. Spread/commission/financing and book risk
+  must be authoritative. This is not yet a full currency-factor, liquidity-gap,
+  consecutive-loss or real-time margin engine. No 1% exception workflow is enabled.
+- Policy arithmetic covers declared loss floors and objective formulas, not all
+  operational/prohibited-practice rules. Known restrictions are still independently
+  verified upstream. Missing cashflow/reset/high-water history cannot be guessed.
+- Ten strategy definitions are research recipes. MacroDriven abstains. No strategy
+  has been calibrated, promoted, backtested or paper/demo validated by this work.
+  Real feeds, event citations, calendar gaps and cross-provider corroboration still
+  need provider-specific integration. Capability labels describe applicability,
+  not currently subscribed data.
+- New backtest utilities are not a full multiasset fill simulator. No universal
+  corporate-action, survivorship, gap/partial-fill, market-hours or ruin model.
+- The dashboard shows an explicitly disconnected extension. Existing pages still
+  show their existing legacy data. No screenshots from a deployed runtime; offline
+  JSX render checks are the reproducible UI evidence. No hydration/browser event
+  or real broker workflow was tested.
+- Third-party plugin loading and MCP execution are disabled. Declaration checks
+  are not OS isolation, a token issuer or a secure executable plugin registry.
+- Shared Python venv has known advisories; it was not changed. A separate audited
+  minimal research lock is supplied. Frontend retains two moderate router findings
+  requiring a major upgrade review. See DEPENDENCY_AUDIT.md.
+- SQLite local storage is not encrypted and audit chains have no external anchor.
+  Audit verification scans event history and is O(events); this is not suitable
+  for an unbounded high-frequency event stream. Reads and indicators are bounded
+  to 5,000 submitted bars but need request-size/rate/latency budgets before remote
+  production use. No measured performance improvement or trading edge is claimed.
+- Independent Claude review is pending; a packet is prepared, no approval invented.
+  No push, PR submission, protected-branch change, integration merge or deployment.
