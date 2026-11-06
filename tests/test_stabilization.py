@@ -279,7 +279,7 @@ def test_grading_is_skipped_when_identity_cannot_be_established(tmp_path, monkey
     assert why, "a refusal must carry its reason"
 
 
-def test_the_universe_audit_reports_without_repairing(universe_reference):
+def test_the_universe_audit_reports_without_repairing(universe_reference, tmp_path, monkeypatch):
     """The audit is read-only by construction — the source-of-truth decision
     belongs to the owner, and guessing at 21,067 rows would be a larger version
     of the mistake being fixed.
@@ -291,6 +291,15 @@ def test_the_universe_audit_reports_without_repairing(universe_reference):
     than a guess. Everything else about the contract — no repairs, no
     duplicates, the known-bad-name tripwire — holds for both.
     """
+    # Other tests legitimately add instruments to the session-wide temporary
+    # master. Audit a fresh copy of the 16-row fallback, not their accumulated
+    # mutations; retain the exact row-count and read-only assertions below.
+    if universe_reference["kind"] != "production":
+        import runpy
+        build = runpy.run_path(str(Path(__file__).parent / "fixtures" / "universe_fixture.py"))["build"]
+        fresh = tmp_path / "universe.db"
+        assert build(fresh) == universe_reference["rows"]
+        monkeypatch.setattr(idt, "UNIVERSE_DB", fresh)
     before = idt.UNIVERSE_DB.read_bytes()
     report = idt.audit()
     assert idt.UNIVERSE_DB.read_bytes() == before, (

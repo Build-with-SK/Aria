@@ -167,3 +167,27 @@ Measured: ...
 Open: ...
 For Claude: ...
 ```
+# 2026-11-06 — MA-001 — started
+
+Files: docs/trading/*; additive src/trading multiasset contracts/rules/review/MT5
+modules, src/research and src/backtesting extensions, tests, frontend components;
+backend/main.py additive read-only routes only. Latest owner brief assigns Codex
+the implementation branch and Claude read-only review for this task. Existing
+protected auth/live-gate/approval files and WORK_PLAN.md remain untouched.
+Measured: new isolated worktree feature/aria-multiasset-trading from 58f5f25;
+merged aria/integrity-upgrade (already up to date). Main runtime data untouched.
+Discovery: 317 source modules, 151 test modules, 228 decorated baseline API routes.
+Baseline suite running with shared venv against worktree isolation.
+For Claude: review packet will be docs/trading/REVIEW_PACKET.md. No merge/push or
+runtime changes authorised by this task.
+
+## 2026-11-06 — MA-001 audit / baseline — done
+
+Changed: discovery documentation and static inventory; isolated the universe audit
+test from earlier tests' writes to the shared test master. No production fixture
+or audit implementation changed; the exact 16-row and read-only assertions remain.
+Measured: baseline 3321 passed, 10 skipped, 1 failed in 401.49s; corrected
+test_stabilization.py 22 passed in 1.04s. The 29 rows were accumulated test state,
+not a change in the fallback fixture. Full final suite remains required.
+For Claude: review this independent test-order fix with the audit commit.
+
