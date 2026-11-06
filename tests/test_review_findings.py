@@ -15,6 +15,8 @@ from test_multiasset_risk import case, NOW
 from src.trading.contracts import AssetClass, RiskAssessment, content_hash
 from src.trading.multiasset_risk import assess
 from src.trading.review_store import ReviewRefused, ReviewStore
+from src.trading.rule_profiles import RuleProfile, evaluate_profile
+from pydantic import ValidationError
 
 
 def clock():
@@ -425,3 +427,116 @@ def test_cr01_schema_v1_boundaries_are_set_aside_not_trusted(tmp_path, case):
     with sqlite3.connect(str(path)) as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == 2
         assert db.execute("SELECT COUNT(*) FROM rule_boundaries_v1_unmigrated").fetchone()[0] == 1
+
+
+# --- CR-07: what a loss costs decides the account class, not the server's DEMO label ---
+
+def ftmo(case, **changes):
+    """A validated FTMO profile on the fixture account (a paid 2-Step Challenge by default)."""
+    fields = {**case[1].profile.model_dump(), "provider": "FTMO", "provider_entity": "FTMO s.r.o.",
+              "product": "FTMO_2_STEP", "evaluation_stage": "CHALLENGE", "account_type": "STANDARD",
+              "account_class": "PAID_EVALUATION"}
+    return RuleProfile.model_validate({**fields, **changes})
+
+
+def on_profile(case, profile):
+    p, i = case
+    return (p.model_copy(update={"rule_profile_hash": profile.profile_hash}),
+            i.model_copy(update={"profile": profile}))
+
+
+@pytest.mark.parametrize("stage,klass", [("CHALLENGE", "PAID_EVALUATION"), ("VERIFICATION", "PAID_EVALUATION"),
+                                         ("FUNDED", "FUNDED")])
+def test_cr07_paid_or_funded_ftmo_account_on_a_demo_server_cannot_be_queued(tmp_path, case, stage, klass):
+    p, i = on_profile(case, ftmo(case, evaluation_stage=stage, account_class=klass))
+    assert i.account.environment == "DEMO"  # FTMO serves every account from demo servers
+    assert assess(p, i, now=NOW).verdict == "ALLOW"  # research sizing still works
+    store = store_at(tmp_path)
+    with pytest.raises(ReviewRefused, match=f"PRACTICE-only.*{klass}"):
+        store.queue(p, i, now=NOW)
+    assert store.inspect(p.proposal_id) is None
+
+
+@pytest.mark.parametrize("product,stage,klass", [
+    ("FTMO_2_STEP", "CHALLENGE", "PRACTICE"), ("FTMO_2_STEP", "FUNDED", "PRACTICE"),
+    ("FTMO_1_STEP", "FUNDED", "PAID_EVALUATION"), ("FTMO_FREE_TRIAL", "TRIAL", "FUNDED"),
+    ("FTMO_1_STEP", "VERIFICATION", "PAID_EVALUATION"),  # 1-Step has no Verification
+])
+def test_cr07_ftmo_stage_fixes_the_class(case, product, stage, klass):
+    with pytest.raises(ValidationError):
+        ftmo(case, product=product, evaluation_stage=stage, account_class=klass)
+
+
+def test_cr07_ftmo_free_trial_is_practice_and_may_be_queued(tmp_path, case):
+    p, i = on_profile(case, ftmo(case, product="FTMO_FREE_TRIAL", evaluation_stage="TRIAL",
+                                 account_class="PRACTICE"))
+    store_at(tmp_path).queue(p, i, now=NOW)
+
+
+def test_cr07_live_class_is_disabled_whatever_the_server_says(case):
+    p, i = on_profile(case, case[1].profile.model_copy(update={"account_class": "LIVE"}))
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "UNVERIFIED" and "LIVE_ACCOUNT_CLASS_DISABLED" in r.reasons
+
+
+def test_cr07_undeclared_class_is_unverified(case):
+    p, i = on_profile(case, case[1].profile.model_copy(update={"account_class": "UNVERIFIED"}))
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "UNVERIFIED" and any("account consequence class" in x for x in r.reasons)
+
+
+def test_cr07_reservation_rechecks_the_class(tmp_path, case):
+    p, i = case
+    store = store_at(tmp_path)
+    store.queue(p, i, now=NOW)
+    token = store.approve(p.proposal_id, authenticated_owner="fixture-owner", now=NOW)
+    funded = i.model_copy(update={"profile": i.profile.model_copy(update={"account_class": "FUNDED"})})
+    with pytest.raises(ReviewRefused, match="PRACTICE-only"):
+        store.reserve_intent(p, token, funded, now=NOW)
+    assert store.inspect(p.proposal_id)["state"] == "APPROVED"
+
+
+# --- CR-12: FTMO is recognised by enum values, never by matching free text ---
+
+@pytest.mark.parametrize("field,value", [
+    ("provider", "FTMO s.r.o."), ("provider", "ftmo"), ("provider", "FTMO Challenge 1-Step"),
+    ("product", "1-Step"), ("product", "FTMO Challenge: 1-Step"), ("product", "FTMO Challenge 1-Step"),
+    ("evaluation_stage", "phase2"), ("account_type", "demo"), ("account_class", "DEMO"),
+])
+def test_cr12_free_text_spellings_are_rejected(case, field, value):
+    with pytest.raises(ValidationError):
+        ftmo(case, **{field: value})
+
+
+@pytest.mark.parametrize("provider,product", [("OTHER", "FTMO_1_STEP"), ("FIXTURE_NOT_FTMO", "FTMO_2_STEP"),
+                                              ("FTMO", "OTHER"), ("FTMO", "TEST")])
+def test_cr12_ftmo_products_belong_to_provider_ftmo_only(case, provider, product):
+    with pytest.raises(ValidationError, match="FTMO products"):
+        ftmo(case, provider=provider, product=product)
+
+
+def test_cr12_ftmo_always_gets_the_prague_boundary(case):
+    with pytest.raises(ValidationError, match="Prague midnight"):
+        ftmo(case, reset_timezone="Europe/London")
+
+
+def test_cr12_unvalidated_copy_cannot_skip_the_ftmo_checks(case):
+    """The review case: a spelling that skipped the Prague check, built without validation."""
+    p, i = case
+    sneaky = i.profile.model_copy(update={"provider": "FTMO s.r.o.", "product": "FTMO Challenge 1-Step",
+                                          "reset_timezone": "Europe/London"})
+    assert evaluate_profile(sneaky, i.rule_state, now=NOW).status == "POLICY_UNVERIFIED"
+    r = assess(p.model_copy(update={"rule_profile_hash": sneaky.profile_hash}),
+               i.model_copy(update={"profile": sneaky}), now=NOW)
+    assert r.verdict == "UNVERIFIED" and r.reasons[0].startswith("INVALID_CONTRACT")
+
+
+def test_cr12_one_step_consistency_selector_runs_on_the_enum(case):
+    from datetime import datetime, timezone
+    after_cutover = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    wrong = ftmo(case, product="FTMO_1_STEP", consistency_rule="BEST_DAY_POSITIVE_DAYS_50",
+                 order_created_at=after_cutover)
+    right = ftmo(case, product="FTMO_1_STEP", consistency_rule="CONSISTENCY_NET_PROFIT_50",
+                 order_created_at=after_cutover)
+    assert evaluate_profile(wrong, case[1].rule_state, now=NOW).status == "POLICY_UNVERIFIED"
+    assert evaluate_profile(right, case[1].rule_state, now=NOW).status == "PASS"

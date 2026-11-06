@@ -20,8 +20,11 @@ from pathlib import Path
 import secrets
 import sqlite3
 
-from .contracts import RiskAssessment, TradeProposal, content_hash
+from pydantic import ValidationError
+
+from .contracts import RiskAssessment, TradeProposal, content_hash, revalidated
 from .multiasset_risk import ResearchRiskPolicy, RiskInputs, assess
+from .rule_profiles import order_stage_permitted
 
 
 class State(str, Enum):
@@ -201,6 +204,14 @@ class ReviewStore:
             raise ReviewRefused("trade proposal required")
         if not isinstance(inputs, RiskInputs):
             raise ReviewRefused("risk evidence required; a caller-built assessment is not accepted")
+        try:
+            profile = revalidated(inputs.profile)
+        except ValidationError as exc:
+            raise ReviewRefused("rule profile fails validation") from exc
+        if not order_stage_permitted(profile):
+            # Research may size a trade on any account; only a PRACTICE account
+            # may enter an order stage in this release (review CR-07).
+            raise ReviewRefused(f"order stages are PRACTICE-only in this release; account class is {profile.account_class}")
         risk = assess(proposal, inputs, now=now, policy=self.POLICY)
         if risk.verdict != "ALLOW":
             raise ReviewRefused(f"risk engine verdict {risk.verdict}: {', '.join(risk.reasons)}")

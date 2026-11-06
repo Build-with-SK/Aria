@@ -1,6 +1,6 @@
 # ARIA delivery tracker — multiasset trading remediation
 
-Last updated: 2026-11-06T21:55Z (UTC)
+Last updated: 2026-11-06T22:12Z (UTC)
 
 ## Objective
 
@@ -31,7 +31,9 @@ Original reproductions: [`claude_review_probes/`](claude_review_probes/) (`probe
 
 ## Current stage
 
-Stage 1 — CR-02 (approval store recomputes risk).
+Stage 6 — CR-07 and CR-12 (account consequence classes; enums for provider,
+product, stage and type). Stages 1–5 (CR-02, CR-05, CR-10, CR-03, CR-04, CR-13,
+CR-01) are committed and tested.
 
 ## Findings
 
@@ -46,9 +48,9 @@ and the original failure was reproduced against `7385130`.
 | CR-10 | MED | Trade may land exactly on the floor | TESTED | e0d9c89 | `test_cr10_*` (4); 3 fail at `7385130` (E7 ALLOW, equality ALLOW) |
 | CR-03 | HIGH | Contract-size errors undetected | TESTED | 4027f07 | `test_cr03_*` (7); before: probe E5b gold 10 lots ALLOW at `7385130` |
 | CR-04 | HIGH | FX conversion checked by label only | TESTED | ff1d23a | `test_cr04_*` (3), `test_multiasset_risk.py::test_cross_currency_requires_fresh_pair_quote`; before: probe E3b ALLOW $39.37 vs $63.50 |
-| CR-01 | HIGH | Trailing high-water lowered by re-versioning | TESTED | stage 5 | `test_cr01_*` (4); before: probe R2 high-water 10,800 → 10,000 at `7385130` |
+| CR-01 | HIGH | Trailing high-water lowered by re-versioning | TESTED | 4e1cfde | `test_cr01_*` (4); before: probe R2 high-water 10,800 → 10,000 at `7385130` |
 | CR-06 | HIGH | MT5 adapter not read-only | NOT_STARTED | — | — |
-| CR-07 | HIGH | "DEMO" is not a safety boundary at FTMO | NOT_STARTED | — | — |
+| CR-07 | HIGH | "DEMO" is not a safety boundary at FTMO | TESTED | stage 6 | `test_cr07_*` (13); before: paid FTMO Challenge on a DEMO server ALLOW and queued at `7385130` |
 | CR-08 | HIGH | News/gap/weekend rules not enforced | NOT_STARTED | — | — |
 | QA-01 | HIGH | Backtester breaker look-ahead | NOT_STARTED | — | — |
 | CR-09 | MED | Per-day server/position/order limits | NOT_STARTED | — | — |
@@ -59,7 +61,7 @@ and the original failure was reproduced against `7385130`.
 | QA-03 | MED | Close-only stops | NOT_STARTED | — | — |
 | QA-04 | MED | No path-level FTMO breach simulation | NOT_STARTED | — | — |
 | OP-01 | MED | MT5 needs a Windows host (ops) | NOT_STARTED | — | — |
-| CR-12 | LOW | FTMO detection by exact strings | NOT_STARTED | — | — |
+| CR-12 | LOW | FTMO detection by exact strings | TESTED | stage 6 | `test_cr12_*` (15); before: "FTMO s.r.o." + London validated; "FTMO Challenge 1-Step" with the wrong formula PASS at `7385130` |
 | CR-13 | LOW | One FX rate at today's price | TESTED | ff1d23a | `test_cr13_*` (2); before: probe E2 converts at today's rate |
 | CR-14 | LOW | Backup leaves connection open | NOT_STARTED | — | — |
 | SEC-01 | LOW | Audit chain unkeyed | NOT_STARTED | — | — |
@@ -71,6 +73,10 @@ and the original failure was reproduced against `7385130`.
 |---|---|---|---|
 | 2026-11-06 21:45 | `7385130` (baseline) | full suite, shared venv, `-p no:cacheprovider` | **3,432 passed, 10 skipped**, exit 0, 392 s — identical to the review run |
 | 2026-11-06 21:58 | stage 1 | multiasset + `test_trading_structure.py` | 147 passed |
+| 2026-11-06 22:10 | `4e1cfde` | full suite on a `git archive` copy | **3,454 passed, 21 skipped**, exit 0, 352 s. The 11 extra skips are git-only tests (`test_protected_paths`, `test_selfmod_sandbox`); run in the worktree: 40 passed |
+| 2026-11-06 22:12 | stage 6 | `before_cr07_cr12.py` on the `7385130` copy | paid Challenge on DEMO: ALLOW, store QUEUED; "FTMO s.r.o." + Europe/London validates; "FTMO Challenge 1-Step" + legacy formula after cutover: PASS |
+| 2026-11-06 22:12 | stage 6 | multiasset + structure + findings | **201 passed** |
+| 2026-11-06 22:12 | stage 6 and `7385130` | the `test_trading_*.py` subset run alone | blocked write to `data/execution/approval_queue.json` (nothing written) on both — a pre-existing subset-isolation artifact; the full suite isolates it |
 | 2026-11-06 21:50 | `7385130` | `probes.py` re-run (extracted copy in a temp folder) | R1 forged ALLOW reserved an intent; E5b gold 10 lots ALLOW; E3b inverted FX ALLOW; E8 ALLOW; R2 high-water 10,800 → 10,000; M1 raw SDK `order_send` reachable — all reproduced |
 
 ## Files changed in this delivery
@@ -84,6 +90,8 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 | 2026-11-06 | Work in the existing feature worktree; never touch the main checkout's uncommitted files | The main checkout carries the live data files and the owner's uncommitted state; the review and log originals there stay as they are |
 | 2026-11-06 | Review copied into the branch with hosting details generalised | The repository is public; the findings are unchanged |
 | 2026-11-06 | The cloud-migration handover file is not committed | It names infrastructure access details; it stays local |
+| 2026-11-06 | CR-07: research sizing runs on any account class; only the store's order stages are PRACTICE-only | Sizing a paid Challenge is useful analysis; reaching an order stage is the consequence the review is about |
+| 2026-11-06 | Every trust boundary rebuilds its contracts through validation (`revalidated`) | `model_copy(update=...)` skips validators, which is how the CR-12 spellings could have been smuggled past enums |
 | 2026-11-06 | CR-02: the store runs `assess()` itself, under a class-level policy, and refuses a caller clock > 5 s from its own | A verdict, a policy and a clock are all things a caller could forge; the store now takes none of them |
 
 ## Outstanding blockers (external)
@@ -93,4 +101,6 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 
 ## Next exact action
 
-Finish CR-02: integration tests around the store, update the store docs, commit.
+Stage 7: CR-08 (enum news/gap/weekend/instrument rules backed by calendar and
+session evidence) and CR-09 (per-day position, server-request and open-order
+counters with headroom).

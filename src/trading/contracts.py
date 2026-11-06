@@ -32,6 +32,17 @@ class Contract(BaseModel):
         return value
 
 
+def revalidated(value: Contract) -> Contract:
+    """Re-run every validator on a contract and its nested contracts.
+
+    pydantic's `model_copy(update=...)` does not validate, so an object that
+    looks like a contract may hold values its validators would refuse. Every
+    trust boundary (the risk engine, rule evaluation, the review store)
+    rebuilds its inputs through this before reading them.
+    """
+    return type(value).model_validate(value.model_dump())
+
+
 def content_hash(value: Contract | dict) -> str:
     """Canonical JSON hash; callers bind to the complete validated payload."""
     if isinstance(value, Contract):

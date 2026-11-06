@@ -9,23 +9,41 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationError, model_validator
 
-from .contracts import Contract, Currency, Positive, PolicyEvaluation, content_hash
+from .contracts import Contract, Currency, Positive, PolicyEvaluation, content_hash, revalidated
 
 Fraction = Annotated[Decimal, Field(gt=0, le=1)]
 
+# Closed vocabularies (review CR-12): FTMO is recognised by an enum value, never
+# by matching free text such as "FTMO s.r.o." or a product spelling.
+Provider = Literal["FTMO", "OTHER", "FIXTURE_NOT_FTMO"]
+Product = Literal["FTMO_2_STEP", "FTMO_1_STEP", "FTMO_FREE_TRIAL", "OTHER", "TEST"]
+Stage = Literal["TRIAL", "CHALLENGE", "VERIFICATION", "FUNDED", "NOT_APPLICABLE"]
+AccountType = Literal["STANDARD", "SWING", "NOT_APPLICABLE"]
+# What a loss on this account actually costs (review CR-07). A broker's "demo"
+# label is not this: every FTMO account, paid or funded, is a demo account.
+AccountClass = Literal["PRACTICE", "PAID_EVALUATION", "FUNDED", "LIVE", "UNVERIFIED"]
+
+FTMO_PRODUCTS = ("FTMO_2_STEP", "FTMO_1_STEP", "FTMO_FREE_TRIAL")
+FTMO_STAGE_CLASS = {"TRIAL": "PRACTICE", "CHALLENGE": "PAID_EVALUATION",
+                    "VERIFICATION": "PAID_EVALUATION", "FUNDED": "FUNDED"}
+FTMO_PRODUCT_STAGES = {"FTMO_FREE_TRIAL": ("TRIAL",),
+                       "FTMO_2_STEP": ("CHALLENGE", "VERIFICATION", "FUNDED"),
+                       "FTMO_1_STEP": ("CHALLENGE", "FUNDED")}
+
 
 class RuleProfile(Contract):
-    provider: str = Field(min_length=1)
+    provider: Provider
     provider_entity: str = Field(min_length=1)
     jurisdiction: str = Field(min_length=1)
-    product: str = Field(min_length=1)
+    product: Product
     account_id: str = Field(min_length=1)
     account_size: Positive
     account_currency: Currency
-    evaluation_stage: str = Field(min_length=1)
-    account_type: str = Field(min_length=1)
+    evaluation_stage: Stage
+    account_type: AccountType
+    account_class: AccountClass = "UNVERIFIED"
     account_creation_date: date
     effective_from: datetime
     effective_until: datetime
@@ -60,8 +78,19 @@ class RuleProfile(Contract):
             raise ValueError("unknown rule timezone") from exc
         if self.effective_until <= self.effective_from:
             raise ValueError("invalid policy validity interval")
-        if self.provider.upper() == "FTMO" and (self.reset_timezone != "Europe/Prague" or self.reset_hour != 0):
-            raise ValueError("FTMO boundary must use verified Prague midnight")
+        if (self.provider == "FTMO") != (self.product in FTMO_PRODUCTS):
+            raise ValueError("FTMO products belong to provider FTMO and only to it")
+        if self.provider == "FTMO":
+            if self.reset_timezone != "Europe/Prague" or self.reset_hour != 0:
+                raise ValueError("FTMO boundary must use verified Prague midnight")
+            if self.evaluation_stage not in FTMO_PRODUCT_STAGES[self.product]:
+                raise ValueError(f"{self.product} has no {self.evaluation_stage} stage")
+            if self.account_type == "NOT_APPLICABLE":
+                raise ValueError("FTMO accounts are STANDARD or SWING")
+            expected = FTMO_STAGE_CLASS[self.evaluation_stage]
+            if self.account_class not in ("UNVERIFIED", expected):
+                raise ValueError(f"an FTMO {self.evaluation_stage} account is {expected}, "
+                                 f"not {self.account_class}")
         if any(not url.startswith("https://") for url in self.source_urls):
             raise ValueError("policy evidence requires HTTPS URLs")
         return self
@@ -82,9 +111,11 @@ class RuleProfile(Contract):
             reasons.append("POLICY_UNVERIFIED: profile outside validity interval")
         if self.daily_method == "UNVERIFIED":
             reasons.append("POLICY_UNVERIFIED: daily snapshot methodology unknown")
+        if self.account_class == "UNVERIFIED":
+            reasons.append("POLICY_UNVERIFIED: account consequence class (PRACTICE/PAID_EVALUATION/FUNDED/LIVE)")
         if self.consistency_rule not in ("NONE", "BEST_DAY_POSITIVE_DAYS_50", "CONSISTENCY_NET_PROFIT_50"):
             reasons.append("POLICY_UNVERIFIED: unsupported consistency formula")
-        if self.provider.upper()=="FTMO" and self.product in ("1-Step", "FTMO_1_STEP", "FTMO Challenge: 1-Step"):
+        if self.product=="FTMO_1_STEP":
             expected=ftmo_1step_consistency_version(order_created_at=self.order_created_at,
                                                    merged_at=self.last_account_merge_at)
             if expected=="UNVERIFIED" or expected!=self.consistency_rule:
@@ -116,7 +147,17 @@ def rule_day(profile: RuleProfile, now: datetime) -> date:
     return (local - timedelta(hours=profile.reset_hour)).date()
 
 
+def order_stage_permitted(profile: RuleProfile) -> bool:
+    """Only a PRACTICE account may enter any order-review stage in this release."""
+    return profile.account_class == "PRACTICE"
+
+
 def evaluate_profile(profile: RuleProfile, state: RuleState, *, now: datetime) -> PolicyEvaluation:
+    try:
+        profile, state = revalidated(profile), revalidated(state)
+    except ValidationError:
+        return PolicyEvaluation(status="POLICY_UNVERIFIED", reasons=("POLICY_UNVERIFIED: invalid profile or state contract",),
+                                profile_hash=content_hash(profile.model_dump(mode="json")))
     day = rule_day(profile, now)
     reasons = list(profile.verification_reasons(now))
     if state.account_id != profile.account_id or state.account_currency != profile.account_currency:
@@ -173,6 +214,11 @@ def evaluate_objectives(profile: RuleProfile, *, balance: Decimal,
                         now: datetime) -> dict:
     """Eligibility research check; not a loss-rule verdict or trading mandate."""
     rule_day(profile,now)  # validate clock even with incomplete evidence
+    try:
+        profile=revalidated(profile)
+    except ValidationError:
+        return {"status":"POLICY_UNVERIFIED","reasons":["POLICY_UNVERIFIED: invalid profile contract"],
+                "profile_hash":content_hash(profile.model_dump(mode="json"))}
     reasons=list(profile.verification_reasons(now))
     if len({d.day for d in days})!=len(days) or not balance.is_finite():
         reasons.append("POLICY_UNVERIFIED: invalid/duplicate trading-day data")

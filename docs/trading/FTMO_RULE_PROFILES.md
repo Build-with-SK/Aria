@@ -23,6 +23,37 @@ the legacy rule. New consistency uses net closed P/L; legacy uses positive days.
 Both 50% formulas are separate; exact creation/merge timestamps are required.
 [Official update](https://ftmo.com/en/blog/trading-updates/trading-update-8-oct-2026/).
 
+## Account class and closed vocabularies (review CR-07, CR-12)
+
+FTMO states that every account it provides is a demo account with fictitious
+funds — the paid Challenge, the Verification and the funded FTMO Account alike.
+A broker's DEMO label therefore says nothing about what a loss costs. Each
+profile declares an `account_class` by consequence:
+
+| Class | Meaning | FTMO stage |
+|---|---|---|
+| `PRACTICE` | own demo, nothing to lose | `TRIAL` (Free Trial) |
+| `PAID_EVALUATION` | a fee is at stake | `CHALLENGE`, `VERIFICATION` |
+| `FUNDED` | a reward split is at stake | `FUNDED` |
+| `LIVE` | own money | — |
+| `UNVERIFIED` (default) | undeclared: POLICY_UNVERIFIED | — |
+
+For an FTMO profile the class is fixed by the stage: a Challenge declared
+`PRACTICE` fails validation. A `LIVE` class is UNVERIFIED in the risk engine
+whatever the server says. **Only a `PRACTICE` account may enter the order-review
+store in this release** (`queue` and `reserve_intent` refuse every other class);
+research sizing still runs on any class.
+
+Provider, product, stage, account type and class are closed enums. FTMO is
+recognised as `provider="FTMO"` with a product of `FTMO_2_STEP`, `FTMO_1_STEP`
+or `FTMO_FREE_TRIAL` — never by matching text such as "FTMO s.r.o." or a
+product spelling. The two go together (an FTMO product under another provider
+is rejected), an FTMO profile must use Prague midnight, and the 1-Step
+consistency selector keys on `FTMO_1_STEP`. The legal entity stays free text in
+`provider_entity`. The rule engine, risk engine and review store rebuild their
+inputs through validation, so an unvalidated `model_copy` cannot smuggle in a
+value the enums refuse.
+
 Profile identity includes provider/entity/jurisdiction, product, account, size,
 currency, stage/type, creation date/exact order/merge time, validity window,
 sources, verification, user confirmation, version and computed content hash.

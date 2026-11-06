@@ -35,15 +35,19 @@ def test_october_cutover_uses_published_platform_time_and_preserves_legacy():
 
 def test_missing_exact_account_creation_does_not_select_ftmo_version(case):
     _,i=case
-    profile=i.profile.model_copy(update={"provider":"FTMO","product":"1-Step",
+    # A valid FTMO 1-Step profile: only the missing order time leaves it unverified.
+    profile=type(i.profile).model_validate({**i.profile.model_dump(),"provider":"FTMO","product":"FTMO_1_STEP",
+         "evaluation_stage":"CHALLENGE","account_type":"STANDARD","account_class":"PAID_EVALUATION",
          "consistency_rule":"CONSISTENCY_NET_PROFIT_50","order_created_at":None})
-    assert evaluate_profile(profile,i.rule_state,now=NOW).status=="POLICY_UNVERIFIED"
+    result=evaluate_profile(profile,i.rule_state,now=NOW)
+    assert result.status=="POLICY_UNVERIFIED"
+    assert result.reasons==("POLICY_UNVERIFIED: account creation/merge rule version unresolved",)
 
 
 def test_phase_targets_minimum_days_and_closed_positions(case):
     _,i=case
     first=i.profile.model_copy(update={"profit_target_fraction":D("0.1"),"minimum_trading_days":4})
-    second=first.model_copy(update={"evaluation_stage":"phase2","profit_target_fraction":D("0.05")})
+    second=first.model_copy(update={"evaluation_stage":"VERIFICATION","profit_target_fraction":D("0.05")})
     days=tuple(TradingDayResult(day=date(2026,11,j+1),closed_net_pnl="125",positions_opened=1) for j in range(4))
     assert evaluate_objectives(first,balance=D("10500"),days=days,all_positions_closed=True,now=NOW)["status"]=="NOT_YET_ELIGIBLE"
     assert evaluate_objectives(second,balance=D("10500"),days=days,all_positions_closed=True,now=NOW)["status"]=="ELIGIBLE_FOR_HUMAN_REVIEW"

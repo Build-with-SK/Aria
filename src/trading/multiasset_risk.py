@@ -6,12 +6,12 @@ return UNVERIFIED. No universal pip value, guessed margin or missing-rate fallba
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_FLOOR
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from .contracts import (AccountSnapshot, AssetClass, BrokerCalculation, Contract,
                         FXPairQuote, Instrument, InstrumentSpecification,
                         MarketQuote, NonNegative, Positive, RiskAssessment,
-                        TradeProposal, content_hash)
+                        TradeProposal, content_hash, revalidated)
 from .instrument_registry import expected_contract_sizes
 from .rule_profiles import RuleProfile, RuleState, evaluate_profile
 
@@ -140,6 +140,13 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("timezone-aware clock required")
     policy = policy or ResearchRiskPolicy()
+    try:
+        # model_copy(update=...) skips validation; rebuild so every validator runs.
+        proposal, inputs, policy = revalidated(proposal), revalidated(inputs), revalidated(policy)
+    except ValidationError as exc:
+        return RiskAssessment(verdict="UNVERIFIED", reasons=("INVALID_CONTRACT: "+exc.errors()[0]["type"],),
+                              policy_hash="0"*64, proposal_hash="0"*64, assessed_at=now, expires_at=now,
+                              quantity=Decimal("0"), monetary_risk=Decimal("0"))
     ph = content_hash({"research": policy.model_dump(mode="json"), "provider": inputs.profile.profile_hash})
 
     def result(verdict, reasons, quantity=Decimal("0"), risk=Decimal("0")):
@@ -163,6 +170,10 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
         unverified.append("ACCOUNT_CURRENCY_MISMATCH")
     if a.environment not in ("SIMULATION", "DEMO"):
         unverified.append("LIVE_OR_UNKNOWN_ACCOUNT_DISABLED")
+    # The broker's DEMO label says nothing about consequences: every FTMO account
+    # is a demo account, including a paid Challenge and a funded account (CR-07).
+    if inputs.profile.account_class == "LIVE":
+        unverified.append("LIVE_ACCOUNT_CLASS_DISABLED")
     if not (a.positions_complete and a.orders_complete and inputs.book_risk_complete):
         unverified.append("INCOMPLETE_ACCOUNT_BOOK")
     if not inputs.operational_constraints_verified:

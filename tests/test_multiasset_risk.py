@@ -37,7 +37,8 @@ def case():
         calculation_mode="LINEAR", provenance=provenance)
     profile = RuleProfile(provider="FIXTURE_NOT_FTMO", provider_entity="fixture", jurisdiction="fixture",
         product="TEST", account_id="demo-1", account_size="10000", account_currency="USD",
-        evaluation_stage="fixture", account_type="demo", account_creation_date="2026-11-01",
+        evaluation_stage="NOT_APPLICABLE", account_type="NOT_APPLICABLE", account_class="PRACTICE",
+        account_creation_date="2026-11-01",
         effective_from=NOW-timedelta(days=1), effective_until=NOW+timedelta(days=1),
         source_urls=("https://example.invalid/fixture-only",), verified_at=NOW-timedelta(hours=2),
         user_confirmed_at=NOW-timedelta(hours=1), policy_version="test-1", daily_loss_fraction="0.05",

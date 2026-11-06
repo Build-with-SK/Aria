@@ -4,6 +4,9 @@ This is a tested research/read-only extension, not the completed production targ
 
 - No actual FTMO account/profile is configured or confirmed. Exact account entity,
   product/phase, restrictions and creation/merge evidence are external requirements.
+- Order stages accept only `PRACTICE` accounts (own demo, FTMO Free Trial). Paid
+  evaluations and funded accounts need the full gate set plus per-order human
+  confirmation before any order stage may admit them; neither exists yet.
 - MT5 SDK/terminal absent; only SDK fixtures ran. No connectivity, send, fill,
   partial fill, modification, cancellation or broker reconciliation is claimed.
   Mutation methods intentionally refuse rather than implement a latent live sender.

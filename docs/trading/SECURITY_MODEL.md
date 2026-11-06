@@ -24,6 +24,13 @@ audit record, and a caller clock more than 5 s from the store's clock is refused
 No public API exposes library review methods. The `authenticated_owner` library
 argument is NOT an authenticator: only a trusted server handler may supply it.
 
+Order stages are PRACTICE-only in this release (review CR-07): the store refuses
+to queue or reserve a proposal whose rule profile is `PAID_EVALUATION`,
+`FUNDED`, `LIVE` or undeclared, re-checking at reservation. The server's DEMO
+label is not used as the boundary, because every FTMO account is a demo account.
+Contracts reaching the risk engine, rule evaluation or the store are rebuilt
+through validation first, so `model_copy(update=...)` cannot bypass a validator.
+
 Tests cover remote anonymous/service denial, invalid input, stale/missing evidence,
 account switch, all MT5 mutations, concurrency, rollback, replay and audit edits.
 Protected auth/live gate/approval/workflow/fence files were not edited.
