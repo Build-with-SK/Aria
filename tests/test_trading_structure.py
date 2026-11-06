@@ -144,3 +144,30 @@ def test_every_trading_module_imports_cleanly():
         if path.name == "__init__.py":
             continue
         importlib.import_module(f"src.trading.{path.stem}")
+
+
+def _python_sources() -> list[Path]:
+    return sorted(p for root in ("src", "backend", "scripts") for p in (REPO / root).rglob("*.py"))
+
+
+def test_only_the_mt5_worker_imports_the_metatrader5_sdk():
+    """Review CR-06. `MetaTrader5` is process-global: once initialised, anything
+    in the process can call its `order_send`. It may therefore be imported only
+    by the worker, which runs it in a child process behind a read-only pipe."""
+    worker = TRADING / "mt5_worker.py"
+    offenders = []
+    for path in _python_sources():
+        if path == worker:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if any(name.split(".")[0] == "MetaTrader5" for name in imports_of(path)) \
+                or "'MetaTrader5'" in text or '"MetaTrader5"' in text:
+            offenders.append(str(path.relative_to(REPO)))
+    assert offenders == [], offenders
+
+
+def test_the_mt5_adapter_is_built_only_inside_the_worker():
+    offenders = [str(p.relative_to(REPO)) for p in _python_sources()
+                 if "MT5ReadOnlyAdapter(" in p.read_text(encoding="utf-8")
+                 and p != TRADING / "mt5_worker.py"]
+    assert offenders == [], offenders

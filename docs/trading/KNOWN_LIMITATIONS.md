@@ -45,7 +45,10 @@ This is a tested research/read-only extension, not the completed production targ
 - Shared Python venv has known advisories; it was not changed. A separate audited
   minimal research lock is supplied. Frontend retains two moderate router findings
   requiring a major upgrade review. See DEPENDENCY_AUDIT.md.
-- SQLite local storage is not encrypted and audit chains have no external anchor.
+- SQLite local storage is not encrypted. Audit chains can be keyed and anchored
+  (SEC-01), but no key manager or anchor store ships: the operator holds both.
+- The MT5 worker (CR-06) is tested with a fake SDK in a real spawned process.
+  No genuine terminal, investor login or Windows worker host has been exercised.
   Audit verification scans event history and is O(events); this is not suitable
   for an unbounded high-frequency event stream. Reads and indicators are bounded
   to 5,000 submitted bars but need request-size/rate/latency budgets before remote

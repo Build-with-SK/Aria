@@ -29,13 +29,24 @@ still collects unrelated modules, so use the explicit file list above.
 
 ## Review store / restoration
 
-`ReviewStore(Path(...))` creates only its explicit-path SQLite database. Schema 1
-is additive and separate from every existing production store. Every review/state
+`ReviewStore(Path(...), audit_key=key)` creates only its explicit-path SQLite
+database (schema 3), separate from every existing production store. The audit
+key (32+ bytes) is kept **outside** the database: every audit event is then an
+HMAC-SHA256 link that someone who can write the file cannot rebuild (review
+SEC-01). A store opened without a key works as a review queue but cannot reserve
+an intent; a chain is keyed or unkeyed from its first event and never changes,
+and opening a keyed chain without its key, or with another key, is refused.
+After each review session, store `store.anchor()` (the chain head) somewhere
+the database's writer cannot change; `verify_audit(anchor)` then also detects a
+chain truncated below, or rewritten through, that event. This release ships no
+key manager or anchor store: both are the operator's. Every review/state
 or rule-boundary write uses BEGIN IMMEDIATE; exceptions roll back. Keep the file
 owner-only. An approval token is returned once and never logged/stored in plaintext.
 
 Use `store.backup(new_path)` (SQLite backup API), not a mid-write file copy. It
-refuses overwrite/self-copy. Restore by opening an independently copied backup,
+refuses overwrite/self-copy and closes both connections before returning, so the
+backup file is not left locked on Windows (review CR-14). Open a backup with the
+same audit key. Restore by opening an independently copied backup,
 running `verify_audit()`, checking account/profile identity and calling
 `recover(now=aware_utc)` before any future reviewed worker is attached. Recovery
 holds pending/unknown intents at RECONCILIATION_REQUIRED; it does not resend.

@@ -9,6 +9,9 @@ from src.trading.multiasset_risk import assess
 from src.trading.review_store import ReviewRefused, ReviewStore, State, validate_transition
 
 
+KEY = b"fixture-review-audit-key-32-bytes"  # held outside the database (SEC-01)
+
+
 def clock():
     return NOW
 
@@ -16,7 +19,7 @@ def clock():
 def queued(tmp_path,case):
     """Queue and approve the fixture; the store assesses the evidence itself."""
     p,i=case
-    store=ReviewStore(tmp_path/'review.sqlite',clock=clock)
+    store=ReviewStore(tmp_path/'review.sqlite',clock=clock,audit_key=KEY)
     risk=store.queue(p,i,now=NOW)
     assert risk==assess(p,i,now=NOW,policy=ReviewStore.POLICY)
     token=store.approve(p.proposal_id,authenticated_owner="fixture-owner",now=NOW)
@@ -29,7 +32,7 @@ def test_atomic_single_use_and_restart_recovery(tmp_path,case):
     assert len(intent)==64
     with pytest.raises(ReviewRefused):
         store.reserve_intent(p,token,i,now=NOW)
-    restarted=ReviewStore(store.path,clock=clock)
+    restarted=ReviewStore(store.path,clock=clock,audit_key=KEY)
     assert restarted.recover(now=NOW)==1
     assert restarted.recover(now=NOW)==0
     assert restarted.inspect(p.proposal_id)["state"] == "RECONCILIATION_REQUIRED"
@@ -40,7 +43,7 @@ def test_racing_store_connections_reserve_once(tmp_path,case):
     store,p,i,token=queued(tmp_path,case)
     def reserve(_):
         try:
-            return ReviewStore(store.path,clock=clock).reserve_intent(p,token,i,now=NOW)
+            return ReviewStore(store.path,clock=clock,audit_key=KEY).reserve_intent(p,token,i,now=NOW)
         except ReviewRefused:
             return None
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -68,7 +71,7 @@ def test_expiry_policy_change_and_wrong_token(tmp_path,case,monkeypatch):
         store.reserve_intent(p,"bad",i,now=NOW)
     later=NOW+timedelta(seconds=30)
     with pytest.raises(ReviewRefused):
-        ReviewStore(store.path,clock=lambda: later).reserve_intent(p,token,i,now=later)
+        ReviewStore(store.path,clock=lambda: later,audit_key=KEY).reserve_intent(p,token,i,now=later)
     from src.trading.multiasset_risk import ResearchRiskPolicy
     stricter=ResearchRiskPolicy(ordinary_fraction="0.004")
     monkeypatch.setattr(ReviewStore,"POLICY",stricter)
@@ -82,7 +85,7 @@ def test_audit_tamper_refused_and_backup_restore(tmp_path,case):
     backup=tmp_path/'backup.sqlite'
     digest=store.verify_audit()
     store.backup(backup)
-    assert ReviewStore(backup,clock=clock).verify_audit()==digest
+    assert ReviewStore(backup,clock=clock,audit_key=KEY).verify_audit()==digest
     with sqlite3.connect(str(store.path)) as db:
         db.execute("UPDATE audit SET body='tampered' WHERE sequence=1")
     with pytest.raises(ReviewRefused,match="integrity"):

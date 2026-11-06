@@ -82,6 +82,14 @@ def _system_clock() -> datetime:
     return datetime.now(timezone.utc)
 
 
+UNKEYED = "UNKEYED"
+
+
+def _key_id(key: bytes) -> str:
+    """Names a key without revealing it: HMAC of a fixed label."""
+    return hmac.new(key, b"aria-review-audit-key-id", hashlib.sha256).hexdigest()[:32]
+
+
 class ReviewStore:
     #: The only policy the store assesses under. A caller cannot pass a looser
     #: one; changing it is a reviewed code change, and the policy hash binds
@@ -91,13 +99,21 @@ class ReviewStore:
     #: refused, so an approval cannot be made "in the past" against stale data.
     MAX_CLOCK_SKEW_SECONDS = 5
 
-    def __init__(self, path: Path, *, clock=_system_clock):
+    def __init__(self, path: Path, *, clock=_system_clock, audit_key: bytes | None = None):
+        """`audit_key` (32+ bytes, kept outside this database) makes every audit
+        event an HMAC-SHA256 link (review SEC-01): someone who can write the
+        file but does not hold the key cannot rebuild a valid chain. A chain is
+        keyed or unkeyed from its first event and never changes; only a keyed
+        store may reserve an intent."""
+        if audit_key is not None and (not isinstance(audit_key, bytes) or len(audit_key) < 32):
+            raise ReviewRefused("audit key must be at least 32 bytes")
+        self._audit_key = audit_key
         self._system_clock = clock
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._db() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1, 2):
+            if version not in (0, 1, 2, 3):
                 raise ReviewRefused("unsupported review schema version")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS proposals (
@@ -131,8 +147,21 @@ class ReviewStore:
                     high_water TEXT NOT NULL, evidence_hash TEXT NOT NULL,
                     profile_hash TEXT NOT NULL,
                     PRIMARY KEY(account_id,day));
-                PRAGMA user_version=2;
+                CREATE TABLE IF NOT EXISTS audit_meta (
+                    id INTEGER PRIMARY KEY CHECK (id = 1), key_id TEXT NOT NULL);
+                PRAGMA user_version=3;
             """)
+            wanted = UNKEYED if audit_key is None else _key_id(audit_key)
+            row = db.execute("SELECT key_id FROM audit_meta WHERE id=1").fetchone()
+            if row is None:
+                events = db.execute("SELECT COUNT(*) FROM audit").fetchone()[0]
+                # A chain that already has unkeyed events stays unkeyed.
+                db.execute("INSERT INTO audit_meta VALUES(1,?)", (wanted if not events else UNKEYED,))
+                row = db.execute("SELECT key_id FROM audit_meta WHERE id=1").fetchone()
+            if row["key_id"] != wanted:
+                if row["key_id"] == UNKEYED:
+                    raise ReviewRefused("this audit chain is unkeyed and cannot be re-keyed; start a new store")
+                raise ReviewRefused("audit key missing or wrong for this chain")
 
     @contextmanager
     def _db(self):
@@ -157,32 +186,35 @@ class ReviewStore:
                 db.rollback()
                 raise
 
-    @staticmethod
-    def _verify(db):
+    def _link(self, previous: str, body: str) -> str:
+        data = (previous + body).encode()
+        if self._audit_key is None:
+            return hashlib.sha256(data).hexdigest()
+        return hmac.new(self._audit_key, data, hashlib.sha256).hexdigest()
+
+    def _verify(self, db):
         previous = "0" * 64
         for expected, row in enumerate(db.execute("SELECT * FROM audit ORDER BY sequence"), 1):
-            calculated = hashlib.sha256((previous + row["body"]).encode()).hexdigest()
+            calculated = self._link(previous, row["body"])
             if row["sequence"] != expected or row["previous_hash"] != previous or row["event_hash"] != calculated:
                 raise ReviewRefused("audit integrity failure")
             previous = calculated
         return previous
 
-    @classmethod
-    def _event(cls, db, kind: str, proposal_id: str, now: datetime, **details):
-        previous = cls._verify(db)
+    def _event(self, db, kind: str, proposal_id: str, now: datetime, **details):
+        previous = self._verify(db)
         body = json.dumps({"kind": kind, "proposal_id": proposal_id,
                            "at": now.isoformat(), **details}, sort_keys=True, separators=(",", ":"))
-        digest = hashlib.sha256((previous + body).encode()).hexdigest()
+        digest = self._link(previous, body)
         db.execute("INSERT INTO audit(body,previous_hash,event_hash) VALUES(?,?,?)", (body, previous, digest))
 
-    @classmethod
-    def _state(cls, db, proposal_id, new, now):
+    def _state(self, db, proposal_id, new, now):
         row=db.execute("SELECT state FROM proposals WHERE id=?",(proposal_id,)).fetchone()
         if row is None:
             raise ReviewRefused("proposal missing")
         validate_transition(State(row["state"]),State(new))
         db.execute("UPDATE proposals SET state=? WHERE id=?",(State(new).value,proposal_id))
-        cls._event(db,"STATE_TRANSITION",proposal_id,now,old=row["state"],new=State(new).value)
+        self._event(db,"STATE_TRANSITION",proposal_id,now,old=row["state"],new=State(new).value)
 
     def _now(self, now: datetime):
         """A timezone-aware caller clock that agrees with the store's own."""
@@ -286,6 +318,8 @@ class ReviewStore:
         result must still ALLOW, under the approved policy, at no more risk.
         """
         self._now(now)
+        if self._audit_key is None:
+            raise ReviewRefused("reserving an intent requires a keyed audit chain (review SEC-01)")
         with self._transaction() as db:
             fresh_risk = self._assess(proposal, fresh_inputs, now)
             row = db.execute("SELECT p.*, a.token_hash, a.expires_at, a.consumed FROM proposals p JOIN approvals a ON a.proposal_id=p.id WHERE p.id=?",
@@ -330,9 +364,30 @@ class ReviewStore:
             row = db.execute("SELECT id,payload_hash,state FROM proposals WHERE id=?", (proposal_id,)).fetchone()
             return dict(row) if row else None
 
-    def verify_audit(self) -> str:
+    def verify_audit(self, anchor: dict | None = None) -> str:
+        """Verify the chain; with `anchor`, also that it still contains that event.
+
+        An anchor is what `anchor()` returned earlier, stored outside this
+        database. A keyed chain cannot be rebuilt without the key, and an
+        anchored one cannot be truncated below or rewritten through its anchor.
+        """
         with self._db() as db:
-            return self._verify(db)
+            head = self._verify(db)
+            if anchor is not None:
+                row = db.execute("SELECT event_hash FROM audit WHERE sequence=?",
+                                 (anchor["sequence"],)).fetchone()
+                if row is None or not hmac.compare_digest(row["event_hash"], anchor["event_hash"]):
+                    raise ReviewRefused("audit chain no longer contains its external anchor")
+            return head
+
+    def anchor(self) -> dict:
+        """The chain head, to be stored outside this database (review SEC-01)."""
+        with self._db() as db:
+            self._verify(db)
+            row = db.execute("SELECT sequence, event_hash FROM audit ORDER BY sequence DESC LIMIT 1").fetchone()
+            if row is None:
+                raise ReviewRefused("empty audit chain has nothing to anchor")
+            return {"sequence": row["sequence"], "event_hash": row["event_hash"]}
 
     @staticmethod
     def _boundary_integrity(db, row):
@@ -428,6 +483,12 @@ class ReviewStore:
     def backup(self, destination: Path):
         if Path(destination).resolve() == self.path.resolve() or Path(destination).exists():
             raise ReviewRefused("backup requires a new distinct path")
-        with self._db() as source, sqlite3.connect(str(destination)) as target:
-            self._verify(source)
-            source.backup(target)
+        # Closed explicitly (review CR-14): `with sqlite3.connect(...)` commits
+        # but does not close, and on Windows the open handle locks the file.
+        target = sqlite3.connect(str(destination))
+        try:
+            with self._db() as source:
+                self._verify(source)
+                source.backup(target)
+        finally:
+            target.close()

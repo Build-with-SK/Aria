@@ -5,10 +5,14 @@ unchanged. Legacy Alpaca/IBKR types use equity/share conventions and are wrapped
 by existing mode/paper gates. They are not silently substituted for FX-lot APIs.
 IBKR code is real but no TWS session was verified by this work.
 
-MT5 stage 1 is `src/trading/mt5_readonly.py`. Its explicit operation allowlist and
-capability response avoid pretending every broker supports the same operation.
-No generic method proxy or writable raw SDK object is returned by a web route.
-SDK fixtures verify account change, missing data and investor access behaviour.
+MT5 stage 1 is `src/trading/mt5_readonly.py`, run only inside the worker process
+of `src/trading/mt5_worker.py` (review CR-06). ARIA's side holds an
+`MT5ReadClient` with no SDK object; the worker accepts only allowlisted reads,
+returns plain data, and connects only with an investor (read-only) login.
+Its explicit operation allowlist and capability response avoid pretending every
+broker supports the same operation. No generic method proxy or writable raw SDK
+object is returned by a web route. SDK fixtures verify account change, missing
+data, investor-only access and the worker's refusal of every write message.
 
 Future common transport contract must cover connect/disconnect, health, account,
 instruments, quotes, bars, orders, positions/history, estimate/preflight, submit,

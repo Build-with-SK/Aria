@@ -25,7 +25,7 @@ counts and skip reasons: TEST_EVIDENCE.md. Mock transport success is not integra
 | Single-use bound review / atomic intent / recovery / audit backup | IMPLEMENTED_AND_TESTED | src/trading/review_store.py | Replay/race/crash/restart/tamper/backup tests | None for library tests | Authenticated demo worker integration |
 | Complete broker-driven execution lifecycle | PARTIAL | review_store.py state vocabulary; legacy orders preserved | Persisted pre-send/recovery tests; legacy order tests | Broker worker/session | Verified ACK/partial/fill/reconciliation |
 | New demo sender / modification / closing implementation | NOT_STARTED | MT5 writes intentionally refuse | All mutation refusal tests | Independent review + actual demo identity | Private gated worker only |
-| MT5 read-only SDK adapter | MOCK_ONLY | src/trading/mt5_readonly.py | Injected SDK identity/switch/None/investor tests | Official SDK + local terminal + authorised demo | Genuine read connection (Gate 4) |
+| MT5 read-only SDK adapter | MOCK_ONLY | src/trading/mt5_readonly.py, src/trading/mt5_worker.py | Injected SDK identity/switch/None/investor-only tests; spawned worker refuses writes | Official SDK + local terminal + authorised demo | Genuine read connection (Gate 4) |
 | Actual MT5 demo order (Gate 5) | BLOCKED | No send transport | None claimed | Genuine session + individual approval | After Gate 4 and worker review |
 | Existing IBKR transport | IMPLEMENTED_NOT_INTEGRATION_TESTED | src/execution/ibkr_broker.py unchanged | Existing fake broker/status tests | TWS/Gateway / authorised account | Separate session evidence |
 | cTrader | NOT_STARTED | BROKER_ADAPTERS.md specification | No implementation claimed | Broker app/OAuth/account access | Review transport contract |

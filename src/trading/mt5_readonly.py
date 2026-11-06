@@ -1,13 +1,18 @@
-"""Official MetaTrader5 terminal IPC, stage 1: demo reads only.
+"""Official MetaTrader5 terminal IPC, stage 1: investor-login demo reads only.
 
-No dependency/import/connection at module import. The optional SDK is Windows
-worker infrastructure, never installed into every research service. Each read
-rechecks actual terminal account identity; an environment variable cannot classify
-the account. No HTTP endpoint creates this adapter or reaches the terminal.
+This adapter never imports the SDK. It is handed one, and only by the MT5
+worker process (`mt5_worker.py`), which is the one module allowed to import
+`MetaTrader5` (review CR-06): the SDK is process-global, so read-only has to be
+a process boundary, not a set of method names.
+
+Each read rechecks the terminal's actual account identity, and that the login
+is the investor (read-only) one: `account_info().trade_allowed` must be False
+and the terminal's algorithmic trading must be off. An environment variable
+cannot classify the account. No HTTP endpoint creates this adapter or reaches
+the terminal.
 """
 from datetime import datetime
 from pathlib import Path
-import sys
 import threading
 
 
@@ -33,7 +38,7 @@ WRITE_OPERATIONS = frozenset({
 class MT5ReadOnlyAdapter:
     name = "MT5_READ_ONLY"
 
-    def __init__(self, *, sdk=None):
+    def __init__(self, *, sdk):
         self._sdk = sdk
         self._identity = None
         self._lock = threading.RLock()
@@ -47,13 +52,7 @@ class MT5ReadOnlyAdapter:
             if self._identity is not None:
                 raise MT5PermissionDenied("disconnect before changing account")
             if self._sdk is None:
-                if sys.platform != "win32":
-                    raise MT5Unavailable("MetaTrader5 terminal IPC requires Windows")
-                try:
-                    import MetaTrader5
-                except ImportError as exc:
-                    raise MT5Unavailable("optional MetaTrader5 package is not installed") from exc
-                self._sdk = MetaTrader5
+                raise MT5Unavailable("the MetaTrader5 SDK is loaded only inside the MT5 worker process")
             args = (str(terminal_path),) if terminal_path is not None else ()
             try:
                 if not self._sdk.initialize(*args, timeout=10000):
@@ -75,6 +74,12 @@ class MT5ReadOnlyAdapter:
         demo_mode = getattr(self._sdk, "ACCOUNT_TRADE_MODE_DEMO", None)
         if demo_mode is None or actual != self._identity or account.trade_mode != demo_mode:
             raise MT5PermissionDenied("connected account is not the authorised demo identity")
+        # Investor login only (CR-06): an account that may trade, or a terminal
+        # with algorithmic trading on, is refused even for reads.
+        if getattr(account, "trade_allowed", None) is not False:
+            raise MT5PermissionDenied("investor (read-only) login required; this login can trade")
+        if getattr(terminal, "trade_allowed", None) is not False:
+            raise MT5PermissionDenied("terminal algorithmic trading must be off")
         return account, terminal
 
     def disconnect(self):

@@ -11,13 +11,19 @@ import sqlite3
 
 import pytest
 
+import mt5_fakes
 from test_multiasset_risk import activity, book, calendar, case, holding, NOW, session
 from src.trading.contracts import AssetClass, EconomicEvent, RiskAssessment, content_hash
 from src.trading.multiasset_risk import assess
+from src.trading.mt5_readonly import MT5PermissionDenied, MT5ReadOnlyAdapter, MT5Unavailable
+from src.trading.mt5_worker import MT5ReadClient
 from src.trading.operational_rules import activity_checks, flatten_deadline, news_checks
 from src.trading.review_store import ReviewRefused, ReviewStore
 from src.trading.rule_profiles import RuleProfile, evaluate_profile
 from pydantic import ValidationError
+
+
+AUDIT_KEY = b"fixture-review-audit-key-32-bytes"  # held outside the database (SEC-01)
 
 
 def clock():
@@ -25,7 +31,7 @@ def clock():
 
 
 def store_at(tmp_path, name="review.sqlite"):
-    return ReviewStore(tmp_path / name, clock=clock)
+    return ReviewStore(tmp_path / name, clock=clock, audit_key=AUDIT_KEY)
 
 
 def forged_allow(proposal):
@@ -439,7 +445,7 @@ def test_cr01_schema_v1_boundaries_are_set_aside_not_trusted(tmp_path, case):
     with pytest.raises(ReviewRefused, match="boundary missing"):
         store.rule_state(case[1].profile, equity=D("10000"), now=NOW)
     with sqlite3.connect(str(path)) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
         assert db.execute("SELECT COUNT(*) FROM rule_boundaries_v1_unmigrated").fetchone()[0] == 1
 
 
@@ -873,3 +879,201 @@ def test_cr11_cooldown_from_the_last_losing_close(case, ago, verdict):
 def test_cr11_session_state_comes_from_session_evidence(case, state, verdict):
     p, i = case
     assert assess(p, i.model_copy(update={"session": session(state=state)}), now=NOW).verdict == verdict
+
+
+# --- CR-06: MT5 reads need an investor login and run in their own process ---
+
+IDENTITY = dict(expected_login=123, expected_server="fixture-demo", expected_currency="USD")
+
+
+@pytest.mark.parametrize("fake", [mt5_fakes.trading_login, mt5_fakes.algo_terminal])
+def test_cr06_a_login_that_can_trade_is_refused_at_connect(fake):
+    """The review's test: connect() with trade_allowed=True => MT5PermissionDenied."""
+    adapter = MT5ReadOnlyAdapter(sdk=fake())
+    with pytest.raises(MT5PermissionDenied):
+        adapter.connect(**IDENTITY)
+    assert adapter.health()["connected"] is False
+
+
+def test_cr06_missing_trade_flag_is_refused():
+    sdk = mt5_fakes.investor()
+    del sdk.account.trade_allowed
+    with pytest.raises(MT5PermissionDenied, match="investor"):
+        MT5ReadOnlyAdapter(sdk=sdk).connect(**IDENTITY)
+
+
+def test_cr06_switching_to_a_trading_login_blocks_the_next_read():
+    sdk = mt5_fakes.investor()
+    adapter = MT5ReadOnlyAdapter(sdk=sdk)
+    adapter.connect(**IDENTITY)
+    assert adapter.read("symbols_get")
+    sdk.account.trade_allowed = True
+    with pytest.raises(MT5PermissionDenied):
+        adapter.read("symbols_get")
+
+
+def test_cr06_the_adapter_cannot_load_the_sdk_itself():
+    with pytest.raises(TypeError):
+        MT5ReadOnlyAdapter()  # an SDK must be handed in, by the worker
+    with pytest.raises(MT5Unavailable, match="worker process"):
+        MT5ReadOnlyAdapter(sdk=None).connect(**IDENTITY)
+
+
+def test_cr06_the_client_reads_through_the_worker_and_holds_no_sdk():
+    """The review's test: no `_sdk` reachable from the RPC client (probe M1 reached it)."""
+    import sys
+    client = MT5ReadClient.start(**IDENTITY, sdk_factory="mt5_fakes:investor")
+    try:
+        assert client.read("symbols_get") == [{"name": "EURUSD", "digits": 5}]
+        assert client.health()["execution"] == "DISABLED"
+        assert set(MT5ReadClient.__slots__) == {"_conn", "_process", "_timeout"}
+        for name in ("_sdk", "_adapter", "sdk"):
+            with pytest.raises(AttributeError):
+                getattr(client, name)
+        with pytest.raises(AttributeError):
+            client._sdk = object()  # no attribute can be added to the client
+        with pytest.raises(MT5PermissionDenied):
+            client.order_send({"action": 1})
+        with pytest.raises(MT5PermissionDenied):
+            client.read("order_send", {"action": 1})
+        # Bypass the client's own check: the worker refuses before the SDK.
+        for raw in (("read", "order_send", ({"action": 1},), {}), ("call", "order_send"), "order_send"):
+            client._conn.send(raw)
+            with pytest.raises(MT5PermissionDenied, match="approved reads"):
+                client._receive()
+        assert client.read("positions_get") == []
+        assert "MetaTrader5" not in sys.modules
+    finally:
+        client.close()
+    assert not client._process.is_alive()
+
+
+def test_cr06_the_worker_refuses_a_trading_login():
+    with pytest.raises(MT5PermissionDenied, match="investor"):
+        MT5ReadClient.start(**IDENTITY, sdk_factory="mt5_fakes:trading_login")
+
+
+# --- CR-14: backup() closes every connection it opens ---
+
+def test_cr14_backup_closes_its_connections(tmp_path, case, monkeypatch):
+    import src.trading.review_store as review_store
+    opened = []
+
+    class Tracked(sqlite3.Connection):
+        closed = False
+
+        def close(self):
+            self.closed = True
+            super().close()
+
+    real_connect = sqlite3.connect
+
+    def tracking_connect(*args, **kwargs):
+        connection = real_connect(*args, factory=Tracked, **kwargs)
+        opened.append(connection)
+        return connection
+
+    p, i = case
+    store = store_at(tmp_path)
+    store.queue(p, i, now=NOW)
+    backup = tmp_path / "backup.sqlite"
+    monkeypatch.setattr(review_store.sqlite3, "connect", tracking_connect)
+    store.backup(backup)
+    monkeypatch.undo()
+    assert len(opened) == 2                       # the source and the target
+    assert all(connection.closed for connection in opened)
+    backup.unlink()                               # nothing holds the file
+
+
+# --- SEC-01: the audit chain is keyed, and can be anchored outside the database ---
+
+def rewrite_chain(path, link):
+    """What someone who can write the file but lacks the key would do: edit an
+    event, then recompute every link with the only function they have."""
+    with sqlite3.connect(str(path)) as db:
+        rows = db.execute("SELECT sequence, body FROM audit ORDER BY sequence").fetchall()
+        previous = "0" * 64
+        for sequence, body in rows:
+            if sequence == 1:
+                body = body[:-1] + ',"tampered":true}'
+            digest = link(previous, body)
+            db.execute("UPDATE audit SET body=?, previous_hash=?, event_hash=? WHERE sequence=?",
+                       (body, previous, digest, sequence))
+            previous = digest
+    sqlite3.connect(str(path)).close()
+
+
+def sha256_link(previous, body):
+    import hashlib
+    return hashlib.sha256((previous + body).encode()).hexdigest()
+
+
+def approved(tmp_path, case, store):
+    p, i = case
+    store.queue(p, i, now=NOW)
+    token = store.approve(p.proposal_id, authenticated_owner="fixture-owner", now=NOW)
+    return p, i, token
+
+
+def test_sec01_rebuilt_sha256_chain_is_refused_on_a_keyed_store(tmp_path, case):
+    store = store_at(tmp_path)
+    p, i, token = approved(tmp_path, case, store)
+    rewrite_chain(store.path, sha256_link)
+    with pytest.raises(ReviewRefused, match="integrity"):
+        store.verify_audit()
+    with pytest.raises(ReviewRefused, match="integrity"):
+        store.reserve_intent(p, token, i, now=NOW)
+
+
+def test_sec01_keyed_chain_needs_its_key(tmp_path, case):
+    store = store_at(tmp_path)
+    approved(tmp_path, case, store)
+    with pytest.raises(ReviewRefused, match="audit key missing or wrong"):
+        ReviewStore(store.path, clock=clock)
+    with pytest.raises(ReviewRefused, match="audit key missing or wrong"):
+        ReviewStore(store.path, clock=clock, audit_key=b"another-key-of-thirty-two-bytes!")
+    with pytest.raises(ReviewRefused, match="at least 32 bytes"):
+        ReviewStore(tmp_path / "short.sqlite", clock=clock, audit_key=b"short")
+
+
+@pytest.mark.parametrize("downgrade", [
+    "UPDATE audit_meta SET key_id='UNKEYED'",
+    "DELETE FROM audit_meta",
+])
+def test_sec01_marking_a_keyed_chain_unkeyed_is_refused(tmp_path, case, downgrade):
+    store = store_at(tmp_path)
+    approved(tmp_path, case, store)
+    rewrite_chain(store.path, sha256_link)
+    with sqlite3.connect(str(store.path)) as db:
+        db.execute(downgrade)
+    sqlite3.connect(str(store.path)).close()
+    with pytest.raises(ReviewRefused, match="cannot be re-keyed"):
+        store_at(tmp_path)
+
+
+def test_sec01_unkeyed_store_cannot_reserve_or_be_rekeyed(tmp_path, case):
+    store = ReviewStore(tmp_path / "review.sqlite", clock=clock)
+    p, i, token = approved(tmp_path, case, store)
+    assert store.verify_audit()                  # still a working review queue
+    with pytest.raises(ReviewRefused, match="keyed audit chain"):
+        store.reserve_intent(p, token, i, now=NOW)
+    assert store.inspect(p.proposal_id)["state"] == "APPROVED"
+    with pytest.raises(ReviewRefused, match="cannot be re-keyed"):
+        store_at(tmp_path)
+
+
+def test_sec01_external_anchor_detects_truncation_and_rewrite(tmp_path, case):
+    store = store_at(tmp_path)
+    p, i, token = approved(tmp_path, case, store)
+    anchor = store.anchor()
+    assert store.verify_audit(anchor) == anchor["event_hash"]
+    store.reserve_intent(p, token, i, now=NOW)
+    assert store.verify_audit(anchor)            # later events keep the anchor
+    with sqlite3.connect(str(store.path)) as db:
+        db.execute("DELETE FROM audit WHERE sequence >= ?", (anchor["sequence"],))
+    sqlite3.connect(str(store.path)).close()
+    store.verify_audit()                         # a keyed prefix still links ...
+    with pytest.raises(ReviewRefused, match="external anchor"):
+        store.verify_audit(anchor)               # ... but has lost its anchor
+    with pytest.raises(ReviewRefused, match="external anchor"):
+        store.verify_audit({**anchor, "sequence": 1})
