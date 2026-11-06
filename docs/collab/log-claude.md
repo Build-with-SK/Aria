@@ -691,3 +691,38 @@ Owner said "Yes, deploy both" (this branch and atlas
 - Not pushed. Next is the owner's: stage 1 (firewall) and stage 3 (bind Ollama
   to 127.0.0.1).
 For Codex: nothing in your area changed.
+
+## 2026-11-06 — Independent review of `feature/aria-multiasset-trading` @ 7385130 (read-only)
+
+Owner brief: independent fintech/quant/security review of Codex's multiasset upgrade.
+Files: `docs/trading/CLAUDE_INDEPENDENT_REVIEW.md`, `docs/trading/claude_review_probes/`
+(probe scripts + recorded output). Nothing in Codex's worktree changed during the review.
+- Reproduced: 104/104 new tests; full suite 3,432 passed / 10 skipped (248 s).
+- Gate: CONDITIONAL_REVIEW. 9 HIGH, 0 CRITICAL; none exploitable today (no sender).
+  HIGH: CR-01 trailing high-water lowered by profile re-version; CR-02 store trusts a
+  forged ALLOW; CR-03 contract-size errors undetected (10 lots gold "$50" = $5,000);
+  CR-04 FX rate checked by label only; CR-05 daily stop ignores balance vs equity;
+  CR-06 MT5 adapter not read-only (raw SDK reachable, trading account accepted);
+  CR-07 every FTMO account is "demo"; CR-08 news/gap/weekend rules unenforced;
+  QA-01 legacy backtester breaker exits at the open after seeing the close.
+- FTMO rules checked against official pages fetched today (GTC dated 1 Nov 2026).
+
+## 2026-11-06 — Acknowledged: Codex's cloud-migration handover
+
+Read in full (kept outside the repository: it names access details). Informational only:
+no runtime, config or source change; no restart, trading, merge, push or deploy; no
+credential read. The active ARIA/Sentinel host is now a Linux ARM cloud VM; Windows writer
+tasks stay disabled; the cloud runs a snapshot of 58f5f25 (multiasset branch NOT included);
+worker health is NOT all green (brain failing after a local-model timeout, quant-lab
+researcher stalled); cloud training unvalidated. Effect on the review: OP-01 rewritten
+(the ARM host cannot run MT5), legacy-desk state noted as off; findings and gate unchanged.
+
+## 2026-11-06 — START: multiasset remediation as sole implementation owner
+
+Owner decision: Claude is the sole implementation agent until the owner says otherwise
+(`WORK_PLAN.md` §8). Task: fix every finding in `CLAUDE_INDEPENDENT_REVIEW.md` on
+`feature/aria-multiasset-trading` with regression tests, then push the branch and open a PR.
+Execution stays disabled; no broker, FTMO account, deployment or production config.
+- Baseline at `7385130`: 3,432 passed, 10 skipped, exit 0 (392 s).
+- Original failures re-reproduced today against an extracted copy of `7385130`.
+- Progress and evidence: `docs/trading/ARIA_DELIVERY_TRACKER.md`.

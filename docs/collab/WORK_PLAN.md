@@ -231,3 +231,22 @@ Stage 5 work from a guess.
 - Safety-critical changes (order path, auth, risk gate) are the only ones that
   wait for the other agent's review before merge. Everything else is reviewed
   after merge.
+
+## 8. Owner decision 2026-11-06 — sole implementation ownership
+
+Until the owner says otherwise, Claude Code is the sole implementation and
+engineering agent for ARIA, including the areas section 3 assigns to Codex
+(`src/research`, `src/backtesting`, `frontend/`, `scripts/`, `docs/`). No work
+is delegated to Codex and none depends on Codex. The invariants in section 4
+are unchanged.
+
+Current task: remediate `docs/trading/CLAUDE_INDEPENDENT_REVIEW.md` on
+`feature/aria-multiasset-trading` (worktree `aria-multiasset-trading`), then
+push that branch and open a pull request. Progress, evidence and the next
+action live in `docs/trading/ARIA_DELIVERY_TRACKER.md`. Trading execution stays
+disabled; no broker credential, FTMO account, deployment or production
+configuration is touched by this task.
+
+Rule 6 (cross-review) cannot be met while only one agent works. Each
+safety-critical stage therefore carries its own failing-then-passing
+regression test, and the pull request is the owner's review point.
