@@ -17,6 +17,48 @@ Regime suitability, completed candles, warm-up and identity/basis checks apply.
 Counterevidence includes stretched RSI and alternative scenarios; independent
 quantitative/provider verification remains required before any account action.
 
+## Legacy backtester corrections (review QA-01..QA-03)
+
+`src/backtesting/backtester.py` (the legacy signal backtester, off by default in
+the runtime) now runs each bar in time order: at the open it acts on what was
+decided at the previous close (a pending drawdown-breaker exit, a stop the open
+gapped through, a signal flip), then entries; inside the bar a stop touched by the
+low (long) or high (short) fills at the stop price; at the close it marks to market
+and the breaker decides, acting at the **next** bar's open. Before (`7385130`) the
+breaker read bar *i*'s close and exited at bar *i*'s earlier open (probe: exit at
+100 after a close of 70, final equity 100,000 instead of 70,000), and stops were
+close-only (a −10% low with a flat close never stopped out). Without High/Low
+columns, stops can only see the open and close, and the result's `warning` says so.
+
+`metrics.py` annualises by the bar size and the instrument calendar: 252
+exchange days, 260 FX days, 365 crypto days, times bars per session day for
+intraday bars (6.5 h exchange, 24 h FX and crypto), 52 for weekly and 12 for
+monthly bars. `run_backtest` takes the calendar from the ticker (`=X` FX,
+`-USD`-style crypto, else exchange) unless one is passed, and reports
+`calendar` and `periods_per_year` with its metrics. An unknown frequency or
+calendar leaves CAGR, Sharpe and Sortino as `None`, never a 252-day guess. CAGR
+counts return periods (`len − 1`), so 365 daily crypto returns are one year.
+
+## Path-level prop-firm replay (review QA-04)
+
+`src/backtesting/challenge_replay.py` replays equity through a rule profile's
+loss limits, using the same floors as `rule_profiles.evaluate_profile`: daily =
+balance at the profile's reset (00:00 Europe/Prague for FTMO) minus the daily
+allowance of initial size; overall = initial size (STATIC) or the highest
+day-start balance so far (TRAILING_EOD_BALANCE) minus the overall allowance; a
+breach is equity at or below a floor. `replay_path` takes dated balance/equity
+observations; `replay_days` takes undated days (intraday equity P/L relative to
+the day's opening balance, plus the day's balance change). A day that dips 5.1%
+intraday but closes −3% is a daily breach.
+
+`breach_probabilities` resamples whole historical days in moving blocks, replays
+each synthetic path to a horizon, and reports P(daily breach), P(overall
+breach), P(balance target reached) and P(still open), each with a Wilson 95%
+interval. Those intervals cover the simulation's sampling error only — not
+whether the historical days represent the future. "Target reached" is the
+balance target alone; minimum trading days and consistency remain
+`evaluate_objectives`' job. Status: UNVERIFIED research tooling.
+
 No new full contract-specific fill simulator, stop-gap/partial-fill model,
 survivorship-safe universe or corporate-action replay was built. Existing indicator
 and replay tests are retained, but these additions have **UNVERIFIED** validation

@@ -35,7 +35,16 @@ This is a tested research/read-only extension, not the completed production targ
   need provider-specific integration. Capability labels describe applicability,
   not currently subscribed data.
 - New backtest utilities are not a full multiasset fill simulator. No universal
-  corporate-action, survivorship, gap/partial-fill, market-hours or ruin model.
+  corporate-action, survivorship, partial-fill, market-hours or ruin model. The
+  legacy backtester now fills stops intrabar and at gapped opens (QA-03), but
+  still uses percentage costs, no per-instrument spread, swaps or lot model.
+  Its calendar comes from yfinance ticker conventions; a ticker outside them is
+  treated as exchange-traded unless the caller passes a calendar.
+- `breach_probabilities` (QA-04) resamples the days it is given; its intervals
+  do not cover regime change or a strategy that behaves differently in future.
+- Observed, not changed: the root `main.py` backtest hook imports `Backtester`
+  and `compute_metrics`, which `src/backtesting` does not define; the hook is
+  off by default and, if enabled, logs a warning and returns no results.
 - The dashboard shows an explicitly disconnected extension. Existing pages still
   show their existing legacy data. No screenshots from a deployed runtime; offline
   JSX render checks are the reproducible UI evidence. No hydration/browser event

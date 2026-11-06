@@ -370,7 +370,9 @@ class ObsidianExporter:
         # Best backtest sharpe
         best_sharpe = ""
         if backtest_results:
-            sharpes = [v.get("sharpe_ratio", 0) for v in backtest_results.values() if isinstance(v, dict)]
+            # None means "not annualised" (unknown bar frequency), not zero.
+            sharpes = [v.get("sharpe_ratio", 0) for v in backtest_results.values()
+                       if isinstance(v, dict) and isinstance(v.get("sharpe_ratio", 0), (int, float))]
             if sharpes:
                 best_sharpe = round(max(sharpes), 2)
 

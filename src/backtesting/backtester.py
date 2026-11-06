@@ -21,6 +21,18 @@ New defences
 [NEW]  Max drawdown circuit-breaker — halts new entries when portfolio DD > max_drawdown_limit.
 [NEW]  Trade.exit_reason           — "signal" | "stop_loss" | "max_drawdown" | "end_of_data"
 [NEW]  Open positions force-closed at end of simulation so metrics include all trades.
+
+v3 (review QA-01, QA-02, QA-03)
+-------------------------------
+[BUG]  The drawdown breaker read bar i's close and exited at bar i's open, which
+       came first; a stop exit at bar i's close could be followed by an entry at
+       bar i's (earlier) open. Each bar now runs in time order: open, inside,
+       close. A decision taken at a close executes at the next bar's open.
+[BUG]  Stops were close-only, so a bar that pierced the stop and closed flat
+       never stopped out. Stops now trigger on the bar's low (long) or high
+       (short) and fill at the stop, or at the open when the open gaps through.
+[BUG]  Sharpe/Sortino/CAGR assumed 252 periods a year for every series. The
+       bar frequency and the instrument calendar now set it (metrics.py).
 """
 
 from __future__ import annotations
@@ -32,7 +44,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from src.backtesting.metrics import compute_all_metrics
+from src.backtesting.metrics import calendar_for_symbol, compute_all_metrics, periods_per_year
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +145,7 @@ def run_backtest(
     stop_loss_pct:       float = 0.05,    # Hard stop: exit if unrealised loss > this
     max_drawdown_limit:  float = 0.20,    # Circuit-breaker: halt entries if DD > this
     strategy_name:       str   = "Signal Strategy",
+    calendar:            Optional[str] = None,  # "EXCHANGE" | "FX" | "CRYPTO"; None: from the ticker
 ) -> Optional[BacktestResult]:
     """
     Run a signal-based vectorised backtest on one asset.
@@ -177,6 +190,16 @@ def run_backtest(
     else:
         opens = close
 
+    # Bar range for intrabar stops (QA-03). Without High/Low the only prices
+    # known inside a bar are its open and close; the result says so.
+    has_range = "High" in df.columns and "Low" in df.columns
+    if has_range:
+        highs, lows = df["High"].squeeze(), df["Low"].squeeze()
+        if isinstance(highs, pd.DataFrame):
+            highs = highs.iloc[:, 0]
+        if isinstance(lows, pd.DataFrame):
+            lows = lows.iloc[:, 0]
+
     cost = commission_pct + slippage_pct   # one-way
 
     # ── State ─────────────────────────────────────────────────────────────────
@@ -189,6 +212,7 @@ def run_backtest(
     entry_date   = None
     entry_score  = 0.0
     halted       = False   # max-drawdown circuit-breaker
+    pending_exit: Optional[str] = None   # decided at a close, executed at the next open
 
     equity_vals: List[float] = []
     trades:      List[Trade] = []
@@ -225,13 +249,30 @@ def run_backtest(
         trade_rets.append(pnl_pct)
         in_trade = False; notional = 0.0; direction = None
 
+    def _stop_price() -> float:
+        if direction == "long":
+            return entry_price * (1 - stop_loss_pct)
+        return entry_price * (1 + stop_loss_pct)
+
     # ── Main loop ─────────────────────────────────────────────────────────────
+    # Each bar runs in time order (QA-01, QA-03):
+    #   open   — act on what was decided at the previous close: a pending
+    #            breaker exit, a stop the open gapped through, a signal flip;
+    #            then entries;
+    #   inside — a stop touched by the bar's low (long) or high (short) fills
+    #            at the stop price;
+    #   close  — mark to market; the drawdown breaker decides here and acts at
+    #            the NEXT bar's open, never at this bar's earlier open.
     for i in range(1, len(dates)):
         today   = dates[i]
         px      = float(close.iloc[i])
         exec_px = float(opens.iloc[i])
         if np.isnan(exec_px):
             exec_px = px
+        hi = float(highs.iloc[i]) if has_range else np.nan
+        lo = float(lows.iloc[i]) if has_range else np.nan
+        if np.isnan(hi) or np.isnan(lo):
+            hi, lo = max(exec_px, px), min(exec_px, px)
 
         score = float(scores.iloc[i - 1])   # Yesterday's signal → today's decision
 
@@ -239,52 +280,20 @@ def run_backtest(
             equity_vals.append(cash + notional)
             continue
 
-        # ── Unrealised PnL for current position ───────────────────────────────
+        # ── At the open ───────────────────────────────────────────────────────
         if in_trade:
-            if direction == "long":
-                unreal_pct = (px - entry_price) / entry_price
-            else:
-                unreal_pct = (entry_price - px) / entry_price
-            portfolio_val = cash + notional * (1 + unreal_pct)
-        else:
-            portfolio_val = cash
-
-        # ── Max drawdown circuit-breaker ──────────────────────────────────────
-        if portfolio_val > peak_equity:
-            peak_equity = portfolio_val
-        if peak_equity > 0:
-            current_dd = (peak_equity - portfolio_val) / peak_equity
-        else:
-            current_dd = 0.0
-
-        if current_dd >= max_drawdown_limit and not halted:
-            logger.warning(
-                f"{ticker}: drawdown {current_dd:.1%} ≥ limit {max_drawdown_limit:.0%} — "
-                "halting new entries"
-            )
-            halted = True
-
-        # ── Exit logic ────────────────────────────────────────────────────────
-        if in_trade:
-            if direction == "long":
-                unreal_pct  = (px - entry_price) / entry_price
-                signal_flip = score < 0
-            else:
-                unreal_pct  = (entry_price - px) / entry_price
-                signal_flip = score > 0
-
-            stop_hit = unreal_pct <= -stop_loss_pct
-
-            if stop_hit:
-                # Stop triggered at close price — most conservative fill
-                _record_trade(px, "stop_loss")
+            stop_px = _stop_price()
+            gapped = exec_px <= stop_px if direction == "long" else exec_px >= stop_px
+            signal_flip = score < 0 if direction == "long" else score > 0
+            if pending_exit:
+                _record_trade(exec_px, pending_exit)
+            elif gapped:
+                # The open is the first price through the stop.
+                _record_trade(exec_px, "stop_loss")
             elif signal_flip:
-                # Signal reversed — execute at next-bar open (exec_px)
                 _record_trade(exec_px, "signal")
-            elif halted:
-                _record_trade(exec_px, "max_drawdown")
+        pending_exit = None
 
-        # ── Entry logic ───────────────────────────────────────────────────────
         if not in_trade and not halted:
             if score >= signal_threshold:
                 entry_price = exec_px * (1 + cost)
@@ -304,15 +313,35 @@ def run_backtest(
                 entry_date  = today
                 entry_score = score
 
-        # ── Mark-to-market ────────────────────────────────────────────────────
+        # ── Inside the bar ────────────────────────────────────────────────────
+        if in_trade:
+            stop_px = _stop_price()
+            if (direction == "long" and lo <= stop_px) or (direction == "short" and hi >= stop_px):
+                _record_trade(stop_px, "stop_loss")
+
+        # ── At the close: mark to market, then the breaker decides ────────────
         if in_trade:
             if direction == "long":
                 unreal_pct = (px - entry_price) / entry_price
             else:
                 unreal_pct = (entry_price - px) / entry_price
-            equity_vals.append(cash + notional * (1 + unreal_pct))
+            portfolio_val = cash + notional * (1 + unreal_pct)
         else:
-            equity_vals.append(cash)
+            portfolio_val = cash
+
+        if portfolio_val > peak_equity:
+            peak_equity = portfolio_val
+        current_dd = (peak_equity - portfolio_val) / peak_equity if peak_equity > 0 else 0.0
+        if current_dd >= max_drawdown_limit and not halted:
+            logger.warning(
+                f"{ticker}: drawdown {current_dd:.1%} ≥ limit {max_drawdown_limit:.0%} — "
+                "halting new entries"
+            )
+            halted = True
+        if halted and in_trade:
+            pending_exit = "max_drawdown"   # executes at the next bar's open
+
+        equity_vals.append(portfolio_val)
 
     # ── Force-close any open position at simulation end ───────────────────────
     if in_trade and len(close) > 1:
@@ -326,7 +355,10 @@ def run_backtest(
     first_valid     = close.dropna().iloc[0]
     benchmark_curve = (close / first_valid * initial_capital).iloc[1:]
     trade_returns   = pd.Series(trade_rets)
-    metrics         = compute_all_metrics(equity_curve, trade_returns)
+    calendar        = calendar or calendar_for_symbol(ticker)
+    per_year        = periods_per_year(equity_curve.index, calendar)
+    metrics         = compute_all_metrics(equity_curve, trade_returns, periods_per_year=per_year)
+    metrics["calendar"] = calendar
 
     # ── Regime breakdown ──────────────────────────────────────────────────────
     bull_metrics = bear_metrics = None
@@ -340,9 +372,11 @@ def run_backtest(
         bull_tr     = [t for t in trades if t.entry_date in bull_d_str]
         bear_tr     = [t for t in trades if t.entry_date in bear_d_str]
         if len(bull_equity) > 10:
-            bull_metrics = compute_all_metrics(bull_equity, pd.Series([t.pnl_pct for t in bull_tr]))
+            bull_metrics = compute_all_metrics(bull_equity, pd.Series([t.pnl_pct for t in bull_tr]),
+                                               periods_per_year=per_year)
         if len(bear_equity) > 10:
-            bear_metrics = compute_all_metrics(bear_equity, pd.Series([t.pnl_pct for t in bear_tr]))
+            bear_metrics = compute_all_metrics(bear_equity, pd.Series([t.pnl_pct for t in bear_tr]),
+                                               periods_per_year=per_year)
 
     return BacktestResult(
         ticker=ticker, strategy_name=strategy_name,
@@ -350,6 +384,7 @@ def run_backtest(
         trades=trades, trade_returns=trade_returns,
         metrics=metrics, bull_metrics=bull_metrics, bear_metrics=bear_metrics,
         n_data_points=len(df),
+        warning="" if has_range else "no High/Low columns: stops checked on open and close only",
     )
 
 

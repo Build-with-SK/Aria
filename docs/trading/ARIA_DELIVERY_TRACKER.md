@@ -1,6 +1,6 @@
 # ARIA delivery tracker — multiasset trading remediation
 
-Last updated: 2026-11-06T22:45Z (UTC)
+Last updated: 2026-11-06T22:58Z (UTC)
 
 ## Objective
 
@@ -31,10 +31,10 @@ Original reproductions: [`claude_review_probes/`](claude_review_probes/) (`probe
 
 ## Current stage
 
-Stage 10 — UI-01 (banner names the extension) and OP-01 (Windows worker host
-documented; worker refuses clearly elsewhere). Stages 1–9 (CR-02, CR-05, CR-10,
-CR-03, CR-04, CR-13, CR-01, CR-07, CR-12, CR-08, CR-09, CR-11, CR-06, CR-14,
-SEC-01) are committed and tested.
+Stage 11 — QA-01..QA-04 (legacy backtester time order and intrabar stops,
+calendar-aware annualisation, path-level rule replay). Stages 1–10 are
+committed; every CR finding, SEC-01 and UI-01 is tested, OP-01 is BLOCKED on
+an owner-provided Windows host.
 
 ## Findings
 
@@ -53,20 +53,20 @@ and the original failure was reproduced against `7385130`.
 | CR-06 | HIGH | MT5 adapter not read-only | TESTED | 7bfe3bd | `test_cr06_*` (7) + `test_trading_structure.py` SDK-import and adapter-construction tests (2); before: trade-enabled login and algo-trading terminal connected, raw `adapter._sdk.order_send` reached the SDK (1 call) at `7385130` |
 | CR-07 | HIGH | "DEMO" is not a safety boundary at FTMO | TESTED | f7bf452 | `test_cr07_*` (13); before: paid FTMO Challenge on a DEMO server ALLOW and queued at `7385130` |
 | CR-08 | HIGH | News/gap/weekend rules not enforced | TESTED | 2fe1d0b | `test_cr08_*` (33); before: no calendar/session inputs, Standard-account NFP-in-90 s case ALLOW, free-text rules counted as verified at `7385130` |
-| QA-01 | HIGH | Backtester breaker look-ahead | NOT_STARTED | — | — |
+| QA-01 | HIGH | Backtester breaker look-ahead | TESTED | stage 11 | `test_qa01_*` (2) incl. an adversarial change-only-this-bar's-close test; `test_no_lookahead.py` still passes; before: `probe_bt.py` breaker exit at 100 after a close of 70, final equity 100,000 at `7385130` |
 | CR-09 | MED | Per-day server/position/order limits | TESTED | 2fe1d0b | `test_cr09_*` (13); before: only `max_server_requests_per_minute`, no daily counters at `7385130` |
 | CR-11 | MED | Self-asserted book/operational inputs | TESTED | f103ace | `test_cr11_*` (19) + reservation re-check; before: `ARIA_KILL_SWITCH=1` engaged and `assess` ALLOW at `7385130` (13 result fields caller-stated) |
 | RQ-01 | MED | Caller-asserted "verified" evidence | NOT_STARTED | — | — |
 | RQ-02 | MED | Contradictory hypotheses; SR logic | NOT_STARTED | — | — |
-| QA-02 | MED | Fixed 252-period annualisation | NOT_STARTED | — | — |
-| QA-03 | MED | Close-only stops | NOT_STARTED | — | — |
-| QA-04 | MED | No path-level FTMO breach simulation | NOT_STARTED | — | — |
-| OP-01 | MED | MT5 needs a Windows host (ops) | BLOCKED | stage 10 | Documented (OPERATIONS.md "MT5 worker host"); `test_op01_*` (3): the worker refuses clearly on a non-Windows host or without the package. Needs an owner-provided Windows host; nothing to reproduce in code at `7385130` (an operational finding) |
+| QA-02 | MED | Fixed 252-period annualisation | TESTED | stage 11 | `test_qa02_*` (15); before: a one-year doubling of 365 daily returns reported CAGR 0.6116 (1.4524 years assumed), no frequency parameter at `7385130` |
+| QA-03 | MED | Close-only stops | TESTED | stage 11 | `test_qa03_*` (4); before: `probe_bt.py` low −10% with a flat close, 5% stop: 0 stop exits at `7385130` |
+| QA-04 | MED | No path-level FTMO breach simulation | TESTED | stage 11 | `test_qa04_*` (7); before: no path replay existed; the only resampler (`block_bootstrap`) saw the −5.1%-intraday day as its −300 close at `7385130` |
+| OP-01 | MED | MT5 needs a Windows host (ops) | BLOCKED | e717ea6 | Documented (OPERATIONS.md "MT5 worker host"); `test_op01_*` (3): the worker refuses clearly on a non-Windows host or without the package. Needs an owner-provided Windows host; nothing to reproduce in code at `7385130` (an operational finding) |
 | CR-12 | LOW | FTMO detection by exact strings | TESTED | f7bf452 | `test_cr12_*` (15); before: "FTMO s.r.o." + London validated; "FTMO Challenge 1-Step" with the wrong formula PASS at `7385130` |
 | CR-13 | LOW | One FX rate at today's price | TESTED | ff1d23a | `test_cr13_*` (2); before: probe E2 converts at today's rate |
 | CR-14 | LOW | Backup leaves connection open | TESTED | 7bfe3bd | `test_cr14_*` (1); before: of the 2 connections `backup()` opened, the target was never closed at `7385130` |
 | SEC-01 | LOW | Audit chain unkeyed | TESTED | 7bfe3bd | `test_sec01_*` (6); before: a chain edited and rebuilt with plain SHA-256 passed `verify_audit` and still reserved an intent; a truncated chain passed at `7385130` |
-| UI-01 | LOW | "EXECUTION DISABLED" banner wording | TESTED | stage 10 | `frontend/scripts/verify-multiasset.mjs` banner assertions; before: the `7385130` component fails "banner must say the extension has no order sender" |
+| UI-01 | LOW | "EXECUTION DISABLED" banner wording | TESTED | e717ea6 | `frontend/scripts/verify-multiasset.mjs` banner assertions; before: the `7385130` component fails "banner must say the extension has no order sender" |
 
 ## Test evidence
 
@@ -80,6 +80,10 @@ and the original failure was reproduced against `7385130`.
 | 2026-11-06 22:42 | stage 9 | multiasset + structure + findings + protected paths | **300 passed** |
 | 2026-11-06 22:45 | stage 10 | `node scripts/verify-multiasset.mjs` (frontend) | PASS; the same verifier on the `7385130` component: exit 1, "banner must say the extension has no order sender" |
 | 2026-11-06 22:45 | stage 10 | findings `-k "cr06 or op01"` | **10 passed** |
+| 2026-11-06 22:58 | `7bfe3bd` | full suite on a `git archive` copy | **3,563 passed, 21 skipped**, exit 0, 388 s |
+| 2026-11-06 22:58 | stage 11 | `probe_bt.py` on the worktree and on the `7385130` copy | after: breaker exit 70.0 on the next bar, final equity 70,000, 1 stop exit; before: exit 100.0, equity 100,000, 0 stop exits |
+| 2026-11-06 22:58 | stage 11 | `before_qa.py` on the `7385130` copy | CAGR 0.6116 for a one-year doubling; no frequency parameter; no path replay |
+| 2026-11-06 22:58 | stage 11 | findings + look-ahead + evolution + technical + multiasset + structure | **443 passed** |
 | 2026-11-06 22:30 | `2fe1d0b` | full suite on a `git archive` copy | **3,528 passed, 21 skipped**, exit 0, 366 s |
 | 2026-11-06 22:30 | stage 8 | `before_cr11.py` on the `7385130` copy | legacy kill switch engaged (environment), caller said clear: **ALLOW**; 13 caller-stated result fields present |
 | 2026-11-06 22:30 | stage 8 | multiasset + structure + findings | **265 passed** |
@@ -103,6 +107,9 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 | 2026-11-06 | Work in the existing feature worktree; never touch the main checkout's uncommitted files | The main checkout carries the live data files and the owner's uncommitted state; the review and log originals there stay as they are |
 | 2026-11-06 | Review copied into the branch with hosting details generalised | The repository is public; the findings are unchanged |
 | 2026-11-06 | The cloud-migration handover file is not committed | It names infrastructure access details; it stays local |
+| 2026-11-06 | QA-01: a breaker decided at a close acts at the next open; entries stay at the open, before any intrabar stop | Each fill must use only prices that existed when it happened; the change-one-close test checks exactly that |
+| 2026-11-06 | QA-02: calendar from yfinance ticker conventions unless passed; unknown frequency reports None | The legacy universe mixes equities, FX, futures and crypto; a wrong annualisation is worse than none |
+| 2026-11-06 | QA-04: replay uses the same floors and `<=` breach rule as `evaluate_profile`; overall breach reported before daily | One rule definition for live checks and research; the overall limit ends the account |
 | 2026-11-06 | Stage 10 restores the "Windows only" refusal in the worker | Stage 9 moved SDK loading out of the adapter and dropped its platform check; found while doing OP-01, restored with a clearer message and a test |
 | 2026-11-06 | OP-01 stays BLOCKED, not TESTED | It is an operational gap; documentation and a clear refusal do not provide the Windows host |
 | 2026-11-06 | CR-06: read-only is a process boundary, not a proxy | `MetaTrader5` is process-global; any code in a process that initialised it can call `order_send`. Only a separate process with a plain-data pipe keeps ARIA's side free of the SDK |
@@ -126,6 +133,7 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 
 ## Next exact action
 
-Stage 11: QA-01 — backtester circuit-breaker look-ahead (`src/backtesting/`),
-then QA-02 (per-asset/timeframe annualisation), QA-03 (intrabar stops and gap
-fills) and QA-04 (path-level FTMO breach simulation); then RQ-01 and RQ-02.
+Stage 12: RQ-01 — client-supplied evidence is never support unless a
+server-side resolver fetched the source and found the claim; RQ-02 — the
+support/resistance rule needs the close at or above support, and a cross-family
+conflict on the same bar abstains. Then the probe re-run and release checks.

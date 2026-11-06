@@ -1093,3 +1093,230 @@ def test_sec01_external_anchor_detects_truncation_and_rewrite(tmp_path, case):
         store.verify_audit(anchor)               # ... but has lost its anchor
     with pytest.raises(ReviewRefused, match="external anchor"):
         store.verify_audit({**anchor, "sequence": 1})
+
+
+# --- QA-01 / QA-03: backtester time order and intrabar stops ---
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+from src.backtesting.backtester import run_backtest  # noqa: E402
+from src.backtesting.metrics import (cagr, compute_all_metrics, periods_per_year,  # noqa: E402
+                                     sharpe_ratio)
+from src.backtesting.challenge_replay import (DayPath, EquityObservation,  # noqa: E402
+    breach_probabilities, replay_days, replay_path, wilson_interval)
+
+
+def probe_frame(n=150, freq="D", bullish=True):
+    """The review's probe_bt.py frame: a steady long (or short) signal on flat prices."""
+    sign = 1 if bullish else -1
+    idx = pd.date_range("2025-01-01", periods=n, freq=freq)
+    return pd.DataFrame({"Open": 100.0, "High": 101.0, "Low": 99.0, "Close": 100.0,
+                         "dist_sma_20": 0.1 * sign, "dist_sma_50": 0.1 * sign, "dist_sma_200": 0.1 * sign,
+                         "rsi": 100.0 if bullish else 0.0, "macd_histogram": float(sign)}, index=idx)
+
+
+def put(df, row, **values):
+    for column, value in values.items():
+        df.iloc[row, df.columns.get_loc(column)] = value
+    return df
+
+
+def day(df, row):
+    return str(df.index[row].date())
+
+
+def crash_at_120(df):
+    put(df, 120, Close=70.0, Low=69.0)
+    df.iloc[121:, df.columns.get_loc("Open")] = 70.0
+    df.iloc[121:, df.columns.get_loc("Close")] = 70.0
+    return df
+
+
+BREAKER = dict(commission_pct=0, slippage_pct=0, risk_per_trade=1.0, stop_loss_pct=0.5,
+               max_drawdown_limit=0.20)
+
+
+def test_qa01_breaker_exits_at_the_next_open_not_the_bar_it_read():
+    """The review's test: probe exit price <= 70 and final equity <= 70,000 (was 100 / 100,000)."""
+    df = crash_at_120(probe_frame())
+    r = run_backtest("PROBE", df, **BREAKER)
+    exit_ = next(t for t in r.trades if t.exit_reason == "max_drawdown")
+    assert exit_.exit_price <= 70.0 and exit_.exit_date == day(df, 121)
+    assert r.equity_curve.iloc[-1] <= 70_000
+
+
+def test_qa01_nothing_executed_at_an_open_depends_on_that_bars_close():
+    """Change only bar 120's close: every fill dated bar 120 or earlier must be unchanged."""
+    calm, crashed = probe_frame(), crash_at_120(probe_frame())
+    a, b = run_backtest("PROBE", calm, **BREAKER), run_backtest("PROBE", crashed, **BREAKER)
+    cut = day(calm, 120)
+    assert [t for t in a.trades if t.exit_date <= cut] == [t for t in b.trades if t.exit_date <= cut]
+    pd.testing.assert_series_equal(a.equity_curve.iloc[:119], b.equity_curve.iloc[:119])
+
+
+def test_qa03_intrabar_low_through_the_stop_fills_at_the_stop():
+    """The review's test: low -10%, close flat, 5% stop => one stop exit at 95 (was none)."""
+    df = put(probe_frame(), 120, Low=90.0)
+    r = run_backtest("PROBE", df, commission_pct=0, slippage_pct=0, stop_loss_pct=0.05)
+    stops = [t for t in r.trades if t.exit_reason == "stop_loss"]
+    assert len(stops) == 1
+    assert stops[0].exit_price == 95.0 and stops[0].exit_date == day(df, 120)
+    # The position re-entered after the stop does so at the NEXT bar's open.
+    later = [t for t in r.trades if t.entry_date > stops[0].entry_date]
+    assert later and later[0].entry_date == day(df, 121)
+
+
+def test_qa03_a_gap_through_the_stop_fills_at_the_open():
+    df = put(probe_frame(), 120, Open=90.0, High=91.0, Low=89.0, Close=90.0)
+    r = run_backtest("PROBE", df, commission_pct=0, slippage_pct=0, stop_loss_pct=0.05)
+    stop = next(t for t in r.trades if t.exit_reason == "stop_loss")
+    assert stop.exit_price == 90.0 and stop.exit_date == day(df, 120)
+
+
+def test_qa03_short_stops_trigger_on_the_high():
+    df = put(probe_frame(bullish=False), 120, High=110.0)
+    r = run_backtest("PROBE", df, commission_pct=0, slippage_pct=0, stop_loss_pct=0.05,
+                     allow_short=True)
+    stop = next(t for t in r.trades if t.exit_reason == "stop_loss")
+    assert stop.direction == "short" and stop.exit_price == 105.0 and stop.exit_date == day(df, 120)
+
+
+def test_qa03_without_a_bar_range_the_result_says_so():
+    df = put(probe_frame(), 120, Low=90.0).drop(columns=["High", "Low"])
+    r = run_backtest("PROBE", df, commission_pct=0, slippage_pct=0, stop_loss_pct=0.05)
+    assert "no High/Low" in r.warning
+    assert run_backtest("PROBE", probe_frame(), stop_loss_pct=0.05).warning == ""
+
+
+# --- QA-02: annualisation follows the bar size and the instrument calendar ---
+
+def test_qa02_365_daily_crypto_returns_are_one_year():
+    """The review's test: 365 daily crypto returns => CAGR over 1.0 year, not 1.45."""
+    idx = pd.date_range("2025-01-01", periods=366, freq="D")
+    curve = pd.Series(100 * 2 ** (np.arange(366) / 365), index=idx)   # doubles in a year
+    per_year = periods_per_year(idx, "CRYPTO")
+    assert per_year == 365
+    assert abs(cagr(curve, periods_per_year=per_year) - 1.0) < 1e-9
+
+
+@pytest.mark.parametrize("calendar,freq,expected", [
+    ("EXCHANGE", "B", 252), ("FX", "B", 260), ("CRYPTO", "D", 365),
+    ("CRYPTO", "h", 365 * 24), ("FX", "h", 260 * 24), ("EXCHANGE", "h", 252 * 6.5),
+    ("FX", "15min", 260 * 96), ("EXCHANGE", "W", 52), ("CRYPTO", "MS", 12),
+])
+def test_qa02_periods_per_year_follow_bar_size_and_calendar(calendar, freq, expected):
+    assert periods_per_year(pd.date_range("2025-01-06", periods=50, freq=freq), calendar) == expected
+
+
+def test_qa02_unknown_frequency_or_calendar_is_not_annualised():
+    daily = pd.date_range("2025-01-06", periods=50, freq="B")
+    assert periods_per_year(daily, "MOON") is None
+    assert periods_per_year(pd.RangeIndex(50), "EXCHANGE") is None
+    assert periods_per_year(pd.date_range("2025-01-06", periods=50, freq="3D"), "EXCHANGE") is None
+    assert periods_per_year(pd.date_range("2025-01-06", periods=50, freq="12h"), "EXCHANGE") is None
+    curve = pd.Series(np.linspace(100, 110, 50), index=daily)
+    metrics = compute_all_metrics(curve, pd.Series([0.1]), periods_per_year=None)
+    assert metrics["cagr"] is None and metrics["sharpe_ratio"] is None and metrics["sortino_ratio"] is None
+    assert metrics["total_return"] == 0.1 and metrics["periods_per_year"] is None
+
+
+def test_qa02_sharpe_scales_with_the_calendar():
+    returns = pd.Series(np.random.default_rng(5).normal(0.001, 0.01, 400))
+    crypto = sharpe_ratio(returns, 0.0, periods_per_year=365)
+    exchange = sharpe_ratio(returns, 0.0, periods_per_year=252)
+    assert abs(crypto / exchange - (365 / 252) ** 0.5) < 1e-12
+
+
+@pytest.mark.parametrize("ticker,freq,calendar,expected", [
+    ("BTC-USD", "D", "CRYPTO", 365), ("EURUSD=X", "B", "FX", 260), ("AAPL", "B", "EXCHANGE", 252),
+])
+def test_qa02_backtest_reports_the_calendar_it_used(ticker, freq, calendar, expected):
+    r = run_backtest(ticker, probe_frame(freq=freq))
+    assert r.metrics["calendar"] == calendar and r.metrics["periods_per_year"] == expected
+
+
+# --- QA-04: path-level replay through the profile's loss limits ---
+
+from datetime import datetime as _dt, timezone as _tz  # noqa: E402
+
+MON = _dt(2026, 11, 9, 8, tzinfo=_tz.utc)   # a Monday; Prague is UTC+1 in November
+
+
+def obs(hour, balance, equity=None, *, base=MON):
+    return EquityObservation(at=base + timedelta(hours=hour), balance=D(balance),
+                             equity=D(equity if equity is not None else balance))
+
+
+def test_qa04_intraday_dip_below_the_floor_is_a_daily_breach_even_if_the_day_closes_better(case):
+    """The review's test: dips 5.1% intraday, closes -3% => daily breach."""
+    profile = case[1].profile
+    path = (obs(0, "10000"), obs(2, "10000", "9490"), obs(7, "9700"))
+    result = replay_path(profile, path)
+    assert result.outcome == "DAILY_BREACH" and result.floor == D("9500") and result.equity == D("9490")
+    assert replay_path(profile, (obs(0, "10000"), obs(2, "10000", "9510"), obs(7, "9700"))).outcome == "OPEN"
+    # A total-P/L bootstrap of the same day sees only the -300 close.
+    from src.backtesting.experiments import block_bootstrap
+    assert block_bootstrap((D("-300"),), block_size=1, samples=1)["net_pnl_p50"] == "-300"
+
+
+def test_qa04_the_floor_resets_at_prague_midnight_not_utc(case):
+    profile = case[1].profile
+    # Monday's profit is banked at 23:30 Prague; at 00:30 Prague (23:30 UTC, still
+    # Monday in UTC) a new day starts from 10,400, so its floor is 9,900.
+    path = (obs(0, "10000"), obs(14.5, "10400"), obs(15.5, "10400", "9890"))
+    result = replay_path(profile, path)
+    assert result.outcome == "DAILY_BREACH" and result.floor == D("9900") and result.day_index == 1
+
+
+def test_qa04_breach_is_at_or_below_the_floor_as_in_the_live_evaluator(case):
+    profile = case[1].profile
+    assert replay_path(profile, (obs(0, "10000"), obs(1, "10000", "9500"))).outcome == "DAILY_BREACH"
+    assert replay_path(profile, (obs(0, "10000"), obs(1, "10000", "9500.01"))).outcome == "OPEN"
+
+
+def test_qa04_trailing_overall_floor_follows_day_start_balances(case):
+    days = (DayPath(equity_pnl=(D("0"),), balance_pnl=D("800")),
+            DayPath(equity_pnl=(D("-200"), D("-1000")), balance_pnl=D("-1000")))
+    static = case[1].profile
+    trailing = static.model_copy(update={"drawdown_mode": "TRAILING_EOD_BALANCE"})
+    # Day 2 starts at 10,800: trailing overall floor 9,800 is hit; static (9,000) is not.
+    assert replay_days(trailing, days).outcome == "OVERALL_BREACH"
+    result = replay_days(static, days)
+    assert result.outcome == "DAILY_BREACH" and result.floor == D("10300")
+
+
+def test_qa04_target_is_reached_on_balance(case):
+    profile = ftmo(case, profit_target_fraction="0.10")
+    days = tuple(DayPath(equity_pnl=(D("-100"), D("300")), balance_pnl=D("300")) for _ in range(5))
+    result = replay_days(profile, days)
+    assert result.outcome == "TARGET_REACHED" and result.day_index == 3 and result.final_balance == D("11200")
+
+
+def test_qa04_breach_probabilities_count_paths_not_totals(case):
+    profile = ftmo(case, profit_target_fraction="0.10")
+    dip = DayPath(equity_pnl=(D("-510"), D("-300")), balance_pnl=D("-300"))    # -5.1% intraday, closes -3%
+    calm = DayPath(equity_pnl=(D("-100"), D("150")), balance_pnl=D("150"))
+    out = breach_probabilities(profile, (dip,), horizon_days=10, block_size=1, samples=200, seed=3)
+    assert out["daily_breach"]["probability"] == 1.0
+    mixed = breach_probabilities(profile, (calm,) * 9 + (dip,), horizon_days=20, block_size=2,
+                                 samples=500, seed=3)
+    total = sum(mixed[k]["probability"] for k in ("daily_breach", "overall_breach", "target_reached",
+                                                  "open_at_horizon"))
+    assert abs(total - 1.0) < 1e-12
+    low, high = mixed["daily_breach"]["interval_95"]
+    assert low <= mixed["daily_breach"]["probability"] <= high
+    assert mixed == breach_probabilities(profile, (calm,) * 9 + (dip,), horizon_days=20, block_size=2,
+                                         samples=500, seed=3)
+    assert mixed["validation_status"] == "UNVERIFIED"
+
+
+def test_qa04_inputs_are_checked(case):
+    profile = case[1].profile
+    with pytest.raises(ValueError, match="fresh account"):
+        replay_path(profile, (obs(0, "9000"),))
+    with pytest.raises(ValueError, match="time order"):
+        replay_path(profile, (obs(0, "10000"), obs(2, "10000"), obs(1, "10000")))
+    unknown = profile.model_copy(update={"daily_method": "UNVERIFIED"})
+    with pytest.raises(ValueError, match="daily-loss method"):
+        replay_days(unknown, (DayPath(equity_pnl=(D("0"),), balance_pnl=D("0")),))
+    assert wilson_interval(0, 10)[0] == 0.0 and wilson_interval(10, 10)[1] == pytest.approx(1.0)
