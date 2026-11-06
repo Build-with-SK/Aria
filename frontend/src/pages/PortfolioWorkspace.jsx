@@ -28,6 +28,7 @@ import Portfolio from './Portfolio'
 import Quant from './Quant'
 import Desk from './Desk'
 import Execution from './Execution'
+import MultiassetWorkspace from '../components/MultiassetWorkspace'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -100,6 +101,7 @@ export default function PortfolioWorkspace() {
       </div>
 
       <RiskState world={world} />
+      <MultiassetWorkspace />
 
       {/* Approvals first when something is waiting — that is the whole point of
           hoisting it out of a tab. */}

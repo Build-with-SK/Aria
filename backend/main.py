@@ -910,6 +910,37 @@ def _sanitize(obj: Any) -> Any:
 # Health
 # ===========================================================================
 
+@app.get("/api/trading/workspace", tags=["Trading research"],
+         dependencies=[Depends(require_owner)])
+def multiasset_workspace():
+    """Read-only extension state; never connects to a terminal or sends orders."""
+    from datetime import timezone
+    from src.research.multiasset import workspace_status
+    return workspace_status(now=datetime.now(timezone.utc))
+
+
+@app.post("/api/trading/research", tags=["Trading research"],
+          dependencies=[Depends(require_owner)])
+def multiasset_research(body: dict = Body(...)):
+    """Evaluate supplied research candles; returns a hypothesis, no order."""
+    from datetime import timezone
+    from pydantic import ValidationError
+    from src.research.multiasset import ResearchRequest, analyse, technical_evidence
+    try:
+        request = ResearchRequest.model_validate(body)
+        if request.as_of > datetime.now(timezone.utc):
+            raise ValueError("research as_of cannot be in the future")
+        hypothesis = analyse(request.instrument, request.bars, now=request.as_of,
+                             family=request.family, timeframe=request.timeframe,
+                             regime=request.regime, evidence=request.evidence)
+        technical = technical_evidence(request.instrument, request.bars, now=request.as_of)
+    except (ValidationError, ValueError):
+        # Raw validation details may echo private account/research input.
+        raise HTTPException(status_code=422, detail="Invalid research contract, chronology, identity or strategy") from None
+    return {"hypothesis": hypothesis.model_dump(mode="json"), "technical": technical,
+            "execution_mode": "DISABLED", "order_created": False}
+
+
 @app.get("/ready", tags=["System"])
 def readiness_check():
     """READINESS, and public — but a boolean only.

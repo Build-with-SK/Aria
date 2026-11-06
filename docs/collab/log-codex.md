@@ -224,3 +224,22 @@ Open: these are library primitives, not an activated approval API or sender;
 actual broker lifecycle and private worker are blocked pending independent review
 and genuine authorised demo evidence. See docs/trading/IMPLEMENTATION_MATRIX.md.
 
+## 2026-11-06 — MA-004 research vertical slice / dashboard — done
+
+Files: src/research/multiasset.py, src/backtesting/experiments.py,
+scripts/multiasset_research.py, backend/main.py (31 additive lines only),
+frontend MultiassetWorkspace + PortfolioWorkspace integration + offline verifier,
+tests/test_multiasset_research.py and test_multiasset_api.py.
+Changed: nine-asset applicability/universe checks, fixture provider, completed-
+candle technical evidence reusing ta and existing summary, ten research definitions
+(MacroDriven abstains), typed hypotheses/counterevidence and experiment/split/
+bootstrap utilities. Owner-only status and analysis API; Portfolio disabled/
+disconnected panel. No actual balance, quote, fill or edge is fabricated.
+Measured: 104 new tests passed in the clean minimal environment; initial full
+suite 3430 passed with final two persistence tests separately green. Final full
+rerun underway. Frontend clean install/build and all four verifiers passed with
+patched lock: 48 routes, 5 research states, 11 freshness cases, new multiasset
+states and existing technical/shell checks. SSR scope only; no broker actions.
+Open: live providers, full contract replay, populated account UI and authenticated
+approval/worker integration remain separate reviewed milestones. No endpoint removed.
+
