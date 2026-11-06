@@ -55,6 +55,11 @@ reconciliation still need dedicated adapters/testing before execution.
 
 `rule_profiles.py` calculates equity floors and objective eligibility separately.
 Failure to reach a profit/consistency objective never forces another trade.
-`ReviewStore` persists consecutive exact-day balances and nondecreasing high-water
-marks, requiring original-capital history. Missing days/cashflows/resets are held
-for manual baseline verification; no silent high-water decrease is allowed.
+`ReviewStore` persists consecutive exact-day balances **per account** (one row per
+account per policy day, whichever profile version recorded it) and a high-water
+mark equal to the highest balance ever recorded for the account. A re-confirmed
+or re-versioned profile continues the same history; it cannot re-seed a lower
+high-water or redefine the account's starting capital (review CR-01). History
+must start at the original capital on the creation day. Missing days, cashflows
+and resets are held for manual baseline verification. Schema-1 databases (keyed
+by profile) are set aside unmigrated and must be rebuilt from broker evidence.

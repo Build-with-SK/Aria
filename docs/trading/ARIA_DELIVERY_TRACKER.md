@@ -45,8 +45,8 @@ and the original failure was reproduced against `7385130`.
 | CR-05 | HIGH | Daily stop ignores balance vs equity | TESTED | e0d9c89 | `test_cr05_*` (2), `test_multiasset_risk.py::test_internal_daily_stop_*` (4); fail at `7385130` (E8 ALLOW) |
 | CR-10 | MED | Trade may land exactly on the floor | TESTED | e0d9c89 | `test_cr10_*` (4); 3 fail at `7385130` (E7 ALLOW, equality ALLOW) |
 | CR-03 | HIGH | Contract-size errors undetected | TESTED | 4027f07 | `test_cr03_*` (7); before: probe E5b gold 10 lots ALLOW at `7385130` |
-| CR-04 | HIGH | FX conversion checked by label only | TESTED | stage 4 | `test_cr04_*` (3), `test_multiasset_risk.py::test_cross_currency_requires_fresh_pair_quote`; before: probe E3b ALLOW $39.37 vs $63.50 |
-| CR-01 | HIGH | Trailing high-water lowered by re-versioning | NOT_STARTED | — | — |
+| CR-04 | HIGH | FX conversion checked by label only | TESTED | ff1d23a | `test_cr04_*` (3), `test_multiasset_risk.py::test_cross_currency_requires_fresh_pair_quote`; before: probe E3b ALLOW $39.37 vs $63.50 |
+| CR-01 | HIGH | Trailing high-water lowered by re-versioning | TESTED | stage 5 | `test_cr01_*` (4); before: probe R2 high-water 10,800 → 10,000 at `7385130` |
 | CR-06 | HIGH | MT5 adapter not read-only | NOT_STARTED | — | — |
 | CR-07 | HIGH | "DEMO" is not a safety boundary at FTMO | NOT_STARTED | — | — |
 | CR-08 | HIGH | News/gap/weekend rules not enforced | NOT_STARTED | — | — |
@@ -60,7 +60,7 @@ and the original failure was reproduced against `7385130`.
 | QA-04 | MED | No path-level FTMO breach simulation | NOT_STARTED | — | — |
 | OP-01 | MED | MT5 needs a Windows host (ops) | NOT_STARTED | — | — |
 | CR-12 | LOW | FTMO detection by exact strings | NOT_STARTED | — | — |
-| CR-13 | LOW | One FX rate at today's price | TESTED | stage 4 | `test_cr13_*` (2); before: probe E2 converts at today's rate |
+| CR-13 | LOW | One FX rate at today's price | TESTED | ff1d23a | `test_cr13_*` (2); before: probe E2 converts at today's rate |
 | CR-14 | LOW | Backup leaves connection open | NOT_STARTED | — | — |
 | SEC-01 | LOW | Audit chain unkeyed | NOT_STARTED | — | — |
 | UI-01 | LOW | "EXECUTION DISABLED" banner wording | NOT_STARTED | — | — |

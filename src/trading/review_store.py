@@ -94,7 +94,7 @@ class ReviewStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._db() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 1):
+            if version not in (0, 1, 2):
                 raise ReviewRefused("unsupported review schema version")
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS proposals (
@@ -111,13 +111,24 @@ class ReviewStore:
                 CREATE TABLE IF NOT EXISTS audit (
                     sequence INTEGER PRIMARY KEY, body TEXT NOT NULL,
                     previous_hash TEXT NOT NULL, event_hash TEXT NOT NULL);
+            """)
+            if version == 1:
+                # Schema 1 keyed balances by (account, profile hash), which let a
+                # re-confirmed profile start a fresh, lower high-water (CR-01).
+                # Its rows cannot be trusted to merge, so they are set aside,
+                # not deleted, and the account history must be rebuilt from
+                # broker evidence. Until then rule_state() fails closed.
+                db.execute("ALTER TABLE rule_boundaries RENAME TO rule_boundaries_v1_unmigrated")
+            # One row per account per policy day. A midnight balance is a fact
+            # about the account, not about whichever profile version read it.
+            db.executescript("""
                 CREATE TABLE IF NOT EXISTS rule_boundaries (
-                    account_id TEXT NOT NULL, profile_hash TEXT NOT NULL,
-                    day TEXT NOT NULL, snapshot_at TEXT NOT NULL,
-                    balance TEXT NOT NULL, high_water TEXT NOT NULL,
-                    evidence_hash TEXT NOT NULL,
-                    PRIMARY KEY(account_id,profile_hash,day));
-                PRAGMA user_version=1;
+                    account_id TEXT NOT NULL, day TEXT NOT NULL,
+                    snapshot_at TEXT NOT NULL, balance TEXT NOT NULL,
+                    high_water TEXT NOT NULL, evidence_hash TEXT NOT NULL,
+                    profile_hash TEXT NOT NULL,
+                    PRIMARY KEY(account_id,day));
+                PRAGMA user_version=2;
             """)
 
     @contextmanager
@@ -323,17 +334,33 @@ class ReviewStore:
                 return
         raise ReviewRefused("rule boundary differs from its audit evidence")
 
+    @staticmethod
+    def _account_history(db, account_id: str):
+        """(first row, latest row, highest high-water) for the account, any profile."""
+        first=db.execute("SELECT * FROM rule_boundaries WHERE account_id=? ORDER BY day ASC LIMIT 1",
+                         (account_id,)).fetchone()
+        latest=db.execute("SELECT * FROM rule_boundaries WHERE account_id=? ORDER BY day DESC LIMIT 1",
+                          (account_id,)).fetchone()
+        highs=[row["high_water"] for row in db.execute(
+            "SELECT high_water FROM rule_boundaries WHERE account_id=?",(account_id,))]
+        from decimal import Decimal
+        return first, latest, max((Decimal(h) for h in highs), default=None)
+
     def record_rule_boundary(self, profile, snapshot, *, evidence_hash: str,
                              now: datetime, cashflow):
         """Append one consecutive policy-local midnight account snapshot.
 
-        A new ledger must begin at the original capital on account creation day;
-        it cannot guess missing historical highs. Withdrawals/resets require a
-        separately verified new account/profile lineage, never lowering this one.
+        History is per ACCOUNT, not per profile version (review CR-01): a
+        re-confirmed or re-versioned profile continues the same history, so it
+        cannot re-seed a lower high-water mark. The first boundary must be the
+        original capital on the account creation day; every later one must be
+        the next calendar day; the high-water mark is the highest balance ever
+        recorded for the account and can only rise. Withdrawals/resets require a
+        separately verified new account, never a lower line for this one.
         Caller supplies broker-derived snapshots, not a model's balance estimate.
         """
         import re
-        from datetime import datetime, time, timedelta
+        from datetime import date, time
         from decimal import Decimal
         from zoneinfo import ZoneInfo
         from .rule_profiles import rule_day
@@ -347,21 +374,21 @@ class ReviewStore:
         if snapshot.observed_at!=boundary or snapshot.observed_at>now or snapshot.balance<=0:
             raise ReviewRefused("exact past policy boundary and positive balance required")
         with self._transaction() as db:
-            prior=db.execute("SELECT * FROM rule_boundaries WHERE account_id=? AND profile_hash=? ORDER BY day DESC LIMIT 1",
-                             (profile.account_id,profile.profile_hash)).fetchone()
-            if prior is None:
+            first,latest,account_high=self._account_history(db,profile.account_id)
+            if latest is None:
                 if day!=profile.account_creation_date or snapshot.balance!=profile.account_size:
                     raise ReviewRefused("full initial boundary history required; no guessed high-water seed")
                 high=profile.account_size
             else:
-                self._boundary_integrity(db,prior)
-                from datetime import date
-                if day!=date.fromisoformat(prior["day"])+timedelta(days=1):
+                self._boundary_integrity(db,latest)
+                if Decimal(first["balance"])!=profile.account_size or first["day"]!=profile.account_creation_date.isoformat():
+                    raise ReviewRefused("profile account size/creation day differs from the account's recorded start")
+                if day!=date.fromisoformat(latest["day"])+timedelta(days=1):
                     raise ReviewRefused("duplicate, reordered or missing daily boundary")
-                high=max(Decimal(prior["high_water"]),snapshot.balance)
-            db.execute("INSERT INTO rule_boundaries VALUES(?,?,?,?,?,?,?)",(
-                profile.account_id,profile.profile_hash,day.isoformat(),snapshot.observed_at.isoformat(),
-                str(snapshot.balance),str(high),evidence_hash))
+                high=max(account_high,snapshot.balance)
+            db.execute("INSERT INTO rule_boundaries(account_id,day,snapshot_at,balance,high_water,evidence_hash,profile_hash) VALUES(?,?,?,?,?,?,?)",(
+                profile.account_id,day.isoformat(),snapshot.observed_at.isoformat(),
+                str(snapshot.balance),str(high),evidence_hash,profile.profile_hash))
             self._event(db,"RULE_BOUNDARY","rule:"+profile.account_id,now,
                         profile_hash=profile.profile_hash,day=day.isoformat(),
                         balance=str(snapshot.balance),high_water=str(high),evidence_hash=evidence_hash)
@@ -372,14 +399,19 @@ class ReviewStore:
         self._now(now)
         with self._db() as db:
             self._verify(db)
-            row=db.execute("SELECT * FROM rule_boundaries WHERE account_id=? AND profile_hash=? AND day=?",
-                (profile.account_id,profile.profile_hash,rule_day(profile,now).isoformat())).fetchone()
+            row=db.execute("SELECT * FROM rule_boundaries WHERE account_id=? AND day=?",
+                (profile.account_id,rule_day(profile,now).isoformat())).fetchone()
             if row is None:
                 raise ReviewRefused("current rule-day boundary missing")
             self._boundary_integrity(db,row)
+            first,_,account_high=self._account_history(db,profile.account_id)
+            if Decimal(first["balance"])!=profile.account_size or first["day"]!=profile.account_creation_date.isoformat():
+                raise ReviewRefused("profile account size/creation day differs from the account's recorded start")
+            # The account's highest recorded high-water, whatever profile recorded it.
+            high=max(Decimal(row["high_water"]),account_high)
             return RuleState(account_id=profile.account_id,account_currency=profile.account_currency,
                 daily_balance=Decimal(row["balance"]),daily_snapshot_at=datetime.fromisoformat(row["snapshot_at"]),
-                equity=equity,balance_high_water=Decimal(row["high_water"]),
+                equity=equity,balance_high_water=high,
                 high_water_observed_at=datetime.fromisoformat(row["snapshot_at"]))
 
     def backup(self, destination: Path):

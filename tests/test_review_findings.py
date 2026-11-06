@@ -336,3 +336,92 @@ def test_cr13_sell_side_uses_todays_bid_when_it_is_lower(case):
     p, i = usdjpy(case, "SELL", "150.000", "151.500", "148.500", "-999.97")
     r = assess(p, i, now=NOW)
     assert r.verdict == "ALLOW" and abs(r.monetary_risk - (D("6000") / D("150.000") + 2)) < D("1e-20")
+
+
+# --- CR-01: the trailing high-water mark is per account and only ever rises ---
+
+def _trailing_profile(case, **changes):
+    from datetime import datetime as _dt, timezone as _tz
+    _, i = case
+    base = dict(drawdown_mode="TRAILING_EOD_BALANCE", account_creation_date=_dt(2026, 11, 1).date(),
+                effective_from=_dt(2026, 10, 1, tzinfo=_tz.utc), effective_until=_dt(2026, 12, 31, tzinfo=_tz.utc),
+                verified_at=_dt(2026, 10, 30, tzinfo=_tz.utc), user_confirmed_at=_dt(2026, 10, 31, tzinfo=_tz.utc))
+    base.update(changes)
+    return i.profile.model_copy(update=base)
+
+
+def _midnight(day):
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+    return _dt.combine(day, _dt.min.time(), ZoneInfo("Europe/Prague"))
+
+
+def _record(store, profile, day, balance, now=NOW):
+    from src.trading.contracts import BalanceSnapshot
+    snap = BalanceSnapshot(account_id=profile.account_id, currency="USD", balance=balance,
+                           equity=balance, observed_at=_midnight(day))
+    store.record_rule_boundary(profile, snap, evidence_hash="a" * 64, now=now, cashflow=D("0"))
+
+
+def test_cr01_reconfirmed_profile_cannot_lower_the_high_water(tmp_path, case):
+    # Probe R2: lineage 1 reaches 10,800 (floor 9,800). Re-confirming the profile at
+    # 7385130 started a fresh lineage that re-seeded 10,000 (floor 9,000).
+    from datetime import date
+    from src.trading.rule_profiles import evaluate_profile
+    store = store_at(tmp_path, "rules.sqlite")
+    v1 = _trailing_profile(case)
+    for n, balance in enumerate(["10000", "10400", "10800", "10600", "10500"]):
+        _record(store, v1, date(2026, 11, 1) + timedelta(days=n), balance)
+    v2 = _trailing_profile(case, user_confirmed_at=v1.user_confirmed_at + timedelta(minutes=30))
+    assert v2.profile_hash != v1.profile_hash
+    with pytest.raises(ReviewRefused, match="duplicate, reordered or missing"):
+        _record(store, v2, date(2026, 11, 1), "10000")  # the re-seed attempt
+    _record(store, v2, date(2026, 11, 6), "10450")      # v2 continues the same account history
+    for profile in (v1, v2):
+        state = store.rule_state(profile, equity=D("10450"), now=NOW)
+        assert state.balance_high_water == D("10800")
+        assert evaluate_profile(profile, state, now=NOW).overall_floor == D("9800")
+
+
+def test_cr01_profile_cannot_redefine_the_account_start(tmp_path, case):
+    from datetime import date
+    store = store_at(tmp_path, "rules.sqlite")
+    v1 = _trailing_profile(case)
+    _record(store, v1, date(2026, 11, 1), "10000")
+    smaller = _trailing_profile(case, account_size=D("9000"))
+    with pytest.raises(ReviewRefused, match="recorded start"):
+        _record(store, smaller, date(2026, 11, 2), "10100")
+
+
+def test_cr01_high_water_is_the_running_maximum_every_day(tmp_path, case):
+    from datetime import date, datetime as _dt, timezone as _tz
+    balances = ["10000", "10300", "10100", "10600", "10200", "10200", "10700", "9900"]
+    clock_now = [None]
+    store = ReviewStore(tmp_path / "rules.sqlite", clock=lambda: clock_now[0])
+    profile = _trailing_profile(case)
+    running = D("0")
+    for n, balance in enumerate(balances):
+        day = date(2026, 11, 1) + timedelta(days=n)
+        clock_now[0] = _dt.combine(day, _dt.min.time(), _tz.utc) + timedelta(hours=12)
+        _record(store, profile, day, balance, now=clock_now[0])
+        running = max(running, D(balance))
+        state = store.rule_state(profile, equity=D(balance), now=clock_now[0])
+        assert state.balance_high_water == running
+
+
+def test_cr01_schema_v1_boundaries_are_set_aside_not_trusted(tmp_path, case):
+    path = tmp_path / "old.sqlite"
+    with sqlite3.connect(str(path)) as db:
+        db.executescript("""
+            CREATE TABLE rule_boundaries (account_id TEXT NOT NULL, profile_hash TEXT NOT NULL,
+                day TEXT NOT NULL, snapshot_at TEXT NOT NULL, balance TEXT NOT NULL,
+                high_water TEXT NOT NULL, evidence_hash TEXT NOT NULL,
+                PRIMARY KEY(account_id,profile_hash,day));
+            INSERT INTO rule_boundaries VALUES('demo-1','p','2026-11-06','2026-11-05T23:00:00+00:00','10000','10000','x');
+            PRAGMA user_version=1;""")
+    store = ReviewStore(path, clock=clock)
+    with pytest.raises(ReviewRefused, match="boundary missing"):
+        store.rule_state(case[1].profile, equity=D("10000"), now=NOW)
+    with sqlite3.connect(str(path)) as db:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("SELECT COUNT(*) FROM rule_boundaries_v1_unmigrated").fetchone()[0] == 1
