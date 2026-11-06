@@ -6,8 +6,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from pydantic import ValidationError
 
-from src.trading.contracts import (AccountSnapshot, AssetClass, BrokerCalculation,
-    DailyActivity, DataProvenance, EconomicCalendar, FXPairQuote, Instrument,
+from src.trading.contracts import (AccountSnapshot, AssetClass, BookItem, BookSnapshot,
+    BrokerCalculation, DailyActivity, DataProvenance, EconomicCalendar, FXPairQuote, Instrument,
     InstrumentSpecification, MarketQuote, TradeProposal, TradingSession, content_hash)
 from src.trading.multiasset_risk import RiskInputs, assess, floor_volume
 from src.trading.rule_profiles import RuleProfile, RuleState, evaluate_profile, rule_day
@@ -39,6 +39,19 @@ def session(instrument_id="fixture:EURUSD", *, state="OPEN",
                           provenance=provenance)
 
 
+def book(*items, **changes):
+    fields = dict(account_id="demo-1", observed_at=NOW, complete=True, items=tuple(items))
+    return BookSnapshot(**{**fields, **changes})
+
+
+def holding(symbol="GBPUSD", *, kind="POSITION", side="BUY", loss="10", notional="1000",
+            base=None, quote="USD"):
+    """A book item; `loss` is the broker's loss to the stop (None = no stop)."""
+    return BookItem(instrument_id=f"fixture:{symbol}", kind=kind, side=side, volume="0.01",
+                    base_currency=base or symbol[:3], quote_currency=quote,
+                    stop_loss=None if loss is None else "1", loss_at_stop=loss, notional=notional)
+
+
 def activity(**changes):
     fields = dict(account_id="demo-1", day="2026-11-06", positions_opened=0, server_requests=0,
                   open_orders=0, requests_last_minute=0, observed_at=NOW, complete=True)
@@ -53,7 +66,12 @@ def broker_calc(instrument_id, profit, margin, provenance, *, entry="1.10020",
 
 
 @pytest.fixture
-def case():
+def case(monkeypatch, tmp_path):
+    # The risk engine reads the legacy kill switch itself (CR-11): start every
+    # case released, on a private state file, whatever another test left behind.
+    from src.execution import kill_switch
+    monkeypatch.delenv(kill_switch.ENV_VAR, raising=False)
+    monkeypatch.setattr(kill_switch, "STATE_FILE", tmp_path / "kill_switch.json")
     provenance = DataProvenance(provider="fixture", instrument_id="fixture:EURUSD",
         original_symbol="EURUSD", observed_at=NOW, retrieved_at=NOW,
         data_type="quote", freshness="FRESH", quality="VALID", permission="EXECUTION")
@@ -64,7 +82,8 @@ def case():
         tick_size="0.00001", tick_value="1", tick_value_currency="USD", volume_min="0.01",
         volume_max="10", volume_step="0.01", minimum_stop_distance="0.00010",
         margin_rate="0.01", supported_order_types=("MARKET",), quote_max_age_seconds=15,
-        calculation_mode="LINEAR", provenance=provenance)
+        calculation_mode="LINEAR", provenance=provenance,
+        commission_per_lot="10", commission_currency="USD")
     profile = RuleProfile(provider="FIXTURE_NOT_FTMO", provider_entity="fixture", jurisdiction="fixture",
         product="TEST", account_id="demo-1", account_size="10000", account_currency="USD",
         evaluation_stage="NOT_APPLICABLE", account_type="NOT_APPLICABLE", account_class="PRACTICE",
@@ -93,13 +112,8 @@ def case():
         specification=spec, profile=profile, rule_state=state,
         # The broker's own figure for one lot, entry to stop: 0.005 x 100,000 = $500.
         broker_calculation=broker_calc(instrument.instrument_id, "-500", "1100.20", provenance),
-        existing_open_risk="0",
-        pending_order_risk="0", correlated_risk="0", current_notional="0",
-        position_count=0, activity=activity(), economic_calendar=calendar(), session=session(),
-        spread_cost="1", commission="0.5",
-        slippage_allowance="0.5", financing_allowance="0", session_open=True,
-        kill_switch_clear=True, book_risk_complete=True,
-        cooldown_clear=True, duplicate_position=False, abnormal_market=False)
+        book=book(), activity=activity(), economic_calendar=calendar(), session=session(),
+        slippage_allowance="0.5", financing_allowance="0")
     return proposal, inputs
 
 
@@ -107,7 +121,9 @@ def test_linear_lot_risk_and_costs(case):
     proposal, inputs = case
     risk = assess(proposal, inputs, now=NOW)
     assert risk.verdict == "ALLOW"
-    assert risk.monetary_risk == D("27.50")  # 0.0051 * 100000 * .05 + 2
+    # Stop risk 0.0051 x 100,000 x 0.05 = 25.50; spread 0.0002 x 100,000 x 0.05 = 1.00;
+    # commission 10/lot x 0.05 = 0.50; slippage max(0.50 stated, 1 spread = 1.00) = 1.00.
+    assert risk.monetary_risk == D("28.00")
     assert risk.quantity == D("0.05")
     assert risk.proposal_hash == content_hash(proposal)
     assert risk.expires_at == NOW + timedelta(seconds=30)
@@ -119,12 +135,15 @@ def test_volume_rounds_down(raw, step, expected):
 
 
 @pytest.mark.parametrize("field,value,verdict", [
-    ("kill_switch_clear",False,"EMERGENCY_HALT"), ("session_open",False,"DENY"),
-    ("book_risk_complete",False,"UNVERIFIED"),
-    ("cooldown_clear",False,"DENY"), ("duplicate_position",True,"DENY"),
-    ("abnormal_market",True,"DENY"), ("pending_order_risk",D("200"),"DENY"),
-    ("existing_open_risk",D("200"),"DENY"), ("correlated_risk",D("100"),"DENY"),
-    ("activity",activity(requests_last_minute=2),"DENY"), ("position_count",5,"DENY"),
+    ("session",session(state="CLOSED"),"DENY"), ("session",session(state="HALTED"),"DENY"),
+    ("book",book(complete=False),"UNVERIFIED"),
+    ("activity",activity(last_losing_close_at=NOW-timedelta(minutes=5)),"DENY"),
+    ("book",book(holding("EURUSD")),"DENY"),                          # duplicate
+    ("book",book(holding("EURUSD",kind="PENDING_ORDER",loss="200",side="SELL")),"DENY"),
+    ("book",book(holding("AUDCAD",base="AUD",quote="CAD",loss="200")),"DENY"),  # aggregate
+    ("book",book(holding("GBPUSD",loss="100")),"DENY"),               # correlated through USD
+    ("activity",activity(requests_last_minute=2),"DENY"),
+    ("book",book(*(holding(s,loss="1") for s in ("AUDCAD","NZDCHF","CADCHF","AUDNZD","CHFJPY"))),"DENY"),
 ])
 def test_independent_refusals(case, field, value, verdict):
     p, inputs = case
@@ -134,7 +153,7 @@ def test_independent_refusals(case, field, value, verdict):
 
 # Midnight balance 10,000. Halt when (10,000 - equity) >= 2% of equity, i.e. equity <= 9,803.92.
 @pytest.mark.parametrize("equity,verdict", [
-    ("9900", "ALLOW"),           # loss 100 < 198; budget min(49.50, 198-100=98, ...) fits the $27.50 trade
+    ("9900", "ALLOW"),           # loss 100 < 198; budget min(49.50, 198-100=98, ...) fits the $28 trade
     ("9804", "DENY"),            # loss 196 < 196.08, but only $0.08 of daily budget is left
     ("9803", "EMERGENCY_HALT"),  # loss 197 >= 196.06
     ("9520", "EMERGENCY_HALT"),  # review case E8
@@ -183,7 +202,10 @@ def test_cross_currency_requires_fresh_pair_quote(case):
     assert assess(p,i,now=NOW).reasons == ("FX_PAIR_QUOTE_MISSING_OR_MISMATCHED",)
     r=assess(p,i.model_copy(update={"fx_quote":usdjpy_quote(i)}),now=NOW)
     # JPY -> USD divides by USDJPY; the bid (149.25) is the side that makes the loss larger.
-    assert r.verdict=="ALLOW" and r.monetary_risk == D("0.0051")*100000*D("0.05")/D("149.25")+2
+    # Costs: spread 0.0002 x 100,000 x 0.05 = 1 JPY, converted the same way; commission
+    # $0.50; slippage max($0.50 stated, one spread) = $0.50.
+    expected = (D("0.0051")*100000*D("0.05") + 1)/D("149.25") + 1
+    assert r.verdict=="ALLOW" and abs(r.monetary_risk - expected) < D("1e-20")
     for bad in (usdjpy_quote(i,symbol="JPYUSD"),
                 usdjpy_quote(i).model_copy(update={"provenance":usdjpy_quote(i).provenance.model_copy(
                     update={"observed_at":NOW-timedelta(seconds=16),"retrieved_at":NOW-timedelta(seconds=16)})}),

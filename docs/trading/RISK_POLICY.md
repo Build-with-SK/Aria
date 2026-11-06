@@ -8,8 +8,9 @@ policy invalidate the assessment hash. No API permits policy mutation.
 Required: exact account identity/environment/currency; complete positions and
 pending-order risk; fresh executable quote; verified linear specification; correctly
 fresh FX pair quote when needed; confirmed profile and exact current
-Prague reset snapshot; today's complete activity record; and the calendar and
-session evidence the profile's operational rules need. Unknown inputs return
+Prague reset snapshot; today's complete activity record; a complete, fresh book
+of positions and orders; session evidence for the instrument; and the calendar
+the profile's operational rules need. Unknown inputs return
 UNVERIFIED. Kill/financial-limit breaches return EMERGENCY_HALT.
 
 Per-volume stop risk = (absolute entry-stop distance + allowed entry tolerance)
@@ -72,11 +73,26 @@ request rate, available margin, leverage, spread, stop distance, exact price
 ticks, duplicates, cooldown, abnormal markets and closed/unknown session. Sizing
 never rounds upward. ALLOW means research checks passed, never broker authority.
 
-Important limitations: book risk, costs, session/operational checks must come from
-an authoritative upstream snapshot builder. This branch does not expose a request
-body that can self-assert these booleans to place an order. Broker-specific margin,
-gap/liquidity shocks, currency concentration, loss-streak logic and real-time book
-reconciliation still need dedicated adapters/testing before execution.
+Evidence, not assertions (review CR-11). `RiskInputs` holds evidence only; no
+field states a result. `assess` itself:
+
+- reads the legacy global kill switch (`src/execution/kill_switch.is_engaged()`,
+  file or `ARIA_KILL_SWITCH`); engaged or unreadable is EMERGENCY_HALT;
+- derives open and pending risk, notional, position count and duplicates from a
+  `BookSnapshot` of every position and pending order (each with the broker's
+  own loss to its stop; a position without a stop is UNVERIFIED). A position is
+  "correlated" when it shares a currency with the instrument — conservative;
+- prices the spread from the live quote and commission from the instrument
+  specification's published round-turn figure (missing, or not in the account
+  currency, is UNVERIFIED); stated slippage is raised to at least one spread;
+- takes market state from session evidence, which is always required: CLOSED,
+  HALTED or outside the session is DENY, UNKNOWN is UNVERIFIED;
+- applies a 30-minute cooldown after the account's last losing close.
+
+Financing remains a caller allowance that can only add risk. Broker-specific
+margin, gap/liquidity shocks, currency concentration, loss-streak logic and
+real-time book reconciliation still need dedicated adapters/testing before
+execution. No component yet maps MT5 positions and orders into a `BookSnapshot`.
 
 `rule_profiles.py` calculates equity floors and objective eligibility separately.
 Failure to reach a profit/consistency objective never forces another trade.

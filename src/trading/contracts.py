@@ -117,9 +117,15 @@ class InstrumentSpecification(Contract):
     negative_prices: bool = False
     calculation_mode: Literal["LINEAR", "BROKER_CALCULATOR_REQUIRED"]
     provenance: DataProvenance
+    # Round-turn commission per lot, from the provider's published schedule.
+    # The risk engine needs it in the account currency (review CR-11).
+    commission_per_lot: NonNegative | None = None
+    commission_currency: Currency | None = None
 
     @model_validator(mode="after")
     def valid_spec(self):
+        if (self.commission_per_lot is None) != (self.commission_currency is None):
+            raise ValueError("commission needs both an amount and a currency")
         if self.volume_min > self.volume_max:
             raise ValueError("minimum volume exceeds maximum")
         if self.volume_min % self.volume_step or self.volume_max % self.volume_step:
@@ -291,6 +297,44 @@ class DailyActivity(Contract):
     requests_last_minute: int = Field(ge=0)
     observed_at: datetime
     complete: bool
+    # The account's most recent losing close, on any day; drives the cooldown.
+    last_losing_close_at: datetime | None = None
+
+
+class BookItem(Contract):
+    """One open position or pending order on the account.
+
+    `loss_at_stop` is the broker's own calculation (MT5 `order_calc_profit`)
+    from the current price, or the order price, to the stop, in the account
+    currency. With no stop the loss is unbounded and the item has none.
+    """
+    instrument_id: str = Field(min_length=1)
+    kind: Literal["POSITION", "PENDING_ORDER"]
+    side: Literal["BUY", "SELL"]
+    volume: Positive
+    base_currency: Currency
+    quote_currency: Currency
+    stop_loss: Decimal | None
+    loss_at_stop: NonNegative | None
+    notional: NonNegative
+
+    @model_validator(mode="after")
+    def bounded(self):
+        if (self.stop_loss is None) != (self.loss_at_stop is None):
+            raise ValueError("a loss at the stop needs a stop, and a stop needs its loss")
+        return self
+
+
+class BookSnapshot(Contract):
+    """Every open position and pending order on one account, read at one time.
+
+    Book risk, notional, position count and duplicates are derived from this
+    by the risk engine; a caller states none of them (review CR-11).
+    """
+    account_id: str = Field(min_length=1)
+    observed_at: datetime
+    complete: bool
+    items: tuple[BookItem, ...] = ()
 
 
 class FundamentalObservation(Contract):

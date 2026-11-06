@@ -68,20 +68,32 @@ def news_checks(profile: RuleProfile, instrument: Instrument, calendar: Economic
     return unverified, denied
 
 
-def break_checks(profile: RuleProfile, instrument: Instrument, session: TradingSession | None,
-                 *, now: datetime, max_age_seconds: int, margin: timedelta) -> tuple[list[str], list[str]]:
-    hold, gap = profile.weekend_rule == HOLD_RULE, profile.gap_rule == GAP_RULE
-    if not (hold or gap):
-        return [], []
+def session_checks(instrument: Instrument, session: TradingSession | None, *, now: datetime,
+                   max_age_seconds: int) -> tuple[list[str], list[str]]:
+    """The instrument's market must be open now, by fresh session evidence (CR-11).
+
+    HALTED, CLOSED, or outside the session interval is DENY; UNKNOWN is UNVERIFIED.
+    """
     if session is None:
         return ["SESSION_EVIDENCE_REQUIRED"], []
     source = session.provenance
     if (source is None or source.quality != "VALID" or session.instrument_id != instrument.instrument_id
             or not 0 <= (now - source.retrieved_at).total_seconds() <= max_age_seconds
-            or session.next_opens_at is None or session.state == "UNKNOWN"):
+            or session.state == "UNKNOWN"):
         return ["SESSION_EVIDENCE_UNVERIFIED"], []
     if session.state != "OPEN" or not session.opens_at <= now < session.closes_at:
         return [], ["SESSION_NOT_OPEN"]
+    return [], []
+
+
+def break_checks(profile: RuleProfile, session: TradingSession, *, now: datetime,
+                 margin: timedelta) -> tuple[list[str], list[str]]:
+    """Long-break rules; `session` has already passed `session_checks`."""
+    hold, gap = profile.weekend_rule == HOLD_RULE, profile.gap_rule == GAP_RULE
+    if not (hold or gap):
+        return [], []
+    if session.next_opens_at is None:
+        return ["SESSION_NEXT_OPEN_UNKNOWN"], []
     denied = []
     long_break = session.next_opens_at - session.closes_at >= LONG_BREAK
     if long_break and session.closes_at - now <= PRE_BREAK + margin:
@@ -111,7 +123,8 @@ def activity_checks(profile: RuleProfile, activity: DailyActivity, account_id: s
     """Per-day position, server-request and open-order limits, denied at `headroom` of each."""
     age = (now - activity.observed_at).total_seconds()
     if (activity.account_id != account_id or activity.day != rule_day(profile, now)
-            or not activity.complete or not 0 <= age <= max_age_seconds):
+            or not activity.complete or not 0 <= age <= max_age_seconds
+            or (activity.last_losing_close_at is not None and activity.last_losing_close_at > now)):
         return ["DAILY_ACTIVITY_UNVERIFIED"], []
     denied = []
     if activity.positions_opened + 1 > profile.max_positions_per_day * headroom:

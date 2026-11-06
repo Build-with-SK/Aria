@@ -9,13 +9,14 @@ from typing import Annotated
 
 from pydantic import Field, ValidationError
 
-from .contracts import (AccountSnapshot, AssetClass, BrokerCalculation, Contract,
+from .contracts import (AccountSnapshot, AssetClass, BookSnapshot, BrokerCalculation, Contract,
                         DailyActivity, EconomicCalendar, FXPairQuote, Instrument,
                         InstrumentSpecification, MarketQuote, NonNegative, Positive,
                         RiskAssessment, TradeProposal, TradingSession, content_hash,
                         revalidated)
 from .instrument_registry import expected_contract_sizes
-from .operational_rules import activity_checks, break_checks, instrument_checks, news_checks
+from .operational_rules import (activity_checks, break_checks, instrument_checks, news_checks,
+                                session_checks)
 from .rule_profiles import RuleProfile, RuleState, evaluate_profile
 
 
@@ -43,6 +44,11 @@ class ResearchRiskPolicy(Contract):
     pre_break_margin_minutes: int = Field(default=15, ge=0)
     max_calendar_age_seconds: int = Field(default=21600, gt=0, le=86400)
     max_session_age_seconds: int = Field(default=3600, gt=0, le=86400)
+    # A stop is a market exit: allow at least this many spreads of slippage,
+    # whatever smaller allowance a caller states (review CR-11).
+    min_slippage_spreads: NonNegative = Decimal("1")
+    # No new entry this soon after a losing close.
+    loss_cooldown_minutes: int = Field(default=30, ge=0)
     # Internal floor = provider floor + buffer, so a trade sized to "just fit"
     # cannot breach on one pip of extra slippage, a swap or a gap (CR-10).
     floor_buffer_fraction: Positive = Decimal("0.005")       # of initial account size
@@ -71,6 +77,11 @@ class ResearchRiskPolicy(Contract):
 
 
 class RiskInputs(Contract):
+    """Evidence only. Every derived figure — book risk, notional, position count,
+    duplicates, spread and commission cost, session state, cooldown, kill
+    switch — is computed by `assess` from this evidence or read by it directly
+    (review CR-11). There is no field in which a caller can state a result.
+    """
     account: AccountSnapshot
     quote: MarketQuote
     specification: InstrumentSpecification
@@ -80,29 +91,32 @@ class RiskInputs(Contract):
     broker_calculation: BrokerCalculation | None = None
     profile: RuleProfile
     rule_state: RuleState
-    # These are independently measured worst-case risk, including pending orders.
-    existing_open_risk: NonNegative
-    pending_order_risk: NonNegative
-    correlated_risk: NonNegative
-    current_notional: NonNegative
-    position_count: int = Field(ge=0)
+    # Every open position and pending order (CR-11).
+    book: BookSnapshot
     # Today's broker activity, for the provider's per-day limits (CR-09).
     activity: DailyActivity
-    # Evidence for the provider's news, gap and break rules (CR-08); required
-    # only when the profile's rules need it.
-    economic_calendar: EconomicCalendar | None = None
+    # The instrument's session; always required (CR-11), and the long-break
+    # rules read its next open (CR-08).
     session: TradingSession | None = None
-    spread_cost: NonNegative
-    commission: NonNegative
+    # Required only when the profile's news or gap rules need it (CR-08).
+    economic_calendar: EconomicCalendar | None = None
+    # Assumptions, in account currency, that can only add risk: slippage is
+    # raised to `min_slippage_spreads` of the live spread, and financing is
+    # the caller's allowance for holding costs.
     slippage_allowance: NonNegative
     financing_allowance: NonNegative
-    # Unknown operational checks are not false/clear by default.
-    session_open: bool
-    kill_switch_clear: bool
-    book_risk_complete: bool
-    cooldown_clear: bool
-    duplicate_position: bool
-    abnormal_market: bool
+
+
+def kill_switch_engaged() -> bool:
+    """The legacy global kill switch, read here rather than trusted from a caller.
+
+    An unreadable switch counts as engaged (review CR-11).
+    """
+    try:
+        from src.execution import kill_switch
+        return kill_switch.is_engaged()
+    except Exception:
+        return True
 
 
 def conversion_factors(instrument: Instrument, account_currency: str, quote: MarketQuote,
@@ -173,7 +187,7 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
 
     a, q, spec = inputs.account, inputs.quote, inputs.specification
     instrument = spec.instrument
-    if not inputs.kill_switch_clear:
+    if kill_switch_engaged():
         return result("EMERGENCY_HALT", ["KILL_SWITCH"])
     unverified = []
     if proposal.account_id != a.account_id or a.account_id != inputs.profile.account_id:
@@ -190,23 +204,34 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
     # is a demo account, including a paid Challenge and a funded account (CR-07).
     if inputs.profile.account_class == "LIVE":
         unverified.append("LIVE_ACCOUNT_CLASS_DISABLED")
-    if not (a.positions_complete and a.orders_complete and inputs.book_risk_complete):
+    # The book, from evidence (CR-11): every position and pending order, fresh.
+    book = inputs.book
+    book_age = (now - book.observed_at).total_seconds()
+    if not (a.positions_complete and a.orders_complete and book.complete
+            and book.account_id == a.account_id and 0 <= book_age <= policy.max_snapshot_age_seconds):
         unverified.append("INCOMPLETE_ACCOUNT_BOOK")
+    if any(item.loss_at_stop is None for item in book.items):
+        unverified.append("BOOK_POSITION_WITHOUT_STOP")
+    if spec.commission_per_lot is None or spec.commission_currency != a.currency:
+        unverified.append("COMMISSION_UNVERIFIED")
     # Provider operational rules from evidence, not from a caller's "verified" flag (CR-08, CR-09).
     news_unverified, news_denied = news_checks(inputs.profile, instrument, inputs.economic_calendar,
                                                now=now, max_age_seconds=policy.max_calendar_age_seconds)
-    break_unverified, break_denied = break_checks(
-        inputs.profile, instrument, inputs.session, now=now,
-        max_age_seconds=policy.max_session_age_seconds,
-        margin=timedelta(minutes=policy.pre_break_margin_minutes))
+    session_unverified, session_denied = session_checks(
+        instrument, inputs.session, now=now, max_age_seconds=policy.max_session_age_seconds)
+    break_unverified, break_denied = [], []
+    if not (session_unverified or session_denied):
+        break_unverified, break_denied = break_checks(
+            inputs.profile, inputs.session, now=now,
+            margin=timedelta(minutes=policy.pre_break_margin_minutes))
     activity_unverified, activity_denied = activity_checks(
         inputs.profile, inputs.activity, a.account_id, now=now,
         max_age_seconds=policy.max_snapshot_age_seconds, headroom=policy.daily_limit_headroom,
         requests_per_trade=policy.requests_per_trade,
         max_requests_per_minute=policy.max_orders_per_minute)
-    unverified.extend(news_unverified + break_unverified + activity_unverified)
-    operational_denied = (instrument_checks(inputs.profile, instrument) + news_denied
-                          + break_denied + activity_denied)
+    unverified.extend(session_unverified + news_unverified + break_unverified + activity_unverified)
+    operational_denied = (instrument_checks(inputs.profile, instrument) + session_denied
+                          + news_denied + break_denied + activity_denied)
     for label, observed in (("ACCOUNT", a.observed_at), ("QUOTE", q.provenance.observed_at)):
         age = (now - observed).total_seconds()
         max_age = min(spec.quote_max_age_seconds, policy.max_snapshot_age_seconds)
@@ -268,11 +293,23 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
         denied.append("PROPOSAL_EXPIRED")
     if proposal.market_snapshot_id != q.snapshot_id:
         denied.append("MARKET_SNAPSHOT_CHANGED")
-    if not inputs.session_open or inputs.abnormal_market:
-        denied.append("SESSION_CLOSED_UNKNOWN_OR_ABNORMAL")
-    if not inputs.cooldown_clear or inputs.duplicate_position:
-        denied.append("COOLDOWN_OR_DUPLICATE_POSITION")
-    if inputs.position_count >= policy.max_position_count:
+    positions = [x for x in book.items if x.kind == "POSITION"]
+    pending = [x for x in book.items if x.kind == "PENDING_ORDER"]
+
+    def at_stop(items):
+        return sum((x.loss_at_stop for x in items), Decimal("0"))
+
+    # Conservative correlation: any position sharing a currency with this instrument.
+    shared = {instrument.base_currency, instrument.quote_currency}
+    existing_open_risk, pending_order_risk = at_stop(positions), at_stop(pending)
+    correlated_risk = at_stop(x for x in positions if {x.base_currency, x.quote_currency} & shared)
+    current_notional = sum((x.notional for x in book.items), Decimal("0"))
+    if any(x.instrument_id == instrument.instrument_id and x.side == proposal.side for x in book.items):
+        denied.append("DUPLICATE_POSITION")
+    last_loss = inputs.activity.last_losing_close_at
+    if last_loss is not None and now - last_loss < timedelta(minutes=policy.loss_cooldown_minutes):
+        denied.append("LOSS_COOLDOWN")
+    if len(positions) >= policy.max_position_count:
         denied.append("POSITION_COUNT_CAP")
     denied.extend(operational_denied)
     if proposal.order_type not in spec.supported_order_types:
@@ -298,24 +335,28 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
         denied.append("STOP_TOO_CLOSE")
     # Include the worst approved entry movement; costs are in account currency.
     per_volume = (stop_distance + proposal.price_tolerance) * spec.contract_size * factor
-    costs = inputs.spread_cost + inputs.commission + inputs.slippage_allowance + inputs.financing_allowance
+    # Costs from evidence: the live spread and the published commission (CR-11).
+    spread_cost = (q.ask - q.bid) * spec.contract_size * proposal.quantity * factor
+    commission = spec.commission_per_lot * proposal.quantity
+    slippage = max(inputs.slippage_allowance, spread_cost * policy.min_slippage_spreads)
+    costs = spread_cost + commission + slippage + inputs.financing_allowance
     risk = per_volume * proposal.quantity + costs
     # Today's loss from the account's own evidence: the policy-local midnight
     # balance against current equity (which includes floating P/L, swaps and
     # commissions). A position carried over midnight with a floating loss counts.
     # No separate "today's P&L" input exists to contradict it (CR-05).
     daily_loss = max(Decimal("0"), inputs.rule_state.daily_balance - a.equity)
-    existing = inputs.existing_open_risk + inputs.pending_order_risk
+    existing = existing_open_risk + pending_order_risk
     if daily_loss >= a.equity * policy.internal_daily_fraction:
         return result("EMERGENCY_HALT", ["INTERNAL_DAILY_STOP"])
     floor = max(pe.daily_floor, pe.overall_floor)
     buffer = max(inputs.profile.account_size * policy.floor_buffer_fraction,
-                 inputs.slippage_allowance * policy.floor_buffer_slippage_multiple)
+                 slippage * policy.floor_buffer_slippage_multiple)
     if a.equity - floor <= buffer:
         denied.append("WITHIN_FLOOR_BUFFER")
     budget = min(a.equity * policy.ordinary_fraction,
                  a.equity * policy.aggregate_fraction - existing,
-                 a.equity * policy.correlated_fraction - inputs.correlated_risk - inputs.pending_order_risk,
+                 a.equity * policy.correlated_fraction - correlated_risk - pending_order_risk,
                  a.equity * policy.internal_daily_fraction - daily_loss - existing,
                  a.equity - floor - buffer - existing)
     max_volume = floor_volume(max(Decimal("0"), budget - costs) / per_volume, spec.volume_step)
@@ -327,7 +368,7 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
     if risk >= budget:
         denied.append("RISK_BUDGET_EXCEEDED")
     notional = (abs(proposal.entry) + proposal.price_tolerance) * spec.contract_size * proposal.quantity * factor
-    if a.equity <= 0 or (inputs.current_notional + notional) > max(a.equity, Decimal("0")) * min(policy.max_leverage, inputs.profile.max_leverage):
+    if a.equity <= 0 or (current_notional + notional) > max(a.equity, Decimal("0")) * min(policy.max_leverage, inputs.profile.max_leverage):
         denied.append("LEVERAGE_CAP")
     # The larger of our estimate and the broker's own margin figure.
     margin_needed = max(notional * spec.margin_rate, broker_margin)

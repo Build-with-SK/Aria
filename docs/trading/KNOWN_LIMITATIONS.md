@@ -15,8 +15,10 @@ This is a tested research/read-only extension, not the completed production targ
   produced by this release. Full state vocabulary is declared; tested persisted
   paths cover review/reservation/recovery, not actual broker outcomes.
 - Risk supports linear contracts with pair-quote FX conversion; inverse/nonlinear
-  products require broker calculators. Spread/commission/financing and book risk
-  must be authoritative. This is not yet a full currency-factor, liquidity-gap,
+  products require broker calculators. Book risk, spread, commission, session
+  state and cooldown are derived by the engine from evidence (CR-11), but no
+  adapter yet builds that evidence from a broker; financing is still a caller
+  allowance. This is not yet a full currency-factor, liquidity-gap,
   consecutive-loss or real-time margin engine. No 1% exception workflow is enabled.
 - News, gap and long-break rules are checked for new entries only. Positions
   already open can still meet a release or a weekend; `flatten_deadline()`

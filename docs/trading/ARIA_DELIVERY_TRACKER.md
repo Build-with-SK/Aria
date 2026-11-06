@@ -1,6 +1,6 @@
 # ARIA delivery tracker — multiasset trading remediation
 
-Last updated: 2026-11-06T22:22Z (UTC)
+Last updated: 2026-11-06T22:30Z (UTC)
 
 ## Objective
 
@@ -31,9 +31,9 @@ Original reproductions: [`claude_review_probes/`](claude_review_probes/) (`probe
 
 ## Current stage
 
-Stage 7 — CR-08 and CR-09 (operational rules as enums against calendar,
-session and daily-activity evidence). Stages 1–6 (CR-02, CR-05, CR-10, CR-03,
-CR-04, CR-13, CR-01, CR-07, CR-12) are committed and tested.
+Stage 8 — CR-11 (the engine reads the kill switch and derives book, costs,
+session and cooldown from evidence). Stages 1–7 (CR-02, CR-05, CR-10, CR-03,
+CR-04, CR-13, CR-01, CR-07, CR-12, CR-08, CR-09) are committed and tested.
 
 ## Findings
 
@@ -51,10 +51,10 @@ and the original failure was reproduced against `7385130`.
 | CR-01 | HIGH | Trailing high-water lowered by re-versioning | TESTED | 4e1cfde | `test_cr01_*` (4); before: probe R2 high-water 10,800 → 10,000 at `7385130` |
 | CR-06 | HIGH | MT5 adapter not read-only | NOT_STARTED | — | — |
 | CR-07 | HIGH | "DEMO" is not a safety boundary at FTMO | TESTED | f7bf452 | `test_cr07_*` (13); before: paid FTMO Challenge on a DEMO server ALLOW and queued at `7385130` |
-| CR-08 | HIGH | News/gap/weekend rules not enforced | TESTED | stage 7 | `test_cr08_*` (33); before: no calendar/session inputs, Standard-account NFP-in-90 s case ALLOW, free-text rules counted as verified at `7385130` |
+| CR-08 | HIGH | News/gap/weekend rules not enforced | TESTED | 2fe1d0b | `test_cr08_*` (33); before: no calendar/session inputs, Standard-account NFP-in-90 s case ALLOW, free-text rules counted as verified at `7385130` |
 | QA-01 | HIGH | Backtester breaker look-ahead | NOT_STARTED | — | — |
-| CR-09 | MED | Per-day server/position/order limits | TESTED | stage 7 | `test_cr09_*` (13); before: only `max_server_requests_per_minute`, no daily counters at `7385130` |
-| CR-11 | MED | Self-asserted book/operational inputs | NOT_STARTED | — | — |
+| CR-09 | MED | Per-day server/position/order limits | TESTED | 2fe1d0b | `test_cr09_*` (13); before: only `max_server_requests_per_minute`, no daily counters at `7385130` |
+| CR-11 | MED | Self-asserted book/operational inputs | TESTED | stage 8 | `test_cr11_*` (19) + reservation re-check; before: `ARIA_KILL_SWITCH=1` engaged and `assess` ALLOW at `7385130` (13 result fields caller-stated) |
 | RQ-01 | MED | Caller-asserted "verified" evidence | NOT_STARTED | — | — |
 | RQ-02 | MED | Contradictory hypotheses; SR logic | NOT_STARTED | — | — |
 | QA-02 | MED | Fixed 252-period annualisation | NOT_STARTED | — | — |
@@ -73,6 +73,9 @@ and the original failure was reproduced against `7385130`.
 |---|---|---|---|
 | 2026-11-06 21:45 | `7385130` (baseline) | full suite, shared venv, `-p no:cacheprovider` | **3,432 passed, 10 skipped**, exit 0, 392 s — identical to the review run |
 | 2026-11-06 21:58 | stage 1 | multiasset + `test_trading_structure.py` | 147 passed |
+| 2026-11-06 22:30 | `2fe1d0b` | full suite on a `git archive` copy | **3,528 passed, 21 skipped**, exit 0, 366 s |
+| 2026-11-06 22:30 | stage 8 | `before_cr11.py` on the `7385130` copy | legacy kill switch engaged (environment), caller said clear: **ALLOW**; 13 caller-stated result fields present |
+| 2026-11-06 22:30 | stage 8 | multiasset + structure + findings | **265 passed** |
 | 2026-11-06 22:20 | `f7bf452` | full suite on a `git archive` copy | **3,482 passed, 21 skipped**, exit 0, 364 s |
 | 2026-11-06 22:22 | stage 7 | `before_cr08_cr09.py` on the `7385130` copy | RiskInputs had no calendar, session or activity field; Standard-funded profile ALLOW; fixture rules "fixture:none" etc. ALLOW; only a per-minute limit |
 | 2026-11-06 22:22 | stage 7 | multiasset + structure + findings | **247 passed** |
@@ -93,6 +96,9 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 | 2026-11-06 | Work in the existing feature worktree; never touch the main checkout's uncommitted files | The main checkout carries the live data files and the owner's uncommitted state; the review and log originals there stay as they are |
 | 2026-11-06 | Review copied into the branch with hosting details generalised | The repository is public; the findings are unchanged |
 | 2026-11-06 | The cloud-migration handover file is not committed | It names infrastructure access details; it stays local |
+| 2026-11-06 | CR-11: evidence in, results derived — instead of a sealed "snapshot builder" | Python cannot make one function the only constructor of a class; if no field can state a result, any constructor can only pass evidence the engine interprets |
+| 2026-11-06 | CR-11: correlation = shares a currency with the instrument | No correlation data exists yet; sharing a currency over-counts, which only shrinks the budget |
+| 2026-11-06 | CR-11: stated slippage floored at one live spread | A stop is a market exit; a caller cannot claim less than the spread it will cross |
 | 2026-11-06 | CR-08: "major news" read as every HIGH/UNKNOWN release for the instrument's currencies (or its earnings) still ahead today | FTMO has not defined "major"; the review asked for the conservative reading until FTMO clarifies in writing |
 | 2026-11-06 | CR-08: an FTMO profile may state only the published rule value or UNVERIFIED | Keeps the profile a true record of FTMO's rules; ARIA's own extra caution lives in the research policy (15-minute pre-break margin, 80% headroom) |
 | 2026-11-06 | CR-09: a new trade counts as 3 server requests | Send, stop/target change and close all count toward FTMO's daily request figure |
@@ -107,6 +113,7 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 
 ## Next exact action
 
-Stage 8: CR-11 — the legacy kill switch read inside `assess`; book risk, costs,
-session state and duplicates derived from evidence instead of caller numbers
-and booleans.
+Stage 9: CR-06 — MT5 adapter genuinely read-only: investor-password identity
+(refuse `trade_allowed`), mutation refusal at the SDK boundary, and a
+structure test that keeps `import MetaTrader5` inside the adapter. Then CR-14,
+SEC-01, UI-01, OP-01.

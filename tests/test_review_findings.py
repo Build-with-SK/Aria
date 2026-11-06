@@ -11,7 +11,7 @@ import sqlite3
 
 import pytest
 
-from test_multiasset_risk import activity, calendar, case, NOW, session
+from test_multiasset_risk import activity, book, calendar, case, holding, NOW, session
 from src.trading.contracts import AssetClass, EconomicEvent, RiskAssessment, content_hash
 from src.trading.multiasset_risk import assess
 from src.trading.operational_rules import activity_checks, flatten_deadline, news_checks
@@ -62,16 +62,22 @@ def test_cr02_forged_allow_is_refused_by_reserve_intent(tmp_path, case):
 
 
 @pytest.mark.parametrize("change,why", [
-    ({"kill_switch_clear": False}, "EMERGENCY_HALT"),
-    ({"spread_cost": D("5")}, "authorised risk changed"),
+    ("kill_switch", "EMERGENCY_HALT"),
+    ("commission", "authorised risk changed"),
 ])
-def test_cr02_reservation_reassesses_fresh_evidence(tmp_path, case, change, why):
+def test_cr02_reservation_reassesses_fresh_evidence(tmp_path, case, monkeypatch, change, why):
     p, i = case
     store = store_at(tmp_path)
     store.queue(p, i, now=NOW)
     token = store.approve(p.proposal_id, authenticated_owner="fixture-owner", now=NOW)
+    fresh = i
+    if change == "kill_switch":
+        monkeypatch.setenv("ARIA_KILL_SWITCH", "1")
+    else:  # $100 a lot instead of $10: $4.50 more risk than was approved
+        fresh = i.model_copy(update={"specification": i.specification.model_copy(
+            update={"commission_per_lot": D("100")})})
     with pytest.raises(ReviewRefused, match=why):
-        store.reserve_intent(p, token, i.model_copy(update=change), now=NOW)
+        store.reserve_intent(p, token, fresh, now=NOW)
     # A refused reservation consumes nothing.
     assert store.inspect(p.proposal_id)["state"] == "APPROVED"
 
@@ -107,6 +113,7 @@ def test_cr02_tampered_stored_assessment_is_refused(tmp_path, case):
 # --- shared: the review's E7/E8 shape (0.10 lot EURUSD, 20-pip stop, no costs => $20 risk) ---
 
 def twenty_dollar_trade(case, *, equity, daily_balance, high_water="10000"):
+    """No costs: a zero-spread quote, no commission, no stated slippage."""
     p, i = case
     p = p.model_copy(update={"quantity": D("0.10"), "price_tolerance": D("0"),
                              "stop_loss": D("1.09820"), "take_profit": D("1.10420")})
@@ -115,7 +122,9 @@ def twenty_dollar_trade(case, *, equity, daily_balance, high_water="10000"):
         "account": i.account.model_copy(update={"equity": eq, "balance": eq}),
         "rule_state": i.rule_state.model_copy(update={"equity": eq, "daily_balance": mid,
                                                       "balance_high_water": D(high_water)}),
-        "spread_cost": D("0"), "commission": D("0"), "slippage_allowance": D("0")})
+        "quote": i.quote.model_copy(update={"bid": D("1.10020")}),
+        "specification": i.specification.model_copy(update={"commission_per_lot": D("0")}),
+        "slippage_allowance": D("0")})
     return p, i
 
 
@@ -182,7 +191,7 @@ def metal_or_index_case(case, *, symbol, asset_class, base, contract, quantity,
         "volume_max": D("100"), "provenance": prov})
     p = p.model_copy(update={"instrument_id": instrument.instrument_id, "quantity": D(quantity),
         "entry": D(ask), "price_tolerance": D("0"), "stop_loss": D(stop), "take_profit": D(target)})
-    i = i.model_copy(update={"specification": spec,
+    i = i.model_copy(update={"specification": spec, "session": session(instrument.instrument_id),
         "quote": MarketQuote(bid=bid, ask=ask, snapshot_id="q1", provenance=prov),
         "broker_calculation": broker_calc(instrument.instrument_id, f"-{broker_one_lot_loss}", "0",
                                           prov, entry=ask, stop=stop)})
@@ -212,12 +221,13 @@ def test_cr03_unregistered_instrument_is_caught_by_the_broker_figure_alone(case)
 
 
 def test_cr03_correct_gold_specification_is_allowed(case):
-    # 100 oz, 0.05 lot, $5 stop: $25 + $2 costs, notional $13,000 (1.3x).
+    # 100 oz, 0.05 lot, $5 stop: $25. Costs: spread 0.20 x 100 x 0.05 = $1, commission
+    # $0.50, slippage one spread = $1. Notional $13,000 (1.3x).
     p, i = metal_or_index_case(case, symbol="XAUUSD", asset_class=AssetClass.METALS, base="XAU",
         contract="100", quantity="0.05", bid="2600.00", ask="2600.20", stop="2595.20",
         target="2610.20", broker_one_lot_loss="500")
     r = assess(p, i, now=NOW)
-    assert r.verdict == "ALLOW" and r.monetary_risk == D("27.00")
+    assert r.verdict == "ALLOW" and r.monetary_risk == D("27.50")
 
 
 def test_cr03_broker_calculation_is_mandatory_and_must_be_fresh(case):
@@ -279,6 +289,7 @@ def fx_pair_case(case, *, symbol, base, quote, bid, ask, side, quantity, entry, 
         "quantity": D(quantity), "entry": D(entry), "price_tolerance": D("0"),
         "stop_loss": D(stop), "take_profit": D(target)})
     i = i.model_copy(update={"specification": spec, "fx_quote": fx_quote,
+        "session": session(instrument.instrument_id),
         "quote": MarketQuote(bid=bid, ask=ask, snapshot_id="q1", provenance=prov),
         "broker_calculation": broker_calc(instrument.instrument_id, broker_one_lot_profit, "0", prov,
                                           entry=entry, stop=stop, side=side)})
@@ -310,8 +321,9 @@ def test_cr04_inverted_rate_with_correct_labels_is_unverified(case):
 def test_cr04_correct_pair_uses_the_conservative_side(case):
     p, i = eurgbp(case, gbpusd(case, "1.2700", "1.2702"), "0.10")
     r = assess(p, i, now=NOW)
-    # GBP -> USD multiplies by GBPUSD: the ask is the larger loss. 25 GBP x 1.2702 + $2 costs.
-    assert r.verdict == "ALLOW" and r.monetary_risk == D("0.0025") * 100000 * D("0.10") * D("1.2702") + 2
+    # GBP -> USD multiplies by GBPUSD: the ask is the larger loss. 25 GBP x 1.2702, plus
+    # costs: zero spread, commission $1.00, slippage $0.50 as stated.
+    assert r.verdict == "ALLOW" and r.monetary_risk == D("0.0025") * 100000 * D("0.10") * D("1.2702") + D("1.5")
 
 
 def test_cr04_no_caller_rate_input_exists():
@@ -327,18 +339,19 @@ def usdjpy(case, side, entry, stop, target, broker_profit):
 
 def test_cr13_base_is_account_currency_converts_at_the_stop(case):
     # USDJPY on a USD account, BUY 0.04 lot, 1.5-yen stop: 6,000 JPY. The loss is
-    # realised at USDJPY 148.51, not today's 150.00: $40.40, not $40.00.
+    # realised at USDJPY 148.51, not today's 150.00: $40.40, not $40.00. Costs: a
+    # 40-yen spread converted the same way, commission $0.40, slippage $0.50 stated.
     p, i = usdjpy(case, "BUY", "150.010", "148.510", "151.510", "-999.97")
     r = assess(p, i, now=NOW)
     assert r.verdict == "ALLOW"
-    assert abs(r.monetary_risk - (D("6000") / D("148.510") + 2)) < D("1e-20")
-    assert r.monetary_risk > D("6000") / D("150.000") + 2
+    assert abs(r.monetary_risk - (D("6040") / D("148.510") + D("0.9"))) < D("1e-20")
+    assert r.monetary_risk > D("6040") / D("150.000") + D("0.9")
 
 
 def test_cr13_sell_side_uses_todays_bid_when_it_is_lower(case):
     p, i = usdjpy(case, "SELL", "150.000", "151.500", "148.500", "-999.97")
     r = assess(p, i, now=NOW)
-    assert r.verdict == "ALLOW" and abs(r.monetary_risk - (D("6000") / D("150.000") + 2)) < D("1e-20")
+    assert r.verdict == "ALLOW" and abs(r.monetary_risk - (D("6040") / D("150.000") + D("0.9"))) < D("1e-20")
 
 
 # --- CR-01: the trailing high-water mark is per account and only ever rises ---
@@ -651,7 +664,7 @@ def test_cr08_flatten_deadline_for_the_standard_account_only(case):
     ({"session": session("fixture:GBPUSD")}, "SESSION_EVIDENCE_UNVERIFIED"),
     ({"session": session(state="UNKNOWN")}, "SESSION_EVIDENCE_UNVERIFIED"),
     ({"session": session(retrieved_at=NOW - timedelta(hours=2))}, "SESSION_EVIDENCE_UNVERIFIED"),
-    ({"session": session(next_opens_at=None)}, "SESSION_EVIDENCE_UNVERIFIED"),
+    ({"session": session(next_opens_at=None)}, "SESSION_NEXT_OPEN_UNKNOWN"),
 ])
 def test_cr08_missing_or_stale_evidence_is_unverified(case, evidence, reason):
     p, i = with_evidence(case, ftmo(case), **evidence)
@@ -659,10 +672,12 @@ def test_cr08_missing_or_stale_evidence_is_unverified(case, evidence, reason):
     assert r.verdict == "UNVERIFIED" and reason in r.reasons
 
 
-def test_cr08_rules_set_to_none_need_no_evidence(case):
+def test_cr08_rules_set_to_none_need_no_calendar(case):
     p, i = case
-    i = i.model_copy(update={"economic_calendar": None, "session": None})
-    assert assess(p, i, now=NOW).verdict == "ALLOW"
+    assert assess(p, i.model_copy(update={"economic_calendar": None}), now=NOW).verdict == "ALLOW"
+    # The session itself is always required (CR-11), whatever the rules say.
+    r = assess(p, i.model_copy(update={"session": None}), now=NOW)
+    assert r.verdict == "UNVERIFIED" and r.reasons == ("SESSION_EVIDENCE_REQUIRED",)
 
 
 @pytest.mark.parametrize("field,value", [("news_rule", "fixture:none"), ("weekend_rule", "fixture:none"),
@@ -749,3 +764,112 @@ def test_cr09_the_day_is_the_prague_day(case):
 def test_cr09_ftmo_limits_cannot_exceed_the_published_figures(case, field, value):
     with pytest.raises(ValidationError, match="cannot exceed"):
         ftmo(case, **{field: value})
+
+
+# --- CR-11: the engine reads the kill switch and derives the book and costs itself ---
+
+SELF_ASSERTED = ("kill_switch_clear", "session_open", "existing_open_risk", "pending_order_risk",
+                 "correlated_risk", "current_notional", "position_count", "spread_cost", "commission",
+                 "duplicate_position", "cooldown_clear", "abnormal_market", "book_risk_complete",
+                 "operational_constraints_verified", "orders_last_minute")
+
+
+def test_cr11_no_input_field_states_a_result():
+    from src.trading.multiasset_risk import RiskInputs
+    assert not set(SELF_ASSERTED) & set(RiskInputs.model_fields)
+
+
+def test_cr11_legacy_kill_switch_from_the_environment_halts(case, monkeypatch):
+    """The review's test: engaged legacy switch => EMERGENCY_HALT, no boolean passed."""
+    p, i = case
+    assert assess(p, i, now=NOW).verdict == "ALLOW"
+    monkeypatch.setenv("ARIA_KILL_SWITCH", "1")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "EMERGENCY_HALT" and r.reasons == ("KILL_SWITCH",)
+
+
+def test_cr11_legacy_kill_switch_file_halts_and_release_restores(case):
+    from src.execution import kill_switch
+    p, i = case
+    kill_switch.engage("CR-11 regression test", actor="test")
+    assert assess(p, i, now=NOW).verdict == "EMERGENCY_HALT"
+    kill_switch.release(actor="test")
+    assert assess(p, i, now=NOW).verdict == "ALLOW"
+
+
+def test_cr11_unreadable_kill_switch_fails_closed(case):
+    from src.execution import kill_switch
+    p, i = case
+    kill_switch.STATE_FILE.write_text("{not json", encoding="utf-8")
+    assert assess(p, i, now=NOW).verdict == "EMERGENCY_HALT"
+
+
+@pytest.mark.parametrize("bad,reason", [
+    (book(holding(loss=None)), "BOOK_POSITION_WITHOUT_STOP"),
+    (book(account_id="other"), "INCOMPLETE_ACCOUNT_BOOK"),
+    (book(observed_at=NOW - timedelta(seconds=16)), "INCOMPLETE_ACCOUNT_BOOK"),
+    (book(complete=False), "INCOMPLETE_ACCOUNT_BOOK"),
+])
+def test_cr11_book_must_be_complete_fresh_and_bounded(case, bad, reason):
+    p, i = case
+    r = assess(p, i.model_copy(update={"book": bad}), now=NOW)
+    assert r.verdict == "UNVERIFIED" and reason in r.reasons
+
+
+def test_cr11_book_risk_and_correlation_are_derived_from_positions(case):
+    p, i = case
+    # $100 at risk on GBPUSD shares USD with EURUSD: the 1% correlated budget is used up.
+    r = assess(p, i.model_copy(update={"book": book(holding("GBPUSD", loss="100"))}), now=NOW)
+    assert r.verdict == "DENY" and "RISK_BUDGET_EXCEEDED" in r.reasons
+    # The same $100 on AUDCAD shares nothing: only the 2% aggregate budget applies.
+    r = assess(p, i.model_copy(update={"book": book(holding("AUDCAD", base="AUD", quote="CAD",
+                                                            loss="100"))}), now=NOW)
+    assert r.verdict == "ALLOW"
+
+
+def test_cr11_duplicate_is_found_in_the_book(case):
+    p, i = case
+    r = assess(p, i.model_copy(update={"book": book(holding("EURUSD", kind="PENDING_ORDER"))}), now=NOW)
+    assert r.verdict == "DENY" and r.reasons == ("DUPLICATE_POSITION",)
+    # The opposite side is not a duplicate.
+    opposite = book(holding("EURUSD", side="SELL", loss="1"))
+    assert assess(p, i.model_copy(update={"book": opposite}), now=NOW).verdict == "ALLOW"
+
+
+def test_cr11_spread_cost_comes_from_the_quote(case):
+    p, i = case
+    wide = i.quote.model_copy(update={"bid": D("1.09990")})  # 3 pips instead of 2
+    r = assess(p, i.model_copy(update={"quote": wide}), now=NOW)
+    # 25.50 stop + 1.50 spread + 0.50 commission + 1.50 slippage (one spread)
+    assert r.verdict == "ALLOW" and r.monetary_risk == D("29.00")
+
+
+def test_cr11_stated_slippage_cannot_go_below_one_spread(case):
+    p, i = case
+    r = assess(p, i.model_copy(update={"slippage_allowance": D("0")}), now=NOW)
+    assert r.monetary_risk == D("28.00")
+
+
+def test_cr11_commission_comes_from_the_specification(case):
+    p, i = case
+    for change in ({"commission_per_lot": None, "commission_currency": None},
+                   {"commission_currency": "EUR"}):
+        spec = i.specification.model_copy(update=change)
+        r = assess(p, i.model_copy(update={"specification": spec}), now=NOW)
+        assert r.verdict == "UNVERIFIED" and "COMMISSION_UNVERIFIED" in r.reasons
+    with pytest.raises(ValidationError, match="commission"):
+        type(i.specification).model_validate({**i.specification.model_dump(), "commission_currency": None})
+
+
+@pytest.mark.parametrize("ago,verdict", [(timedelta(minutes=29), "DENY"), (timedelta(minutes=31), "ALLOW"),
+                                         (-timedelta(minutes=1), "UNVERIFIED")])
+def test_cr11_cooldown_from_the_last_losing_close(case, ago, verdict):
+    p, i = case
+    r = assess(p, i.model_copy(update={"activity": activity(last_losing_close_at=NOW - ago)}), now=NOW)
+    assert r.verdict == verdict
+
+
+@pytest.mark.parametrize("state,verdict", [("CLOSED", "DENY"), ("HALTED", "DENY"), ("UNKNOWN", "UNVERIFIED")])
+def test_cr11_session_state_comes_from_session_evidence(case, state, verdict):
+    p, i = case
+    assert assess(p, i.model_copy(update={"session": session(state=state)}), now=NOW).verdict == verdict
