@@ -243,3 +243,19 @@ states and existing technical/shell checks. SSR scope only; no broker actions.
 Open: live providers, full contract replay, populated account UI and authenticated
 approval/worker integration remain separate reviewed milestones. No endpoint removed.
 
+## 2026-11-06 — MA-005 dependency isolation / security — done
+
+Files: frontend/package.json/package-lock.json; requirements-trading-research.txt
+and .lock. Changed: patched existing axios and allowed transitive/build packages;
+added a separate minimal hash-pinned research environment, no broker/model SDKs.
+Measured: npm audit initially 2 high + 2 moderate production findings; final full
+audit 0 high/critical + 2 moderate router findings. Updated-lock clean install,
+build (Vite 8.3.6) and all four offline verifiers passed. Minimal 38-package Python
+lock audit reported no known vulnerabilities; clean focused suite 104 passed.
+Shared existing venv: pip check passes, but advisory scan reports 188 findings in
+18 installed packages; no shared package was modified. Secret scan current tracked
+files: 23 baseline candidates in 10 unchanged files, zero in changed feature code;
+values withheld; not a complete-history audit. Protected-path fence clean.
+Open: router major migration and shared deployment environment remediation; details
+in DEPENDENCY_AUDIT.md. No execution release is approved from these measurements.
+
