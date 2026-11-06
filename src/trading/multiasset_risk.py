@@ -5,14 +5,17 @@ return UNVERIFIED. No universal pip value, guessed margin or missing-rate fallba
 """
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_FLOOR
+from typing import Annotated
 
 from pydantic import Field, ValidationError
 
 from .contracts import (AccountSnapshot, AssetClass, BrokerCalculation, Contract,
-                        FXPairQuote, Instrument, InstrumentSpecification,
-                        MarketQuote, NonNegative, Positive, RiskAssessment,
-                        TradeProposal, content_hash, revalidated)
+                        DailyActivity, EconomicCalendar, FXPairQuote, Instrument,
+                        InstrumentSpecification, MarketQuote, NonNegative, Positive,
+                        RiskAssessment, TradeProposal, TradingSession, content_hash,
+                        revalidated)
 from .instrument_registry import expected_contract_sizes
+from .operational_rules import activity_checks, break_checks, instrument_checks, news_checks
 from .rule_profiles import RuleProfile, RuleState, evaluate_profile
 
 
@@ -31,6 +34,15 @@ class ResearchRiskPolicy(Contract):
     max_snapshot_age_seconds: int = Field(default=15, gt=0, le=120)
     max_specification_age_seconds: int = Field(default=86400, gt=0, le=86400)
     approval_ttl_seconds: int = Field(default=30, gt=0, le=60)
+    # Provider per-day limits are refused at this share of each (CR-09), and a
+    # new trade is counted as this many server requests: send, stop/target
+    # modification, close.
+    daily_limit_headroom: Annotated[Decimal, Field(gt=0, le=1)] = Decimal("0.8")
+    requests_per_trade: int = Field(default=3, gt=0)
+    # Extra minutes on top of the provider's 2-hour pre-break window (CR-08).
+    pre_break_margin_minutes: int = Field(default=15, ge=0)
+    max_calendar_age_seconds: int = Field(default=21600, gt=0, le=86400)
+    max_session_age_seconds: int = Field(default=3600, gt=0, le=86400)
     # Internal floor = provider floor + buffer, so a trade sized to "just fit"
     # cannot breach on one pip of extra slippage, a swap or a gap (CR-10).
     floor_buffer_fraction: Positive = Decimal("0.005")       # of initial account size
@@ -74,7 +86,12 @@ class RiskInputs(Contract):
     correlated_risk: NonNegative
     current_notional: NonNegative
     position_count: int = Field(ge=0)
-    orders_last_minute: int = Field(ge=0)
+    # Today's broker activity, for the provider's per-day limits (CR-09).
+    activity: DailyActivity
+    # Evidence for the provider's news, gap and break rules (CR-08); required
+    # only when the profile's rules need it.
+    economic_calendar: EconomicCalendar | None = None
+    session: TradingSession | None = None
     spread_cost: NonNegative
     commission: NonNegative
     slippage_allowance: NonNegative
@@ -82,7 +99,6 @@ class RiskInputs(Contract):
     # Unknown operational checks are not false/clear by default.
     session_open: bool
     kill_switch_clear: bool
-    operational_constraints_verified: bool
     book_risk_complete: bool
     cooldown_clear: bool
     duplicate_position: bool
@@ -176,8 +192,21 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
         unverified.append("LIVE_ACCOUNT_CLASS_DISABLED")
     if not (a.positions_complete and a.orders_complete and inputs.book_risk_complete):
         unverified.append("INCOMPLETE_ACCOUNT_BOOK")
-    if not inputs.operational_constraints_verified:
-        unverified.append("OPERATIONAL_RULES_UNVERIFIED")
+    # Provider operational rules from evidence, not from a caller's "verified" flag (CR-08, CR-09).
+    news_unverified, news_denied = news_checks(inputs.profile, instrument, inputs.economic_calendar,
+                                               now=now, max_age_seconds=policy.max_calendar_age_seconds)
+    break_unverified, break_denied = break_checks(
+        inputs.profile, instrument, inputs.session, now=now,
+        max_age_seconds=policy.max_session_age_seconds,
+        margin=timedelta(minutes=policy.pre_break_margin_minutes))
+    activity_unverified, activity_denied = activity_checks(
+        inputs.profile, inputs.activity, a.account_id, now=now,
+        max_age_seconds=policy.max_snapshot_age_seconds, headroom=policy.daily_limit_headroom,
+        requests_per_trade=policy.requests_per_trade,
+        max_requests_per_minute=policy.max_orders_per_minute)
+    unverified.extend(news_unverified + break_unverified + activity_unverified)
+    operational_denied = (instrument_checks(inputs.profile, instrument) + news_denied
+                          + break_denied + activity_denied)
     for label, observed in (("ACCOUNT", a.observed_at), ("QUOTE", q.provenance.observed_at)):
         age = (now - observed).total_seconds()
         max_age = min(spec.quote_max_age_seconds, policy.max_snapshot_age_seconds)
@@ -243,8 +272,9 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
         denied.append("SESSION_CLOSED_UNKNOWN_OR_ABNORMAL")
     if not inputs.cooldown_clear or inputs.duplicate_position:
         denied.append("COOLDOWN_OR_DUPLICATE_POSITION")
-    if inputs.position_count >= policy.max_position_count or inputs.orders_last_minute >= min(policy.max_orders_per_minute, inputs.profile.max_server_requests_per_minute):
-        denied.append("POSITION_OR_FREQUENCY_CAP")
+    if inputs.position_count >= policy.max_position_count:
+        denied.append("POSITION_COUNT_CAP")
+    denied.extend(operational_denied)
     if proposal.order_type not in spec.supported_order_types:
         denied.append("ORDER_TYPE_UNSUPPORTED")
     if proposal.quantity % spec.volume_step or not spec.volume_min <= proposal.quantity <= spec.volume_max:

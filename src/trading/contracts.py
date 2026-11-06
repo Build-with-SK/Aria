@@ -135,11 +135,19 @@ class TradingSession(Contract):
     opens_at: datetime
     closes_at: datetime
     calendar: str
+    # When trading resumes after closes_at; the gap is the market break that
+    # FTMO's weekend and gap-trading rules measure (review CR-08).
+    next_opens_at: datetime | None = None
+    provenance: DataProvenance | None = None
 
     @model_validator(mode="after")
     def interval(self):
         if self.closes_at <= self.opens_at:
             raise ValueError("invalid session interval")
+        if self.next_opens_at is not None and self.next_opens_at <= self.closes_at:
+            raise ValueError("next session must open after this one closes")
+        if self.provenance is not None and self.provenance.instrument_id != self.instrument_id:
+            raise ValueError("session identity mismatch")
         return self
 
 
@@ -244,6 +252,45 @@ class EconomicEvent(Contract):
     actual: Decimal | None = None
     forecast: Decimal | None = None
     provenance: DataProvenance
+    # Set for an event about one instrument only, such as an earnings release.
+    instrument_id: str | None = None
+
+
+class EconomicCalendar(Contract):
+    """Every scheduled release in [covers_from, covers_until], from one source.
+
+    An event absent from a calendar that covers its time is taken as not
+    scheduled; that is why coverage is part of the evidence (review CR-08).
+    """
+    covers_from: datetime
+    covers_until: datetime
+    covers_earnings: bool = False
+    events: tuple[EconomicEvent, ...]
+    provenance: DataProvenance
+
+    @model_validator(mode="after")
+    def coverage(self):
+        if self.covers_until <= self.covers_from:
+            raise ValueError("invalid calendar coverage")
+        if any(not self.covers_from <= e.scheduled_at <= self.covers_until for e in self.events):
+            raise ValueError("calendar event outside its stated coverage")
+        return self
+
+
+class DailyActivity(Contract):
+    """One account's activity over one policy-local day, from the broker's history.
+
+    Server requests count every send, stop/target modification and cancellation;
+    FTMO publishes its limits per day, not per minute (review CR-09).
+    """
+    account_id: str = Field(min_length=1)
+    day: date
+    positions_opened: int = Field(ge=0)
+    server_requests: int = Field(ge=0)
+    open_orders: int = Field(ge=0)
+    requests_last_minute: int = Field(ge=0)
+    observed_at: datetime
+    complete: bool
 
 
 class FundamentalObservation(Contract):

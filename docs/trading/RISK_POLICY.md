@@ -8,8 +8,9 @@ policy invalidate the assessment hash. No API permits policy mutation.
 Required: exact account identity/environment/currency; complete positions and
 pending-order risk; fresh executable quote; verified linear specification; correctly
 fresh FX pair quote when needed; confirmed profile and exact current
-Prague reset snapshot; independently checked operational constraints. Unknown
-inputs return UNVERIFIED. Kill/financial-limit breaches return EMERGENCY_HALT.
+Prague reset snapshot; today's complete activity record; and the calendar and
+session evidence the profile's operational rules need. Unknown inputs return
+UNVERIFIED. Kill/financial-limit breaches return EMERGENCY_HALT.
 
 Per-volume stop risk = (absolute entry-stop distance + allowed entry tolerance)
 × contract size × quote-to-account conversion. Conversion comes from a named
@@ -42,8 +43,32 @@ equity the engine returns EMERGENCY_HALT (review CR-05). Floor buffer: new risk
 must leave equity above the provider floor plus max(0.5% of initial capital, 3 ×
 slippage allowance), and risk equal to the remaining budget is refused (CR-10).
 
+Operational rules (review CR-08, CR-09; `operational_rules.py`) replace the old
+caller flag `operational_constraints_verified`. Each profile rule is a closed
+enum checked against evidence:
+
+| Rule value | Evidence | Denies |
+|---|---|---|
+| `news_rule=NO_EXECUTION_2MIN_AROUND_NEWS` | `EconomicCalendar` covering the rule day | any release for the instrument's currencies within 2 minutes |
+| `gap_rule=NO_ENTRY_2H_BEFORE_LONG_BREAK_OR_MAJOR_NEWS` | calendar and `TradingSession` with `next_opens_at` | entry within 2 h + 15 min of a break of 2 h or more; any HIGH/UNKNOWN release still ahead today |
+| `weekend_rule=NO_HOLD_THROUGH_BREAKS_OVER_2H` | `TradingSession` | the same pre-break window; `flatten_deadline()` gives the time a future execution stage must be flat |
+| `instrument_rule=ALLOWLIST` | `allowed_instruments` | any other instrument |
+
+Calendars older than 6 h, sessions older than 1 h, a calendar that does not
+cover the whole rule day, a session for another instrument, an UNKNOWN state or
+an equity without an earnings calendar are UNVERIFIED. Rules set to NONE need no
+evidence.
+
+Daily limits: `DailyActivity` (positions opened, server requests including every
+modification and cancellation, open orders, requests in the last minute) must be
+for this account and this rule day, complete, and at most 15 s old. A trade is
+refused when it would take positions or open orders past 80% of the profile's
+daily limit, or server requests past 80% counting 3 requests per trade (send,
+stop/target change, close). FTMO profiles may not set limits above FTMO's
+published 2,000 positions, 2,000 requests and 200 open orders.
+
 Other checks: aggregate/correlated/pending risk, position count,
-order frequency, available margin, leverage, spread, stop distance, exact price
+request rate, available margin, leverage, spread, stop distance, exact price
 ticks, duplicates, cooldown, abnormal markets and closed/unknown session. Sizing
 never rounds upward. ALLOW means research checks passed, never broker authority.
 

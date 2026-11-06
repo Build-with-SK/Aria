@@ -7,12 +7,42 @@ import pytest
 from pydantic import ValidationError
 
 from src.trading.contracts import (AccountSnapshot, AssetClass, BrokerCalculation,
-    DataProvenance, FXPairQuote, Instrument, InstrumentSpecification, MarketQuote,
-    TradeProposal, content_hash)
+    DailyActivity, DataProvenance, EconomicCalendar, FXPairQuote, Instrument,
+    InstrumentSpecification, MarketQuote, TradeProposal, TradingSession, content_hash)
 from src.trading.multiasset_risk import RiskInputs, assess, floor_volume
 from src.trading.rule_profiles import RuleProfile, RuleState, evaluate_profile, rule_day
 
-NOW = datetime(2026, 11, 6, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 6, 12, tzinfo=timezone.utc)  # a Friday
+# Every fixture instrument a test may trade; the profile's allowlist.
+FIXTURE_INSTRUMENTS = tuple(f"fixture:{s}" for s in
+                            ("EURUSD", "GBPUSD", "EURGBP", "USDJPY", "XAUUSD", "US30"))
+
+
+def calendar(events=(), *, covers_from=NOW - timedelta(days=1), covers_until=NOW + timedelta(days=2),
+             retrieved_at=NOW - timedelta(hours=1), covers_earnings=False, quality="VALID"):
+    provenance = DataProvenance(provider="fixture", instrument_id="calendar:economic",
+        original_symbol="economic-calendar", observed_at=retrieved_at, retrieved_at=retrieved_at,
+        data_type="economic_calendar", freshness="FRESH", quality=quality, permission="RESEARCH")
+    return EconomicCalendar(covers_from=covers_from, covers_until=covers_until, events=tuple(events),
+                            covers_earnings=covers_earnings, provenance=provenance)
+
+
+def session(instrument_id="fixture:EURUSD", *, state="OPEN",
+            closes_at=datetime(2026, 11, 6, 22, tzinfo=timezone.utc),
+            next_opens_at=datetime(2026, 11, 8, 22, tzinfo=timezone.utc), retrieved_at=NOW):
+    """FX week: closes Friday 22:00 UTC, reopens Sunday 22:00 UTC (a 48-hour break)."""
+    provenance = DataProvenance(provider="fixture", instrument_id=instrument_id,
+        original_symbol="session", observed_at=retrieved_at, retrieved_at=retrieved_at,
+        data_type="trading_session", freshness="FRESH", quality="VALID", permission="RESEARCH")
+    return TradingSession(instrument_id=instrument_id, state=state, opens_at=closes_at - timedelta(days=5),
+                          closes_at=closes_at, calendar="fixture-fx", next_opens_at=next_opens_at,
+                          provenance=provenance)
+
+
+def activity(**changes):
+    fields = dict(account_id="demo-1", day="2026-11-06", positions_opened=0, server_requests=0,
+                  open_orders=0, requests_last_minute=0, observed_at=NOW, complete=True)
+    return DailyActivity(**{**fields, **changes})
 
 
 def broker_calc(instrument_id, profit, margin, provenance, *, entry="1.10020",
@@ -44,9 +74,11 @@ def case():
         user_confirmed_at=NOW-timedelta(hours=1), policy_version="test-1", daily_loss_fraction="0.05",
         overall_loss_fraction="0.10", drawdown_mode="STATIC",
         daily_method="MIDNIGHT_BALANCE_MINUS_INITIAL_ALLOWANCE", consistency_rule="NONE",
-        overnight_rule="fixture:none", weekend_rule="fixture:none", news_rule="fixture:none",
-        instrument_rule="fixture:EURUSD", prohibited_practices_rule="fixture:checked",
-        max_leverage="10", max_server_requests_per_minute=10)
+        overnight_rule="NONE", weekend_rule="NONE", news_rule="NONE", gap_rule="NONE",
+        instrument_rule="ALLOWLIST", allowed_instruments=FIXTURE_INSTRUMENTS,
+        prohibited_practices_rule="OWNER_REVIEWED_STRATEGY", max_leverage="10",
+        max_positions_per_day=2000, max_server_requests_per_day=2000, max_open_orders=200,
+        max_server_requests_per_minute=10)
     state = RuleState(account_id="demo-1", account_currency="USD", daily_balance="10000",
         daily_snapshot_at=datetime(2026,11,6,tzinfo=ZoneInfo("Europe/Prague")), equity="10000",
         balance_high_water="10000", high_water_observed_at=NOW)
@@ -63,9 +95,10 @@ def case():
         broker_calculation=broker_calc(instrument.instrument_id, "-500", "1100.20", provenance),
         existing_open_risk="0",
         pending_order_risk="0", correlated_risk="0", current_notional="0",
-        position_count=0, orders_last_minute=0, spread_cost="1", commission="0.5",
+        position_count=0, activity=activity(), economic_calendar=calendar(), session=session(),
+        spread_cost="1", commission="0.5",
         slippage_allowance="0.5", financing_allowance="0", session_open=True,
-        kill_switch_clear=True, operational_constraints_verified=True, book_risk_complete=True,
+        kill_switch_clear=True, book_risk_complete=True,
         cooldown_clear=True, duplicate_position=False, abnormal_market=False)
     return proposal, inputs
 
@@ -87,11 +120,11 @@ def test_volume_rounds_down(raw, step, expected):
 
 @pytest.mark.parametrize("field,value,verdict", [
     ("kill_switch_clear",False,"EMERGENCY_HALT"), ("session_open",False,"DENY"),
-    ("book_risk_complete",False,"UNVERIFIED"), ("operational_constraints_verified",False,"UNVERIFIED"),
+    ("book_risk_complete",False,"UNVERIFIED"),
     ("cooldown_clear",False,"DENY"), ("duplicate_position",True,"DENY"),
     ("abnormal_market",True,"DENY"), ("pending_order_risk",D("200"),"DENY"),
     ("existing_open_risk",D("200"),"DENY"), ("correlated_risk",D("100"),"DENY"),
-    ("orders_last_minute",2,"DENY"), ("position_count",5,"DENY"),
+    ("activity",activity(requests_last_minute=2),"DENY"), ("position_count",5,"DENY"),
 ])
 def test_independent_refusals(case, field, value, verdict):
     p, inputs = case

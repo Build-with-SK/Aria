@@ -18,6 +18,12 @@ This is a tested research/read-only extension, not the completed production targ
   products require broker calculators. Spread/commission/financing and book risk
   must be authoritative. This is not yet a full currency-factor, liquidity-gap,
   consecutive-loss or real-time margin engine. No 1% exception workflow is enabled.
+- News, gap and long-break rules are checked for new entries only. Positions
+  already open can still meet a release or a weekend; `flatten_deadline()`
+  states when a Standard FTMO Account must be flat, but nothing flattens it —
+  that belongs to a future execution stage. The "major news" reading is an
+  interim, stricter-than-published rule. No calendar or session feed is wired
+  in; tests use fixtures.
 - Policy arithmetic covers declared loss floors and objective formulas, not all
   operational/prohibited-practice rules. Known restrictions are still independently
   verified upstream. Missing cashflow/reset/high-water history cannot be guessed.

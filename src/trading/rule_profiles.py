@@ -25,7 +25,26 @@ AccountType = Literal["STANDARD", "SWING", "NOT_APPLICABLE"]
 # label is not this: every FTMO account, paid or funded, is a demo account.
 AccountClass = Literal["PRACTICE", "PAID_EVALUATION", "FUNDED", "LIVE", "UNVERIFIED"]
 
+# Operational rules (review CR-08). Each value names exactly what is enforced;
+# a provider rule that cannot be written as one of these stays UNVERIFIED.
+NewsRule = Literal["NONE", "NO_EXECUTION_2MIN_AROUND_NEWS", "UNVERIFIED"]
+BreakHoldRule = Literal["NONE", "NO_HOLD_THROUGH_BREAKS_OVER_2H", "UNVERIFIED"]
+GapRule = Literal["NONE", "NO_ENTRY_2H_BEFORE_LONG_BREAK_OR_MAJOR_NEWS", "UNVERIFIED"]
+OvernightRule = Literal["NONE", "UNVERIFIED"]
+InstrumentRule = Literal["ALLOWLIST", "UNVERIFIED"]
+PracticesRule = Literal["OWNER_REVIEWED_STRATEGY", "UNVERIFIED"]
+ConsistencyRule = Literal["NONE", "BEST_DAY_POSITIVE_DAYS_50", "CONSISTENCY_NET_PROFIT_50", "UNVERIFIED"]
+
+NEWS_WINDOW = timedelta(minutes=2)   # either side of a release
+LONG_BREAK = timedelta(hours=2)      # a market break at least this long
+PRE_BREAK = timedelta(hours=2)       # no new entry this close to a long break
+
 FTMO_PRODUCTS = ("FTMO_2_STEP", "FTMO_1_STEP", "FTMO_FREE_TRIAL")
+# Published FTMO maxima (2026-11-06): 2,000 positions a day, more than 2,000
+# server requests a day is hyperactive, 200 orders open at a time. A profile may
+# set lower figures, never higher.
+FTMO_DAILY_LIMITS = {"max_positions_per_day": 2000, "max_server_requests_per_day": 2000,
+                     "max_open_orders": 200}
 FTMO_STAGE_CLASS = {"TRIAL": "PRACTICE", "CHALLENGE": "PAID_EVALUATION",
                     "VERIFICATION": "PAID_EVALUATION", "FUNDED": "FUNDED"}
 FTMO_PRODUCT_STAGES = {"FTMO_FREE_TRIAL": ("TRIAL",),
@@ -61,14 +80,20 @@ class RuleProfile(Contract):
     daily_method: Literal["MIDNIGHT_BALANCE_MINUS_INITIAL_ALLOWANCE", "UNVERIFIED"]
     profit_target_fraction: Fraction | None = None
     minimum_trading_days: int = Field(default=0, ge=0)
-    consistency_rule: str = "UNVERIFIED"
-    overnight_rule: str = "UNVERIFIED"
-    weekend_rule: str = "UNVERIFIED"
-    news_rule: str = "UNVERIFIED"
-    instrument_rule: str = "UNVERIFIED"
-    prohibited_practices_rule: str = "UNVERIFIED"
+    consistency_rule: ConsistencyRule = "UNVERIFIED"
+    overnight_rule: OvernightRule = "UNVERIFIED"
+    weekend_rule: BreakHoldRule = "UNVERIFIED"
+    news_rule: NewsRule = "UNVERIFIED"
+    gap_rule: GapRule = "UNVERIFIED"
+    instrument_rule: InstrumentRule = "UNVERIFIED"
+    allowed_instruments: tuple[str, ...] = ()
+    prohibited_practices_rule: PracticesRule = "UNVERIFIED"
     max_leverage: Positive
-    max_server_requests_per_minute: int = Field(gt=0)
+    max_positions_per_day: int = Field(gt=0)
+    max_server_requests_per_day: int = Field(gt=0)
+    max_open_orders: int = Field(gt=0)
+    # Only when the provider publishes one; FTMO does not.
+    max_server_requests_per_minute: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def valid_window(self):
@@ -91,6 +116,22 @@ class RuleProfile(Contract):
             if self.account_class not in ("UNVERIFIED", expected):
                 raise ValueError(f"an FTMO {self.evaluation_stage} account is {expected}, "
                                  f"not {self.account_class}")
+            # News and break-holding restrictions bind the Standard FTMO Account
+            # only; Swing and the evaluation stages are exempt. Gap trading is a
+            # forbidden practice in every phase.
+            standard_funded = self.evaluation_stage == "FUNDED" and self.account_type == "STANDARD"
+            for name, value in (
+                    ("news_rule", "NO_EXECUTION_2MIN_AROUND_NEWS" if standard_funded else "NONE"),
+                    ("weekend_rule", "NO_HOLD_THROUGH_BREAKS_OVER_2H" if standard_funded else "NONE"),
+                    ("gap_rule", "NO_ENTRY_2H_BEFORE_LONG_BREAK_OR_MAJOR_NEWS"),
+                    ("overnight_rule", "NONE")):
+                if getattr(self, name) not in ("UNVERIFIED", value):
+                    raise ValueError(f"FTMO {self.account_type} {self.evaluation_stage}: {name} is {value}")
+            for name, ceiling in FTMO_DAILY_LIMITS.items():
+                if getattr(self, name) > ceiling:
+                    raise ValueError(f"FTMO {name} cannot exceed {ceiling}")
+        if self.instrument_rule == "ALLOWLIST" and not self.allowed_instruments:
+            raise ValueError("an instrument allowlist needs at least one instrument")
         if any(not url.startswith("https://") for url in self.source_urls):
             raise ValueError("policy evidence requires HTTPS URLs")
         return self
@@ -113,14 +154,13 @@ class RuleProfile(Contract):
             reasons.append("POLICY_UNVERIFIED: daily snapshot methodology unknown")
         if self.account_class == "UNVERIFIED":
             reasons.append("POLICY_UNVERIFIED: account consequence class (PRACTICE/PAID_EVALUATION/FUNDED/LIVE)")
-        if self.consistency_rule not in ("NONE", "BEST_DAY_POSITIVE_DAYS_50", "CONSISTENCY_NET_PROFIT_50"):
-            reasons.append("POLICY_UNVERIFIED: unsupported consistency formula")
         if self.product=="FTMO_1_STEP":
             expected=ftmo_1step_consistency_version(order_created_at=self.order_created_at,
                                                    merged_at=self.last_account_merge_at)
             if expected=="UNVERIFIED" or expected!=self.consistency_rule:
                 reasons.append("POLICY_UNVERIFIED: account creation/merge rule version unresolved")
-        for name in ("consistency_rule", "overnight_rule", "weekend_rule", "news_rule", "instrument_rule", "prohibited_practices_rule"):
+        for name in ("consistency_rule", "overnight_rule", "weekend_rule", "news_rule", "gap_rule",
+                     "instrument_rule", "prohibited_practices_rule"):
             if getattr(self, name) == "UNVERIFIED":
                 reasons.append(f"POLICY_UNVERIFIED: {name}")
         return tuple(reasons)

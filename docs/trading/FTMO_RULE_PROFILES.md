@@ -54,6 +54,30 @@ consistency selector keys on `FTMO_1_STEP`. The legal entity stays free text in
 inputs through validation, so an unvalidated `model_copy` cannot smuggle in a
 value the enums refuse.
 
+## Operational rules (review CR-08, CR-09)
+
+Each operational rule is a closed enum; any value outside it fails validation,
+and `UNVERIFIED` is POLICY_UNVERIFIED. For FTMO the published value is fixed by
+stage and type, and a profile may only state it or leave it UNVERIFIED:
+
+| Rule | Standard FTMO Account (funded) | Swing; Challenge; Verification; Trial |
+|---|---|---|
+| `news_rule` | `NO_EXECUTION_2MIN_AROUND_NEWS` | `NONE` |
+| `weekend_rule` | `NO_HOLD_THROUGH_BREAKS_OVER_2H` | `NONE` |
+| `gap_rule` | `NO_ENTRY_2H_BEFORE_LONG_BREAK_OR_MAJOR_NEWS` | the same (forbidden practice in every phase) |
+| `overnight_rule` | `NONE` | `NONE` |
+
+FTMO has not defined "major" news. Until it does, every HIGH or UNKNOWN impact
+release for one of the instrument's currencies, or about the instrument itself
+(earnings), from two minutes ago to the end of the Prague day blocks new
+entries. This is stricter than the published rule; written clarification from
+FTMO may relax it.
+
+Daily limits are per Prague day: `max_positions_per_day` ≤ 2,000,
+`max_server_requests_per_day` ≤ 2,000 (FTMO calls more "hyperactive"),
+`max_open_orders` ≤ 200. FTMO publishes no per-minute figure, so
+`max_server_requests_per_minute` is optional.
+
 Profile identity includes provider/entity/jurisdiction, product, account, size,
 currency, stage/type, creation date/exact order/merge time, validity window,
 sources, verification, user confirmation, version and computed content hash.

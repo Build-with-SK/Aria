@@ -11,9 +11,10 @@ import sqlite3
 
 import pytest
 
-from test_multiasset_risk import case, NOW
-from src.trading.contracts import AssetClass, RiskAssessment, content_hash
+from test_multiasset_risk import activity, calendar, case, NOW, session
+from src.trading.contracts import AssetClass, EconomicEvent, RiskAssessment, content_hash
 from src.trading.multiasset_risk import assess
+from src.trading.operational_rules import activity_checks, flatten_deadline, news_checks
 from src.trading.review_store import ReviewRefused, ReviewStore
 from src.trading.rule_profiles import RuleProfile, evaluate_profile
 from pydantic import ValidationError
@@ -435,8 +436,15 @@ def ftmo(case, **changes):
     """A validated FTMO profile on the fixture account (a paid 2-Step Challenge by default)."""
     fields = {**case[1].profile.model_dump(), "provider": "FTMO", "provider_entity": "FTMO s.r.o.",
               "product": "FTMO_2_STEP", "evaluation_stage": "CHALLENGE", "account_type": "STANDARD",
-              "account_class": "PAID_EVALUATION"}
-    return RuleProfile.model_validate({**fields, **changes})
+              "account_class": "PAID_EVALUATION",
+              "gap_rule": "NO_ENTRY_2H_BEFORE_LONG_BREAK_OR_MAJOR_NEWS"}
+    fields.update(changes)
+    if fields["evaluation_stage"] == "FUNDED" and fields["account_type"] == "STANDARD":
+        for rule, value in (("news_rule", "NO_EXECUTION_2MIN_AROUND_NEWS"),
+                            ("weekend_rule", "NO_HOLD_THROUGH_BREAKS_OVER_2H")):
+            if rule not in changes:
+                fields[rule] = value
+    return RuleProfile.model_validate(fields)
 
 
 def on_profile(case, profile):
@@ -540,3 +548,204 @@ def test_cr12_one_step_consistency_selector_runs_on_the_enum(case):
                  order_created_at=after_cutover)
     assert evaluate_profile(wrong, case[1].rule_state, now=NOW).status == "POLICY_UNVERIFIED"
     assert evaluate_profile(right, case[1].rule_state, now=NOW).status == "PASS"
+
+
+# --- CR-08: news, gap and long-break rules are enums enforced against evidence ---
+
+
+
+def release(at, *, currency="USD", impact="HIGH", instrument_id=None, name="NFP"):
+    prov = calendar().provenance
+    return EconomicEvent(event_id=f"{name}@{at.isoformat()}", currency=currency, scheduled_at=at,
+                         impact=impact, provenance=prov, instrument_id=instrument_id)
+
+
+def standard_funded(case):
+    return ftmo(case, evaluation_stage="FUNDED", account_class="FUNDED")
+
+
+def swing_funded(case):
+    return ftmo(case, evaluation_stage="FUNDED", account_class="FUNDED", account_type="SWING")
+
+
+def with_evidence(case, profile, **evidence):
+    p, i = on_profile(case, profile)
+    return p, i.model_copy(update=evidence)
+
+
+def test_cr08_standard_ftmo_account_nfp_in_90_seconds_is_denied(case):
+    p, i = with_evidence(case, standard_funded(case),
+                         economic_calendar=calendar([release(NOW + timedelta(seconds=90))]))
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "DENY"
+    assert {"NEWS_EXECUTION_WINDOW", "MAJOR_NEWS_SCHEDULED_TODAY"} <= set(r.reasons)
+
+
+def test_cr08_news_window_covers_any_release_for_the_standard_account(case):
+    p, i = with_evidence(case, standard_funded(case),
+                         economic_calendar=calendar([release(NOW - timedelta(seconds=60), impact="LOW")]))
+    assert assess(p, i, now=NOW).reasons == ("NEWS_EXECUTION_WINDOW",)
+
+
+def test_cr08_swing_news_window_does_not_apply_but_gap_rule_does(case):
+    low = calendar([release(NOW + timedelta(seconds=60), impact="LOW")])
+    p, i = with_evidence(case, swing_funded(case), economic_calendar=low)
+    assert assess(p, i, now=NOW).verdict == "ALLOW"
+    p, i = with_evidence(case, swing_funded(case),
+                         economic_calendar=calendar([release(NOW + timedelta(hours=3))]))
+    assert assess(p, i, now=NOW).reasons == ("MAJOR_NEWS_SCHEDULED_TODAY",)
+
+
+def test_cr08_a_release_already_past_no_longer_blocks(case):
+    for ago, verdict in ((timedelta(minutes=5), "ALLOW"), (timedelta(seconds=90), "DENY")):
+        p, i = with_evidence(case, ftmo(case), economic_calendar=calendar([release(NOW - ago)]))
+        assert assess(p, i, now=NOW).verdict == verdict
+
+
+def test_cr08_other_currencies_do_not_block(case):
+    p, i = with_evidence(case, standard_funded(case),
+                         economic_calendar=calendar([release(NOW + timedelta(seconds=30), currency="JPY")]))
+    assert assess(p, i, now=NOW).verdict == "ALLOW"
+
+
+def weekend_in(minutes, *, break_hours=48):
+    closes = NOW + timedelta(minutes=minutes)
+    return session(closes_at=closes, next_opens_at=closes + timedelta(hours=break_hours))
+
+
+def test_cr08_entry_90_minutes_before_the_weekend_is_denied(case):
+    """The review case: Friday 20:30 UTC entry, FX closes 22:00 UTC for 48 hours."""
+    p, i = with_evidence(case, standard_funded(case), session=weekend_in(90))
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "DENY"
+    assert {"GAP_TRADING_WINDOW_BEFORE_LONG_BREAK", "MUST_BE_FLAT_BEFORE_LONG_BREAK"} <= set(r.reasons)
+    # A Challenge has no break-holding rule, but gap trading is forbidden in every phase.
+    p, i = with_evidence(case, ftmo(case), session=weekend_in(90))
+    assert assess(p, i, now=NOW).reasons == ("GAP_TRADING_WINDOW_BEFORE_LONG_BREAK",)
+
+
+@pytest.mark.parametrize("minutes,break_hours,verdict", [
+    (136, 48, "ALLOW"), (134, 48, "DENY"),   # 2 h + the 15-minute internal margin
+    (30, 1, "ALLOW"),                         # a one-hour break is not a long break
+    (30, 2, "DENY"),                          # two hours is
+])
+def test_cr08_pre_break_window_edges(case, minutes, break_hours, verdict):
+    p, i = with_evidence(case, ftmo(case), session=weekend_in(minutes, break_hours=break_hours))
+    assert assess(p, i, now=NOW).verdict == verdict
+
+
+def test_cr08_flatten_deadline_for_the_standard_account_only(case):
+    margin = timedelta(minutes=15)
+    weekend = weekend_in(300)
+    assert flatten_deadline(standard_funded(case), weekend, margin=margin) == weekend.closes_at - margin
+    assert flatten_deadline(swing_funded(case), weekend, margin=margin) is None
+    assert flatten_deadline(standard_funded(case), weekend_in(300, break_hours=1), margin=margin) is None
+
+
+@pytest.mark.parametrize("evidence,reason", [
+    ({"economic_calendar": None}, "ECONOMIC_CALENDAR_REQUIRED"),
+    ({"economic_calendar": calendar(retrieved_at=NOW - timedelta(hours=7))}, "ECONOMIC_CALENDAR_UNVERIFIED"),
+    ({"economic_calendar": calendar(quality="SUSPECT")}, "ECONOMIC_CALENDAR_UNVERIFIED"),
+    ({"economic_calendar": calendar(covers_until=NOW + timedelta(hours=6))}, "ECONOMIC_CALENDAR_DOES_NOT_COVER_THE_DAY"),
+    ({"session": None}, "SESSION_EVIDENCE_REQUIRED"),
+    ({"session": session("fixture:GBPUSD")}, "SESSION_EVIDENCE_UNVERIFIED"),
+    ({"session": session(state="UNKNOWN")}, "SESSION_EVIDENCE_UNVERIFIED"),
+    ({"session": session(retrieved_at=NOW - timedelta(hours=2))}, "SESSION_EVIDENCE_UNVERIFIED"),
+    ({"session": session(next_opens_at=None)}, "SESSION_EVIDENCE_UNVERIFIED"),
+])
+def test_cr08_missing_or_stale_evidence_is_unverified(case, evidence, reason):
+    p, i = with_evidence(case, ftmo(case), **evidence)
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "UNVERIFIED" and reason in r.reasons
+
+
+def test_cr08_rules_set_to_none_need_no_evidence(case):
+    p, i = case
+    i = i.model_copy(update={"economic_calendar": None, "session": None})
+    assert assess(p, i, now=NOW).verdict == "ALLOW"
+
+
+@pytest.mark.parametrize("field,value", [("news_rule", "fixture:none"), ("weekend_rule", "fixture:none"),
+    ("gap_rule", "checked"), ("instrument_rule", "fixture:EURUSD"),
+    ("prohibited_practices_rule", "fixture:checked"), ("overnight_rule", "ok")])
+def test_cr08_free_text_rule_values_are_rejected(case, field, value):
+    """At 7385130 any string other than "UNVERIFIED" counted as a verified rule."""
+    with pytest.raises(ValidationError):
+        RuleProfile.model_validate({**case[1].profile.model_dump(), field: value})
+
+
+@pytest.mark.parametrize("changes", [
+    {"evaluation_stage": "FUNDED", "account_class": "FUNDED", "news_rule": "NONE"},
+    {"evaluation_stage": "FUNDED", "account_class": "FUNDED", "weekend_rule": "NONE"},
+    {"gap_rule": "NONE"},
+    {"news_rule": "NO_EXECUTION_2MIN_AROUND_NEWS"},  # Challenge: the published rule is NONE
+])
+def test_cr08_ftmo_rule_values_follow_stage_and_type(case, changes):
+    with pytest.raises(ValidationError, match="FTMO"):
+        ftmo(case, **changes)
+
+
+def test_cr08_instrument_outside_the_allowlist_is_denied(case):
+    p, i = on_profile(case, case[1].profile.model_copy(update={"allowed_instruments": ("fixture:GBPUSD",)}))
+    assert assess(p, i, now=NOW).reasons == ("INSTRUMENT_NOT_PERMITTED_BY_PROFILE",)
+    with pytest.raises(ValidationError, match="allowlist"):
+        RuleProfile.model_validate({**case[1].profile.model_dump(), "allowed_instruments": ()})
+
+
+def test_cr08_equities_need_an_earnings_calendar(case):
+    instrument = case[1].specification.instrument.model_copy(update={
+        "instrument_id": "fixture:AAPL", "asset_class": AssetClass.EQUITIES})
+    profile = ftmo(case)
+    assert news_checks(profile, instrument, calendar(), now=NOW, max_age_seconds=21600) == \
+        (["EARNINGS_CALENDAR_REQUIRED"], [])
+    earnings = calendar([release(NOW + timedelta(hours=4), instrument_id="fixture:AAPL", name="earnings")],
+                        covers_earnings=True)
+    assert news_checks(profile, instrument, earnings, now=NOW, max_age_seconds=21600) == \
+        ([], ["MAJOR_NEWS_SCHEDULED_TODAY"])
+
+
+# --- CR-09: per-day position, server-request and open-order limits ---
+
+def test_cr09_1600_requests_today_none_in_the_last_minute_is_denied(case):
+    p, i = case
+    r = assess(p, i.model_copy(update={"activity": activity(server_requests=1600)}), now=NOW)
+    assert r.verdict == "DENY" and r.reasons == ("DAILY_SERVER_REQUEST_HEADROOM",)
+
+
+@pytest.mark.parametrize("field,allowed,denied,reason", [
+    ("server_requests", 1597, 1598, "DAILY_SERVER_REQUEST_HEADROOM"),  # +3 per trade vs 80% of 2,000
+    ("positions_opened", 1599, 1600, "DAILY_POSITION_LIMIT_HEADROOM"),
+    ("open_orders", 159, 160, "OPEN_ORDER_LIMIT_HEADROOM"),            # 80% of 200
+])
+def test_cr09_headroom_edges(case, field, allowed, denied, reason):
+    p, i = case
+    assert assess(p, i.model_copy(update={"activity": activity(**{field: allowed})}), now=NOW).verdict == "ALLOW"
+    r = assess(p, i.model_copy(update={"activity": activity(**{field: denied})}), now=NOW)
+    assert r.reasons == (reason,)
+
+
+@pytest.mark.parametrize("changes", [{"day": "2026-11-05"}, {"account_id": "other"}, {"complete": False},
+                                     {"observed_at": NOW - timedelta(seconds=16)},
+                                     {"observed_at": NOW + timedelta(seconds=1)}])
+def test_cr09_activity_must_be_todays_complete_fresh_record(case, changes):
+    p, i = case
+    r = assess(p, i.model_copy(update={"activity": activity(**changes)}), now=NOW)
+    assert r.verdict == "UNVERIFIED" and "DAILY_ACTIVITY_UNVERIFIED" in r.reasons
+
+
+def test_cr09_the_day_is_the_prague_day(case):
+    from datetime import datetime, timezone
+    late = datetime(2026, 11, 6, 23, 30, tzinfo=timezone.utc)  # 00:30 on 7 November in Prague
+    kwargs = dict(now=late, max_age_seconds=15, headroom=D("0.8"), requests_per_trade=3,
+                  max_requests_per_minute=2)
+    stale = activity(observed_at=late)
+    assert activity_checks(case[1].profile, stale, "demo-1", **kwargs) == (["DAILY_ACTIVITY_UNVERIFIED"], [])
+    fresh = activity(day="2026-11-07", observed_at=late)
+    assert activity_checks(case[1].profile, fresh, "demo-1", **kwargs) == ([], [])
+
+
+@pytest.mark.parametrize("field,value", [("max_server_requests_per_day", 2001),
+                                         ("max_positions_per_day", 2500), ("max_open_orders", 201)])
+def test_cr09_ftmo_limits_cannot_exceed_the_published_figures(case, field, value):
+    with pytest.raises(ValidationError, match="cannot exceed"):
+        ftmo(case, **{field: value})

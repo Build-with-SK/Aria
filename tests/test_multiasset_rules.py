@@ -38,7 +38,8 @@ def test_missing_exact_account_creation_does_not_select_ftmo_version(case):
     # A valid FTMO 1-Step profile: only the missing order time leaves it unverified.
     profile=type(i.profile).model_validate({**i.profile.model_dump(),"provider":"FTMO","product":"FTMO_1_STEP",
          "evaluation_stage":"CHALLENGE","account_type":"STANDARD","account_class":"PAID_EVALUATION",
-         "consistency_rule":"CONSISTENCY_NET_PROFIT_50","order_created_at":None})
+         "consistency_rule":"CONSISTENCY_NET_PROFIT_50","order_created_at":None,
+         "gap_rule":"NO_ENTRY_2H_BEFORE_LONG_BREAK_OR_MAJOR_NEWS"})
     result=evaluate_profile(profile,i.rule_state,now=NOW)
     assert result.status=="POLICY_UNVERIFIED"
     assert result.reasons==("POLICY_UNVERIFIED: account creation/merge rule version unresolved",)
