@@ -191,3 +191,19 @@ test_stabilization.py 22 passed in 1.04s. The 29 rows were accumulated test stat
 not a change in the fallback fixture. Full final suite remains required.
 For Claude: review this independent test-order fix with the audit commit.
 
+## 2026-11-06 — MA-002 precise contracts / provider rules / research risk — done
+
+Files: src/trading/contracts.py, rule_profiles.py, multiasset_risk.py;
+tests/test_multiasset_risk.py, test_multiasset_rules.py.
+Changed: immutable Decimal/UTC financial contracts, explicit lot/tick/currency
+identity, versioned unconfirmed-by-default provider profiles, Prague daily/static/
+trailing equity floors, separate historical/new consistency objective formulas,
+independent research risk with costs, freshness, margin and pending-book checks.
+Measured: 93 focused financial/rule/review/adapter cases passed in 2.86s; earlier
+full suite 3430 passed, 10 skipped, 1 warning in 294.74s. Final clean-environment
+run follows remaining additions. No account configuration or runtime change.
+Open: no authoritative broker snapshot builder, nonlinear calculator, full
+operational compliance or active exception approval. ALLOW is not authority.
+For Claude: source-discovery selector uses exact 09:00 GMT+3 publication cutover;
+rule-day arithmetic independently uses Europe/Prague. No active FTMO profile.
+
