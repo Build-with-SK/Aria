@@ -49,6 +49,7 @@ This is a tested research/read-only extension, not the completed production targ
   (SEC-01), but no key manager or anchor store ships: the operator holds both.
 - The MT5 worker (CR-06) is tested with a fake SDK in a real spawned process.
   No genuine terminal, investor login or Windows worker host has been exercised.
+  The active runtime cannot host the terminal at all (OP-01, OPERATIONS.md).
   Audit verification scans event history and is O(events); this is not suitable
   for an unbounded high-frequency event stream. Reads and indicators are bounded
   to 5,000 submitted bars but need request-size/rate/latency budgets before remote

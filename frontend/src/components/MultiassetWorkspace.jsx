@@ -13,15 +13,19 @@ export function MultiassetView({ data, loading = false, error = false }) {
     </div>
   )
   const available = value => value == null ? 'Unavailable' : String(value)
+  // Names the extension, not the whole app: the legacy desk below can be armed
+  // on its own, so a bare "EXECUTION DISABLED" could mislead (review UI-01).
+  const sender = data.execution_mode === 'DISABLED' ? 'EXTENSION: NO ORDER SENDER'
+    : `EXTENSION EXECUTION: ${data.execution_mode || 'UNAVAILABLE'}`
   return (
     <section aria-label="Multiasset research" style={panel}>
       <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8 }}>
         <h2 style={{ fontSize: 13, margin: 0, color: 'var(--orange)' }}>MULTIASSET RESEARCH</h2>
-        <span style={{ color: 'var(--orange)', fontSize: 11 }}>EXECUTION {data.execution_mode || 'UNAVAILABLE'}</span>
+        <span style={{ color: 'var(--orange)', fontSize: 11 }}>{sender}</span>
       </div>
       <p style={{ color: 'var(--muted)', fontSize: 11, lineHeight: 1.6 }}>
         Research proposals require independent risk checks and human review. This workspace has no order sender.
-        Existing desk and broker controls appear separately below.
+        The existing desk and broker controls below are separate and keep their own execution settings.
       </p>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(155px,1fr))', gap: 12, fontSize: 11 }}>
         {[

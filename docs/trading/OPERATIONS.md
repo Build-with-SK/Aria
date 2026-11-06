@@ -56,6 +56,32 @@ Do not mark unknown orders rejected or filled just to clear a queue. A future
 broker worker must compare client correlation, broker tickets/deals, quantities,
 account/environment and positions. No reconciliation worker is deployed here.
 
+## MT5 worker host (review OP-01)
+
+The `MetaTrader5` Python package is published for Windows only and drives a
+terminal on the same machine. ARIA's active runtime is a Linux ARM host, which
+cannot run that terminal, and ARIA's Windows writer tasks are deliberately
+disabled. So no MT5 worker can run on the current setup: started there, the
+worker refuses with "needs a Windows host". The UI shows MT5 as not configured.
+
+A future MT5 worker needs a **separate, always-on Windows host** holding the
+terminal and the investor (read-only) login, bridged to the runtime. That is a
+new trust boundary: account access on one machine, decisions on another. Before
+any such host is attached, design and review:
+
+- how the runtime authenticates to the worker host and the reverse, over a
+  private link only (no public listener);
+- that the worker host holds only the investor login — never a master password,
+  never broker or ARIA owner credentials beyond what reads need;
+- what the runtime does when the link or host is down (reads become
+  UNAVAILABLE; nothing falls back to another account or a cached figure);
+- who patches and monitors the host, and where its logs go.
+
+Latency: the runtime's local model is slow on the current 2-core host, so no
+time-sensitive path (news windows, pre-break flattening) may depend on it; those
+checks are deterministic and run in the risk engine. Choosing and providing the
+Windows host is the owner's decision; this release adds none.
+
 ## Rollback and incidents
 
 Revert the feature commits in the isolated branch or discard the worktree after

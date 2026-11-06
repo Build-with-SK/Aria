@@ -948,6 +948,22 @@ def test_cr06_the_client_reads_through_the_worker_and_holds_no_sdk():
     assert not client._process.is_alive()
 
 
+@pytest.mark.parametrize("platform,installed,message", [
+    ("linux", True, "needs a Windows host"),
+    ("darwin", True, "needs a Windows host"),
+    ("win32", False, "not installed"),
+])
+def test_op01_the_real_sdk_is_refused_clearly_where_it_cannot_run(monkeypatch, platform, installed, message):
+    """OP-01: a Linux runtime cannot host the terminal; the worker says so rather than failing vaguely."""
+    import sys
+    from src.trading import mt5_worker
+    monkeypatch.setattr(sys, "platform", platform)
+    if not installed:
+        monkeypatch.setitem(sys.modules, "MetaTrader5", None)   # import raises ImportError
+    with pytest.raises(MT5Unavailable, match=message):
+        mt5_worker._load_sdk(None)
+
+
 def test_cr06_the_worker_refuses_a_trading_login():
     with pytest.raises(MT5PermissionDenied, match="investor"):
         MT5ReadClient.start(**IDENTITY, sdk_factory="mt5_fakes:trading_login")

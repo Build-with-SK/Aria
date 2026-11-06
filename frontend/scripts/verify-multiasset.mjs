@@ -8,9 +8,11 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+// Optional argument: another copy of the component (used to reproduce review findings).
+const component = process.argv[2] ? resolve(process.argv[2]) : join(root, 'src/components/MultiassetWorkspace.jsx')
 const temporary = mkdtempSync(join(root, 'node_modules', '.multiasset-render-'))
 try {
-  await build({ input: join(root, 'src/components/MultiassetWorkspace.jsx'), platform: 'node',
+  await build({ input: component, platform: 'node',
     external: ['react', 'react/jsx-runtime', 'axios'],
     output: { file: join(temporary, 'workspace.mjs'), format: 'esm' } })
   const { MultiassetView } = await import(pathToFileURL(join(temporary, 'workspace.mjs')).href)
@@ -20,7 +22,8 @@ try {
   for (const props of [{}, { error: true }, { data: { schema_version: 'unsupported' } }]) {
     const html = render(props)
     assert.ok(html.includes('state unavailable'))
-    assert.ok(!html.includes('EXECUTION DISABLED'), 'unknown server state must remain unavailable')
+    assert.ok(!html.includes('EXECUTION DISABLED') && !html.includes('NO ORDER SENDER'),
+      'unknown server state must remain unavailable')
   }
   const data = { schema_version: '1', execution_mode: 'DISABLED', account: null,
     rule_profile: { status: 'POLICY_UNVERIFIED' }, mt5: { status: 'NOT_CONFIGURED' },
@@ -29,11 +32,15 @@ try {
     strategies: [{ family: 'TrendFollowing' }], as_of: '2026-11-06T12:00:00Z' }
   const html = render({ data })
   assert.ok(html.includes('NO TRADE') && html.includes('POLICY_UNVERIFIED'))
+  // UI-01: the banner names the extension, never the whole app's execution state.
+  assert.ok(html.includes('EXTENSION: NO ORDER SENDER'), 'banner must say the extension has no order sender')
+  assert.ok(!html.includes('EXECUTION DISABLED'), 'banner must not read as app-wide execution state')
+  assert.ok(render({ data: { ...data, execution_mode: undefined } }).includes('EXTENSION EXECUTION: UNAVAILABLE'))
   assert.ok(html.includes('DISCONNECTED') && html.includes('Unavailable'))
   assert.ok(!html.includes('<button') && !html.includes('EXECUTED'))
   assert.ok(!html.includes('NaN') && !html.includes('$10,000'))
   assert.ok(render({ data: { ...data, equity: '0' } }).includes('>0</div>'), 'real zero differs from unknown')
-  console.log('PASS: multiasset loading, disconnected, unavailable, empty, unknown-schema and zero-value renders; no order controls')
+  console.log('PASS: multiasset loading, disconnected, unavailable, empty, unknown-schema and zero-value renders; extension banner; no order controls')
 } finally {
   rmSync(temporary, { recursive: true, force: true })
 }

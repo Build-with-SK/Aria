@@ -23,6 +23,7 @@ from decimal import Decimal
 import importlib
 import multiprocessing
 from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 from .mt5_readonly import (MT5PermissionDenied, MT5ReadOnlyAdapter, MT5Unavailable,
@@ -51,7 +52,14 @@ def _plain(value):
 
 def _load_sdk(sdk_factory: str | None):
     if sdk_factory is None:
-        import MetaTrader5   # the only import of the SDK anywhere in ARIA
+        # The terminal and its Python package are Windows-only; a Linux runtime
+        # needs a separate Windows worker host (review OP-01, OPERATIONS.md).
+        if sys.platform != "win32":
+            raise MT5Unavailable("the MT5 worker needs a Windows host; this host cannot run the terminal")
+        try:
+            import MetaTrader5   # the only import of the SDK anywhere in ARIA
+        except ImportError as exc:
+            raise MT5Unavailable("the MetaTrader5 package is not installed in the worker environment") from exc
         return MetaTrader5
     module, _, name = sdk_factory.partition(":")
     return getattr(importlib.import_module(module), name)()
