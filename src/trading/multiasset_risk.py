@@ -8,9 +8,11 @@ from decimal import Decimal, ROUND_FLOOR
 
 from pydantic import Field
 
-from .contracts import (AccountSnapshot, Contract, FXConversion,
-                        InstrumentSpecification, MarketQuote, NonNegative,
-                        Positive, RiskAssessment, TradeProposal, content_hash)
+from .contracts import (AccountSnapshot, AssetClass, BrokerCalculation, Contract,
+                        FXConversion, InstrumentSpecification, MarketQuote,
+                        NonNegative, Positive, RiskAssessment, TradeProposal,
+                        content_hash)
+from .instrument_registry import expected_contract_sizes
 from .rule_profiles import RuleProfile, RuleState, evaluate_profile
 
 
@@ -33,6 +35,25 @@ class ResearchRiskPolicy(Contract):
     # cannot breach on one pip of extra slippage, a swap or a gap (CR-10).
     floor_buffer_fraction: Positive = Decimal("0.005")       # of initial account size
     floor_buffer_slippage_multiple: Positive = Decimal("3")  # × the slippage allowance
+    # The engine's loss figure must match the broker's own calculation (CR-03).
+    broker_agreement_tolerance: Positive = Decimal("0.005")
+    # Backstop for mapping errors: maximum lots per $10,000 of equity, by asset
+    # class. The leverage cap normally binds first; this one binds when the
+    # contract size is wrong and notional looks small. Absent class => 0 lots.
+    lots_per_10k_equity: tuple[tuple[AssetClass, NonNegative], ...] = (
+        (AssetClass.FOREX, Decimal("1.0")),
+        (AssetClass.METALS, Decimal("0.2")),
+        (AssetClass.ENERGY, Decimal("0.5")),
+        (AssetClass.AGRICULTURE, Decimal("0.5")),
+        (AssetClass.INDICES, Decimal("2.0")),
+        (AssetClass.EQUITIES, Decimal("50")),
+        (AssetClass.ETFS, Decimal("50")),
+        (AssetClass.CRYPTO, Decimal("0.1")),
+    )
+
+    def lot_cap(self, asset_class: AssetClass, equity: Decimal) -> Decimal:
+        per_10k = dict(self.lots_per_10k_equity).get(asset_class, Decimal("0"))
+        return per_10k * max(equity, Decimal("0")) / Decimal("10000")
 
 
 class RiskInputs(Contract):
@@ -40,6 +61,7 @@ class RiskInputs(Contract):
     quote: MarketQuote
     specification: InstrumentSpecification
     conversion: FXConversion | None = None
+    broker_calculation: BrokerCalculation | None = None
     profile: RuleProfile
     rule_state: RuleState
     # These are independently measured worst-case risk, including pending orders.
@@ -119,14 +141,39 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
     if instrument.settlement_currency != instrument.quote_currency:
         unverified.append("NONLINEAR_SETTLEMENT_REQUIRES_BROKER_CALCULATOR")
     factor = Decimal("1")
+    factor_known = True
     if instrument.quote_currency != a.currency:
         fx = inputs.conversion
+        factor_known = False
         if fx is None or fx.from_currency != instrument.quote_currency or fx.to_currency != a.currency:
             unverified.append("FX_CONVERSION_MISSING_OR_REVERSED")
         elif not 0 <= (now - fx.provenance.observed_at).total_seconds() <= policy.max_snapshot_age_seconds or fx.provenance.retrieved_at > now or fx.provenance.quality != "VALID" or fx.provenance.freshness != "FRESH" or fx.provenance.permission != "EXECUTION":
             unverified.append("FX_CONVERSION_UNVERIFIED")
         else:
             factor = fx.rate
+            factor_known = True
+    expected_sizes = expected_contract_sizes(instrument)
+    if expected_sizes is not None and spec.contract_size not in expected_sizes:
+        unverified.append("CONTRACT_SIZE_OUTSIDE_REVIEWED_REGISTRY")
+    bc = inputs.broker_calculation
+    broker_margin = Decimal("0")
+    if bc is None:
+        unverified.append("BROKER_CALCULATION_REQUIRED")
+    elif (bc.instrument_id != instrument.instrument_id or bc.currency != a.currency
+          or bc.provenance.instrument_id != instrument.instrument_id
+          or bc.provenance.quality != "VALID" or bc.provenance.freshness != "FRESH"
+          or bc.provenance.retrieved_at > now
+          or not 0 <= (now - bc.provenance.observed_at).total_seconds() <= policy.max_snapshot_age_seconds):
+        unverified.append("BROKER_CALCULATION_UNVERIFIED")
+    else:
+        broker_margin = bc.margin * proposal.quantity / bc.volume
+        if factor_known:
+            # Same order, two calculators: ours from the specification, the
+            # broker's from its own contract data. They must agree.
+            engine_loss = abs(bc.entry - bc.stop_loss) * spec.contract_size * bc.volume * factor
+            broker_loss = -bc.profit_at_stop
+            if broker_loss <= 0 or abs(engine_loss - broker_loss) > broker_loss * policy.broker_agreement_tolerance:
+                unverified.append("CONTRACT_SPEC_DISAGREES_WITH_BROKER")
     pe = evaluate_profile(inputs.profile, inputs.rule_state, now=now)
     if inputs.rule_state.equity != a.equity:
         unverified.append("RULE_EQUITY_SNAPSHOT_MISMATCH")
@@ -155,6 +202,8 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
         denied.append("ORDER_TYPE_UNSUPPORTED")
     if proposal.quantity % spec.volume_step or not spec.volume_min <= proposal.quantity <= spec.volume_max:
         denied.append("INVALID_VOLUME_STEP_OR_BOUNDS")
+    if proposal.quantity > policy.lot_cap(instrument.asset_class, a.equity):
+        denied.append("ASSET_CLASS_LOT_CAP")
     if not spec.negative_prices and min(q.bid, proposal.entry, proposal.stop_loss, proposal.take_profit) <= 0:
         denied.append("NONPOSITIVE_PRICE")
     if any(px % spec.tick_size for px in (proposal.entry, proposal.stop_loss, proposal.take_profit)):
@@ -203,7 +252,9 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
     notional = (abs(proposal.entry) + proposal.price_tolerance) * spec.contract_size * proposal.quantity * factor
     if a.equity <= 0 or (inputs.current_notional + notional) > max(a.equity, Decimal("0")) * min(policy.max_leverage, inputs.profile.max_leverage):
         denied.append("LEVERAGE_CAP")
-    if a.available_margin - notional * spec.margin_rate < policy.min_available_margin:
+    # The larger of our estimate and the broker's own margin figure.
+    margin_needed = max(notional * spec.margin_rate, broker_margin)
+    if a.available_margin - margin_needed < policy.min_available_margin:
         denied.append("INSUFFICIENT_MARGIN")
     if denied:
         return result("DENY", denied)

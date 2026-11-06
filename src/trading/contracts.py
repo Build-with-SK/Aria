@@ -176,6 +176,33 @@ class FXConversion(Contract):
     provenance: DataProvenance
 
 
+class BrokerCalculation(Contract):
+    """The broker's own profit and margin figures for one hypothetical order.
+
+    On MT5 these are `order_calc_profit(action, symbol, volume, price_open,
+    price_close)` and `order_calc_margin(action, symbol, volume, price)`. The
+    broker knows the true contract size and tick value, so its figure is
+    independent evidence against a mis-mapped specification (review CR-03).
+    Profit is linear in volume for LINEAR instruments, so any volume will do.
+    """
+    instrument_id: str = Field(min_length=1)
+    side: Literal["BUY", "SELL"]
+    volume: Positive
+    entry: Decimal
+    stop_loss: Decimal
+    profit_at_stop: Decimal      # account currency; negative for a loss
+    margin: NonNegative          # account currency, for `volume`
+    currency: Currency
+    provenance: DataProvenance
+
+    @model_validator(mode="after")
+    def losing_side(self):
+        if (self.side == "BUY" and not self.stop_loss < self.entry) or \
+           (self.side == "SELL" and not self.stop_loss > self.entry):
+            raise ValueError("calculation stop must be on the losing side of entry")
+        return self
+
+
 class ResearchEvidence(Contract):
     evidence_id: str
     claim: str

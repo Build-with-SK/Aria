@@ -16,6 +16,16 @@ Per-volume stop risk = (absolute entry-stop distance + allowed entry tolerance)
 commission, slippage and financing allowances in account currency. Volume is
 floored to the broker step; minimum lot beyond budget is denied. Contract tick
 value must agree with the linear model or a broker calculator is required.
+
+Contract size is checked three ways (review CR-03). (1) Mandatory: the broker's
+own one-order figures (MT5 `order_calc_profit` / `order_calc_margin`, as a
+`BrokerCalculation`, fresh within 15 s) must match the engine's loss within 0.5%,
+or the verdict is UNVERIFIED; the larger of the two margin figures is used. (2) A
+registry of conventional sizes (`instrument_registry.py`: FX 100,000; gold 100 oz;
+silver 5,000 or 1,000 oz) returns UNVERIFIED for anything else; instruments with
+no convention rely on (1). (3) A per-asset-class lot cap per $10,000 of equity
+(FX 1.0, metals 0.2, energy/agriculture 0.5, indices 2.0, equity/ETF CFDs 50,
+crypto 0.1, other 0) denies sizes a mapping error could make look small.
 Nonlinear settlement, inverse contracts and limit-fill modelling are unverified.
 
 Internal daily stop: today's loss is the policy-local 00:00 balance minus current

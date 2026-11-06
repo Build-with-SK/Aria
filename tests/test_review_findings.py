@@ -12,7 +12,7 @@ import sqlite3
 import pytest
 
 from test_multiasset_risk import case, NOW
-from src.trading.contracts import RiskAssessment, content_hash
+from src.trading.contracts import AssetClass, RiskAssessment, content_hash
 from src.trading.multiasset_risk import assess
 from src.trading.review_store import ReviewRefused, ReviewStore
 
@@ -158,3 +158,100 @@ def test_cr10_buffer_scales_with_slippage_allowance(case):
     p, i = twenty_dollar_trade(case, equity="9071", daily_balance="9071")
     i = i.model_copy(update={"slippage_allowance": D("30")})
     assert "WITHIN_FLOOR_BUFFER" in assess(p, i, now=NOW).reasons
+
+
+# --- CR-03: contract size is checked against the broker's own calculation ---
+
+def metal_or_index_case(case, *, symbol, asset_class, base, contract, quantity,
+                        bid, ask, stop, target, broker_one_lot_loss):
+    """A USD-quoted instrument whose broker says one lot entry->stop loses `broker_one_lot_loss`."""
+    from src.trading.contracts import Instrument, InstrumentSpecification, MarketQuote
+    from test_multiasset_risk import broker_calc
+    p, i = case
+    prov = i.quote.provenance.model_copy(update={"instrument_id": f"fixture:{symbol}",
+                                                 "original_symbol": symbol})
+    instrument = Instrument(instrument_id=f"fixture:{symbol}", provider_symbol=symbol,
+        asset_class=asset_class, product="CFD", venue="FIXTURE_OTC", base_currency=base,
+        quote_currency="USD", settlement_currency="USD", calendar="fixture")
+    spec = i.specification.model_copy(update={
+        "instrument": instrument, "contract_size": D(contract), "tick_size": D("0.01"),
+        "tick_value": D(contract) * D("0.01"), "minimum_stop_distance": D("0.01"),
+        "volume_max": D("100"), "provenance": prov})
+    p = p.model_copy(update={"instrument_id": instrument.instrument_id, "quantity": D(quantity),
+        "entry": D(ask), "price_tolerance": D("0"), "stop_loss": D(stop), "take_profit": D(target)})
+    i = i.model_copy(update={"specification": spec,
+        "quote": MarketQuote(bid=bid, ask=ask, snapshot_id="q1", provenance=prov),
+        "broker_calculation": broker_calc(instrument.instrument_id, f"-{broker_one_lot_loss}", "0",
+                                          prov, entry=ask, stop=stop)})
+    return p, i
+
+
+def test_cr03_gold_with_wrong_contract_size_is_unverified(case):
+    # E5b: true contract 100 oz, mapped as 1. Ten lots with a $5 stop look like $50;
+    # the true loss is $5,000 on $2.6M notional. At 7385130 this was ALLOWED.
+    p, i = metal_or_index_case(case, symbol="XAUUSD", asset_class=AssetClass.METALS, base="XAU",
+        contract="1", quantity="10", bid="2600.00", ask="2600.00", stop="2595.00", target="2610.00",
+        broker_one_lot_loss="500")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "UNVERIFIED"
+    assert "CONTRACT_SPEC_DISAGREES_WITH_BROKER" in r.reasons
+    assert "CONTRACT_SIZE_OUTSIDE_REVIEWED_REGISTRY" in r.reasons
+
+
+def test_cr03_unregistered_instrument_is_caught_by_the_broker_figure_alone(case):
+    # An index CFD has no conventional size, so only the broker cross-check applies:
+    # mapped as 1 per point, the broker says 10 per point.
+    p, i = metal_or_index_case(case, symbol="US30", asset_class=AssetClass.INDICES, base="USD",
+        contract="1", quantity="0.10", bid="42000.00", ask="42000.00", stop="41950.00",
+        target="42100.00", broker_one_lot_loss="500")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "UNVERIFIED" and r.reasons == ("CONTRACT_SPEC_DISAGREES_WITH_BROKER",)
+
+
+def test_cr03_correct_gold_specification_is_allowed(case):
+    # 100 oz, 0.05 lot, $5 stop: $25 + $2 costs, notional $13,000 (1.3x).
+    p, i = metal_or_index_case(case, symbol="XAUUSD", asset_class=AssetClass.METALS, base="XAU",
+        contract="100", quantity="0.05", bid="2600.00", ask="2600.20", stop="2595.20",
+        target="2610.20", broker_one_lot_loss="500")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "ALLOW" and r.monetary_risk == D("27.00")
+
+
+def test_cr03_broker_calculation_is_mandatory_and_must_be_fresh(case):
+    p, i = case
+    assert assess(p, i.model_copy(update={"broker_calculation": None}), now=NOW).reasons == (
+        "BROKER_CALCULATION_REQUIRED",)
+    stale = i.broker_calculation.model_copy(update={"provenance": i.broker_calculation.provenance.model_copy(
+        update={"observed_at": NOW - timedelta(seconds=16), "retrieved_at": NOW - timedelta(seconds=16)})})
+    other = i.broker_calculation.model_copy(update={"instrument_id": "fixture:GBPUSD"})
+    for bad in (stale, other):
+        assert assess(p, i.model_copy(update={"broker_calculation": bad}), now=NOW).reasons == (
+            "BROKER_CALCULATION_UNVERIFIED",)
+
+
+def test_cr03_small_disagreement_within_tolerance_is_accepted(case):
+    p, i = case
+    near = i.broker_calculation.model_copy(update={"profit_at_stop": D("-502.40")})  # 0.48%
+    far = i.broker_calculation.model_copy(update={"profit_at_stop": D("-502.60")})   # 0.52%
+    assert assess(p, i.model_copy(update={"broker_calculation": near}), now=NOW).verdict == "ALLOW"
+    assert assess(p, i.model_copy(update={"broker_calculation": far}), now=NOW).verdict == "UNVERIFIED"
+
+
+def test_cr03_lot_cap_backstop_by_asset_class(case):
+    from src.trading.multiasset_risk import ResearchRiskPolicy
+    policy = ResearchRiskPolicy()
+    assert policy.lot_cap(AssetClass.METALS, D("10000")) == D("0.2")
+    assert policy.lot_cap(AssetClass.FOREX, D("25000")) == D("2.5")
+    assert policy.lot_cap(AssetClass.OTHER, D("10000")) == D("0")
+    p, i = case
+    r = assess(p.model_copy(update={"quantity": D("1.10")}), i, now=NOW)
+    assert r.verdict == "DENY" and "ASSET_CLASS_LOT_CAP" in r.reasons
+
+
+def test_cr03_broker_margin_is_used_when_larger(case):
+    p, i = case
+    # Our estimate: 1.1003 x 100,000 x 0.05 x 1% = $55; broker says $9,000 per lot => $450.
+    heavy = i.broker_calculation.model_copy(update={"margin": D("9000")})
+    tight = i.account.model_copy(update={"available_margin": D("500")})
+    r = assess(p, i.model_copy(update={"broker_calculation": heavy, "account": tight}), now=NOW)
+    assert r.verdict == "DENY" and "INSUFFICIENT_MARGIN" in r.reasons

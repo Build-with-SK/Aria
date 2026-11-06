@@ -6,13 +6,20 @@ from zoneinfo import ZoneInfo
 import pytest
 from pydantic import ValidationError
 
-from src.trading.contracts import (AccountSnapshot, AssetClass, DataProvenance,
-    FXConversion, Instrument, InstrumentSpecification, MarketQuote, TradeProposal,
-    content_hash)
+from src.trading.contracts import (AccountSnapshot, AssetClass, BrokerCalculation,
+    DataProvenance, FXConversion, Instrument, InstrumentSpecification, MarketQuote,
+    TradeProposal, content_hash)
 from src.trading.multiasset_risk import RiskInputs, assess, floor_volume
 from src.trading.rule_profiles import RuleProfile, RuleState, evaluate_profile, rule_day
 
 NOW = datetime(2026, 11, 6, 12, tzinfo=timezone.utc)
+
+
+def broker_calc(instrument_id, profit, margin, provenance, *, entry="1.10020",
+                stop="1.09520", side="BUY", volume="1", currency="USD"):
+    return BrokerCalculation(instrument_id=instrument_id, side=side, volume=volume,
+        entry=entry, stop_loss=stop, profit_at_stop=profit, margin=margin,
+        currency=currency, provenance=provenance.model_copy(update={"data_type": "broker_calculation"}))
 
 
 @pytest.fixture
@@ -50,7 +57,10 @@ def case():
         balance="10000", equity="10000", available_margin="9000", observed_at=NOW,
         positions_complete=True, orders_complete=True),
         quote=MarketQuote(bid="1.10000", ask="1.10020", snapshot_id="q1", provenance=provenance),
-        specification=spec, profile=profile, rule_state=state, existing_open_risk="0",
+        specification=spec, profile=profile, rule_state=state,
+        # The broker's own figure for one lot, entry to stop: 0.005 x 100,000 = $500.
+        broker_calculation=broker_calc(instrument.instrument_id, "-500", "1100.20", provenance),
+        existing_open_risk="0",
         pending_order_risk="0", correlated_risk="0", current_notional="0",
         position_count=0, orders_last_minute=0, spread_cost="1", commission="0.5",
         slippage_allowance="0.5", financing_allowance="0", session_open=True,
@@ -130,7 +140,9 @@ def test_cross_currency_requires_fresh_directional_conversion(case):
     i=i.model_copy(update={"specification":spec})
     assert assess(p,i,now=NOW).verdict == "UNVERIFIED"
     fx=FXConversion(from_currency="JPY",to_currency="USD",rate="0.0067",provenance=i.quote.provenance)
-    assert assess(p,i.model_copy(update={"conversion":fx}),now=NOW).monetary_risk == D("2.17085")
+    # The broker's own one-lot figure on this JPY-quoted spec: 500 JPY-equivalent x 0.0067.
+    bc=i.broker_calculation.model_copy(update={"profit_at_stop":D("-3.35")})
+    assert assess(p,i.model_copy(update={"conversion":fx,"broker_calculation":bc}),now=NOW).monetary_risk == D("2.17085")
     assert assess(p,i.model_copy(update={"conversion":fx.model_copy(update={"from_currency":"USD","to_currency":"JPY"})}),now=NOW).verdict == "UNVERIFIED"
 
 

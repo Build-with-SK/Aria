@@ -42,9 +42,9 @@ and the original failure was reproduced against `7385130`.
 | ID | Sev | Finding | Status | Fix commit | Regression tests |
 |---|---|---|---|---|---|
 | CR-02 | HIGH | Store trusts a caller-built ALLOW | TESTED | 3f6ec66 | `tests/test_review_findings.py::test_cr02_*` (7); before: probe R1 reserved an intent at `7385130` |
-| CR-05 | HIGH | Daily stop ignores balance vs equity | TESTED | stage 2 | `test_cr05_*` (2), `test_multiasset_risk.py::test_internal_daily_stop_*` (4); fail at `7385130` (E8 ALLOW) |
-| CR-10 | MED | Trade may land exactly on the floor | TESTED | stage 2 | `test_cr10_*` (4); 3 fail at `7385130` (E7 ALLOW, equality ALLOW) |
-| CR-03 | HIGH | Contract-size errors undetected | NOT_STARTED | — | — |
+| CR-05 | HIGH | Daily stop ignores balance vs equity | TESTED | e0d9c89 | `test_cr05_*` (2), `test_multiasset_risk.py::test_internal_daily_stop_*` (4); fail at `7385130` (E8 ALLOW) |
+| CR-10 | MED | Trade may land exactly on the floor | TESTED | e0d9c89 | `test_cr10_*` (4); 3 fail at `7385130` (E7 ALLOW, equality ALLOW) |
+| CR-03 | HIGH | Contract-size errors undetected | TESTED | stage 3 | `test_cr03_*` (7); before: probe E5b gold 10 lots ALLOW at `7385130` |
 | CR-04 | HIGH | FX conversion checked by label only | NOT_STARTED | — | — |
 | CR-01 | HIGH | Trailing high-water lowered by re-versioning | NOT_STARTED | — | — |
 | CR-06 | HIGH | MT5 adapter not read-only | NOT_STARTED | — | — |
