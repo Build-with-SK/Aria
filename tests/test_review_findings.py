@@ -255,3 +255,84 @@ def test_cr03_broker_margin_is_used_when_larger(case):
     tight = i.account.model_copy(update={"available_margin": D("500")})
     r = assess(p, i.model_copy(update={"broker_calculation": heavy, "account": tight}), now=NOW)
     assert r.verdict == "DENY" and "INSUFFICIENT_MARGIN" in r.reasons
+
+
+# --- CR-04 / CR-13: conversion from a named pair quote, at the side that hurts ---
+
+def fx_pair_case(case, *, symbol, base, quote, bid, ask, side, quantity, entry, stop, target,
+                 broker_one_lot_profit, fx_quote=None):
+    from src.trading.contracts import Instrument, MarketQuote
+    from test_multiasset_risk import broker_calc
+    p, i = case
+    prov = i.quote.provenance.model_copy(update={"instrument_id": f"fixture:{symbol}",
+                                                 "original_symbol": symbol})
+    instrument = Instrument(instrument_id=f"fixture:{symbol}", provider_symbol=symbol,
+        asset_class=AssetClass.FOREX, product="CFD", venue="FIXTURE_OTC", base_currency=base,
+        quote_currency=quote, settlement_currency=quote, calendar="fixture")
+    tick = D("0.001") if quote == "JPY" else D("0.00001")
+    spec = i.specification.model_copy(update={"instrument": instrument, "tick_size": tick,
+        "tick_value": D("100000") * tick, "tick_value_currency": quote, "provenance": prov})
+    p = p.model_copy(update={"instrument_id": instrument.instrument_id, "side": side,
+        "quantity": D(quantity), "entry": D(entry), "price_tolerance": D("0"),
+        "stop_loss": D(stop), "take_profit": D(target)})
+    i = i.model_copy(update={"specification": spec, "fx_quote": fx_quote,
+        "quote": MarketQuote(bid=bid, ask=ask, snapshot_id="q1", provenance=prov),
+        "broker_calculation": broker_calc(instrument.instrument_id, broker_one_lot_profit, "0", prov,
+                                          entry=entry, stop=stop, side=side)})
+    return p, i
+
+
+def gbpusd(case, bid, ask):
+    from src.trading.contracts import FXPairQuote
+    prov = case[1].quote.provenance.model_copy(update={"instrument_id": "fixture:GBPUSD",
+                                                       "original_symbol": "GBPUSD"})
+    return FXPairQuote(base="GBP", quote="USD", bid=bid, ask=ask, provenance=prov)
+
+
+def eurgbp(case, fx, quantity):
+    # One lot from 0.85000 to 0.84750 loses 250 GBP; the broker, at GBPUSD 1.2701, says $317.53.
+    return fx_pair_case(case, symbol="EURGBP", base="EUR", quote="GBP", bid="0.85000",
+        ask="0.85000", side="BUY", quantity=quantity, entry="0.85000", stop="0.84750",
+        target="0.85500", broker_one_lot_profit="-317.53", fx_quote=fx)
+
+
+def test_cr04_inverted_rate_with_correct_labels_is_unverified(case):
+    # E3b: GBP->USD supplied as 0.7874 (the USDGBP value) under GBPUSD labels.
+    # At 7385130 this ALLOWED $39.37 where the true risk is $63.50 (-38%).
+    p, i = eurgbp(case, gbpusd(case, "0.7874", "0.7874"), "0.20")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "UNVERIFIED" and "CONTRACT_SPEC_DISAGREES_WITH_BROKER" in r.reasons
+
+
+def test_cr04_correct_pair_uses_the_conservative_side(case):
+    p, i = eurgbp(case, gbpusd(case, "1.2700", "1.2702"), "0.10")
+    r = assess(p, i, now=NOW)
+    # GBP -> USD multiplies by GBPUSD: the ask is the larger loss. 25 GBP x 1.2702 + $2 costs.
+    assert r.verdict == "ALLOW" and r.monetary_risk == D("0.0025") * 100000 * D("0.10") * D("1.2702") + 2
+
+
+def test_cr04_no_caller_rate_input_exists():
+    from src.trading.multiasset_risk import RiskInputs
+    assert "conversion" not in RiskInputs.model_fields and "fx_quote" in RiskInputs.model_fields
+
+
+def usdjpy(case, side, entry, stop, target, broker_profit):
+    return fx_pair_case(case, symbol="USDJPY", base="USD", quote="JPY", bid="150.000",
+        ask="150.010", side=side, quantity="0.04", entry=entry, stop=stop, target=target,
+        broker_one_lot_profit=broker_profit)
+
+
+def test_cr13_base_is_account_currency_converts_at_the_stop(case):
+    # USDJPY on a USD account, BUY 0.04 lot, 1.5-yen stop: 6,000 JPY. The loss is
+    # realised at USDJPY 148.51, not today's 150.00: $40.40, not $40.00.
+    p, i = usdjpy(case, "BUY", "150.010", "148.510", "151.510", "-999.97")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "ALLOW"
+    assert abs(r.monetary_risk - (D("6000") / D("148.510") + 2)) < D("1e-20")
+    assert r.monetary_risk > D("6000") / D("150.000") + 2
+
+
+def test_cr13_sell_side_uses_todays_bid_when_it_is_lower(case):
+    p, i = usdjpy(case, "SELL", "150.000", "151.500", "148.500", "-999.97")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "ALLOW" and abs(r.monetary_risk - (D("6000") / D("150.000") + 2)) < D("1e-20")

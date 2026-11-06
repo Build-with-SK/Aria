@@ -7,12 +7,20 @@ policy invalidate the assessment hash. No API permits policy mutation.
 
 Required: exact account identity/environment/currency; complete positions and
 pending-order risk; fresh executable quote; verified linear specification; correctly
-directed fresh FX conversion when needed; confirmed profile and exact current
+fresh FX pair quote when needed; confirmed profile and exact current
 Prague reset snapshot; independently checked operational constraints. Unknown
 inputs return UNVERIFIED. Kill/financial-limit breaches return EMERGENCY_HALT.
 
 Per-volume stop risk = (absolute entry-stop distance + allowed entry tolerance)
-× contract size × quote-to-account conversion. Total risk includes spread,
+× contract size × quote-to-account conversion. Conversion comes from a named
+two-sided pair quote (`FXPairQuote`), never a caller-supplied rate: direction is
+derived from the pair, losses convert at the side that makes them larger (ask
+for GBPUSD-style multiply, bid for USDJPY-style divide), the provenance symbol
+must name the pair, and a spread over 1% is refused (review CR-04). When the
+instrument is itself the account/quote pair (USDJPY on a USD account), the stop
+price is used too, since that is the rate at which the loss is realised (CR-13).
+An inverted value under correct labels is caught by the broker cross-check.
+Total risk includes spread,
 commission, slippage and financing allowances in account currency. Volume is
 floored to the broker step; minimum lot beyond budget is denied. Contract tick
 value must agree with the linear model or a broker calculator is required.

@@ -169,11 +169,26 @@ class OHLCVBar(Contract):
         return self
 
 
-class FXConversion(Contract):
-    from_currency: Currency
-    to_currency: Currency
-    rate: Positive
+class FXPairQuote(Contract):
+    """An executable two-sided quote for one currency pair: 1 `base` = price `quote`.
+
+    Conversion direction is derived from the pair, never from a caller-supplied
+    rate, and the engine converts losses at the side that makes them larger
+    (review CR-04). The provenance symbol must name the same pair.
+    """
+    base: Currency
+    quote: Currency
+    bid: Positive
+    ask: Positive
     provenance: DataProvenance
+
+    @model_validator(mode="after")
+    def two_sided(self):
+        if self.base == self.quote:
+            raise ValueError("a pair needs two different currencies")
+        if self.ask < self.bid:
+            raise ValueError("crossed FX quote")
+        return self
 
 
 class BrokerCalculation(Contract):

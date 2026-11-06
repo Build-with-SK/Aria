@@ -9,9 +9,9 @@ from decimal import Decimal, ROUND_FLOOR
 from pydantic import Field
 
 from .contracts import (AccountSnapshot, AssetClass, BrokerCalculation, Contract,
-                        FXConversion, InstrumentSpecification, MarketQuote,
-                        NonNegative, Positive, RiskAssessment, TradeProposal,
-                        content_hash)
+                        FXPairQuote, Instrument, InstrumentSpecification,
+                        MarketQuote, NonNegative, Positive, RiskAssessment,
+                        TradeProposal, content_hash)
 from .instrument_registry import expected_contract_sizes
 from .rule_profiles import RuleProfile, RuleState, evaluate_profile
 
@@ -37,6 +37,8 @@ class ResearchRiskPolicy(Contract):
     floor_buffer_slippage_multiple: Positive = Decimal("3")  # × the slippage allowance
     # The engine's loss figure must match the broker's own calculation (CR-03).
     broker_agreement_tolerance: Positive = Decimal("0.005")
+    # A conversion quote wider than this is not a usable price (CR-04).
+    max_fx_spread_fraction: Positive = Decimal("0.01")
     # Backstop for mapping errors: maximum lots per $10,000 of equity, by asset
     # class. The leverage cap normally binds first; this one binds when the
     # contract size is wrong and notional looks small. Absent class => 0 lots.
@@ -60,7 +62,9 @@ class RiskInputs(Contract):
     account: AccountSnapshot
     quote: MarketQuote
     specification: InstrumentSpecification
-    conversion: FXConversion | None = None
+    # Needed only when the instrument's quote currency differs from the account
+    # currency AND the instrument is not itself that currency pair.
+    fx_quote: FXPairQuote | None = None
     broker_calculation: BrokerCalculation | None = None
     profile: RuleProfile
     rule_state: RuleState
@@ -83,6 +87,46 @@ class RiskInputs(Contract):
     cooldown_clear: bool
     duplicate_position: bool
     abnormal_market: bool
+
+
+def conversion_factors(instrument: Instrument, account_currency: str, quote: MarketQuote,
+                       fx: FXPairQuote | None, stop_loss: Decimal, *, now: datetime,
+                       policy: "ResearchRiskPolicy") -> tuple[Decimal | None, Decimal | None, list[str]]:
+    """Quote-currency amount -> account currency: (at mid, conservative, reasons).
+
+    The mid factor is what a broker's calculator would use, for the CR-03
+    cross-check. The conservative factor is what risk is measured with: the
+    pair side that makes a loss larger, and, when the instrument is itself the
+    account/quote pair (USDJPY on a USD account), the stop price too, because
+    that is the rate at which the loss is realised (CR-13).
+    """
+    q, a = instrument.quote_currency, account_currency
+    one = Decimal("1")
+    if q == a:
+        return one, one, []
+    if instrument.asset_class == AssetClass.FOREX and instrument.base_currency == a:
+        lowest = min(quote.bid, stop_loss)
+        if lowest <= 0:
+            return None, None, ["NONPOSITIVE_CONVERSION_PRICE"]
+        return one / ((quote.bid + quote.ask) / 2), one / lowest, []
+    if fx is None or {fx.base, fx.quote} != {q, a}:
+        return None, None, ["FX_PAIR_QUOTE_MISSING_OR_MISMATCHED"]
+    reasons = []
+    pv = fx.provenance
+    if (pv.quality != "VALID" or pv.freshness != "FRESH" or pv.permission != "EXECUTION"
+            or pv.retrieved_at > now
+            or not 0 <= (now - pv.observed_at).total_seconds() <= policy.max_snapshot_age_seconds):
+        reasons.append("FX_PAIR_QUOTE_UNVERIFIED")
+    if not pv.original_symbol.upper().replace("/", "").startswith(fx.base + fx.quote):
+        reasons.append("FX_PAIR_SYMBOL_MISMATCH")
+    mid = (fx.bid + fx.ask) / 2
+    if (fx.ask - fx.bid) / mid > policy.max_fx_spread_fraction:
+        reasons.append("FX_PAIR_QUOTE_ABNORMAL_SPREAD")
+    if reasons:
+        return None, None, reasons
+    if fx.base == q:   # e.g. GBPUSD turns GBP into USD by multiplying: the ask is worse
+        return mid, fx.ask, []
+    return one / mid, one / fx.bid, []   # e.g. USDJPY turns JPY into USD by dividing: the bid is worse
 
 
 def floor_volume(raw: Decimal, step: Decimal) -> Decimal:
@@ -140,18 +184,10 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
         unverified.append("TICK_VALUE_REQUIRES_BROKER_CALCULATOR")
     if instrument.settlement_currency != instrument.quote_currency:
         unverified.append("NONLINEAR_SETTLEMENT_REQUIRES_BROKER_CALCULATOR")
-    factor = Decimal("1")
-    factor_known = True
-    if instrument.quote_currency != a.currency:
-        fx = inputs.conversion
-        factor_known = False
-        if fx is None or fx.from_currency != instrument.quote_currency or fx.to_currency != a.currency:
-            unverified.append("FX_CONVERSION_MISSING_OR_REVERSED")
-        elif not 0 <= (now - fx.provenance.observed_at).total_seconds() <= policy.max_snapshot_age_seconds or fx.provenance.retrieved_at > now or fx.provenance.quality != "VALID" or fx.provenance.freshness != "FRESH" or fx.provenance.permission != "EXECUTION":
-            unverified.append("FX_CONVERSION_UNVERIFIED")
-        else:
-            factor = fx.rate
-            factor_known = True
+    factor_now, factor, fx_reasons = conversion_factors(
+        instrument, a.currency, q, inputs.fx_quote, proposal.stop_loss, now=now, policy=policy)
+    unverified.extend(fx_reasons)
+    factor_known = factor is not None
     expected_sizes = expected_contract_sizes(instrument)
     if expected_sizes is not None and spec.contract_size not in expected_sizes:
         unverified.append("CONTRACT_SIZE_OUTSIDE_REVIEWED_REGISTRY")
@@ -170,7 +206,7 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
         if factor_known:
             # Same order, two calculators: ours from the specification, the
             # broker's from its own contract data. They must agree.
-            engine_loss = abs(bc.entry - bc.stop_loss) * spec.contract_size * bc.volume * factor
+            engine_loss = abs(bc.entry - bc.stop_loss) * spec.contract_size * bc.volume * factor_now
             broker_loss = -bc.profit_at_stop
             if broker_loss <= 0 or abs(engine_loss - broker_loss) > broker_loss * policy.broker_agreement_tolerance:
                 unverified.append("CONTRACT_SPEC_DISAGREES_WITH_BROKER")

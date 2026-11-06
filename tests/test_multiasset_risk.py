@@ -7,7 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from src.trading.contracts import (AccountSnapshot, AssetClass, BrokerCalculation,
-    DataProvenance, FXConversion, Instrument, InstrumentSpecification, MarketQuote,
+    DataProvenance, FXPairQuote, Instrument, InstrumentSpecification, MarketQuote,
     TradeProposal, content_hash)
 from src.trading.multiasset_risk import RiskInputs, assess, floor_volume
 from src.trading.rule_profiles import RuleProfile, RuleState, evaluate_profile, rule_day
@@ -133,17 +133,28 @@ def test_quote_fail_closed(case, field, value):
     assert assess(p, i.model_copy(update={"quote":q}), now=NOW).verdict == "UNVERIFIED"
 
 
-def test_cross_currency_requires_fresh_directional_conversion(case):
+def usdjpy_quote(i, bid="149.25", ask="149.27", symbol="USDJPY"):
+    prov=i.quote.provenance.model_copy(update={"instrument_id":"fixture:"+symbol,"original_symbol":symbol})
+    return FXPairQuote(base="USD",quote="JPY",bid=bid,ask=ask,provenance=prov)
+
+
+def test_cross_currency_requires_fresh_pair_quote(case):
     p,i=case
+    # A JPY-quoted instrument on a USD account that is not itself USDJPY needs a USDJPY quote.
     instrument=i.specification.instrument.model_copy(update={"quote_currency":"JPY", "settlement_currency":"JPY"})
     spec=i.specification.model_copy(update={"instrument":instrument,"tick_value_currency":"JPY"})
-    i=i.model_copy(update={"specification":spec})
-    assert assess(p,i,now=NOW).verdict == "UNVERIFIED"
-    fx=FXConversion(from_currency="JPY",to_currency="USD",rate="0.0067",provenance=i.quote.provenance)
-    # The broker's own one-lot figure on this JPY-quoted spec: 500 JPY-equivalent x 0.0067.
-    bc=i.broker_calculation.model_copy(update={"profit_at_stop":D("-3.35")})
-    assert assess(p,i.model_copy(update={"conversion":fx,"broker_calculation":bc}),now=NOW).monetary_risk == D("2.17085")
-    assert assess(p,i.model_copy(update={"conversion":fx.model_copy(update={"from_currency":"USD","to_currency":"JPY"})}),now=NOW).verdict == "UNVERIFIED"
+    i=i.model_copy(update={"specification":spec,
+        # broker's one-lot loss: 500 JPY at mid 149.26 = $3.3499
+        "broker_calculation":i.broker_calculation.model_copy(update={"profit_at_stop":D("-3.35")})})
+    assert assess(p,i,now=NOW).reasons == ("FX_PAIR_QUOTE_MISSING_OR_MISMATCHED",)
+    r=assess(p,i.model_copy(update={"fx_quote":usdjpy_quote(i)}),now=NOW)
+    # JPY -> USD divides by USDJPY; the bid (149.25) is the side that makes the loss larger.
+    assert r.verdict=="ALLOW" and r.monetary_risk == D("0.0051")*100000*D("0.05")/D("149.25")+2
+    for bad in (usdjpy_quote(i,symbol="JPYUSD"),
+                usdjpy_quote(i).model_copy(update={"provenance":usdjpy_quote(i).provenance.model_copy(
+                    update={"observed_at":NOW-timedelta(seconds=16),"retrieved_at":NOW-timedelta(seconds=16)})}),
+                usdjpy_quote(i,bid="140",ask="150")):
+        assert assess(p,i.model_copy(update={"fx_quote":bad}),now=NOW).verdict == "UNVERIFIED"
 
 
 @pytest.mark.parametrize("qty", ["0.001","0.051","11","0.50"])

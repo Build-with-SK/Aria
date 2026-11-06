@@ -11,7 +11,7 @@ This is a tested research/read-only extension, not the completed production targ
   authenticated IPC or send-time worker. No broker-state transitions can be
   produced by this release. Full state vocabulary is declared; tested persisted
   paths cover review/reservation/recovery, not actual broker outcomes.
-- Risk supports linear contracts with explicit FX conversion; inverse/nonlinear
+- Risk supports linear contracts with pair-quote FX conversion; inverse/nonlinear
   products require broker calculators. Spread/commission/financing and book risk
   must be authoritative. This is not yet a full currency-factor, liquidity-gap,
   consecutive-loss or real-time margin engine. No 1% exception workflow is enabled.
