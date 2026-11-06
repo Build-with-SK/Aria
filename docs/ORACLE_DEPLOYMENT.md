@@ -1,10 +1,16 @@
 # Oracle deployment preparation
 
-Status on 2026-11-06: account and server not created; nothing uploaded.
-The owner requested account setup followed by migration of ARIA and Sentinel.
-Local browser inventory returned `Local browser use is disabled in Work settings`.
-No OCI CLI configuration exists on this machine. An existing cloud account has
-not been ruled out; check with the owner before creating a free account.
+Status on 2026-11-06: the owner reports the Oracle instance is Running and has
+transferred its SSH key to Windows Downloads. No application upload has occurred.
+The private/public key pair was verified locally without printing private
+material. A separate local SSH copy has inheritance disabled and an owner-only
+ACL; the copy was successfully parsed by OpenSSH and matches the public key.
+The instance's Public IPv4 address has not been supplied, so no SSH connection
+or server-side installation has been attempted.
+
+Browser access now exposes an in-app browser, but it reaches Oracle's Cloud
+Sign In page rather than an authenticated console. No OCI CLI configuration
+exists on this machine. Do not create another cloud account.
 
 ## Proposed first server
 
