@@ -41,7 +41,7 @@ and the original failure was reproduced against `7385130`.
 
 | ID | Sev | Finding | Status | Fix commit | Regression tests |
 |---|---|---|---|---|---|
-| CR-02 | HIGH | Store trusts a caller-built ALLOW | IN_PROGRESS | — | `tests/test_review_findings.py::test_cr02_*` |
+| CR-02 | HIGH | Store trusts a caller-built ALLOW | TESTED | stage 1 | `tests/test_review_findings.py::test_cr02_*` (7); before: probe R1 reserved an intent at `7385130` |
 | CR-05 | HIGH | Daily stop ignores balance vs equity | NOT_STARTED | — | — |
 | CR-10 | MED | Trade may land exactly on the floor | NOT_STARTED | — | — |
 | CR-03 | HIGH | Contract-size errors undetected | NOT_STARTED | — | — |
@@ -70,6 +70,7 @@ and the original failure was reproduced against `7385130`.
 | When (UTC) | Commit | Command | Result |
 |---|---|---|---|
 | 2026-11-06 21:45 | `7385130` (baseline) | full suite, shared venv, `-p no:cacheprovider` | **3,432 passed, 10 skipped**, exit 0, 392 s — identical to the review run |
+| 2026-11-06 21:58 | stage 1 | multiasset + `test_trading_structure.py` | 147 passed |
 | 2026-11-06 21:50 | `7385130` | `probes.py` re-run (extracted copy in a temp folder) | R1 forged ALLOW reserved an intent; E5b gold 10 lots ALLOW; E3b inverted FX ALLOW; E8 ALLOW; R2 high-water 10,800 → 10,000; M1 raw SDK `order_send` reachable — all reproduced |
 
 ## Files changed in this delivery
@@ -83,6 +84,7 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 | 2026-11-06 | Work in the existing feature worktree; never touch the main checkout's uncommitted files | The main checkout carries the live data files and the owner's uncommitted state; the review and log originals there stay as they are |
 | 2026-11-06 | Review copied into the branch with hosting details generalised | The repository is public; the findings are unchanged |
 | 2026-11-06 | The cloud-migration handover file is not committed | It names infrastructure access details; it stays local |
+| 2026-11-06 | CR-02: the store runs `assess()` itself, under a class-level policy, and refuses a caller clock > 5 s from its own | A verdict, a policy and a clock are all things a caller could forge; the store now takes none of them |
 
 ## Outstanding blockers (external)
 

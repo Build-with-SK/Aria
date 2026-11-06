@@ -16,6 +16,11 @@ Review binding includes the full proposal (account, instrument, side, type,
 quantity, prices/tolerance, expiry, snapshot and profile), risk/policy hashes,
 bounded TTL and one secret capability token stored hashed. A transaction consumes
 it and reserves exactly one intent. Changed profile/risk/payload and replay fail.
+The store never accepts a risk verdict: `queue` and `reserve_intent` take the
+evidence (`RiskInputs`) and run `assess()` themselves under the store's fixed
+policy (`ReviewStore.POLICY`), the second time inside the reserving transaction.
+A hand-built ALLOW is refused (review CR-02). The stored assessment must match its
+audit record, and a caller clock more than 5 s from the store's clock is refused.
 No public API exposes library review methods. The `authenticated_owner` library
 argument is NOT an authenticator: only a trusted server handler may supply it.
 

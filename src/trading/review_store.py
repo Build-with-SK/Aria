@@ -4,9 +4,14 @@ This is not a broker sender. Consuming a review reserves one durable intent; it
 cannot make an order exist. Only a future independently reviewed worker may
 process that intent. Restart recovery holds uncertain intents for reconciliation.
 An explicit database path is required; import never touches production data.
+
+The store never accepts a risk verdict from its caller. `queue` and
+`reserve_intent` take the evidence (`RiskInputs`) and run the deterministic
+engine themselves, under the store's own fixed policy, so a hand-built ALLOW
+cannot reach an intent (review finding CR-02).
 """
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 import hashlib
 import hmac
@@ -16,6 +21,7 @@ import secrets
 import sqlite3
 
 from .contracts import RiskAssessment, TradeProposal, content_hash
+from .multiasset_risk import ResearchRiskPolicy, RiskInputs, assess
 
 
 class State(str, Enum):
@@ -69,8 +75,21 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def _system_clock() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 class ReviewStore:
-    def __init__(self, path: Path):
+    #: The only policy the store assesses under. A caller cannot pass a looser
+    #: one; changing it is a reviewed code change, and the policy hash binds
+    #: every approval to it.
+    POLICY = ResearchRiskPolicy()
+    #: A caller-supplied `now` further than this from the store's clock is
+    #: refused, so an approval cannot be made "in the past" against stale data.
+    MAX_CLOCK_SKEW_SECONDS = 5
+
+    def __init__(self, path: Path, *, clock=_system_clock):
+        self._system_clock = clock
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._db() as db:
@@ -151,6 +170,13 @@ class ReviewStore:
         db.execute("UPDATE proposals SET state=? WHERE id=?",(State(new).value,proposal_id))
         cls._event(db,"STATE_TRANSITION",proposal_id,now,old=row["state"],new=State(new).value)
 
+    def _now(self, now: datetime):
+        """A timezone-aware caller clock that agrees with the store's own."""
+        _clock(now)
+        skew = abs((now - self._system_clock()).total_seconds())
+        if skew > self.MAX_CLOCK_SKEW_SECONDS:
+            raise ReviewRefused("caller clock disagrees with the store clock")
+
     @staticmethod
     def _risk(proposal, risk, now):
         if risk.verdict != "ALLOW" or risk.proposal_hash != content_hash(proposal) or risk.quantity != proposal.quantity:
@@ -158,9 +184,22 @@ class ReviewStore:
         if not risk.assessed_at <= now < risk.expires_at or not now < proposal.expires_at:
             raise ReviewRefused("expired proposal/risk or future risk timestamp")
 
-    def queue(self, proposal: TradeProposal, risk: RiskAssessment, *, now: datetime):
-        _clock(now)
+    def _assess(self, proposal: TradeProposal, inputs, now: datetime) -> RiskAssessment:
+        """Run the deterministic engine here; never take a verdict from outside."""
+        if not isinstance(proposal, TradeProposal):
+            raise ReviewRefused("trade proposal required")
+        if not isinstance(inputs, RiskInputs):
+            raise ReviewRefused("risk evidence required; a caller-built assessment is not accepted")
+        risk = assess(proposal, inputs, now=now, policy=self.POLICY)
+        if risk.verdict != "ALLOW":
+            raise ReviewRefused(f"risk engine verdict {risk.verdict}: {', '.join(risk.reasons)}")
         self._risk(proposal, risk, now)
+        return risk
+
+    def queue(self, proposal: TradeProposal, inputs: RiskInputs, *, now: datetime) -> RiskAssessment:
+        """Assess `proposal` from `inputs` and queue it only if the engine allows it."""
+        self._now(now)
+        risk = self._assess(proposal, inputs, now)
         with self._transaction() as db:
             try:
                 db.execute("INSERT INTO proposals VALUES(?,?,?,?,?)", (
@@ -170,9 +209,23 @@ class ReviewStore:
                 raise ReviewRefused("proposal id already exists") from exc
             self._event(db, "DRAFT", proposal.proposal_id, now,
                         proposal_hash=content_hash(proposal), policy_hash=risk.policy_hash,
-                        risk_hash=content_hash(risk))
+                        risk_hash=content_hash(risk), inputs_hash=content_hash(inputs))
             for state in (State.ANALYSED,State.RISK_CHECKED,State.AWAITING_APPROVAL):
                 self._state(db,proposal.proposal_id,state,now)
+        return risk
+
+    @staticmethod
+    def _stored_risk(db, proposal_id: str, raw: str) -> RiskAssessment:
+        """The assessment this store computed, checked against its DRAFT audit event."""
+        risk = RiskAssessment.model_validate_json(raw)
+        digest = content_hash(risk)
+        for event in db.execute("SELECT body FROM audit ORDER BY sequence"):
+            body = json.loads(event["body"])
+            if body.get("kind") == "DRAFT" and body.get("proposal_id") == proposal_id:
+                if body.get("risk_hash") == digest:
+                    return risk
+                break
+        raise ReviewRefused("stored risk assessment differs from its audit record")
 
     def approve(self, proposal_id: str, *, authenticated_owner: str, now: datetime,
                 ttl_seconds: int = 30) -> str:
@@ -181,7 +234,7 @@ class ReviewStore:
         This module is not a security boundary against arbitrary local Python.
         No API exposes this method in the read-only release.
         """
-        _clock(now)
+        self._now(now)
         if not authenticated_owner or not 1 <= ttl_seconds <= 60:
             raise ReviewRefused("authenticated owner and bounded TTL required")
         token = secrets.token_urlsafe(32)
@@ -190,7 +243,7 @@ class ReviewStore:
             if row is None or row["state"] != State.AWAITING_APPROVAL:
                 raise ReviewRefused("proposal is not awaiting approval")
             proposal = TradeProposal.model_validate_json(row["payload"])
-            risk = RiskAssessment.model_validate_json(row["risk"])
+            risk = self._stored_risk(db, proposal_id, row["risk"])
             self._risk(proposal, risk, now)
             if content_hash(proposal) != row["payload_hash"]:
                 raise ReviewRefused("proposal integrity failure")
@@ -204,11 +257,15 @@ class ReviewStore:
         return token
 
     def reserve_intent(self, proposal: TradeProposal, token: str,
-                       fresh_risk: RiskAssessment, *, now: datetime) -> str:
-        """Atomic single-use reservation. No broker calls, no automatic retry."""
-        _clock(now)
-        self._risk(proposal, fresh_risk, now)
+                       fresh_inputs: RiskInputs, *, now: datetime) -> str:
+        """Atomic single-use reservation. No broker calls, no automatic retry.
+
+        Risk is re-assessed here from fresh evidence inside the transaction; the
+        result must still ALLOW, under the approved policy, at no more risk.
+        """
+        self._now(now)
         with self._transaction() as db:
+            fresh_risk = self._assess(proposal, fresh_inputs, now)
             row = db.execute("SELECT p.*, a.token_hash, a.expires_at, a.consumed FROM proposals p JOIN approvals a ON a.proposal_id=p.id WHERE p.id=?",
                              (proposal.proposal_id,)).fetchone()
             if row is None or row["state"] != State.APPROVED or row["consumed"]:
@@ -219,7 +276,7 @@ class ReviewStore:
                 raise ReviewRefused("approval expired")
             if content_hash(proposal) != row["payload_hash"] or content_hash(TradeProposal.model_validate_json(row["payload"])) != row["payload_hash"]:
                 raise ReviewRefused("proposal substitution")
-            prior_risk = RiskAssessment.model_validate_json(row["risk"])
+            prior_risk = self._stored_risk(db, proposal.proposal_id, row["risk"])
             if prior_risk.policy_hash != fresh_risk.policy_hash or fresh_risk.monetary_risk > prior_risk.monetary_risk:
                 raise ReviewRefused("risk policy or authorised risk changed")
             intent_id = content_hash({"proposal": row["payload_hash"], "approval": row["token_hash"]})
@@ -233,7 +290,7 @@ class ReviewStore:
 
     def recover(self, *, now: datetime) -> int:
         """Hold pending/ambiguous intents after restart. Never resend."""
-        _clock(now)
+        self._now(now)
         with self._transaction() as db:
             rows = db.execute("SELECT * FROM intents WHERE state IN (?,?,?)", (
                 State.SUBMISSION_PENDING.value, State.SUBMITTED.value, State.UNKNOWN_STATUS.value)).fetchall()
@@ -280,7 +337,7 @@ class ReviewStore:
         from decimal import Decimal
         from zoneinfo import ZoneInfo
         from .rule_profiles import rule_day
-        _clock(now)
+        self._now(now)
         if profile.verification_reasons(now) or snapshot.account_id!=profile.account_id or snapshot.currency!=profile.account_currency:
             raise ReviewRefused("verified matching account policy required")
         if not re.fullmatch(r"[0-9a-f]{64}",evidence_hash) or cashflow != Decimal("0"):
@@ -312,7 +369,7 @@ class ReviewStore:
     def rule_state(self, profile, *, equity, now: datetime):
         from decimal import Decimal
         from .rule_profiles import RuleState, rule_day
-        _clock(now)
+        self._now(now)
         with self._db() as db:
             self._verify(db)
             row=db.execute("SELECT * FROM rule_boundaries WHERE account_id=? AND profile_hash=? AND day=?",
