@@ -41,9 +41,9 @@ and the original failure was reproduced against `7385130`.
 
 | ID | Sev | Finding | Status | Fix commit | Regression tests |
 |---|---|---|---|---|---|
-| CR-02 | HIGH | Store trusts a caller-built ALLOW | TESTED | stage 1 | `tests/test_review_findings.py::test_cr02_*` (7); before: probe R1 reserved an intent at `7385130` |
-| CR-05 | HIGH | Daily stop ignores balance vs equity | NOT_STARTED | — | — |
-| CR-10 | MED | Trade may land exactly on the floor | NOT_STARTED | — | — |
+| CR-02 | HIGH | Store trusts a caller-built ALLOW | TESTED | 3f6ec66 | `tests/test_review_findings.py::test_cr02_*` (7); before: probe R1 reserved an intent at `7385130` |
+| CR-05 | HIGH | Daily stop ignores balance vs equity | TESTED | stage 2 | `test_cr05_*` (2), `test_multiasset_risk.py::test_internal_daily_stop_*` (4); fail at `7385130` (E8 ALLOW) |
+| CR-10 | MED | Trade may land exactly on the floor | TESTED | stage 2 | `test_cr10_*` (4); 3 fail at `7385130` (E7 ALLOW, equality ALLOW) |
 | CR-03 | HIGH | Contract-size errors undetected | NOT_STARTED | — | — |
 | CR-04 | HIGH | FX conversion checked by label only | NOT_STARTED | — | — |
 | CR-01 | HIGH | Trailing high-water lowered by re-versioning | NOT_STARTED | — | — |

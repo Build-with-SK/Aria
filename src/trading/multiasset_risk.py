@@ -29,6 +29,10 @@ class ResearchRiskPolicy(Contract):
     max_snapshot_age_seconds: int = Field(default=15, gt=0, le=120)
     max_specification_age_seconds: int = Field(default=86400, gt=0, le=86400)
     approval_ttl_seconds: int = Field(default=30, gt=0, le=60)
+    # Internal floor = provider floor + buffer, so a trade sized to "just fit"
+    # cannot breach on one pip of extra slippage, a swap or a gap (CR-10).
+    floor_buffer_fraction: Positive = Decimal("0.005")       # of initial account size
+    floor_buffer_slippage_multiple: Positive = Decimal("3")  # × the slippage allowance
 
 
 class RiskInputs(Contract):
@@ -43,7 +47,6 @@ class RiskInputs(Contract):
     pending_order_risk: NonNegative
     correlated_risk: NonNegative
     current_notional: NonNegative
-    daily_net_pnl: Decimal
     position_count: int = Field(ge=0)
     orders_last_minute: int = Field(ge=0)
     spread_cost: NonNegative
@@ -171,19 +174,31 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
     per_volume = (stop_distance + proposal.price_tolerance) * spec.contract_size * factor
     costs = inputs.spread_cost + inputs.commission + inputs.slippage_allowance + inputs.financing_allowance
     risk = per_volume * proposal.quantity + costs
-    daily_loss = max(Decimal("0"), -inputs.daily_net_pnl)
+    # Today's loss from the account's own evidence: the policy-local midnight
+    # balance against current equity (which includes floating P/L, swaps and
+    # commissions). A position carried over midnight with a floating loss counts.
+    # No separate "today's P&L" input exists to contradict it (CR-05).
+    daily_loss = max(Decimal("0"), inputs.rule_state.daily_balance - a.equity)
     existing = inputs.existing_open_risk + inputs.pending_order_risk
     if daily_loss >= a.equity * policy.internal_daily_fraction:
         return result("EMERGENCY_HALT", ["INTERNAL_DAILY_STOP"])
+    floor = max(pe.daily_floor, pe.overall_floor)
+    buffer = max(inputs.profile.account_size * policy.floor_buffer_fraction,
+                 inputs.slippage_allowance * policy.floor_buffer_slippage_multiple)
+    if a.equity - floor <= buffer:
+        denied.append("WITHIN_FLOOR_BUFFER")
     budget = min(a.equity * policy.ordinary_fraction,
                  a.equity * policy.aggregate_fraction - existing,
                  a.equity * policy.correlated_fraction - inputs.correlated_risk - inputs.pending_order_risk,
                  a.equity * policy.internal_daily_fraction - daily_loss - existing,
-                 a.equity - max(pe.daily_floor, pe.overall_floor) - existing)
+                 a.equity - floor - buffer - existing)
     max_volume = floor_volume(max(Decimal("0"), budget - costs) / per_volume, spec.volume_step)
+    if max_volume * per_volume + costs >= budget:
+        max_volume -= spec.volume_step  # strictly inside the budget, never on it
     if max_volume < spec.volume_min:
         denied.append("MINIMUM_LOT_EXCEEDS_RISK_BUDGET")
-    if risk > budget:
+    # Strict: a trade whose worst case lands exactly on the budget is refused.
+    if risk >= budget:
         denied.append("RISK_BUDGET_EXCEEDED")
     notional = (abs(proposal.entry) + proposal.price_tolerance) * spec.contract_size * proposal.quantity * factor
     if a.equity <= 0 or (inputs.current_notional + notional) > max(a.equity, Decimal("0")) * min(policy.max_leverage, inputs.profile.max_leverage):

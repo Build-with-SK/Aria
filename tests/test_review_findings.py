@@ -99,3 +99,62 @@ def test_cr02_tampered_stored_assessment_is_refused(tmp_path, case):
         db.execute("UPDATE proposals SET risk=? WHERE id=?", (json.dumps(raw), p.proposal_id))
     with pytest.raises(ReviewRefused, match="audit record"):
         store.approve(p.proposal_id, authenticated_owner="fixture-owner", now=NOW)
+
+
+# --- shared: the review's E7/E8 shape (0.10 lot EURUSD, 20-pip stop, no costs => $20 risk) ---
+
+def twenty_dollar_trade(case, *, equity, daily_balance, high_water="10000"):
+    p, i = case
+    p = p.model_copy(update={"quantity": D("0.10"), "price_tolerance": D("0"),
+                             "stop_loss": D("1.09820"), "take_profit": D("1.10420")})
+    eq, mid = D(equity), D(daily_balance)
+    i = i.model_copy(update={
+        "account": i.account.model_copy(update={"equity": eq, "balance": eq}),
+        "rule_state": i.rule_state.model_copy(update={"equity": eq, "daily_balance": mid,
+                                                      "balance_high_water": D(high_water)}),
+        "spread_cost": D("0"), "commission": D("0"), "slippage_allowance": D("0")})
+    return p, i
+
+
+# --- CR-05: today's loss comes from the midnight balance and equity, not a caller field ---
+
+def test_cr05_floating_loss_carried_over_midnight_halts(case):
+    # E8: 00:00 balance 10,000, equity 9,520 (a -$480 floating loss carried over midnight).
+    # 480 >= 2% of 9,520 => internal daily stop. At 7385130 this was ALLOWED because a
+    # separate "today's P&L" field said 0.
+    p, i = twenty_dollar_trade(case, equity="9520", daily_balance="10000")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "EMERGENCY_HALT" and r.reasons == ("INTERNAL_DAILY_STOP",)
+
+
+def test_cr05_no_caller_daily_pnl_field_exists():
+    from src.trading.multiasset_risk import RiskInputs
+    assert "daily_net_pnl" not in RiskInputs.model_fields
+
+
+# --- CR-10: a buffer above the provider floor, and risk == budget is refused ---
+
+def test_cr10_trade_sized_to_land_on_the_floor_is_denied(case):
+    # E7: equity 9,020, static floor 9,000, $20 risk => equity at the stop = 9,000.00 exactly.
+    p, i = twenty_dollar_trade(case, equity="9020", daily_balance="9020")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "DENY" and "WITHIN_FLOOR_BUFFER" in r.reasons
+
+
+def test_cr10_risk_equal_to_budget_is_denied(case):
+    # Floor 9,000 + $50 buffer (0.5% of 10,000) leaves exactly $20 of room at equity 9,070.
+    p, i = twenty_dollar_trade(case, equity="9070", daily_balance="9070")
+    r = assess(p, i, now=NOW)
+    assert r.verdict == "DENY" and "RISK_BUDGET_EXCEEDED" in r.reasons
+
+
+def test_cr10_one_dollar_inside_the_buffered_room_is_allowed(case):
+    p, i = twenty_dollar_trade(case, equity="9071", daily_balance="9071")
+    assert assess(p, i, now=NOW).verdict == "ALLOW"
+
+
+def test_cr10_buffer_scales_with_slippage_allowance(case):
+    # 3 x $30 slippage = $90 buffer > $50: equity 9,071 is now inside the buffer.
+    p, i = twenty_dollar_trade(case, equity="9071", daily_balance="9071")
+    i = i.model_copy(update={"slippage_allowance": D("30")})
+    assert "WITHIN_FLOOR_BUFFER" in assess(p, i, now=NOW).reasons

@@ -51,7 +51,7 @@ def case():
         positions_complete=True, orders_complete=True),
         quote=MarketQuote(bid="1.10000", ask="1.10020", snapshot_id="q1", provenance=provenance),
         specification=spec, profile=profile, rule_state=state, existing_open_risk="0",
-        pending_order_risk="0", correlated_risk="0", current_notional="0", daily_net_pnl="0",
+        pending_order_risk="0", correlated_risk="0", current_notional="0",
         position_count=0, orders_last_minute=0, spread_cost="1", commission="0.5",
         slippage_allowance="0.5", financing_allowance="0", session_open=True,
         kill_switch_clear=True, operational_constraints_verified=True, book_risk_complete=True,
@@ -81,12 +81,27 @@ def test_volume_rounds_down(raw, step, expected):
     ("abnormal_market",True,"DENY"), ("pending_order_risk",D("200"),"DENY"),
     ("existing_open_risk",D("200"),"DENY"), ("correlated_risk",D("100"),"DENY"),
     ("orders_last_minute",2,"DENY"), ("position_count",5,"DENY"),
-    ("daily_net_pnl",D("-201"),"EMERGENCY_HALT"),
 ])
 def test_independent_refusals(case, field, value, verdict):
     p, inputs = case
     r = assess(p, inputs.model_copy(update={field:value}), now=NOW)
     assert r.verdict == verdict and r.reasons
+
+
+# Midnight balance 10,000. Halt when (10,000 - equity) >= 2% of equity, i.e. equity <= 9,803.92.
+@pytest.mark.parametrize("equity,verdict", [
+    ("9900", "ALLOW"),           # loss 100 < 198; budget min(49.50, 198-100=98, ...) fits the $27.50 trade
+    ("9804", "DENY"),            # loss 196 < 196.08, but only $0.08 of daily budget is left
+    ("9803", "EMERGENCY_HALT"),  # loss 197 >= 196.06
+    ("9520", "EMERGENCY_HALT"),  # review case E8
+])
+def test_internal_daily_stop_from_midnight_balance_and_equity(case, equity, verdict):
+    """Today's loss is the 00:00 balance minus equity; no separate P&L input exists."""
+    p, i = case
+    eq = D(equity)
+    i = i.model_copy(update={"account": i.account.model_copy(update={"equity": eq}),
+                             "rule_state": i.rule_state.model_copy(update={"equity": eq})})
+    assert assess(p, i, now=NOW).verdict == verdict
 
 
 @pytest.mark.parametrize("field,value", [("environment","LIVE"),("environment","UNKNOWN"),

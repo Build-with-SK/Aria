@@ -11,8 +11,11 @@ balance trail. These are documentation references, not active defaults.
 [Comparison](https://ftmo.com/en/comparison-table/).
 
 Loss calculations use equity and midnight CE(S)T balance snapshots. This engine
-uses Europe/Prague boundaries and conservatively refuses new risk at an exact
-floor. [Objectives](https://ftmo.com/en/trading-objectives/).
+uses Europe/Prague boundaries. Equity at or below a floor is a breach, and new
+risk must keep equity above the floor **plus a buffer** of max(0.5% of initial
+capital, 3 × the slippage allowance) even if the stop is hit; a trade whose worst
+case equals its remaining budget is refused (review CR-10).
+[Objectives](https://ftmo.com/en/trading-objectives/).
 
 The 8 October update specifies a 12 October 2026 **09:00 GMT+3** cutover for new
 1-Step orders; applicable merges also change the formula. Earlier orders keep

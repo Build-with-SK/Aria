@@ -18,7 +18,13 @@ floored to the broker step; minimum lot beyond budget is denied. Contract tick
 value must agree with the linear model or a broker calculator is required.
 Nonlinear settlement, inverse contracts and limit-fill modelling are unverified.
 
-Other checks: aggregate/correlated/pending risk, internal daily stop, position count,
+Internal daily stop: today's loss is the policy-local 00:00 balance minus current
+equity (floating P/L included), never a separately reported P&L figure; at 2% of
+equity the engine returns EMERGENCY_HALT (review CR-05). Floor buffer: new risk
+must leave equity above the provider floor plus max(0.5% of initial capital, 3 ×
+slippage allowance), and risk equal to the remaining budget is refused (CR-10).
+
+Other checks: aggregate/correlated/pending risk, position count,
 order frequency, available margin, leverage, spread, stop distance, exact price
 ticks, duplicates, cooldown, abnormal markets and closed/unknown session. Sizing
 never rounds upward. ALLOW means research checks passed, never broker authority.
