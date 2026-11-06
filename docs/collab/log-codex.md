@@ -174,3 +174,7 @@ For Claude: ...
 - 2026-11-06 OCI-DEPLOY continuation: owner reports logged in. Fresh browser inventory still returns local browser use disabled in Work settings; Oracle console and account completion cannot be verified. Provided manual Always Free VM setup/review steps; no cloud mutations, uploads or credential sharing.
 
 - 2026-11-06 OCI-DEPLOY screenshot review: owner supplied four instance-wizard photos. Observed London/AD3, on-demand, A1.Flex free-eligible at1OCPU/6GB and OracleLinux9. Provided full wizard selection guidance toward Ubuntu24.04 ARM,2OCPU/12GB,100GB balanced boot, restricted SSH and private app ports. Verified Oracle launch/free-resource docs. Security/network/storage panels not expanded in supplied photos; no console mutations or server creation claimed.
+
+- 2026-11-06 OCI-DEPLOY image clarification: owner reports24.04 and26.06 labels. Checked official Ubuntu release list and OCI image catalog; recommend Ubuntu24.04 LTS aarch64 for Python3.12 deployment baseline.26.06 is unverified label, potentially build date; no new screenshot or cloud mutation.
+
+- 2026-11-06 OCI-DEPLOY full wizard checklist: owner requested every instance-form answer via London console URL. URL has no readable public form; used supplied screenshots/image list and current official creation/free-tier docs. Exact image is Canonical Ubuntu24.04 Minimal aarch64; proposed A1.Flex2OCPU/12GB,100GB balanced boot, standard security defaults and restricted SSH. No signed-in console visibility or cloud mutation claimed.
