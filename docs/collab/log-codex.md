@@ -207,3 +207,20 @@ operational compliance or active exception approval. ALLOW is not authority.
 For Claude: source-discovery selector uses exact 09:00 GMT+3 publication cutover;
 rule-day arithmetic independently uses Europe/Prague. No active FTMO profile.
 
+## 2026-11-06 — MA-003 transactional review / read-only MT5 — done
+
+Files: src/trading/review_store.py, mt5_readonly.py, extension_policy.py;
+tests/test_multiasset_review.py, test_multiasset_rule_store.py,
+test_multiasset_providers.py; src/data/provider_contracts.py.
+Changed: atomic approval consumption and reserved intent, validated pre-send state
+transitions, restart reconciliation holds, audit-chain verification/backup, exact
+daily snapshot history with monotone balance highs and row/evidence verification.
+MT5 SDK is lazy and optional; actual demo identity checked before/after reads;
+all writes refused. Third-party loading remains disabled without a real sandbox.
+Measured: all seven new test modules pass in a fresh separately hash-pinned
+environment: 104 passed, one Starlette/httpx deprecation warning in 7.06s. No SDK,
+terminal or broker session required. No known advisories in the minimal lock.
+Open: these are library primitives, not an activated approval API or sender;
+actual broker lifecycle and private worker are blocked pending independent review
+and genuine authorised demo evidence. See docs/trading/IMPLEMENTATION_MATRIX.md.
+

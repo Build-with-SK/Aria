@@ -1,0 +1,96 @@
+from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+import sqlite3
+
+import pytest
+
+from test_multiasset_risk import case, NOW
+from src.trading.multiasset_risk import assess
+from src.trading.review_store import ReviewRefused, ReviewStore, State, validate_transition
+
+
+def queued(tmp_path,case):
+    p,i=case
+    risk=assess(p,i,now=NOW)
+    store=ReviewStore(tmp_path/'review.sqlite')
+    store.queue(p,risk,now=NOW)
+    token=store.approve(p.proposal_id,authenticated_owner="fixture-owner",now=NOW)
+    return store,p,risk,token
+
+
+def test_atomic_single_use_and_restart_recovery(tmp_path,case):
+    store,p,risk,token=queued(tmp_path,case)
+    intent=store.reserve_intent(p,token,risk,now=NOW)
+    assert len(intent)==64
+    with pytest.raises(ReviewRefused):
+        store.reserve_intent(p,token,risk,now=NOW)
+    restarted=ReviewStore(store.path)
+    assert restarted.recover(now=NOW)==1
+    assert restarted.recover(now=NOW)==0
+    assert restarted.inspect(p.proposal_id)["state"] == "RECONCILIATION_REQUIRED"
+    assert len(restarted.verify_audit())==64
+
+
+def test_racing_store_connections_reserve_once(tmp_path,case):
+    store,p,risk,token=queued(tmp_path,case)
+    def reserve(_):
+        try:
+            return ReviewStore(store.path).reserve_intent(p,token,risk,now=NOW)
+        except ReviewRefused:
+            return None
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert sum(x is not None for x in pool.map(reserve,range(4)))==1
+
+
+@pytest.mark.parametrize("field,value", [("account_id","other"),("instrument_id","other"),
+    ("market_snapshot_id","other"),("rule_profile_hash","changed"),
+    ("hypothesis_id","other")])
+def test_approval_payload_substitution_denied(tmp_path,case,field,value):
+    store,p,risk,token=queued(tmp_path,case)
+    changed=p.model_copy(update={field:value})
+    from src.trading.contracts import content_hash
+    risk=risk.model_copy(update={"proposal_hash":content_hash(changed)})
+    with pytest.raises(ReviewRefused):
+        store.reserve_intent(changed,token,risk,now=NOW)
+    assert store.inspect(p.proposal_id)["state"]=="APPROVED"
+
+
+def test_expiry_policy_change_and_wrong_token(tmp_path,case):
+    store,p,risk,token=queued(tmp_path,case)
+    for tok,r,clock in (("bad",risk,NOW),(token,risk,NOW+timedelta(seconds=30)),
+                        (token,risk.model_copy(update={"policy_hash":"other"}),NOW)):
+        with pytest.raises(ReviewRefused):
+            store.reserve_intent(p,tok,r,now=clock)
+
+
+def test_audit_tamper_refused_and_backup_restore(tmp_path,case):
+    store,p,risk,token=queued(tmp_path,case)
+    backup=tmp_path/'backup.sqlite'
+    digest=store.verify_audit()
+    store.backup(backup)
+    assert ReviewStore(backup).verify_audit()==digest
+    with sqlite3.connect(str(store.path)) as db:
+        db.execute("UPDATE audit SET body='tampered' WHERE sequence=1")
+    with pytest.raises(ReviewRefused,match="integrity"):
+        store.reserve_intent(p,token,risk,now=NOW)
+
+
+def test_transaction_failure_does_not_consume_approval(tmp_path,case,monkeypatch):
+    store,p,risk,token=queued(tmp_path,case)
+    original=store._event
+    def crash(*args,**kwargs):
+        raise RuntimeError("fixture crash before commit")
+    monkeypatch.setattr(store,"_event",crash)
+    with pytest.raises(RuntimeError):
+        store.reserve_intent(p,token,risk,now=NOW)
+    assert store.inspect(p.proposal_id)["state"]=="APPROVED"
+    monkeypatch.setattr(store,"_event",original)
+    assert store.reserve_intent(p,token,risk,now=NOW)
+
+
+def test_terminal_states_cannot_return_to_approved():
+    for state in (State.FILLED,State.CANCELLED,State.REJECTED,State.EXPIRED):
+        with pytest.raises(ReviewRefused):
+            validate_transition(state,State.APPROVED)
+    validate_transition(State.SUBMITTED,State.PARTIALLY_FILLED)
+    validate_transition(State.UNKNOWN_STATUS,State.RECONCILIATION_REQUIRED)
