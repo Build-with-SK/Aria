@@ -1,6 +1,6 @@
 # ARIA delivery tracker — multiasset trading remediation
 
-Last updated: 2026-11-07T20:39Z (UTC) — Claude, Stage 1 (P0) of the two-agent mission
+Last updated: 2026-11-07T22:39Z (UTC) — Claude, RV2 remediation (`c8acaa2`) after Codex's review of `268af1d`
 
 ## Objective
 
@@ -40,36 +40,55 @@ Codex's report file was 0 bytes when read (2026-11-07 20:21 UTC); the mapping co
 from its reproduction scripts and the stated totals (7 / 12 / 1). Handover for the
 current stage: [AGENT_HANDOFF.md](AGENT_HANDOFF.md).
 
+Codex's review of `268af1d` (report `CODEX_INDEPENDENT_REVIEW.md`, 22,046 bytes, in
+Codex's own review worktree): **REQUEST CHANGES** — 7 VERIFIED_FIXED (carried
+forward), 5 PARTIALLY_FIXED (CR-08, QA-01..QA-04), 8 UNVERIFIED as to non-author
+independence (CR-01, CR-02, CR-03, CR-05, CR-07, CR-09, CR-11, SEC-01), and four
+new defects RV2-01..RV2-04. That review predates `3bb9f8d`, `fbea136` and `c8acaa2`.
+
 | ID | Priority | Status | Agent | Implementation commit | Regression tests | Independent review | Blockers | Next action | Updated (UTC) |
 |---|---|---|---|---|---|---|---|---|---|
-| CR-02 | P0 | TESTED | Claude | 3f6ec66; 0abe76b, 4165e71 (Codex impl.); 3bb9f8d | `test_cr02_*` (7); approval/replay cases in `test_remediation_followup.py`; checkpoint cases in `test_authority_followup.py` | dac263f: PARTIALLY_FIXED† (SQL forge, replay); 3bb9f8d: pending | — | Codex reviews 3bb9f8d | 2026-11-07T20:39Z |
-| SEC-01 | P0 | TESTED | Claude | 7bfe3bd; 0abe76b, 4165e71 (Codex impl.); 3bb9f8d | `test_sec01_*` (6); rollback/checkpoint cases in `test_remediation_followup.py`; `test_authority_followup.py` (3 checkpoint cases) | dac263f: PARTIALLY_FIXED†; 268af1d: unchecked writer + rollback released a hold (Claude probe); 3bb9f8d: pending | checkpoint ACLs, power-loss recovery (operational, UNVERIFIED) | Codex reviews 3bb9f8d | 2026-11-07T20:39Z |
-| CR-01 | P0 | TESTED | Claude | 4e1cfde; 0abe76b, 962d8d3 (Codex impl.); 3bb9f8d | `test_cr01_*` (4); `test_deleted_history_cannot_be_reseeded`; `test_authority_followup.py` (2 high-water cases) | dac263f: PARTIALLY_FIXED†; 268af1d: regression — recorded high-water below source gave ALLOW (Claude probe); 3bb9f8d: pending | — | Codex reviews 3bb9f8d | 2026-11-07T20:39Z |
-| CR-05 | P0 | TESTED | Claude | e0d9c89; 962d8d3 (Codex impl.); 3bb9f8d | `test_cr05_*`; `test_caller_cannot_replace_authoritative_account_evidence[midnight]`; `test_authority_followup.py` (midnight + 2 cashflow/reset) | dac263f: PARTIALLY_FIXED†; 268af1d: regression — recorded midnight below source, source cashflow/reset dropped, all ALLOW (Claude probe); 3bb9f8d: pending | — | Codex reviews 3bb9f8d | 2026-11-07T20:39Z |
-| CR-09 | P0 | TESTED | Claude | 2fe1d0b; 962d8d3 (Codex impl.) | `test_cr09_*` (13); `[activity]` substitution case | dac263f: PARTIALLY_FIXED†; 268af1d substitution refused (Claude probe); pending | activity persistence is P2-ACT | Codex reviews | 2026-11-07T20:39Z |
-| CR-11 | P0 | TESTED | Claude | f103ace; 962d8d3 (Codex impl.); 3bb9f8d (source flags kept) | `test_cr11_*` (19); `[book]` substitution case; kill-switch probe | dac263f: PARTIALLY_FIXED†; 268af1d book substitution and kill switch refused (Claude probe); pending | — | Codex reviews | 2026-11-07T20:39Z |
-| CR-03 | P0 | TESTED | Claude | 4027f07; 962d8d3 (Codex impl.) | `test_cr03_*` (7); `test_calculator_provider_account_symbol_and_permission_are_bound` | dac263f: PARTIALLY_FIXED†; reviewer script at 268af1d: UNVERIFIED (refused); pending | — | Codex reviews | 2026-11-07T20:39Z |
-| CR-07 | P0 | TESTED | Claude | f7bf452; 962d8d3 (Codex impl.) | `test_cr07_*` (12); relabel and re-registration cases in `test_remediation_followup.py` | dac263f: PARTIALLY_FIXED†; 268af1d relabel refused (Claude probe); pending | — | Codex reviews | 2026-11-07T20:39Z |
+| CR-02 | P0 | TESTED | Claude | 3f6ec66; 0abe76b, 4165e71 (Codex impl.); 3bb9f8d | `test_cr02_*` (7); approval/replay cases in `test_remediation_followup.py`; checkpoint cases in `test_authority_followup.py` | dac263f: PARTIALLY_FIXED† (SQL forge, replay); 268af1d (Codex): UNVERIFIED (non-author independence); 3bb9f8d: pending | — | Codex reviews 3bb9f8d | 2026-11-07T22:39Z |
+| SEC-01 | P0 | TESTED | Claude | 7bfe3bd; 0abe76b, 4165e71 (Codex impl.); 3bb9f8d | `test_sec01_*` (6); rollback/checkpoint cases in `test_remediation_followup.py`; `test_authority_followup.py` (3 checkpoint cases) | dac263f: PARTIALLY_FIXED†; 268af1d: unchecked writer + rollback released a hold (Claude probe); 268af1d (Codex): UNVERIFIED (non-author independence); 3bb9f8d: pending | checkpoint ACLs, power-loss recovery (operational, UNVERIFIED) | Codex reviews 3bb9f8d | 2026-11-07T22:39Z |
+| CR-01 | P0 | TESTED | Claude | 4e1cfde; 0abe76b, 962d8d3 (Codex impl.); 3bb9f8d | `test_cr01_*` (4); `test_deleted_history_cannot_be_reseeded`; `test_authority_followup.py` (2 high-water cases) | dac263f: PARTIALLY_FIXED†; 268af1d: regression — recorded high-water below source gave ALLOW (Claude probe); 268af1d (Codex): UNVERIFIED (non-author independence); 3bb9f8d: pending | — | Codex reviews 3bb9f8d | 2026-11-07T22:39Z |
+| CR-05 | P0 | TESTED | Claude | e0d9c89; 962d8d3 (Codex impl.); 3bb9f8d | `test_cr05_*`; `test_caller_cannot_replace_authoritative_account_evidence[midnight]`; `test_authority_followup.py` (midnight + 2 cashflow/reset) | dac263f: PARTIALLY_FIXED†; 268af1d: regression — recorded midnight below source, source cashflow/reset dropped, all ALLOW (Claude probe); 268af1d (Codex): UNVERIFIED (non-author independence); 3bb9f8d: pending | — | Codex reviews 3bb9f8d | 2026-11-07T22:39Z |
+| CR-09 | P0 | TESTED | Claude | 2fe1d0b; 962d8d3 (Codex impl.) | `test_cr09_*` (13); `[activity]` substitution case | dac263f: PARTIALLY_FIXED†; 268af1d substitution refused (Claude probe); 268af1d (Codex): UNVERIFIED (non-author independence) | activity persistence is P2-ACT | Codex reviews | 2026-11-07T22:39Z |
+| CR-11 | P0 | TESTED | Claude | f103ace; 962d8d3 (Codex impl.); 3bb9f8d (source flags kept) | `test_cr11_*` (19); `[book]` substitution case; kill-switch probe | dac263f: PARTIALLY_FIXED†; 268af1d book substitution and kill switch refused (Claude probe); 268af1d (Codex): UNVERIFIED (non-author independence) | — | Codex reviews | 2026-11-07T22:39Z |
+| CR-03 | P0 | TESTED | Claude | 4027f07; 962d8d3 (Codex impl.) | `test_cr03_*` (7); `test_calculator_provider_account_symbol_and_permission_are_bound` | dac263f: PARTIALLY_FIXED†; reviewer script at 268af1d: UNVERIFIED (refused); 268af1d (Codex): UNVERIFIED (non-author independence) | — | Codex reviews | 2026-11-07T22:39Z |
+| CR-07 | P0 | TESTED | Claude | f7bf452; 962d8d3 (Codex impl.) | `test_cr07_*` (12); relabel and re-registration cases in `test_remediation_followup.py` | dac263f: PARTIALLY_FIXED†; 268af1d relabel refused (Claude probe); 268af1d (Codex): UNVERIFIED (non-author independence) | — | Codex reviews | 2026-11-07T22:39Z |
 | CL-01 | P0 | NOT_STARTED | Claude | — | probe `APPROVE_ACTOR_ATTESTED` | — | owner/coordinator decision: `approve()` trusts its caller for identity; no endpoint exposes it | bind to owner step-up session before any endpoint exposes approval | 2026-11-07T20:39Z |
 | CL-02 | P0 | UNVERIFIED | — | `snapshot_source.BoundRiskSource` (fixture readers) | fixture acquisition cases | — | no real provider reader, investor login or Windows host (OP-01) | separately authorised read-only integration milestone | 2026-11-07T20:39Z |
-| QA-01 | P1 | TESTED | Claude (re-verify) | dac263f; abb89f2 (Codex impl.) | `test_qa01_*`; `test_missing_open_cannot_create_retroactive_fill` (2) | dac263f: REGRESSION_FOUND† (missing Open); reviewer script at 268af1d: refused; pending | — | Stage 2: independent re-check | 2026-11-07T20:39Z |
-| QA-03 | P1 | TESTED | Claude (re-verify) | dac263f; abb89f2 (Codex impl.) | `test_qa03_*`; `test_missing_range_value_is_reported`; `test_hourly_trade_records_keep_time` | dac263f: PARTIALLY_FIXED†; reviewer script at 268af1d: warning present, hourly times kept | — | Stage 2: re-check | 2026-11-07T20:39Z |
-| QA-04 | P1 | IN_PROGRESS | Claude | dac263f; abb89f2 (Codex impl.) | `test_qa04_*` (7); midnight/sparse-day cases | dac263f: PARTIALLY_FIXED†; reviewer script at 268af1d: midnight fixed, **close-balance breach still OPEN (8,900 below both floors) and target counted with 1,400 open loss** | — | Stage 2: fix both, failing-first | 2026-11-07T20:39Z |
-| QA-02 | P1 | TESTED | Claude (re-verify) | dac263f; abb89f2, e82c986 (Codex impl.) | `test_qa02_*` (15); 21-hour and irregular-grid cases | dac263f: PARTIALLY_FIXED†; reviewer script at 268af1d: 21 h crypto → 417.14 (= 365×24/21) | — | Stage 3: ambiguous frequencies | 2026-11-07T20:39Z |
+| QA-01 | P1 | TESTED | Claude (re-verify) | dac263f; abb89f2 (Codex impl.); c8acaa2 (RV2-01) | `test_qa01_*`; `test_missing_open_cannot_create_retroactive_fill` (2) | dac263f: REGRESSION_FOUND† (missing Open); 268af1d (Codex): PARTIALLY_FIXED — missing Close still skipped a gap stop (RV2-01); c8acaa2: pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
+| QA-03 | P1 | TESTED | Claude (re-verify) | dac263f; abb89f2 (Codex impl.); c8acaa2 (RV2-01) | `test_qa03_*`; `test_missing_range_value_is_reported`; `test_hourly_trade_records_keep_time` | dac263f: PARTIALLY_FIXED†; 268af1d (Codex): PARTIALLY_FIXED — missing Close suppressed gap/low stops (RV2-01); c8acaa2: pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
+| QA-04 | P1 | IN_PROGRESS | Claude | dac263f; abb89f2 (Codex impl.); c8acaa2 (RV2-03/04) | `test_qa04_*` (7); midnight/sparse-day cases | dac263f: PARTIALLY_FIXED†; 268af1d (Codex): PARTIALLY_FIXED — skipped reset days, conflicting reset samples (RV2-03/04, fixed in c8acaa2: pending); Claude: **close-balance breach still OPEN (8,900 below both floors) and target counted with 1,400 open loss** | — | fix close-balance and open-loss target, failing-first, in a separate commit | 2026-11-07T22:39Z |
+| QA-02 | P1 | TESTED | Claude (re-verify) | dac263f; abb89f2, e82c986 (Codex impl.); c8acaa2 (RV2-02) | `test_qa02_*` (15); 21-hour and irregular-grid cases | dac263f: PARTIALLY_FIXED†; 268af1d (Codex): PARTIALLY_FIXED — weekly/monthly series missing a period still annualised (RV2-02); c8acaa2: pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
+| RV2-01 | P1 | TESTED | Claude | c8acaa2 | `tests/test_rv2_followup.py`: `test_missing_close_is_refused` (3); `test_missing_signal_*` (5) | found by Codex at 268af1d (HIGH: missing Close or missing signal skipped the bar's gap stop, intrabar stop and pending breaker exit and marked the position at entry value); Codex's reviewer case passes at c8acaa2; verdict pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
+| RV2-02 | P1 | TESTED | Claude | c8acaa2 | `tests/test_rv2_followup.py`: `test_weekly_or_monthly_grid_missing_a_period_*` (6); `test_two_bars_in_one_period_*` (2); grid and short-week pins (7) | found by Codex at 268af1d (MED: weekly/monthly series missing a period still annualised); Codex's reviewer case passes at c8acaa2; verdict pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
+| RV2-03 | P1 | TESTED | Claude | c8acaa2 | `tests/test_rv2_followup.py`: `test_replay_refuses_skipped_rule_days`; `test_replay_refuses_one_skipped_day_in_the_middle`; weekend pin | found by Codex at 268af1d (MED: replay jumped over whole rule days with no reset observation); Codex's reviewer case passes at c8acaa2; verdict pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
+| RV2-04 | P1 | TESTED | Claude | c8acaa2 | `tests/test_rv2_followup.py`: `test_replay_refuses_conflicting_reset_observations`; `test_replay_refuses_any_repeated_instant` (2) | found by Codex at 268af1d (MED: replay accepted conflicting observations at one instant); Codex's reviewer case passes at c8acaa2; verdict pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
 | QA-EQ | P1 | TESTED | Claude (re-verify) | abb89f2 (Codex impl.) | `test_final_curve_includes_initial_capital_and_exit_fees` | reviewer script at 268af1d: curve vs cash difference 0.002 (was 990.10) | — | Stage 2: re-check | 2026-11-07T20:39Z |
-| CR-08 | P2 | TESTED | Claude (re-verify) | 2fe1d0b; abb89f2 (Codex impl.) | `test_cr08_*` (33); `test_no_gap_rule_does_not_block_whole_news_day` | dac263f: PARTIALLY_FIXED†; reviewer script at 268af1d: no block | — | Stage 3: re-check | 2026-11-07T20:39Z |
+| CR-08 | P2 | TESTED | Claude (re-verify) | 2fe1d0b; abb89f2 (Codex impl.) | `test_cr08_*` (33); `test_no_gap_rule_does_not_block_whole_news_day` | dac263f: PARTIALLY_FIXED†; 268af1d (Codex): PARTIALLY_FIXED — open-position news/break monitoring and flattening absent | — | Stage 3: re-check | 2026-11-07T22:39Z |
 | P2-ACT | P2 | NOT_STARTED | Claude | — | — | — | — | Stage 3: the store counts its own queues/reservations toward daily limits | 2026-11-07T20:39Z |
 | P2-OPS | P2 | NOT_STARTED | Claude | — | — | — | — | Stage 3: instrument controls, explicit account/broker identity, unavailable data, supported/unsupported/unverified matrix | 2026-11-07T20:39Z |
 | RQ-01 | — | TESTED | Claude | first version Claude (uncommitted); 7e8570a (Codex impl.) | `test_research_review_followup.py` (8) | not yet reviewed | — | Codex reviews 7e8570a | 2026-11-07T20:39Z |
 | RQ-02 | — | TESTED | Claude | as RQ-01 | `test_research_review_followup.py` (2) | not yet reviewed | — | Codex reviews 7e8570a | 2026-11-07T20:39Z |
-| CR-10, CR-04, CR-06, CR-12, CR-13, CR-14, UI-01 | mixed | VERIFIED_FIXED | — | see historical table | see historical table | dac263f: VERIFIED_FIXED† | — | confirm when the report is restored | 2026-11-07T20:39Z |
+| CR-10, CR-04, CR-06, CR-12, CR-13, CR-14, UI-01 | mixed | VERIFIED_FIXED | — | see historical table | see historical table | dac263f: VERIFIED_FIXED†; 268af1d (Codex): VERIFIED_FIXED, carried forward | — | — | 2026-11-07T22:39Z |
 | OP-01 | P2 | BLOCKED | owner | e717ea6 | `test_op01_*` (3) | — | always-on Windows host | owner decision | 2026-11-07T20:39Z |
-| P3 | P3 | IN_PROGRESS | Claude | — | — | — | branch already published at 268af1d by the Codex implementation agent (draft PR #5); Stage 1 commits are local | release checks after Codex verifies P0–P2; no push before then | 2026-11-07T20:39Z |
+| P3 | P3 | IN_PROGRESS | Claude | — | — | — | branch already published at 268af1d by the Codex implementation agent (draft PR #5); Stage 1 and RV2 commits are local | release checks after Codex verifies P0–P2; no push or merge before then | 2026-11-07T22:39Z |
 | P3-PII | P3 | NOT_STARTED | owner | — | — | — | `docs/collab/CODEX_HANDOVER.md` (since 6cd5357, 2026-10-11) and `docs/collab/log-codex.md` (since 2026-10-16) contain local Windows paths with the owner's username; already public on several remote branches. Not introduced by this branch. History removal would need a rewrite (owner decision) | owner decides: generalise in a new commit and/or rewrite history | 2026-11-07T20:39Z |
 
-Latest full suite: Stage 1 working tree (= `3bb9f8d` + documentation), **3,647 passed,
-21 skipped, 1 warning, exit 0**, 243 s, on a scratch copy; the 11 git-only skips pass
-in the worktree.
+Latest full suite: `c8acaa2` working tree, **3,676 passed, 21 skipped, 1 warning, exit 0**,
+244 s, on a scratch copy; the 11 git-only skips pass in the worktree (58 passed, 2 skipped
+for production data).
+
+Codex's reviewer suite (`review_tests/test_independent_followup.py`, run unchanged with
+`ARIA_REVIEW_ROOT` pointing at this worktree): `268af1d` 19 passed / 5 failed (Codex);
+`fbea136` 18 / 6; **`c8acaa2` 23 passed / 1 failed**. The one failure,
+`test_additional_no_checkpoint_disables_reservation`, stops at its setup `queue()`:
+since `3bb9f8d` a keyed store opened without its external checkpoint refuses every
+change, so nothing is queued and nothing can be reserved. **Owner decision
+(2026-11-07): keep the stricter rule exactly as implemented; the reviewer case encodes
+the older API and is to be updated by Codex, not the code weakened.**
 
 ## Current stage (historical — before the two-agent mission)
 
@@ -152,6 +171,12 @@ and the original failure was reproduced against `7385130`.
 | 2026-11-06 22:12 | stage 6 | multiasset + structure + findings | **201 passed** |
 | 2026-11-06 22:12 | stage 6 and `7385130` | the `test_trading_*.py` subset run alone | blocked write to `data/execution/approval_queue.json` (nothing written) on both — a pre-existing subset-isolation artifact; the full suite isolates it |
 | 2026-11-06 21:50 | `7385130` | `probes.py` re-run (extracted copy in a temp folder) | R1 forged ALLOW reserved an intent; E5b gold 10 lots ALLOW; E3b inverted FX ALLOW; E8 ALLOW; R2 high-water 10,800 → 10,000; M1 raw SDK `order_send` reachable — all reproduced |
+| 2026-11-07 ~21:40 | `fbea136` | Codex reviewer suite, unchanged (`ARIA_REVIEW_ROOT` = worktree) | 18 passed, 6 failed: the 5 RV2 cases plus `test_additional_no_checkpoint_disables_reservation` (refused at `queue`, stricter rule from `3bb9f8d`) |
+| 2026-11-07 21:52 | `fbea136` + `tests/test_rv2_followup.py`, code unchanged | the new RV2 tests (failing-first) | **20 failed, 9 passed**; every failure at the attack step (DID NOT RAISE; missing stop exit; mark 100,000 instead of 97,000; breaker exit a day late at 100 instead of 96); the 9 passing cases pin unchanged behaviour |
+| 2026-11-07 ~21:55 | RV2 working tree (= `c8acaa2`) | RV2 tests; backtest/replay/authority/technical/multiasset modules | **29 passed**; **412 passed** |
+| 2026-11-07 21:59 | RV2 working tree (= `c8acaa2`) | full suite on a scratch copy of the working tree | **3,676 passed, 21 skipped, 1 warning**, exit 0, 244 s |
+| 2026-11-07 ~22:00 | `c8acaa2` | git-only + docs tests in the worktree (`test_protected_paths`, `test_selfmod_sandbox`, `test_docs_match_code`) | **58 passed, 2 skipped** (production data absent) |
+| 2026-11-07 ~22:00 | `c8acaa2` | Codex reviewer suite, unchanged | **23 passed, 1 failed** — all 5 RV2 cases pass; the failure is the checkpoint case above, kept by owner decision |
 
 ## Files changed in this delivery
 
@@ -182,6 +207,10 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 | 2026-11-06 | CR-07: research sizing runs on any account class; only the store's order stages are PRACTICE-only | Sizing a paid Challenge is useful analysis; reaching an order stage is the consequence the review is about |
 | 2026-11-06 | Every trust boundary rebuilds its contracts through validation (`revalidated`) | `model_copy(update=...)` skips validators, which is how the CR-12 spellings could have been smuggled past enums |
 | 2026-11-06 | CR-02: the store runs `assess()` itself, under a class-level policy, and refuses a caller clock > 5 s from its own | A verdict, a policy and a clock are all things a caller could forge; the store now takes none of them |
+| 2026-11-07 | Owner: keep the external-checkpoint requirement exactly as implemented in `3bb9f8d`; do not weaken it to satisfy the reviewer case written for the older API | A keyed store that accepts changes without its checkpoint lets those changes be rolled back unnoticed |
+| 2026-11-07 | RV2-01: a non-finite Close refuses the run, like a non-finite Open; a missing signal blocks only entries and signal exits | Without a close the bar's mark, breaker, next signal and benchmark are undefined; stops and the breaker depend on prices, not on the signal |
+| 2026-11-07 | RV2-02: weekly/monthly completeness is one bar per calendar week (Mon–Sun) or month, not a day-gap tolerance | Business month-ends are up to 33 days apart and short weeks end on a Thursday; a gap tolerance either rejects those or hides a missing period |
+| 2026-11-07 | RV2-03/04: every rule day, weekends included, needs its exact reset observation; observation times strictly increase, identical repeats included | A skipped day's floor and equity are unknown; at one instant the order, and so the reset snapshot, is unknowable |
 
 ## Outstanding blockers (external)
 
@@ -190,7 +219,11 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 
 ## Next exact action
 
-Owner review of draft PR #5; then a separately scoped practice-reader integration gate.
+Current (2026-11-07T22:39Z): Claude fixes the QA-04 close-balance and open-loss target
+defects in a separate local commit; Codex re-reviews `3bb9f8d`, `fbea136`, `c8acaa2` and
+that commit. Nothing is pushed or merged before Codex's verdict; execution stays disabled.
+
+Earlier: owner review of draft PR #5; then a separately scoped practice-reader integration gate.
 The current release gate and remaining provider/runtime blockers are summarized
 at the top and in REMEDIATION_REVIEW_RESPONSE.md. Earlier stage entries below
 are historical progress, not current activation permission.

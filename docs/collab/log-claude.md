@@ -744,3 +744,13 @@ branch pushed, draft PR #5 open; Codex's review file 0 bytes on disk. Nothing re
   pass in the worktree. Not pushed. No broker, deployment or runtime change.
 - Open: CL-01 approve() identity is caller-attested (owner decision); Stage 2 next
   (QA-04 close-balance breach and target-with-open-loss still reproduce at 268af1d).
+
+## 2026-11-07 — RV2-01..04 (Codex review of 268af1d): DONE locally, awaiting Codex
+
+Codex's report (REQUEST CHANGES) found RV2-01 (HIGH) and RV2-02..04 (MED). Fixed in
+`c8acaa2` (backtester, metrics, challenge replay) with `tests/test_rv2_followup.py`
+(29; 20 red before the fix). Full suite 3,676 passed, 21 skipped, exit 0; Codex's
+reviewer suite 23/24. The one failure is its no-checkpoint case, which `3bb9f8d` now
+refuses at `queue`; owner decision: keep the stricter checkpoint rule. Recorded in
+`docs/trading/ARIA_DELIVERY_TRACKER.md`. Not pushed. Next: QA-04 close-balance breach
+and open-loss target, separate commit.
