@@ -38,3 +38,7 @@ exchange_calendars==4.13.2
 # Floors match requirements.txt — bump both together.
 scikit-learn>=1.4.0
 joblib>=1.3.0
+# Existing sentiment tests import yfinance at collection time. Pin the version
+# used by the verified full-stack suite; omitting it makes clean CI abort before
+# any test runs. This is a test dependency, not a broker/runtime activation.
+yfinance==1.3.0

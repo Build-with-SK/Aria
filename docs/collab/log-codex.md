@@ -352,3 +352,20 @@ scanner candidates all triaged as dependency integrity hashes or synthetic test
 URLs. Original four probes rerun at 7385130, current probe output recorded.
 Research-only CONDITIONAL_REVIEW; real provider/Windows/investor/ACL recovery and
 execution monitoring remain later gates. Existing untracked handoff preserved.
+
+
+## 2026-11-07 — GitHub delivery
+
+Feature push succeeded without force; ls-remote matched d133ddded54760392a273e745eff91a6228706fb.
+Created draft PR #5 to main through GitHub connector; returned head matched.
+https://github.com/Build-with-SK/Aria/pull/5 . Inherited 137-commit/477-file ancestry
+is disclosed. This entry and final handover are documentation-only; no merge,
+deploy or runtime activity. Current gate remains CONDITIONAL_REVIEW, research only.
+
+
+## 2026-11-07 — Linux CI collection prerequisite
+
+First pushed full-suite job failed before tests: yfinance absent from CI
+requirements while test_pipeline_sentiment imports it eagerly. Added exact
+1.3.0 used by the verified local suite. No workflow edit or skip; awaiting
+remote rerun. Publication status remains draft/conditional until CI is checked.

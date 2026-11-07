@@ -1,6 +1,6 @@
 # ARIA delivery tracker — multiasset trading remediation
 
-Last updated: 2026-11-07T20:02:38.329073+00:00 (UTC)
+Last updated: 2026-11-07T20:06:20.748583+00:00 (UTC)
 
 ## Objective
 
@@ -20,10 +20,12 @@ changes no deployment or production configuration.
 |---|---|
 | Branch | `feature/aria-multiasset-trading` |
 | Worktree | `aria-multiasset-trading` (sibling of the main checkout) |
+| Validated implementation commit | `4165e71` (documentation-only successors publish the evidence) |
+| First verified publication commit | `d133ddded54760392a273e745eff91a6228706fb` (PR head at creation) |
 | Reviewed commit | `7385130` (6 commits on integration `58f5f25`) |
 | Base relationships | 0 behind / 6 ahead of `aria/integrity-upgrade`; 0 behind / 117 ahead of `main` |
 | Remote | `origin` = `github.com/Build-with-SK/Aria` (**public** repository) |
-| Branch on GitHub | not yet pushed |
+| Branch on GitHub | pushed and remote-verified; [draft PR #5](https://github.com/Build-with-SK/Aria/pull/5) to main |
 | Implementation owner | Claude Code, sole owner from 2026-11-06 (`docs/collab/WORK_PLAN.md` §8) |
 
 Review report: [`CLAUDE_INDEPENDENT_REVIEW.md`](CLAUDE_INDEPENDENT_REVIEW.md) (frozen at `7385130`).
@@ -148,7 +150,7 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 
 ## Next exact action
 
-Publish the verified research feature branch without force and open a draft PR.
+Owner review of draft PR #5; then a separately scoped practice-reader integration gate.
 The current release gate and remaining provider/runtime blockers are summarized
 at the top and in REMEDIATION_REVIEW_RESPONSE.md. Earlier stage entries below
 are historical progress, not current activation permission.
@@ -239,3 +241,21 @@ remain UNVERIFIED; neither is implied by local fixture coverage.
 Next exact action: publish feature branch without force, verify remote commit,
 and open a draft pull request. Then owner review and a separately scoped
 Windows/practice-reader integration gate. No integration merge or runtime deploy.
+
+## GitHub delivery — verified 2026-11-07 UTC
+
+`git push --set-upstream origin feature/aria-multiasset-trading` succeeded without
+force. `git ls-remote` exactly matched local commit
+`d133ddded54760392a273e745eff91a6228706fb`. Draft PR #5 was created through the
+GitHub connector and its returned head matched that hash:
+https://github.com/Build-with-SK/Aria/pull/5 . Base main remains `0ec8c3f`.
+The PR has inherited integration ancestry (137 commits / 477 files at creation);
+this is disclosed in its body rather than presented as just the follow-up diff.
+A final documentation-only commit records delivery and is pushed/verified next.
+No merge or deployment. The untracked AGENT_HANDOFF.md remains preserved locally.
+
+GitHub CI follow-up: the first Linux full-suite job failed during collection
+because requirements-ci omitted yfinance, which sentiment tests import eagerly.
+Added yfinance==1.3.0, the exact version used by the verified local full suite.
+No tests skipped or relaxed. GitHub rerun is pending; local results do not imply
+Linux CI success. This is a CI dependency fix, not a runtime or workflow change.
