@@ -180,7 +180,9 @@ class ReviewStore:
             db.execute("BEGIN IMMEDIATE")
             try:
                 self._verify(db)
+                self._verify_projection(db)
                 yield db
+                self._verify_projection(db)
                 db.commit()
             except BaseException:
                 db.rollback()
@@ -200,6 +202,78 @@ class ReviewStore:
                 raise ReviewRefused("audit integrity failure")
             previous = calculated
         return previous
+
+    def _verify_projection(self, db):
+        """Authenticate mutable authority against the complete event history.
+
+        Called at both ends of a transaction, never between its individual
+        writes. Valid HMAC links alone do not authorize materialized rows.
+        """
+        proposals, approvals, intents, boundaries = {}, {}, {}, {}
+        consumed = set()
+        for row in db.execute("SELECT body FROM audit ORDER BY sequence"):
+            e = json.loads(row["body"])
+            pid, kind = e["proposal_id"], e["kind"]
+            if kind == "DRAFT":
+                if pid in proposals:
+                    raise ReviewRefused("duplicate proposal in audit record")
+                proposals[pid] = [e["proposal_hash"], e["risk_hash"], State.DRAFT.value]
+            elif kind == "STATE_TRANSITION":
+                if pid not in proposals or proposals[pid][2] != e["old"]:
+                    raise ReviewRefused("inconsistent state transition in audit record")
+                validate_transition(State(e["old"]), State(e["new"]))
+                proposals[pid][2] = e["new"]
+            elif kind == "APPROVED":
+                if pid in approvals or not e.get("approval"):
+                    raise ReviewRefused("approval authority missing from audit record; rebuild store")
+                approvals[pid] = e["approval"]
+            elif kind == "INTENT_RESERVED_NO_SEND":
+                if pid in consumed or pid not in approvals:
+                    raise ReviewRefused("duplicate consumption in audit record")
+                consumed.add(pid)
+                intents[pid] = (e["intent_id"], e["proposal_hash"], State.SUBMISSION_PENDING.value)
+            elif kind == "RECONCILIATION_REQUIRED":
+                old = intents.get(pid)
+                if old is None or old[0] != e["intent_id"]:
+                    raise ReviewRefused("unknown reconciliation intent in audit record")
+                intents[pid] = (old[0], old[1], State.RECONCILIATION_REQUIRED.value)
+            elif kind == "RULE_BOUNDARY":
+                key = (pid.removeprefix("rule:"), e["day"])
+                if key in boundaries:
+                    raise ReviewRefused("duplicate account boundary in audit evidence")
+                boundaries[key] = e
+        actual = {r["id"]: r for r in db.execute("SELECT * FROM proposals")}
+        if set(actual) != set(proposals):
+            raise ReviewRefused("proposal set differs from audit record")
+        for pid, (ph, rh, state) in proposals.items():
+            r = actual[pid]
+            if (r["state"] != state or r["payload_hash"] != ph
+                    or content_hash(TradeProposal.model_validate_json(r["payload"])) != ph
+                    or content_hash(RiskAssessment.model_validate_json(r["risk"])) != rh):
+                raise ReviewRefused("proposal differs from audit record")
+        actual = {r["proposal_id"]: r for r in db.execute("SELECT * FROM approvals")}
+        if set(actual) != set(approvals):
+            raise ReviewRefused("approval set differs from audit record")
+        for pid, expected in approvals.items():
+            r = actual[pid]
+            if any(r[k] != v for k, v in expected.items()) or r["consumed"] != int(pid in consumed):
+                raise ReviewRefused("approval authority differs from audit record")
+        actual = {r["proposal_id"]: r for r in db.execute("SELECT * FROM intents")}
+        if set(actual) != set(intents):
+            raise ReviewRefused("intent set differs from audit record")
+        for pid, (iid, ph, state) in intents.items():
+            r = actual[pid]
+            if (r["id"], r["idempotency_key"], r["payload_hash"], r["state"]) != (iid, iid, ph, state):
+                raise ReviewRefused("intent differs from audit record")
+        actual = {(r["account_id"], r["day"]): r for r in db.execute("SELECT * FROM rule_boundaries")}
+        if set(actual) != set(boundaries):
+            raise ReviewRefused("account boundary set differs from audit evidence")
+        for key, e in boundaries.items():
+            r = actual[key]
+            if any(r[k] != e[k] for k in ("balance", "high_water", "evidence_hash", "profile_hash")):
+                raise ReviewRefused("rule boundary differs from its audit evidence")
+            if "snapshot_at" in e and r["snapshot_at"] != e["snapshot_at"]:
+                raise ReviewRefused("boundary timestamp differs from audit evidence")
 
     def _event(self, db, kind: str, proposal_id: str, now: datetime, **details):
         previous = self._verify(db)
@@ -307,7 +381,10 @@ class ReviewStore:
                         proposal_id, _token_hash(token), authenticated_owner, expires.isoformat()))
             self._state(db,proposal_id,State.APPROVED,now)
             self._event(db, "APPROVED", proposal_id, now, actor=authenticated_owner,
-                        proposal_hash=row["payload_hash"], expires_at=expires.isoformat())
+                        proposal_hash=row["payload_hash"], expires_at=expires.isoformat(),
+                        approval={"id": content_hash({"proposal": proposal_id, "token_hash": _token_hash(token)}),
+                                  "proposal_id": proposal_id, "token_hash": _token_hash(token),
+                                  "actor": authenticated_owner, "expires_at": expires.isoformat()})
         return token
 
     def reserve_intent(self, proposal: TradeProposal, token: str,
@@ -457,7 +534,8 @@ class ReviewStore:
                 str(snapshot.balance),str(high),evidence_hash,profile.profile_hash))
             self._event(db,"RULE_BOUNDARY","rule:"+profile.account_id,now,
                         profile_hash=profile.profile_hash,day=day.isoformat(),
-                        balance=str(snapshot.balance),high_water=str(high),evidence_hash=evidence_hash)
+                        balance=str(snapshot.balance),high_water=str(high),evidence_hash=evidence_hash,
+                        snapshot_at=snapshot.observed_at.isoformat())
 
     def rule_state(self, profile, *, equity, now: datetime):
         from decimal import Decimal
@@ -465,6 +543,7 @@ class ReviewStore:
         self._now(now)
         with self._db() as db:
             self._verify(db)
+            self._verify_projection(db)
             row=db.execute("SELECT * FROM rule_boundaries WHERE account_id=? AND day=?",
                 (profile.account_id,rule_day(profile,now).isoformat())).fetchone()
             if row is None:

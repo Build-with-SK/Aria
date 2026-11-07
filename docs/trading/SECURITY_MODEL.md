@@ -53,3 +53,18 @@ can hide truncation. The key and anchor stores are the operator's: this release
 ships neither. Filesystem ACLs, encrypted backups, process identity,
 vulnerability scans and the MT5 worker's host must be verified before any
 demo-send release. No sandbox claim is made.
+
+## Remediation review follow-up: materialized authority
+
+A valid HMAC chain alone does not authorize SQLite rows. Transactions now
+reconstruct proposal states, approval identity/token/actor/expiry, terminal token
+consumption, intent identity/state and the complete boundary key set from audit
+events. They compare the reconstruction with the materialized tables before any
+operation and again before commit. Approval events now include all authority
+fields. Older stores whose approval events lack these fields fail closed and
+require a separately reviewed rebuild; no automatic trust upgrade is made.
+Deleting boundary rows or inventing approval rows cannot be repaired by appending
+new public-method events. External anchoring remains necessary to detect removal
+of an entire unanchored audit suffix. These checks do not establish authenticity
+of caller-supplied market/account evidence; the trusted acquisition boundary is
+still an open blocker (CR-03/05/07/09/11).

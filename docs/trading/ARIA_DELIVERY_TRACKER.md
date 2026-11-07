@@ -1,6 +1,6 @@
 # ARIA delivery tracker — multiasset trading remediation
 
-Last updated: 2026-11-06T22:58Z (UTC)
+Last updated: 2026-11-07T19:30:23.352078+00:00 (UTC)
 
 ## Objective
 
@@ -31,10 +31,20 @@ Original reproductions: [`claude_review_probes/`](claude_review_probes/) (`probe
 
 ## Current stage
 
-Stage 11 — QA-01..QA-04 (legacy backtester time order and intrabar stops,
-calendar-aware annualisation, path-level rule replay). Stages 1–10 are
-committed; every CR finding, SEC-01 and UI-01 is tested, OP-01 is BLOCKED on
-an owner-provided Windows host.
+Remediation review of `dac263f`: **REQUEST CHANGES**. The previously recorded
+passing tests cover narrower cases than the complete controls. Reopened findings
+below require the reviewer's additional reproductions. QA-03 contains a new
+missing-Open regression. Research RQ-01/RQ-02 edits remain uncommitted.
+
+Reviewer evidence is preserved in the separate local `aria-independent-review-dac263f`
+workspace (`CODEX_INDEPENDENT_REVIEW.md`, `review_adversarial.py`,
+`review_negative_tests.py`). It is not copied here because it includes local
+infrastructure paths. This review independently ran 3,605 tests passing / 10
+skipped, but its desired-safety suite had **15 assertion failures**.
+
+Release gate remains CONDITIONAL_REVIEW / REQUEST CHANGES. No release or push
+claim is made. Execution remains disabled. Provider clarification, genuine
+terminal evidence and the Windows host remain external blockers.
 
 ## Findings
 
@@ -44,28 +54,28 @@ and the original failure was reproduced against `7385130`.
 
 | ID | Sev | Finding | Status | Fix commit | Regression tests |
 |---|---|---|---|---|---|
-| CR-02 | HIGH | Store trusts a caller-built ALLOW | TESTED | 3f6ec66 | `tests/test_review_findings.py::test_cr02_*` (7); before: probe R1 reserved an intent at `7385130` |
-| CR-05 | HIGH | Daily stop ignores balance vs equity | TESTED | e0d9c89 | `test_cr05_*` (2), `test_multiasset_risk.py::test_internal_daily_stop_*` (4); fail at `7385130` (E8 ALLOW) |
+| CR-02 | HIGH | Store trusts a caller-built ALLOW | IN_PROGRESS | 3f6ec66 | `tests/test_review_findings.py::test_cr02_*` (7); before: probe R1 reserved an intent at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
+| CR-05 | HIGH | Daily stop ignores balance vs equity | IN_PROGRESS | e0d9c89 | `test_cr05_*` (2), `test_multiasset_risk.py::test_internal_daily_stop_*` (4); fail at `7385130` (E8 ALLOW); REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
 | CR-10 | MED | Trade may land exactly on the floor | TESTED | e0d9c89 | `test_cr10_*` (4); 3 fail at `7385130` (E7 ALLOW, equality ALLOW) |
-| CR-03 | HIGH | Contract-size errors undetected | TESTED | 4027f07 | `test_cr03_*` (7); before: probe E5b gold 10 lots ALLOW at `7385130` |
+| CR-03 | HIGH | Contract-size errors undetected | IN_PROGRESS | 4027f07 | `test_cr03_*` (7); before: probe E5b gold 10 lots ALLOW at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
 | CR-04 | HIGH | FX conversion checked by label only | TESTED | ff1d23a | `test_cr04_*` (3), `test_multiasset_risk.py::test_cross_currency_requires_fresh_pair_quote`; before: probe E3b ALLOW $39.37 vs $63.50 |
-| CR-01 | HIGH | Trailing high-water lowered by re-versioning | TESTED | 4e1cfde | `test_cr01_*` (4); before: probe R2 high-water 10,800 → 10,000 at `7385130` |
+| CR-01 | HIGH | Trailing high-water lowered by re-versioning | IN_PROGRESS | 4e1cfde | `test_cr01_*` (4); before: probe R2 high-water 10,800 → 10,000 at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
 | CR-06 | HIGH | MT5 adapter not read-only | TESTED | 7bfe3bd | `test_cr06_*` (7) + `test_trading_structure.py` SDK-import and adapter-construction tests (2); before: trade-enabled login and algo-trading terminal connected, raw `adapter._sdk.order_send` reached the SDK (1 call) at `7385130` |
-| CR-07 | HIGH | "DEMO" is not a safety boundary at FTMO | TESTED | f7bf452 | `test_cr07_*` (13); before: paid FTMO Challenge on a DEMO server ALLOW and queued at `7385130` |
-| CR-08 | HIGH | News/gap/weekend rules not enforced | TESTED | 2fe1d0b | `test_cr08_*` (33); before: no calendar/session inputs, Standard-account NFP-in-90 s case ALLOW, free-text rules counted as verified at `7385130` |
-| QA-01 | HIGH | Backtester breaker look-ahead | TESTED | stage 11 | `test_qa01_*` (2) incl. an adversarial change-only-this-bar's-close test; `test_no_lookahead.py` still passes; before: `probe_bt.py` breaker exit at 100 after a close of 70, final equity 100,000 at `7385130` |
-| CR-09 | MED | Per-day server/position/order limits | TESTED | 2fe1d0b | `test_cr09_*` (13); before: only `max_server_requests_per_minute`, no daily counters at `7385130` |
-| CR-11 | MED | Self-asserted book/operational inputs | TESTED | f103ace | `test_cr11_*` (19) + reservation re-check; before: `ARIA_KILL_SWITCH=1` engaged and `assess` ALLOW at `7385130` (13 result fields caller-stated) |
+| CR-07 | HIGH | "DEMO" is not a safety boundary at FTMO | IN_PROGRESS | f7bf452 | `test_cr07_*` (13); before: paid FTMO Challenge on a DEMO server ALLOW and queued at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
+| CR-08 | HIGH | News/gap/weekend rules not enforced | IN_PROGRESS | 2fe1d0b | `test_cr08_*` (33); before: no calendar/session inputs, Standard-account NFP-in-90 s case ALLOW, free-text rules counted as verified at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
+| QA-01 | HIGH | Backtester breaker look-ahead | IN_PROGRESS | stage 11 | `test_qa01_*` (2) incl. an adversarial change-only-this-bar's-close test; `test_no_lookahead.py` still passes; before: `probe_bt.py` breaker exit at 100 after a close of 70, final equity 100,000 at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
+| CR-09 | MED | Per-day server/position/order limits | IN_PROGRESS | 2fe1d0b | `test_cr09_*` (13); before: only `max_server_requests_per_minute`, no daily counters at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
+| CR-11 | MED | Self-asserted book/operational inputs | IN_PROGRESS | f103ace | `test_cr11_*` (19) + reservation re-check; before: `ARIA_KILL_SWITCH=1` engaged and `assess` ALLOW at `7385130` (13 result fields caller-stated); REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
 | RQ-01 | MED | Caller-asserted "verified" evidence | NOT_STARTED | — | — |
 | RQ-02 | MED | Contradictory hypotheses; SR logic | NOT_STARTED | — | — |
-| QA-02 | MED | Fixed 252-period annualisation | TESTED | stage 11 | `test_qa02_*` (15); before: a one-year doubling of 365 daily returns reported CAGR 0.6116 (1.4524 years assumed), no frequency parameter at `7385130` |
-| QA-03 | MED | Close-only stops | TESTED | stage 11 | `test_qa03_*` (4); before: `probe_bt.py` low −10% with a flat close, 5% stop: 0 stop exits at `7385130` |
-| QA-04 | MED | No path-level FTMO breach simulation | TESTED | stage 11 | `test_qa04_*` (7); before: no path replay existed; the only resampler (`block_bootstrap`) saw the −5.1%-intraday day as its −300 close at `7385130` |
+| QA-02 | MED | Fixed 252-period annualisation | IN_PROGRESS | stage 11 | `test_qa02_*` (15); before: a one-year doubling of 365 daily returns reported CAGR 0.6116 (1.4524 years assumed), no frequency parameter at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
+| QA-03 | MED | Close-only stops | IN_PROGRESS | stage 11 | `test_qa03_*` (4); before: `probe_bt.py` low −10% with a flat close, 5% stop: 0 stop exits at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
+| QA-04 | MED | No path-level FTMO breach simulation | IN_PROGRESS | stage 11 | `test_qa04_*` (7); before: no path replay existed; the only resampler (`block_bootstrap`) saw the −5.1%-intraday day as its −300 close at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
 | OP-01 | MED | MT5 needs a Windows host (ops) | BLOCKED | e717ea6 | Documented (OPERATIONS.md "MT5 worker host"); `test_op01_*` (3): the worker refuses clearly on a non-Windows host or without the package. Needs an owner-provided Windows host; nothing to reproduce in code at `7385130` (an operational finding) |
 | CR-12 | LOW | FTMO detection by exact strings | TESTED | f7bf452 | `test_cr12_*` (15); before: "FTMO s.r.o." + London validated; "FTMO Challenge 1-Step" with the wrong formula PASS at `7385130` |
 | CR-13 | LOW | One FX rate at today's price | TESTED | ff1d23a | `test_cr13_*` (2); before: probe E2 converts at today's rate |
 | CR-14 | LOW | Backup leaves connection open | TESTED | 7bfe3bd | `test_cr14_*` (1); before: of the 2 connections `backup()` opened, the target was never closed at `7385130` |
-| SEC-01 | LOW | Audit chain unkeyed | TESTED | 7bfe3bd | `test_sec01_*` (6); before: a chain edited and rebuilt with plain SHA-256 passed `verify_audit` and still reserved an intent; a truncated chain passed at `7385130` |
+| SEC-01 | LOW | Audit chain unkeyed | IN_PROGRESS | 7bfe3bd | `test_sec01_*` (6); before: a chain edited and rebuilt with plain SHA-256 passed `verify_audit` and still reserved an intent; a truncated chain passed at `7385130`; REOPENED by remediation review of dac263f: additional authority/timing invariant fails |
 | UI-01 | LOW | "EXECUTION DISABLED" banner wording | TESTED | e717ea6 | `frontend/scripts/verify-multiasset.mjs` banner assertions; before: the `7385130` component fails "banner must say the extension has no order sender" |
 
 ## Test evidence
@@ -137,3 +147,23 @@ Stage 12: RQ-01 — client-supplied evidence is never support unless a
 server-side resolver fetched the source and found the claim; RQ-02 — the
 support/resistance rule needs the close at or above support, and a cross-family
 conflict on the same bar abstains. Then the probe re-run and release checks.
+
+## Remediation review follow-up (2026-11-07 UTC)
+
+Next exact action: reproduce and close mutable approval-table authority and
+consumed-token replay, reconstruct account history from authenticated events,
+and acquire reservation inputs through a trusted account-bound source. Repair
+missing-open fills, final exit-cost accounting, exact midnight replay and 21-hour
+cadence. Re-run the reviewer scenarios before changing reopened items to TESTED.
+
+Latest completed archived suite: `dac263f`, 3,594 passed / 21 skipped / 1 warning,
+exit 0. Reviewer worktree suite has 11 fewer git-only skips. Passing suites do
+not supersede the new adversarial failures.
+
+Follow-up implementation: `review_store._verify_projection` checks mutable
+proposal, approval, intent and complete account-boundary state against authenticated
+events at transaction entry and commit; `rule_state` also checks completeness.
+Six new adversarial cases cover invented approval, consumed token replay, changed
+token/actor/expiry and deleted history. Store-focused suite: **19 passed**.
+CR-01/02/SEC-01 remain IN_PROGRESS until all reviewer cases and authoritative
+snapshot integration are closed. Uncommitted RQ files and AGENT_HANDOFF preserved.
