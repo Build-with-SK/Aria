@@ -64,3 +64,22 @@ survivorship-safe universe or corporate-action replay was built. Existing indica
 and replay tests are retained, but these additions have **UNVERIFIED** validation
 status. A definition or unit test cannot create OUT_OF_SAMPLE_VALIDATED,
 PAPER_TESTED or BROKER_DEMO_TESTED evidence. No return target was fitted.
+
+## Additional review corrections (2026-11-07)
+
+Opening prices are mandatory and finite for every execution bar; absent/NaN
+opens raise ValueError. Substituting that bar's close would allow an earlier low
+to stop a position before it existed. Missing High/Low rows are disclosed, as
+are missing range columns. Intraday trade records preserve ISO timestamps.
+The equity curve includes starting capital and final closing costs.
+
+A 21-hour crypto cadence annualizes as 365*24/21. The former 20–28 hour daily
+heuristic is removed. Frequency inference remains a research assumption, not
+proof that a provider supplied a complete calendar-aligned series.
+
+Dated replay requires an exact reset observation on every subsequent day.
+That snapshot's balance determines the new floor and trailing high-water.
+Sparse paths without a reset balance are refused rather than carrying an
+unproven prior balance across midnight. The first day still assumes a fresh
+account with initial capital; intraday observations cannot rule out excursions
+between samples. Bootstrap outputs remain UNVERIFIED research estimates.

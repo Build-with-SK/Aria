@@ -49,9 +49,9 @@ def periods_per_year(index, calendar: str | None) -> float | None:
     step = pd.Series(index).diff().dropna().median()
     hours = step / pd.Timedelta(hours=1)
     session = SESSION_HOURS_PER_DAY[calendar]
-    if 0 < hours <= session and hours < 20:
+    if 0 < hours <= session and hours != 24:
         return days * session / hours
-    if 20 <= hours <= 28:
+    if hours == 24:
         return days
     if 6 * 24 <= hours <= 8 * 24:
         return 52.0

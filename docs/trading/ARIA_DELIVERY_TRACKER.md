@@ -167,3 +167,12 @@ Six new adversarial cases cover invented approval, consumed token replay, change
 token/actor/expiry and deleted history. Store-focused suite: **19 passed**.
 CR-01/02/SEC-01 remain IN_PROGRESS until all reviewer cases and authoritative
 snapshot integration are closed. Uncommitted RQ files and AGENT_HANDOFF preserved.
+
+Quantitative review follow-up: mandatory finite Open, row-level missing-range
+warning, initial/final curve accounting, hourly trade timestamps, 21-hour
+cadence, exact-midnight replay and missing-reset refusal implemented.
+The unrelated-provider NONE gap-rule overblock is corrected.
+Targeted regression selection: **48 passed**. New cases are in
+`tests/test_remediation_followup.py`; existing QA cases remain green.
+Reopened findings retain IN_PROGRESS pending the complete independent scenarios
+and full-suite release run. No source-authority claim is inferred from these tests.

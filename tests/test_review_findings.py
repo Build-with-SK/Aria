@@ -1263,7 +1263,7 @@ def test_qa04_the_floor_resets_at_prague_midnight_not_utc(case):
     profile = case[1].profile
     # Monday's profit is banked at 23:30 Prague; at 00:30 Prague (23:30 UTC, still
     # Monday in UTC) a new day starts from 10,400, so its floor is 9,900.
-    path = (obs(0, "10000"), obs(14.5, "10400"), obs(15.5, "10400", "9890"))
+    path = (obs(0, "10000"), obs(14.5, "10400"), obs(15, "10400"), obs(15.5, "10400", "9890"))
     result = replay_path(profile, path)
     assert result.outcome == "DAILY_BREACH" and result.floor == D("9900") and result.day_index == 1
 

@@ -188,7 +188,9 @@ def run_backtest(
         if isinstance(opens, pd.DataFrame):
             opens = opens.iloc[:, 0]
     else:
-        opens = close
+        raise ValueError("Open prices required for chronological execution")
+    if not np.isfinite(opens.to_numpy(dtype=float)).all():
+        raise ValueError("finite Open prices required for chronological execution")
 
     # Bar range for intrabar stops (QA-03). Without High/Low the only prices
     # known inside a bar are its open and close; the result says so.
@@ -200,6 +202,8 @@ def run_backtest(
         if isinstance(lows, pd.DataFrame):
             lows = lows.iloc[:, 0]
 
+    range_missing = not has_range or not (np.isfinite(highs.to_numpy(dtype=float)).all()
+                                          and np.isfinite(lows.to_numpy(dtype=float)).all())
     cost = commission_pct + slippage_pct   # one-way
 
     # ── State ─────────────────────────────────────────────────────────────────
@@ -214,13 +218,17 @@ def run_backtest(
     halted       = False   # max-drawdown circuit-breaker
     pending_exit: Optional[str] = None   # decided at a close, executed at the next open
 
-    equity_vals: List[float] = []
+    equity_vals: List[float] = [initial_capital]
     trades:      List[Trade] = []
     trade_rets:  List[float] = []
 
     dates = close.index
 
+    intraday = isinstance(dates, pd.DatetimeIndex) and any(dates.normalize().duplicated())
+
     def _date_str(d) -> str:
+        if intraday and hasattr(d, "isoformat"):
+            return d.isoformat()
         return str(d.date()) if hasattr(d, "date") else str(d)
 
     def _record_trade(exit_px: float, reason: str) -> None:
@@ -267,8 +275,6 @@ def run_backtest(
         today   = dates[i]
         px      = float(close.iloc[i])
         exec_px = float(opens.iloc[i])
-        if np.isnan(exec_px):
-            exec_px = px
         hi = float(highs.iloc[i]) if has_range else np.nan
         lo = float(lows.iloc[i]) if has_range else np.nan
         if np.isnan(hi) or np.isnan(lo):
@@ -349,11 +355,12 @@ def run_backtest(
         today   = dates[-1]
         if not np.isnan(last_px):
             _record_trade(last_px, "end_of_data")
+            equity_vals[-1] = cash
 
     # ── Build outputs ─────────────────────────────────────────────────────────
-    equity_curve    = pd.Series(equity_vals, index=dates[1:])
+    equity_curve    = pd.Series(equity_vals, index=dates)
     first_valid     = close.dropna().iloc[0]
-    benchmark_curve = (close / first_valid * initial_capital).iloc[1:]
+    benchmark_curve = (close / first_valid * initial_capital)
     trade_returns   = pd.Series(trade_rets)
     calendar        = calendar or calendar_for_symbol(ticker)
     per_year        = periods_per_year(equity_curve.index, calendar)
@@ -384,7 +391,9 @@ def run_backtest(
         trades=trades, trade_returns=trade_returns,
         metrics=metrics, bull_metrics=bull_metrics, bear_metrics=bear_metrics,
         n_data_points=len(df),
-        warning="" if has_range else "no High/Low columns: stops checked on open and close only",
+        warning=("" if not range_missing else
+                 ("no High/Low columns: stops checked on open and close only" if not has_range
+                  else "missing High/Low values: affected rows use open and close only")),
     )
 
 

@@ -284,3 +284,14 @@ intent and boundary state against authenticated audit events. Added six database
 attacker regressions; store-focused tests 19 passed. Evidence-source authority
 and remaining quantitative review cases stay open. Existing research edits and
 untracked handoff preserved. No runtime, broker, Oracle, merge or push action.
+
+
+## 2026-11-07 — Quantitative review corrections
+
+Fixed missing-Open retroactive stops by refusing missing/nonfinite opens;
+corrected initial/final equity accounting; disclosed missing range rows; retained
+hourly trade timestamps; corrected 21-hour annualisation; used exact midnight
+balances and refused missing reset snapshots in dated replay. Added nine
+regression cases; relevant selection 48 passed. Corrected gap_rule NONE
+all-day news overblocking. Source acquisition and paid-account binding remain
+open; no runtime, deployment or broker activity.

@@ -62,7 +62,7 @@ def news_checks(profile: RuleProfile, instrument: Instrument, calendar: Economic
     denied = []
     if news and any(abs(e.scheduled_at - now) <= NEWS_WINDOW for e in relevant):
         denied.append("NEWS_EXECUTION_WINDOW")
-    if any(e.impact in ("HIGH", "UNKNOWN") and now - NEWS_WINDOW <= e.scheduled_at <= end + NEWS_WINDOW
+    if gap and any(e.impact in ("HIGH", "UNKNOWN") and now - NEWS_WINDOW <= e.scheduled_at <= end + NEWS_WINDOW
            for e in relevant):
         denied.append("MAJOR_NEWS_SCHEDULED_TODAY")
     return unverified, denied

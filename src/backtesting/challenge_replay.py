@@ -20,7 +20,8 @@ sample of the future. Nothing here is a pass forecast or a trading mandate.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 import math
 import random
@@ -133,7 +134,11 @@ def replay_path(profile: RuleProfile, observations: tuple[EquityObservation, ...
     for o in observations:
         today = rule_day(profile, o.at)
         if today != day:
-            # The day-start balance is the balance carried over the reset.
+            boundary = datetime.combine(today, time(profile.reset_hour), ZoneInfo(profile.reset_timezone))
+            if day is not None and o.at != boundary:
+                raise ValueError("exact reset balance observation required for every new rule day")
+            if day is not None:
+                account.balance = o.balance  # the midnight snapshot sets today's floor
             day, index = today, index + 1
             account.new_day()
         hit = account.breach(o.equity)
