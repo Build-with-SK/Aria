@@ -1,6 +1,6 @@
 # ARIA delivery tracker — multiasset trading remediation
 
-Last updated: 2026-11-07T20:06:20.748583+00:00 (UTC)
+Last updated: 2026-11-07T20:16:54.746102+00:00 (UTC)
 
 ## Objective
 
@@ -20,10 +20,10 @@ changes no deployment or production configuration.
 |---|---|
 | Branch | `feature/aria-multiasset-trading` |
 | Worktree | `aria-multiasset-trading` (sibling of the main checkout) |
-| Validated implementation commit | `4165e71` (documentation-only successors publish the evidence) |
+| Validated implementation commit | `1c7e94e6356f4de36ab4f54912fd641f45f0617c` (Linux CI green; final documentation-only successor records results) |
 | First verified publication commit | `d133ddded54760392a273e745eff91a6228706fb` (PR head at creation) |
 | Reviewed commit | `7385130` (6 commits on integration `58f5f25`) |
-| Base relationships | 0 behind / 6 ahead of `aria/integrity-upgrade`; 0 behind / 117 ahead of `main` |
+| Initial base relationships at 7385130 | 0 behind / 6 ahead of `aria/integrity-upgrade`; 0 behind / 117 ahead of `main` |
 | Remote | `origin` = `github.com/Build-with-SK/Aria` (**public** repository) |
 | Branch on GitHub | pushed and remote-verified; [draft PR #5](https://github.com/Build-with-SK/Aria/pull/5) to main |
 | Implementation owner | Claude Code, sole owner from 2026-11-06 (`docs/collab/WORK_PLAN.md` §8) |
@@ -33,7 +33,7 @@ Original reproductions: [`claude_review_probes/`](claude_review_probes/) (`probe
 
 ## Current stage
 
-Research-only release checks complete through code commit `4165e71`.
+Research-only release checks complete through code commit `1c7e94e`.
 Follow-up implementation responds to the **REQUEST CHANGES** review of `dac263f`;
 new code has regression evidence, but no new independent reviewer certification.
 The reviewed original 15 failures are retained as requirements, with adapted
@@ -268,3 +268,13 @@ script assertions and the guard remain active. No scheduler source, installed
 task, platform skip or runtime configuration changed. Also added a clock check
 after evidence acquisition and before intent creation; an injected slow-source
 case proves acquisition cannot authorize against an earlier timestamp.
+
+## Final hosted verification
+
+Push run 42409885570 and PR run 42409891844 at
+`1c7e94e6356f4de36ab4f54912fd641f45f0617c` both SUCCESS.
+Linux PR full suite: **3,636 passed / 11 skipped / 390 warnings**, 125.59 s,
+exit 0. Protected paths and security-regression jobs also passed. Follow-up local
+scheduler/risk tests: **65 passed**. The source commit is remote-verified.
+Draft PR #5 remains OPEN, MERGEABLE and unmerged. See ENGINEERING_HANDOVER.md for
+scope, actual commands/results, remaining activation gates and next exact milestone.

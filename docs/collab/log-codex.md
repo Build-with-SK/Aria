@@ -378,3 +378,13 @@ os.name and broke pathlib. Patched the scheduler-local os dependency in that
 test, preserving assertions and production-write isolation. No scheduler/runtime
 change. Added post-acquisition/pre-intent store-clock recheck and slow-source
 regression; local store/follow-up selection 44 passed. Remote full rerun required.
+
+
+## 2026-11-07 — Hosted checks green and handover
+
+Source 1c7e94e6356f4de36ab4f54912fd641f45f0617c remote-verified. Push and PR
+workflows 42409885570/42409891844 succeeded (all three jobs). Linux full suite
+3,636 passed / 11 skipped / 390 warnings, 125.59 s; latest local follow-up 65
+passed. Added ENGINEERING_HANDOVER.md and final tracker/evidence receipt.
+PR #5 stays draft and unmerged; gate conditional, research only. Final documentation
+commit will be pushed and checked without touching integration/runtime state.

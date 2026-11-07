@@ -124,3 +124,12 @@ with router 7.18.5. They do not prove hydration, clicks or remote authentication
 All broker-related tests use fixtures or a mock SDK in a spawned worker:
 TESTED_WITH_FIXTURES / TESTED_WITH_MOCK_BROKER. Genuine terminal/provider data,
 platform compliance and runtime recovery remain UNVERIFIED/BLOCKED.
+
+### Final hosted Linux result
+
+At source `1c7e94e`, push workflow 42409885570 and PR workflow 42409891844 both
+succeeded: protected paths, security regression and full suite. The PR full suite
+returned **3,636 passed, 11 skipped, 390 warnings in 125.59 s**. This includes the
+post-acquisition clock guard and portable scheduler mock; latest local selection
+65 passed. CI counts differ from Windows because optional packages/production
+fixtures are absent. No test weakening or new platform skip was used.
