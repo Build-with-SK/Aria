@@ -184,6 +184,11 @@ class ReviewStore:
 
     @contextmanager
     def _transaction(self):
+        # A keyed store changes only together with its external checkpoint, so
+        # the checkpoint always names the audit head and any rollback of the
+        # file, to any earlier point, is detected (follow-up to SEC-01).
+        if self._audit_key is not None and self._anchor_path is None:
+            raise ReviewRefused("a keyed store changes only with its external checkpoint")
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -222,6 +227,9 @@ class ReviewStore:
             row = db.execute("SELECT event_hash FROM audit WHERE sequence=?", (payload["sequence"],)).fetchone()
             if row is None or row["event_hash"] != payload["event_hash"]:
                 raise ValueError("rollback")
+            head = db.execute("SELECT MAX(sequence) FROM audit").fetchone()[0]
+            if head != payload["sequence"]:
+                raise ValueError("audit head moved without its checkpoint")
         except Exception as exc:
             raise ReviewRefused("external checkpoint integrity/rollback failure") from exc
 
@@ -388,8 +396,8 @@ class ReviewStore:
         self._now(now)
         if content_hash(inputs) != content_hash(acquired):
             raise ReviewRefused("risk evidence differs from authoritative snapshot")
-        # An existing ledger is authoritative over a transport's reconstructed
-        # baseline. Missing reset history cannot be replaced by a caller value.
+        # Recorded history may tighten the source's account state, never loosen
+        # it (see _tighten_with_history). Missing reset history fails closed.
         with self._db() as db:
             has_history = db.execute("SELECT 1 FROM rule_boundaries WHERE account_id=? LIMIT 1",
                                      (proposal.account_id,)).fetchone() is not None
@@ -401,17 +409,40 @@ class ReviewStore:
                             or body["provider_id"] != self._evidence_source.provider_id):
                         raise ReviewRefused("account registration changed; verified migration required")
         if has_history:
-            state = self.rule_state(acquired.profile, equity=acquired.account.equity, now=now)
-            acquired = acquired.model_copy(update={"rule_state": state})
+            acquired = self._tighten_with_history(acquired, now)
         risk = assess(proposal, acquired, now=now, policy=self.POLICY)
         if risk.verdict != "ALLOW":
             raise ReviewRefused(f"risk engine verdict {risk.verdict}: {', '.join(risk.reasons)}")
         self._risk(proposal, risk, now)
         return risk
 
+    def _tighten_with_history(self, acquired: RiskInputs, now: datetime) -> RiskInputs:
+        """The source's account state, tightened by this store's recorded history.
+
+        Boundary rows are written by `record_rule_boundary`, whose caller supplies
+        the snapshot, so they are never a replacement for the trusted source (at
+        268af1d they were, and a lower recorded row loosened the limits). Today's
+        midnight balance is one fact: the record and the source must agree on it
+        exactly, or nothing is assessed. The high-water mark is the higher of the
+        two, so a transport that reconstructs a lower one cannot lower it.
+        Equity, cashflows and resets are always the source's.
+        """
+        source = acquired.rule_state
+        stored = self.rule_state(acquired.profile, equity=acquired.account.equity, now=now)
+        if (stored.daily_snapshot_at != source.daily_snapshot_at
+                or stored.daily_balance != source.daily_balance):
+            raise ReviewRefused("recorded midnight balance disagrees with the authoritative source")
+        if stored.balance_high_water > source.balance_high_water:
+            source = revalidated(source.model_copy(update={
+                "balance_high_water": stored.balance_high_water,
+                "high_water_observed_at": stored.high_water_observed_at}))
+        return revalidated(acquired.model_copy(update={"rule_state": source}))
+
     def queue(self, proposal: TradeProposal, inputs: RiskInputs, *, now: datetime) -> RiskAssessment:
         """Assess `proposal` from `inputs` and queue it only if the engine allows it."""
         self._now(now)
+        if self._evidence_source is None:
+            raise ReviewRefused("trusted account-bound evidence source required; order review disabled")
         with self._transaction() as db:
             risk = self._assess(proposal, inputs, now)
             if not any(json.loads(row["body"])["kind"] == "ACCOUNT_REGISTERED"
@@ -595,6 +626,11 @@ class ReviewStore:
         recorded for the account and can only rise. Withdrawals/resets require a
         separately verified new account, never a lower line for this one.
         Caller supplies broker-derived snapshots, not a model's balance estimate.
+
+        These rows only ever tighten an assessment: at review time today's row
+        must equal the trusted source's midnight balance and the high-water is
+        the higher of the two (`_tighten_with_history`). A store bound to an
+        evidence source records history for that account only.
         """
         import re
         from datetime import date, time
@@ -602,6 +638,8 @@ class ReviewStore:
         from zoneinfo import ZoneInfo
         from .rule_profiles import rule_day
         self._now(now)
+        if self._evidence_source is not None and profile.account_id != self._evidence_source.account_id:
+            raise ReviewRefused("boundary account differs from the store's bound account")
         if profile.verification_reasons(now) or snapshot.account_id!=profile.account_id or snapshot.currency!=profile.account_currency:
             raise ReviewRefused("verified matching account policy required")
         if not re.fullmatch(r"[0-9a-f]{64}",evidence_hash) or cashflow != Decimal("0"):

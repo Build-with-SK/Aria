@@ -32,7 +32,9 @@ def test_atomic_single_use_and_restart_recovery(tmp_path,case):
     assert len(intent)==64
     with pytest.raises(ReviewRefused):
         store.reserve_intent(p,token,i,now=NOW)
-    restarted=ReviewStore(store.path,clock=clock,audit_key=KEY)
+    # A restart reopens the store with its external checkpoint; without it a
+    # keyed store refuses every change (Claude P0 follow-up).
+    restarted=ReviewStore(store.path,clock=clock,audit_key=KEY,anchor_path=tmp_path/'external.anchor')
     assert restarted.recover(now=NOW)==1
     assert restarted.recover(now=NOW)==0
     assert restarted.inspect(p.proposal_id)["state"] == "RECONCILIATION_REQUIRED"

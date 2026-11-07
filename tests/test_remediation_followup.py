@@ -201,7 +201,12 @@ def test_store_history_overrides_transport_reconstructed_state(tmp_path,case):
     s=configured_store(tmp_path,actual)
     for day,balance in enumerate(['10000','10800','10700','10600','10500','10450'],1):
         _record(s,profile,date(2026,11,day),balance)
-    with pytest.raises(ReviewRefused,match='EMERGENCY_HALT'):
+    # Claude follow-up: the source (9,850) and the record (10,450) disagree on
+    # today's midnight balance, so the store now refuses on that integrity
+    # failure before assessing (was: EMERGENCY_HALT from the recorded rows).
+    # The lower-reconstructed-high-water case with an agreeing midnight is
+    # test_authority_followup.test_recorded_high_water_still_raises_a_lower_source_value.
+    with pytest.raises(ReviewRefused,match='disagrees with the authoritative source'):
         s.queue(p,actual,now=NOW)
 
 
@@ -258,10 +263,13 @@ def test_reservation_requires_external_checkpoint(tmp_path,case):
     p,i=case
     s=ReviewStore(tmp_path/'unanchored.sqlite',clock=lambda:NOW,audit_key=AUDIT_KEY,
                   evidence_source=snapshot_source(i))
-    s.queue(p,i,now=NOW)
-    token=s.approve(p.proposal_id,authenticated_owner='fixture-owner',now=NOW)
+    # Claude follow-up: a keyed store without its checkpoint is now refused at
+    # its first change, not only at reservation (test_authority_followup).
     with pytest.raises(ReviewRefused,match='external checkpoint'):
-        s.reserve_intent(p,token,i,now=NOW)
+        s.queue(p,i,now=NOW)
+    assert s.inspect(p.proposal_id) is None
+    with pytest.raises(ReviewRefused,match='external checkpoint'):
+        s.reserve_intent(p,'any-token',i,now=NOW)
 
 
 @pytest.mark.parametrize('damage',['missing','invalid'])
