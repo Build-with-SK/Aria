@@ -12,7 +12,7 @@ import sqlite3
 import pytest
 
 import mt5_fakes
-from test_multiasset_risk import activity, book, calendar, case, holding, NOW, session
+from test_multiasset_risk import activity, book, calendar, case, holding, NOW, session, snapshot_source
 from src.trading.contracts import AssetClass, EconomicEvent, RiskAssessment, content_hash
 from src.trading.multiasset_risk import assess
 from src.trading.mt5_readonly import MT5PermissionDenied, MT5ReadOnlyAdapter, MT5Unavailable
@@ -30,8 +30,9 @@ def clock():
     return NOW
 
 
-def store_at(tmp_path, name="review.sqlite"):
-    return ReviewStore(tmp_path / name, clock=clock, audit_key=AUDIT_KEY)
+def store_at(tmp_path, name="review.sqlite", *, inputs=None):
+    return ReviewStore(tmp_path / name, clock=clock, audit_key=AUDIT_KEY,
+                       evidence_source=None if inputs is None else snapshot_source(inputs))
 
 
 def forged_allow(proposal):
@@ -48,7 +49,7 @@ def test_cr02_forged_allow_for_a_denied_trade_is_refused_by_queue(tmp_path, case
     # Probe R1: 5 lots EURUSD with a 50-pip stop on a $10k account (~$2,550 at risk).
     big = p.model_copy(update={"quantity": D("5.00")})
     assert assess(big, i, now=NOW).verdict == "DENY"
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     with pytest.raises(ReviewRefused, match="caller-built assessment"):
         store.queue(big, forged_allow(big), now=NOW)
     with pytest.raises(ReviewRefused, match="verdict DENY"):
@@ -58,7 +59,7 @@ def test_cr02_forged_allow_for_a_denied_trade_is_refused_by_queue(tmp_path, case
 
 def test_cr02_forged_allow_is_refused_by_reserve_intent(tmp_path, case):
     p, i = case
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     store.queue(p, i, now=NOW)
     token = store.approve(p.proposal_id, authenticated_owner="fixture-owner", now=NOW)
     with pytest.raises(ReviewRefused, match="caller-built assessment"):
@@ -69,11 +70,11 @@ def test_cr02_forged_allow_is_refused_by_reserve_intent(tmp_path, case):
 
 @pytest.mark.parametrize("change,why", [
     ("kill_switch", "EMERGENCY_HALT"),
-    ("commission", "authorised risk changed"),
+    ("commission", "authoritative snapshot"),
 ])
 def test_cr02_reservation_reassesses_fresh_evidence(tmp_path, case, monkeypatch, change, why):
     p, i = case
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     store.queue(p, i, now=NOW)
     token = store.approve(p.proposal_id, authenticated_owner="fixture-owner", now=NOW)
     fresh = i
@@ -97,7 +98,7 @@ def test_cr02_caller_clock_must_agree_with_store_clock(tmp_path, case):
 
 def test_cr02_store_assesses_under_its_own_policy_only(tmp_path, case):
     p, i = case
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     with pytest.raises(TypeError):
         store.queue(p, i, now=NOW, policy=None)  # no caller-chosen policy parameter
     risk = store.queue(p, i, now=NOW)
@@ -106,7 +107,7 @@ def test_cr02_store_assesses_under_its_own_policy_only(tmp_path, case):
 
 def test_cr02_tampered_stored_assessment_is_refused(tmp_path, case):
     p, i = case
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     store.queue(p, i, now=NOW)
     with sqlite3.connect(str(store.path)) as db:
         raw = json.loads(db.execute("SELECT risk FROM proposals WHERE id=?", (p.proposal_id,)).fetchone()[0])
@@ -478,7 +479,7 @@ def test_cr07_paid_or_funded_ftmo_account_on_a_demo_server_cannot_be_queued(tmp_
     p, i = on_profile(case, ftmo(case, evaluation_stage=stage, account_class=klass))
     assert i.account.environment == "DEMO"  # FTMO serves every account from demo servers
     assert assess(p, i, now=NOW).verdict == "ALLOW"  # research sizing still works
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     with pytest.raises(ReviewRefused, match=f"PRACTICE-only.*{klass}"):
         store.queue(p, i, now=NOW)
     assert store.inspect(p.proposal_id) is None
@@ -497,7 +498,7 @@ def test_cr07_ftmo_stage_fixes_the_class(case, product, stage, klass):
 def test_cr07_ftmo_free_trial_is_practice_and_may_be_queued(tmp_path, case):
     p, i = on_profile(case, ftmo(case, product="FTMO_FREE_TRIAL", evaluation_stage="TRIAL",
                                  account_class="PRACTICE"))
-    store_at(tmp_path).queue(p, i, now=NOW)
+    store_at(tmp_path, inputs=i).queue(p, i, now=NOW)
 
 
 def test_cr07_live_class_is_disabled_whatever_the_server_says(case):
@@ -514,7 +515,7 @@ def test_cr07_undeclared_class_is_unverified(case):
 
 def test_cr07_reservation_rechecks_the_class(tmp_path, case):
     p, i = case
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     store.queue(p, i, now=NOW)
     token = store.approve(p.proposal_id, authenticated_owner="fixture-owner", now=NOW)
     funded = i.model_copy(update={"profile": i.profile.model_copy(update={"account_class": "FUNDED"})})
@@ -990,7 +991,7 @@ def test_cr14_backup_closes_its_connections(tmp_path, case, monkeypatch):
         return connection
 
     p, i = case
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     store.queue(p, i, now=NOW)
     backup = tmp_path / "backup.sqlite"
     monkeypatch.setattr(review_store.sqlite3, "connect", tracking_connect)
@@ -1032,7 +1033,7 @@ def approved(tmp_path, case, store):
 
 
 def test_sec01_rebuilt_sha256_chain_is_refused_on_a_keyed_store(tmp_path, case):
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     p, i, token = approved(tmp_path, case, store)
     rewrite_chain(store.path, sha256_link)
     with pytest.raises(ReviewRefused, match="integrity"):
@@ -1042,7 +1043,7 @@ def test_sec01_rebuilt_sha256_chain_is_refused_on_a_keyed_store(tmp_path, case):
 
 
 def test_sec01_keyed_chain_needs_its_key(tmp_path, case):
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     approved(tmp_path, case, store)
     with pytest.raises(ReviewRefused, match="audit key missing or wrong"):
         ReviewStore(store.path, clock=clock)
@@ -1057,29 +1058,29 @@ def test_sec01_keyed_chain_needs_its_key(tmp_path, case):
     "DELETE FROM audit_meta",
 ])
 def test_sec01_marking_a_keyed_chain_unkeyed_is_refused(tmp_path, case, downgrade):
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     approved(tmp_path, case, store)
     rewrite_chain(store.path, sha256_link)
     with sqlite3.connect(str(store.path)) as db:
         db.execute(downgrade)
     sqlite3.connect(str(store.path)).close()
     with pytest.raises(ReviewRefused, match="cannot be re-keyed"):
-        store_at(tmp_path)
+        store_at(tmp_path, inputs=case[1])
 
 
 def test_sec01_unkeyed_store_cannot_reserve_or_be_rekeyed(tmp_path, case):
-    store = ReviewStore(tmp_path / "review.sqlite", clock=clock)
+    store = ReviewStore(tmp_path / "review.sqlite", clock=clock, evidence_source=snapshot_source(case[1]))
     p, i, token = approved(tmp_path, case, store)
     assert store.verify_audit()                  # still a working review queue
     with pytest.raises(ReviewRefused, match="keyed audit chain"):
         store.reserve_intent(p, token, i, now=NOW)
     assert store.inspect(p.proposal_id)["state"] == "APPROVED"
     with pytest.raises(ReviewRefused, match="cannot be re-keyed"):
-        store_at(tmp_path)
+        store_at(tmp_path, inputs=case[1])
 
 
 def test_sec01_external_anchor_detects_truncation_and_rewrite(tmp_path, case):
-    store = store_at(tmp_path)
+    store = store_at(tmp_path, inputs=case[1])
     p, i, token = approved(tmp_path, case, store)
     anchor = store.anchor()
     assert store.verify_audit(anchor) == anchor["event_hash"]

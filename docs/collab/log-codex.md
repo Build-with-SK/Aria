@@ -304,3 +304,13 @@ sources.py/package naming collision; new module is source_resolver.py.
 Research/API suite 21 passed. Source fetches in tests are fixtures only; no
 provider credentials or configured network resolver. Original conflicting
 fixture retained as abstention; separate agreeing fixture covers positive output.
+
+
+## 2026-11-07 — Account-bound snapshot acquisition
+
+ReviewStore queue/reserve require configured BoundRiskSource; caller evidence
+substitution fails, each operation reacquires, account registration is event-bound,
+and stored daily/high-water history supersedes transport baseline. Calculator
+provider/account/symbol/side/permission checks added. Existing risk/review 248
+passed; follow-up authority suite 24 passed. No real broker source configured:
+read integration remains UNVERIFIED and execution disabled. No deployment action.

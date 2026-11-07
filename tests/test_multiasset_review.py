@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from test_multiasset_risk import case, NOW
+from test_multiasset_risk import case, NOW, snapshot_source
 from src.trading.multiasset_risk import assess
 from src.trading.review_store import ReviewRefused, ReviewStore, State, validate_transition
 
@@ -19,7 +19,7 @@ def clock():
 def queued(tmp_path,case):
     """Queue and approve the fixture; the store assesses the evidence itself."""
     p,i=case
-    store=ReviewStore(tmp_path/'review.sqlite',clock=clock,audit_key=KEY)
+    store=ReviewStore(tmp_path/'review.sqlite',clock=clock,audit_key=KEY,evidence_source=snapshot_source(case[1]))
     risk=store.queue(p,i,now=NOW)
     assert risk==assess(p,i,now=NOW,policy=ReviewStore.POLICY)
     token=store.approve(p.proposal_id,authenticated_owner="fixture-owner",now=NOW)
@@ -43,7 +43,7 @@ def test_racing_store_connections_reserve_once(tmp_path,case):
     store,p,i,token=queued(tmp_path,case)
     def reserve(_):
         try:
-            return ReviewStore(store.path,clock=clock,audit_key=KEY).reserve_intent(p,token,i,now=NOW)
+            return ReviewStore(store.path,clock=clock,audit_key=KEY,evidence_source=snapshot_source(i)).reserve_intent(p,token,i,now=NOW)
         except ReviewRefused:
             return None
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -71,7 +71,7 @@ def test_expiry_policy_change_and_wrong_token(tmp_path,case,monkeypatch):
         store.reserve_intent(p,"bad",i,now=NOW)
     later=NOW+timedelta(seconds=30)
     with pytest.raises(ReviewRefused):
-        ReviewStore(store.path,clock=lambda: later,audit_key=KEY).reserve_intent(p,token,i,now=later)
+        ReviewStore(store.path,clock=lambda: later,audit_key=KEY,evidence_source=snapshot_source(i)).reserve_intent(p,token,i,now=later)
     from src.trading.multiasset_risk import ResearchRiskPolicy
     stricter=ResearchRiskPolicy(ordinary_fraction="0.004")
     monkeypatch.setattr(ReviewStore,"POLICY",stricter)

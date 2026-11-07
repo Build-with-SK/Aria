@@ -71,4 +71,3 @@ def test_rq02_break_below_support_is_never_a_bounce(case):
     for family,regime in [('SupportResistance','RANGE'),('Breakout','TREND'),('MeanReversion','RANGE')]:
         h=analyse(case[1].specification.instrument,tuple(bars),now=NOW,family=family,regime=regime)
         assert h.decision_status == 'ABSTAIN'
-

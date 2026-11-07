@@ -60,7 +60,7 @@ def activity(**changes):
 
 def broker_calc(instrument_id, profit, margin, provenance, *, entry="1.10020",
                 stop="1.09520", side="BUY", volume="1", currency="USD"):
-    return BrokerCalculation(instrument_id=instrument_id, side=side, volume=volume,
+    return BrokerCalculation(account_id="demo-1", instrument_id=instrument_id, side=side, volume=volume,
         entry=entry, stop_loss=stop, profit_at_stop=profit, margin=margin,
         currency=currency, provenance=provenance.model_copy(update={"data_type": "broker_calculation"}))
 
@@ -276,3 +276,10 @@ def test_naive_timestamp_rejected(case):
     p,_=case
     with pytest.raises(ValidationError):
         TradeProposal.model_validate({**p.model_dump(),"expires_at":datetime(2026,11,6)})
+
+
+def snapshot_source(inputs):
+    """Configured fixture transport; independent of the caller's queue inputs."""
+    from src.trading.snapshot_source import BoundRiskSource
+    return BoundRiskSource(account_id=inputs.account.account_id, provider_id=inputs.quote.provenance.provider,
+                           profile=inputs.profile, reader=lambda proposal, now: inputs)

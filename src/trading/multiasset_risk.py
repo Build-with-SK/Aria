@@ -261,6 +261,10 @@ def assess(proposal: TradeProposal, inputs: RiskInputs, *, now: datetime,
     if bc is None:
         unverified.append("BROKER_CALCULATION_REQUIRED")
     elif (bc.instrument_id != instrument.instrument_id or bc.currency != a.currency
+          or bc.account_id != a.account_id or bc.side != proposal.side
+          or bc.provenance.provider != q.provenance.provider
+          or bc.provenance.original_symbol != instrument.provider_symbol
+          or bc.provenance.permission != "EXECUTION"
           or bc.provenance.instrument_id != instrument.instrument_id
           or bc.provenance.quality != "VALID" or bc.provenance.freshness != "FRESH"
           or bc.provenance.retrieved_at > now

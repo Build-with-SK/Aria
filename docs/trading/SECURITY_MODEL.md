@@ -68,3 +68,22 @@ new public-method events. External anchoring remains necessary to detect removal
 of an entire unanchored audit suffix. These checks do not establish authenticity
 of caller-supplied market/account evidence; the trusted acquisition boundary is
 still an open blocker (CR-03/05/07/09/11).
+
+## Account-bound acquisition before order review
+
+`ReviewStore` requires a server-configured `BoundRiskSource` before queue or
+reservation. With no source, order review is disabled. The binding fixes account,
+provider and registered profile independently of request bodies. Its reader is
+called on both operations; missing or failed acquisition refuses review. Submitted
+inputs must match the acquired snapshot. A complete stored boundary history, when
+present, overrides transport-reconstructed daily balance/high-water; missing days
+then fail closed. The first queue authenticates account registration in the audit;
+reopening the same account with changed provider/profile requires a verified
+migration, which this release intentionally does not implement.
+
+Broker calculation evidence also binds account, provider, symbol, execution
+permission and side. The configured reader is trusted application code; supplying
+a reader through a model/request is forbidden. Arbitrary local code replacement
+remains outside this boundary. No production broker reader is configured or
+certified by fixture tests. Research `assess` remains an evidence-driven numerical
+calculation; ALLOW from it alone confers no approval or execution authority.

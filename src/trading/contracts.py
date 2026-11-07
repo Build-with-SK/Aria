@@ -225,6 +225,7 @@ class BrokerCalculation(Contract):
     independent evidence against a mis-mapped specification (review CR-03).
     Profit is linear in volume for LINEAR instruments, so any volume will do.
     """
+    account_id: str | None = None
     instrument_id: str = Field(min_length=1)
     side: Literal["BUY", "SELL"]
     volume: Positive

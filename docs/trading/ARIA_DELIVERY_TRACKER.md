@@ -186,3 +186,15 @@ network integration is absent; fixtures use injected bounded fetchers. Cross-fam
 conflict abstains and support breaks cannot count as bounces. Original conflicting
 fixture now asserts abstention; a separate agreeing fixture retains positive-path
 coverage. Research/API regression suite: **21 passed**. Ten new RQ cases.
+
+Authority follow-up: `snapshot_source.BoundRiskSource` fixes account/provider/profile
+outside submitted requests. Queue and reservation reacquire evidence and reject
+substitution. Existing authenticated boundary history overrides transport baseline;
+first queue persists registration in the audit and changes require verified
+migration. No source configured => review disabled. Calculator evidence additionally
+binds account/provider/symbol/permission/side. Nine new acquisition cases plus
+existing security cases: follow-up suite **24 passed**; relevant risk/review suite
+**248 passed** before these additional cases. Concrete production snapshot adapters
+and genuine broker validation remain UNVERIFIED; this is a fixture-tested acquisition
+boundary, not a completed provider integration. The pre-break holding obligation
+remains a future execution release blocker; no flatten sender is introduced.

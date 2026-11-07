@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from .contracts import RiskAssessment, TradeProposal, content_hash, revalidated
 from .multiasset_risk import ResearchRiskPolicy, RiskInputs, assess
 from .rule_profiles import order_stage_permitted
+from .snapshot_source import BoundRiskSource
 
 
 class State(str, Enum):
@@ -99,7 +100,8 @@ class ReviewStore:
     #: refused, so an approval cannot be made "in the past" against stale data.
     MAX_CLOCK_SKEW_SECONDS = 5
 
-    def __init__(self, path: Path, *, clock=_system_clock, audit_key: bytes | None = None):
+    def __init__(self, path: Path, *, clock=_system_clock, audit_key: bytes | None = None,
+                 evidence_source: BoundRiskSource | None = None):
         """`audit_key` (32+ bytes, kept outside this database) makes every audit
         event an HMAC-SHA256 link (review SEC-01): someone who can write the
         file but does not hold the key cannot rebuild a valid chain. A chain is
@@ -108,6 +110,7 @@ class ReviewStore:
         if audit_key is not None and (not isinstance(audit_key, bytes) or len(audit_key) < 32):
             raise ReviewRefused("audit key must be at least 32 bytes")
         self._audit_key = audit_key
+        self._evidence_source = evidence_source
         self._system_clock = clock
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -318,7 +321,30 @@ class ReviewStore:
             # Research may size a trade on any account; only a PRACTICE account
             # may enter an order stage in this release (review CR-07).
             raise ReviewRefused(f"order stages are PRACTICE-only in this release; account class is {profile.account_class}")
-        risk = assess(proposal, inputs, now=now, policy=self.POLICY)
+        if self._evidence_source is None:
+            raise ReviewRefused("trusted account-bound evidence source required; order review disabled")
+        try:
+            acquired = self._evidence_source.acquire(proposal, now)
+        except Exception as exc:
+            raise ReviewRefused("authoritative snapshot acquisition failed") from exc
+        if content_hash(inputs) != content_hash(acquired):
+            raise ReviewRefused("risk evidence differs from authoritative snapshot")
+        # An existing ledger is authoritative over a transport's reconstructed
+        # baseline. Missing reset history cannot be replaced by a caller value.
+        with self._db() as db:
+            has_history = db.execute("SELECT 1 FROM rule_boundaries WHERE account_id=? LIMIT 1",
+                                     (proposal.account_id,)).fetchone() is not None
+        with self._db() as db:
+            for event in db.execute("SELECT body FROM audit ORDER BY sequence"):
+                body = json.loads(event["body"])
+                if body["kind"] == "ACCOUNT_REGISTERED" and body["proposal_id"] == "account:"+proposal.account_id:
+                    if (body["profile_hash"] != acquired.profile.profile_hash
+                            or body["provider_id"] != self._evidence_source.provider_id):
+                        raise ReviewRefused("account registration changed; verified migration required")
+        if has_history:
+            state = self.rule_state(acquired.profile, equity=acquired.account.equity, now=now)
+            acquired = acquired.model_copy(update={"rule_state": state})
+        risk = assess(proposal, acquired, now=now, policy=self.POLICY)
         if risk.verdict != "ALLOW":
             raise ReviewRefused(f"risk engine verdict {risk.verdict}: {', '.join(risk.reasons)}")
         self._risk(proposal, risk, now)
@@ -327,8 +353,14 @@ class ReviewStore:
     def queue(self, proposal: TradeProposal, inputs: RiskInputs, *, now: datetime) -> RiskAssessment:
         """Assess `proposal` from `inputs` and queue it only if the engine allows it."""
         self._now(now)
-        risk = self._assess(proposal, inputs, now)
         with self._transaction() as db:
+            risk = self._assess(proposal, inputs, now)
+            if not any(json.loads(row["body"])["kind"] == "ACCOUNT_REGISTERED"
+                       and json.loads(row["body"])["proposal_id"] == "account:"+proposal.account_id
+                       for row in db.execute("SELECT body FROM audit")):
+                self._event(db, "ACCOUNT_REGISTERED", "account:"+proposal.account_id, now,
+                            profile_hash=self._evidence_source.profile.profile_hash,
+                            provider_id=self._evidence_source.provider_id)
             try:
                 db.execute("INSERT INTO proposals VALUES(?,?,?,?,?)", (
                     proposal.proposal_id, proposal.model_dump_json(), content_hash(proposal),
