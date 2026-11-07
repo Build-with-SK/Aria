@@ -383,6 +383,9 @@ class ReviewStore:
             acquired = self._evidence_source.acquire(proposal, now)
         except Exception as exc:
             raise ReviewRefused("authoritative snapshot acquisition failed") from exc
+        # Acquisition may block. Recheck the store clock so slow reads cannot
+        # authorize snapshots/proposals against the earlier caller timestamp.
+        self._now(now)
         if content_hash(inputs) != content_hash(acquired):
             raise ReviewRefused("risk evidence differs from authoritative snapshot")
         # An existing ledger is authoritative over a transport's reconstructed
@@ -502,6 +505,7 @@ class ReviewStore:
             prior_risk = self._stored_risk(db, proposal.proposal_id, row["risk"])
             if prior_risk.policy_hash != fresh_risk.policy_hash or fresh_risk.monetary_risk > prior_risk.monetary_risk:
                 raise ReviewRefused("risk policy or authorised risk changed")
+            self._now(now)
             intent_id = content_hash({"proposal": row["payload_hash"], "approval": row["token_hash"]})
             db.execute("INSERT INTO intents VALUES(?,?,?,?,?,?)", (intent_id, proposal.proposal_id,
                        intent_id, row["payload_hash"], State.SUBMISSION_PENDING.value, now.isoformat()))

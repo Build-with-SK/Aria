@@ -369,3 +369,12 @@ First pushed full-suite job failed before tests: yfinance absent from CI
 requirements while test_pipeline_sentiment imports it eagerly. Added exact
 1.3.0 used by the verified local suite. No workflow edit or skip; awaiting
 remote rerun. Publication status remains draft/conditional until CI is checked.
+
+
+## 2026-11-07 — CI portability and acquisition time guard
+
+Linux now collects all tests; one scheduler-generation test mutated global
+os.name and broke pathlib. Patched the scheduler-local os dependency in that
+test, preserving assertions and production-write isolation. No scheduler/runtime
+change. Added post-acquisition/pre-intent store-clock recheck and slow-source
+regression; local store/follow-up selection 44 passed. Remote full rerun required.

@@ -297,3 +297,18 @@ def test_checkpoint_persisted_before_failed_database_commit_fails_closed(tmp_pat
     monkeypatch.setattr(s,'_db',real_db)
     with pytest.raises(ReviewRefused,match='checkpoint integrity/rollback'):
         s.reserve_intent(p,token,i,now=NOW)
+
+
+
+def test_slow_acquisition_cannot_use_an_earlier_clock(tmp_path,case):
+    p,i=case
+    clock=[NOW]
+    def slow_source(proposal,now):
+        clock[0]=NOW+timedelta(seconds=6)
+        return i
+    binding=BoundRiskSource(i.account.account_id,'fixture',i.profile,slow_source)
+    s=ReviewStore(tmp_path/'slow.sqlite',clock=lambda:clock[0],audit_key=AUDIT_KEY,
+                  evidence_source=binding,anchor_path=tmp_path/'slow.anchor')
+    with pytest.raises(ReviewRefused,match='caller clock disagrees'):
+        s.queue(p,i,now=NOW)
+    assert s.inspect(p.proposal_id) is None

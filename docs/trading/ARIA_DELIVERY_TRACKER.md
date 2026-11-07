@@ -259,3 +259,12 @@ because requirements-ci omitted yfinance, which sentiment tests import eagerly.
 Added yfinance==1.3.0, the exact version used by the verified local full suite.
 No tests skipped or relaxed. GitHub rerun is pending; local results do not imply
 Linux CI success. This is a CI dependency fix, not a runtime or workflow change.
+
+CI second run after the dependency fix: 3,634 passed, 11 skipped, one failure
+in the legacy scheduler-generation test. That test globally changed os.name to
+nt, breaking pathlib on Linux under the production-write guard. Replaced only
+the scheduler module's os dependency with a local SimpleNamespace; all task
+script assertions and the guard remain active. No scheduler source, installed
+task, platform skip or runtime configuration changed. Also added a clock check
+after evidence acquisition and before intent creation; an injected slow-source
+case proves acquisition cannot authorize against an earlier timestamp.
