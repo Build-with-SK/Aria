@@ -726,3 +726,21 @@ Execution stays disabled; no broker, FTMO account, deployment or production conf
 - Baseline at `7385130`: 3,432 passed, 10 skipped, exit 0 (392 s).
 - Original failures re-reproduced today against an extracted copy of `7385130`.
 - Progress and evidence: `docs/trading/ARIA_DELIVERY_TRACKER.md`.
+
+## 2026-11-07 — Two-agent mission, Stage 1 (P0 authority): DONE locally, awaiting Codex
+
+Roles per `WORK_PLAN.md` §9: Claude implements, Codex reviews. Found on arrival:
+`0abe76b`..`268af1d` (11 commits) made in this worktree by a Codex implementation agent,
+branch pushed, draft PR #5 open; Codex's review file 0 bytes on disk. Nothing reverted.
+- Reviewer's `review_adversarial.py` reproduces its recorded results on `dac263f`; on
+  `268af1d` its store attacks stop at the now-mandatory evidence source (tests nothing).
+- Claude probe on a configured store (`claude_review_probes/p0_configured_store_probe.py`):
+  SQL forge/replay/swap, rollback-before-reservation, caller substitution, kill switch
+  all refused at `268af1d`; but recorded history replaced the source (4 loosening cases →
+  ALLOW), an unchecked writer + rollback released a hold, recorder unbound to account.
+- Fix `3bb9f8d` (review_store.py only) + `tests/test_authority_followup.py` (9; 8 red on
+  268af1d). 3 existing tests tightened (listed in AGENT_HANDOFF.md for Codex).
+- Full suite on a working-tree copy: 3,647 passed, 21 skipped, exit 0; git-only tests
+  pass in the worktree. Not pushed. No broker, deployment or runtime change.
+- Open: CL-01 approve() identity is caller-attested (owner decision); Stage 2 next
+  (QA-04 close-balance breach and target-with-open-loss still reproduce at 268af1d).

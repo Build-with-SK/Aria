@@ -75,9 +75,15 @@ still an open blocker (CR-03/05/07/09/11).
 reservation. With no source, order review is disabled. The binding fixes account,
 provider and registered profile independently of request bodies. Its reader is
 called on both operations; missing or failed acquisition refuses review. Submitted
-inputs must match the acquired snapshot. A complete stored boundary history, when
-present, overrides transport-reconstructed daily balance/high-water; missing days
-then fail closed. The first queue authenticates account registration in the audit;
+inputs must match the acquired snapshot. Stored boundary history can only tighten
+the acquired account state, never loosen it: today's recorded midnight balance
+must equal the source's exactly (otherwise review is refused), the high-water mark
+is the higher of the recorded and acquired values, and equity, cashflows and
+resets are always the source's. Missing days fail closed. (At `268af1d` stored
+rows replaced the source's state wholesale; boundary rows are written from
+caller-supplied snapshots, so a lower row loosened the limits — fixed in the
+Claude P0 follow-up.) A store bound to a source records history only for that
+account. The first queue authenticates account registration in the audit;
 reopening the same account with changed provider/profile requires a verified
 migration, which this release intentionally does not implement.
 
@@ -90,10 +96,14 @@ calculation; ALLOW from it alone confers no approval or execution authority.
 
 ## Whole-database rollback protection
 
-Intent reservation additionally requires a separate `anchor_path`. Every mutation
-on a configured store verifies the authenticated external checkpoint and atomically
-replaces it with the new event head (flushed/fsync'd) **before** committing SQLite.
-A database-only rollback to a previously valid HMAC prefix cannot pass this check.
+A keyed store requires its separate `anchor_path` for every change (queue, approve,
+reserve, recover, boundary recording), not only for reservation; restarts reopen
+with the same path. Every change verifies that the authenticated external
+checkpoint names the current audit head and atomically replaces it with the new
+head (flushed/fsync'd) **before** committing SQLite. A database-only rollback to
+any earlier valid HMAC prefix cannot pass this check. (At `268af1d` an instance
+opened without the checkpoint could still change a keyed store, and rolling the
+file back past that change, e.g. releasing a reconciliation hold, went unnoticed.)
 Missing/corrupt checkpoints refuse mutation. If SQLite commit fails after checkpoint
 persistence, the advanced checkpoint deliberately blocks subsequent mutations;
 there is no automatic repair that could authorize replay. Recovery requires a

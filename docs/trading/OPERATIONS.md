@@ -95,8 +95,9 @@ auto-execute toggles, owner sessions or broker credentials.
 
 ## External checkpoint lifecycle
 
-A keyed review store now requires a separate `anchor_path` to reserve an intent.
-Keep the key and checkpoint outside broker-writable/database-writable state.
+A keyed review store requires its separate `anchor_path` for every change, and a
+restart must reopen it with the same path; opened without it, the store is
+read-only. Keep the key and checkpoint outside broker-writable/database-writable state.
 The application checkpoints before SQLite commit and fails closed on an advanced,
 missing or corrupted checkpoint. A failed commit may therefore require manual
 recovery verification. Database backups alone do not establish current approval

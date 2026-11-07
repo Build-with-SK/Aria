@@ -1,0 +1,136 @@
+{
+  "note": "Claude P0 probes against a configured ReviewStore (evidence source + external checkpoint). Fixture-only.",
+  "268af1d": {
+    "SQL_FORGE_APPROVAL": {
+      "refused": "proposal differs from audit record"
+    },
+    "SQL_REPLAY_CONSUMED": {
+      "refused": "proposal differs from audit record"
+    },
+    "SQL_PAYLOAD_SWAP": {
+      "refused": "proposal differs from audit record"
+    },
+    "SQL_LOWER_HIGH_WATER": {
+      "refused": "rule boundary differs from its audit evidence"
+    },
+    "ROLLBACK_BEFORE_RESERVATION": {
+      "refused": "external checkpoint integrity/rollback failure"
+    },
+    "ROLLBACK_RELEASES_HOLD": {
+      "unanchored_mutation_allowed": true,
+      "state_before_rollback": "RECONCILIATION_REQUIRED",
+      "state_after_rollback": "SUBMISSION_PENDING",
+      "anchored_mutation_refused": null
+    },
+    "RECORDED_MIDNIGHT_BELOW_SOURCE": {
+      "source_verdict": "EMERGENCY_HALT",
+      "store_verdict": "ALLOW"
+    },
+    "RECORDED_HIGH_WATER_BELOW_SOURCE": {
+      "source_verdict": "DENY",
+      "store_verdict": "ALLOW"
+    },
+    "SOURCE_CASHFLOW_MASKED": {
+      "source_verdict": "UNVERIFIED",
+      "store_verdict": "ALLOW"
+    },
+    "SOURCE_RESET_MASKED": {
+      "source_verdict": "UNVERIFIED",
+      "store_verdict": "ALLOW"
+    },
+    "CALLER_EMPTY_BOOK": {
+      "source_verdict": "DENY",
+      "refused": "risk evidence differs from authoritative snapshot"
+    },
+    "CALLER_ZERO_ACTIVITY": {
+      "source_verdict": "DENY",
+      "refused": "risk evidence differs from authoritative snapshot"
+    },
+    "CALLER_CALCULATOR_SWAP": {
+      "source_verdict": "ALLOW",
+      "refused": "risk evidence differs from authoritative snapshot"
+    },
+    "CALLER_CLASS_RELABEL": {
+      "source_verdict": "ALLOW",
+      "refused": "order stages are PRACTICE-only in this release; account class is FUNDED"
+    },
+    "KILL_SWITCH": {
+      "refused": "risk engine verdict EMERGENCY_HALT: KILL_SWITCH"
+    },
+    "OTHER_ACCOUNT": {
+      "refused": "authoritative snapshot acquisition failed"
+    },
+    "RECORDER_UNBOUND_ACCOUNT": {
+      "recorded_for_unbound_account": true
+    },
+    "APPROVE_ACTOR_ATTESTED": {
+      "approval_issued": true
+    }
+  },
+  "stage1_fix": {
+    "SQL_FORGE_APPROVAL": {
+      "refused": "proposal differs from audit record"
+    },
+    "SQL_REPLAY_CONSUMED": {
+      "refused": "proposal differs from audit record"
+    },
+    "SQL_PAYLOAD_SWAP": {
+      "refused": "proposal differs from audit record"
+    },
+    "SQL_LOWER_HIGH_WATER": {
+      "refused": "rule boundary differs from its audit evidence"
+    },
+    "ROLLBACK_BEFORE_RESERVATION": {
+      "refused": "external checkpoint integrity/rollback failure"
+    },
+    "ROLLBACK_RELEASES_HOLD": {
+      "exception": "ReviewRefused",
+      "message": "a keyed store changes only with its external checkpoint"
+    },
+    "RECORDED_MIDNIGHT_BELOW_SOURCE": {
+      "source_verdict": "EMERGENCY_HALT",
+      "store_verdict": "REFUSED: recorded midnight balance disagrees with the authoritative source"
+    },
+    "RECORDED_HIGH_WATER_BELOW_SOURCE": {
+      "source_verdict": "DENY",
+      "store_verdict": "REFUSED: risk engine verdict DENY: WITHIN_FLOOR_BUFFER, MINIMUM_LOT_EXCEEDS_RISK_BUDGET, RISK_BUDGET_EXCEEDED"
+    },
+    "SOURCE_CASHFLOW_MASKED": {
+      "source_verdict": "UNVERIFIED",
+      "store_verdict": "REFUSED: risk engine verdict UNVERIFIED: POLICY_UNVERIFIED: withdrawal/deposit/reset needs a new verified baseline"
+    },
+    "SOURCE_RESET_MASKED": {
+      "source_verdict": "UNVERIFIED",
+      "store_verdict": "REFUSED: risk engine verdict UNVERIFIED: POLICY_UNVERIFIED: withdrawal/deposit/reset needs a new verified baseline"
+    },
+    "CALLER_EMPTY_BOOK": {
+      "source_verdict": "DENY",
+      "refused": "risk evidence differs from authoritative snapshot"
+    },
+    "CALLER_ZERO_ACTIVITY": {
+      "source_verdict": "DENY",
+      "refused": "risk evidence differs from authoritative snapshot"
+    },
+    "CALLER_CALCULATOR_SWAP": {
+      "source_verdict": "ALLOW",
+      "refused": "risk evidence differs from authoritative snapshot"
+    },
+    "CALLER_CLASS_RELABEL": {
+      "source_verdict": "ALLOW",
+      "refused": "order stages are PRACTICE-only in this release; account class is FUNDED"
+    },
+    "KILL_SWITCH": {
+      "refused": "risk engine verdict EMERGENCY_HALT: KILL_SWITCH"
+    },
+    "OTHER_ACCOUNT": {
+      "refused": "authoritative snapshot acquisition failed"
+    },
+    "RECORDER_UNBOUND_ACCOUNT": {
+      "recorded_for_unbound_account": false,
+      "message": "boundary account differs from the store's bound account"
+    },
+    "APPROVE_ACTOR_ATTESTED": {
+      "approval_issued": true
+    }
+  }
+}

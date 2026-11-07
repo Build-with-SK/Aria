@@ -232,7 +232,30 @@ Stage 5 work from a guess.
   wait for the other agent's review before merge. Everything else is reviewed
   after merge.
 
-## 8. Owner decision 2026-11-06 — sole implementation ownership
+## 9. Owner decision 2026-11-07 — two-agent mission (supersedes section 8)
+
+ChatGPT coordinates. **Claude** is the implementation owner of
+`feature/aria-multiasset-trading` in its worktree `aria-multiasset-trading`:
+fixes, regression tests, tracker, logical commits, handovers. **Codex** is the
+independent security and quality reviewer, in its own review worktree: it
+reproduces defects, designs adversarial tests and classifies each Claude commit
+as VERIFIED_FIXED, PARTIALLY_FIXED, NOT_FIXED, UNVERIFIED or REGRESSION_FOUND.
+Neither edits the other's worktree; neither force-pushes or rewrites history.
+
+Protocol per stage: Claude implements, commits only after its tests and diff
+review pass, and records a handover in `docs/trading/AGENT_HANDOFF.md`; Codex
+reviews that exact commit; Claude addresses valid objections; Codex verifies.
+A finding is VERIFIED_FIXED only on Codex's verdict, never on a green suite.
+
+Disclosure: commits `0abe76b`..`268af1d` (2026-11-07 19:33–20:16 UTC) were made
+in Claude's worktree by a Codex implementation agent before this decision; it
+also pushed the branch and opened draft PR #5. They are treated as code not yet
+independently verified. Shared reports: `docs/trading/ARIA_DELIVERY_TRACKER.md`,
+`docs/trading/AGENT_HANDOFF.md`, Codex's `CODEX_INDEPENDENT_REVIEW.md`, and this file.
+Execution stays disabled; no broker, FTMO account, Oracle deployment or runtime
+configuration changes without separate owner authorisation.
+
+## 8. Owner decision 2026-11-06 — sole implementation ownership (superseded by section 9)
 
 Until the owner says otherwise, Claude Code is the sole implementation and
 engineering agent for ARIA, including the areas section 3 assigns to Codex
