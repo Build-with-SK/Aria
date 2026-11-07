@@ -191,6 +191,11 @@ def run_backtest(
         raise ValueError("Open prices required for chronological execution")
     if not np.isfinite(opens.to_numpy(dtype=float)).all():
         raise ValueError("finite Open prices required for chronological execution")
+    # A missing close leaves the bar's mark, the drawdown breaker, the next
+    # signal and the benchmark undefined; skipping the bar also skipped its
+    # stops (review RV2-01). Refused, like a missing open.
+    if not np.isfinite(close.to_numpy(dtype=float)).all():
+        raise ValueError("finite Close prices required to mark every bar")
 
     # Bar range for intrabar stops (QA-03). Without High/Low the only prices
     # known inside a bar are its open and close; the result says so.
@@ -281,16 +286,16 @@ def run_backtest(
             hi, lo = max(exec_px, px), min(exec_px, px)
 
         score = float(scores.iloc[i - 1])   # Yesterday's signal → today's decision
-
-        if np.isnan(px) or np.isnan(score):
-            equity_vals.append(cash + notional)
-            continue
+        # No signal (warm-up, a missing feature) means no signal-driven
+        # decision: no entry and no signal exit. Price-driven exits, the
+        # mark and the breaker still run (review RV2-01).
+        has_signal = not np.isnan(score)
 
         # ── At the open ───────────────────────────────────────────────────────
         if in_trade:
             stop_px = _stop_price()
             gapped = exec_px <= stop_px if direction == "long" else exec_px >= stop_px
-            signal_flip = score < 0 if direction == "long" else score > 0
+            signal_flip = has_signal and (score < 0 if direction == "long" else score > 0)
             if pending_exit:
                 _record_trade(exec_px, pending_exit)
             elif gapped:
@@ -300,7 +305,7 @@ def run_backtest(
                 _record_trade(exec_px, "signal")
         pending_exit = None
 
-        if not in_trade and not halted:
+        if not in_trade and not halted and has_signal:
             if score >= signal_threshold:
                 entry_price = exec_px * (1 + cost)
                 notional    = cash * risk_per_trade

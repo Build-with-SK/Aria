@@ -40,8 +40,9 @@ def calendar_for_symbol(symbol: str) -> str:
 def periods_per_year(index, calendar: str | None) -> float | None:
     """Bars a year for a series with this timestamp index on this calendar.
 
-    None when the calendar is unknown, the index has no timestamps, or the bar
-    size is none of intraday (shorter than a session), daily, weekly or monthly.
+    None when the calendar is unknown, the index has no timestamps, the bar
+    size is none of intraday (shorter than a session), daily, weekly or monthly,
+    or the series misses a bar, or has two, in any bar period it spans.
     """
     days = TRADING_DAYS_PER_YEAR.get(calendar)
     if days is None or not isinstance(index, pd.DatetimeIndex) or len(index) < 2:
@@ -58,18 +59,27 @@ def periods_per_year(index, calendar: str | None) -> float | None:
         if not (deltas == step).all():
             return None
         return days * session / hours
+    local = index.tz_localize(None) if index.tz is not None else index
     if hours == 24:
-        local = index.tz_localize(None) if index.tz is not None else index
         if calendar == "CRYPTO":
             expected = pd.date_range(local[0], periods=len(local), freq="D")
         else:
             expected = pd.date_range(local[0], periods=len(local), freq="B")
         return days if local.equals(expected) else None
+    # Weekly and monthly series need one bar in every calendar week or month
+    # (review RV2-02): a median spacing hides a missing period. Periods, not
+    # day gaps, so a bar labelled on a short week's last trading day, or a
+    # business month-end 33 days after the last, still counts.
     if 6 * 24 <= hours <= 8 * 24:
-        return 52.0
+        return 52.0 if _one_bar_per_period(local, "W") else None
     if 28 * 24 <= hours <= 31 * 24:
-        return 12.0
+        return 12.0 if _one_bar_per_period(local, "M") else None
     return None
+
+
+def _one_bar_per_period(index: pd.DatetimeIndex, period: str) -> bool:
+    ordinals = index.to_period(period).asi8
+    return bool((np.diff(ordinals) == 1).all())
 
 
 def total_return(equity_curve: pd.Series) -> float:

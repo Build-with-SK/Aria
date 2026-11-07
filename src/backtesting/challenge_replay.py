@@ -20,7 +20,7 @@ sample of the future. Nothing here is a pass forecast or a trading mandate.
 """
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal
 import math
@@ -122,18 +122,27 @@ def replay_path(profile: RuleProfile, observations: tuple[EquityObservation, ...
 
     The first observation's balance must be the account's initial size: the
     replay starts from a fresh account, as the profile's floors assume.
+
+    Every rule day after the first, weekends included, needs its observation at
+    the exact reset instant: that balance sets the day's floor, and a skipped
+    day's floor and equity are unknown (review RV2-03). Times are strictly
+    increasing: two observations at one instant leave their order, and so which
+    one is the reset snapshot, unknown (review RV2-04).
     """
     profile = _checked(profile)
     observations = tuple(revalidated(o) for o in observations)
     if not observations or observations[0].balance != profile.account_size:
         raise ValueError("replay starts from a fresh account at its initial size")
-    if any(b.at < a.at for a, b in zip(observations, observations[1:])):
-        raise ValueError("observations must be in time order")
+    if any(b.at <= a.at for a, b in zip(observations, observations[1:])):
+        raise ValueError("observations must be in strictly increasing time order")
     account = _Account(profile)
     day, index = None, -1
     for o in observations:
         today = rule_day(profile, o.at)
         if today != day:
+            if day is not None and today != day + timedelta(days=1):
+                raise ValueError("exact reset balance observation required for every rule day; "
+                                 f"none for {day + timedelta(days=1)}")
             boundary = datetime.combine(today, time(profile.reset_hour), ZoneInfo(profile.reset_timezone))
             if day is not None and o.at != boundary:
                 raise ValueError("exact reset balance observation required for every new rule day")
