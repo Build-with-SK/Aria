@@ -1,6 +1,6 @@
 # ARIA delivery tracker — multiasset trading remediation
 
-Last updated: 2026-11-07T22:39Z (UTC) — Claude, RV2 remediation (`c8acaa2`) after Codex's review of `268af1d`
+Last updated: 2026-11-07T23:10Z (UTC) — Claude, QA-04 replay follow-up (`f414e96`) after RV2 (`c8acaa2`)
 
 ## Objective
 
@@ -60,7 +60,7 @@ new defects RV2-01..RV2-04. That review predates `3bb9f8d`, `fbea136` and `c8aca
 | CL-02 | P0 | UNVERIFIED | — | `snapshot_source.BoundRiskSource` (fixture readers) | fixture acquisition cases | — | no real provider reader, investor login or Windows host (OP-01) | separately authorised read-only integration milestone | 2026-11-07T20:39Z |
 | QA-01 | P1 | TESTED | Claude (re-verify) | dac263f; abb89f2 (Codex impl.); c8acaa2 (RV2-01) | `test_qa01_*`; `test_missing_open_cannot_create_retroactive_fill` (2) | dac263f: REGRESSION_FOUND† (missing Open); 268af1d (Codex): PARTIALLY_FIXED — missing Close still skipped a gap stop (RV2-01); c8acaa2: pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
 | QA-03 | P1 | TESTED | Claude (re-verify) | dac263f; abb89f2 (Codex impl.); c8acaa2 (RV2-01) | `test_qa03_*`; `test_missing_range_value_is_reported`; `test_hourly_trade_records_keep_time` | dac263f: PARTIALLY_FIXED†; 268af1d (Codex): PARTIALLY_FIXED — missing Close suppressed gap/low stops (RV2-01); c8acaa2: pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
-| QA-04 | P1 | IN_PROGRESS | Claude | dac263f; abb89f2 (Codex impl.); c8acaa2 (RV2-03/04) | `test_qa04_*` (7); midnight/sparse-day cases | dac263f: PARTIALLY_FIXED†; 268af1d (Codex): PARTIALLY_FIXED — skipped reset days, conflicting reset samples (RV2-03/04, fixed in c8acaa2: pending); Claude: **close-balance breach still OPEN (8,900 below both floors) and target counted with 1,400 open loss** | — | fix close-balance and open-loss target, failing-first, in a separate commit | 2026-11-07T22:39Z |
+| QA-04 | P1 | TESTED | Claude | dac263f; abb89f2 (Codex impl.); c8acaa2 (RV2-03/04); f414e96 (close balance, flat-account target) | `test_qa04_*` (7); midnight/sparse-day cases; `tests/test_qa04_followup.py` (13: 6 red before f414e96, 7 pins incl. DST and trailing reset coverage) | dac263f: PARTIALLY_FIXED†; 268af1d (Codex): PARTIALLY_FIXED — skipped reset days, conflicting reset samples (RV2-03/04); Codex probes REPLAY_CLOSE_BALANCE (8,900 replayed OPEN) and REPLAY_TARGET_OPEN_LOSS (target with 1,400 open loss) — now OVERALL_BREACH and DAILY_BREACH; c8acaa2, f414e96: pending | — | Codex re-reviews c8acaa2 and f414e96 | 2026-11-07T23:10Z |
 | QA-02 | P1 | TESTED | Claude (re-verify) | dac263f; abb89f2, e82c986 (Codex impl.); c8acaa2 (RV2-02) | `test_qa02_*` (15); 21-hour and irregular-grid cases | dac263f: PARTIALLY_FIXED†; 268af1d (Codex): PARTIALLY_FIXED — weekly/monthly series missing a period still annualised (RV2-02); c8acaa2: pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
 | RV2-01 | P1 | TESTED | Claude | c8acaa2 | `tests/test_rv2_followup.py`: `test_missing_close_is_refused` (3); `test_missing_signal_*` (5) | found by Codex at 268af1d (HIGH: missing Close or missing signal skipped the bar's gap stop, intrabar stop and pending breaker exit and marked the position at entry value); Codex's reviewer case passes at c8acaa2; verdict pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
 | RV2-02 | P1 | TESTED | Claude | c8acaa2 | `tests/test_rv2_followup.py`: `test_weekly_or_monthly_grid_missing_a_period_*` (6); `test_two_bars_in_one_period_*` (2); grid and short-week pins (7) | found by Codex at 268af1d (MED: weekly/monthly series missing a period still annualised); Codex's reviewer case passes at c8acaa2; verdict pending | — | Codex re-reviews c8acaa2 | 2026-11-07T22:39Z |
@@ -74,16 +74,16 @@ new defects RV2-01..RV2-04. That review predates `3bb9f8d`, `fbea136` and `c8aca
 | RQ-02 | — | TESTED | Claude | as RQ-01 | `test_research_review_followup.py` (2) | not yet reviewed | — | Codex reviews 7e8570a | 2026-11-07T20:39Z |
 | CR-10, CR-04, CR-06, CR-12, CR-13, CR-14, UI-01 | mixed | VERIFIED_FIXED | — | see historical table | see historical table | dac263f: VERIFIED_FIXED†; 268af1d (Codex): VERIFIED_FIXED, carried forward | — | — | 2026-11-07T22:39Z |
 | OP-01 | P2 | BLOCKED | owner | e717ea6 | `test_op01_*` (3) | — | always-on Windows host | owner decision | 2026-11-07T20:39Z |
-| P3 | P3 | IN_PROGRESS | Claude | — | — | — | branch already published at 268af1d by the Codex implementation agent (draft PR #5); Stage 1 and RV2 commits are local | release checks after Codex verifies P0–P2; no push or merge before then | 2026-11-07T22:39Z |
+| P3 | P3 | IN_PROGRESS | Claude | — | — | — | branch already published at 268af1d by the Codex implementation agent (draft PR #5); Stage 1, RV2 and QA-04 commits are local | release checks after Codex verifies P0–P2; no push or merge before then | 2026-11-07T23:10Z |
 | P3-PII | P3 | NOT_STARTED | owner | — | — | — | `docs/collab/CODEX_HANDOVER.md` (since 6cd5357, 2026-10-11) and `docs/collab/log-codex.md` (since 2026-10-16) contain local Windows paths with the owner's username; already public on several remote branches. Not introduced by this branch. History removal would need a rewrite (owner decision) | owner decides: generalise in a new commit and/or rewrite history | 2026-11-07T20:39Z |
 
-Latest full suite: `c8acaa2` working tree, **3,676 passed, 21 skipped, 1 warning, exit 0**,
-244 s, on a scratch copy; the 11 git-only skips pass in the worktree (58 passed, 2 skipped
-for production data).
+Latest full suite: `f414e96` working tree, **3,689 passed, 21 skipped, 1 warning, exit 0**,
+381 s, on a scratch copy; the 11 git-only skips pass in the worktree (58 passed, 2 skipped
+for production data). Previous: `c8acaa2`, 3,676 passed, 21 skipped, exit 0, 244 s.
 
 Codex's reviewer suite (`review_tests/test_independent_followup.py`, run unchanged with
 `ARIA_REVIEW_ROOT` pointing at this worktree): `268af1d` 19 passed / 5 failed (Codex);
-`fbea136` 18 / 6; **`c8acaa2` 23 passed / 1 failed**. The one failure,
+`fbea136` 18 / 6; **`c8acaa2` and `f414e96` 23 passed / 1 failed**. The one failure,
 `test_additional_no_checkpoint_disables_reservation`, stops at its setup `queue()`:
 since `3bb9f8d` a keyed store opened without its external checkpoint refuses every
 change, so nothing is queued and nothing can be reserved. **Owner decision
@@ -177,6 +177,9 @@ and the original failure was reproduced against `7385130`.
 | 2026-11-07 21:59 | RV2 working tree (= `c8acaa2`) | full suite on a scratch copy of the working tree | **3,676 passed, 21 skipped, 1 warning**, exit 0, 244 s |
 | 2026-11-07 ~22:00 | `c8acaa2` | git-only + docs tests in the worktree (`test_protected_paths`, `test_selfmod_sandbox`, `test_docs_match_code`) | **58 passed, 2 skipped** (production data absent) |
 | 2026-11-07 ~22:00 | `c8acaa2` | Codex reviewer suite, unchanged | **23 passed, 1 failed** — all 5 RV2 cases pass; the failure is the checkpoint case above, kept by owner decision |
+| 2026-11-07 ~22:50 | `324a2e0` + `tests/test_qa04_followup.py`, code unchanged | the new QA-04 tests (failing-first) | **6 failed, 7 passed**; failures at the defect step: close 8,900 and close at 9,500 → OPEN; target claimed at balance 11,000 / equity 9,600 (and 11,000 / 11,300) instead of the breach at 9,400 or the first flat point |
+| 2026-11-07 ~23:00 | QA-04 working tree (= `f414e96`) | QA-04 + RV2 + findings + remediation tests; targeted modules; Codex reviewer suite | **242 passed**; **425 passed**; reviewer **23 passed, 1 failed** (checkpoint case, unchanged) |
+| 2026-11-07 ~23:05 | QA-04 working tree (= `f414e96`) | full suite on a scratch copy; git-only + docs tests in the worktree | **3,689 passed, 21 skipped, 1 warning**, exit 0, 381 s; **58 passed, 2 skipped** |
 
 ## Files changed in this delivery
 
@@ -211,6 +214,8 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 | 2026-11-07 | RV2-01: a non-finite Close refuses the run, like a non-finite Open; a missing signal blocks only entries and signal exits | Without a close the bar's mark, breaker, next signal and benchmark are undefined; stops and the breaker depend on prices, not on the signal |
 | 2026-11-07 | RV2-02: weekly/monthly completeness is one bar per calendar week (Mon–Sun) or month, not a day-gap tolerance | Business month-ends are up to 33 days apart and short weeks end on a Thursday; a gap tolerance either rejects those or hides a missing period |
 | 2026-11-07 | RV2-03/04: every rule day, weekends included, needs its exact reset observation; observation times strictly increase, identical repeats included | A skipped day's floor and equity are unknown; at one instant the order, and so the reset snapshot, is unknowable |
+| 2026-11-07 | QA-04: a sampled day (`DayPath`) ends flat, so its closing balance is checked against the floors | The next sampled day starts from that balance with no positions; a realised loss below a floor cannot be offset by positions the resampler does not carry. Histories held overnight belong in `replay_path` |
+| 2026-11-07 | QA-04: TARGET_REACHED needs the balance at the target on a flat account (equity == balance) | Mirrors `evaluate_objectives` (PROFIT_TARGET_NOT_MET, OPEN_POSITIONS_REMAIN); a claimed target must not stop a replay before a breach |
 
 ## Outstanding blockers (external)
 
@@ -219,9 +224,9 @@ Listed per commit in `git log 7385130..HEAD`; summarised here as stages land.
 
 ## Next exact action
 
-Current (2026-11-07T22:39Z): Claude fixes the QA-04 close-balance and open-loss target
-defects in a separate local commit; Codex re-reviews `3bb9f8d`, `fbea136`, `c8acaa2` and
-that commit. Nothing is pushed or merged before Codex's verdict; execution stays disabled.
+Current (2026-11-07T23:10Z): Codex re-reviews `3bb9f8d`, `fbea136`, `c8acaa2` and `f414e96`
+(QA-04 close balance and flat-account target). Nothing is pushed or merged before
+Codex's verdict; execution stays disabled.
 
 Earlier: owner review of draft PR #5; then a separately scoped practice-reader integration gate.
 The current release gate and remaining provider/runtime blockers are summarized

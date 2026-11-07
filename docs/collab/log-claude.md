@@ -754,3 +754,11 @@ reviewer suite 23/24. The one failure is its no-checkpoint case, which `3bb9f8d`
 refuses at `queue`; owner decision: keep the stricter checkpoint rule. Recorded in
 `docs/trading/ARIA_DELIVERY_TRACKER.md`. Not pushed. Next: QA-04 close-balance breach
 and open-loss target, separate commit.
+
+## 2026-11-07 — QA-04 replay follow-up: DONE locally, awaiting Codex
+
+`f414e96` (challenge_replay.py) + `tests/test_qa04_followup.py` (13; 6 red before).
+A sampled day's closing balance is now checked against the floors (Codex probe:
+8,900 replayed OPEN → OVERALL_BREACH); the target counts only on a flat account
+(probe: target at equity 9,600 → the DAILY_BREACH at 9,400). Full suite 3,689
+passed, 21 skipped, exit 0; reviewer suite unchanged at 23/24. Not pushed.
