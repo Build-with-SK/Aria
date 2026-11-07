@@ -52,8 +52,8 @@ This is a tested research/read-only extension, not the completed production targ
 - Third-party plugin loading and MCP execution are disabled. Declaration checks
   are not OS isolation, a token issuer or a secure executable plugin registry.
 - Shared Python venv has known advisories; it was not changed. A separate audited
-  minimal research lock is supplied. Frontend retains two moderate router findings
-  requiring a major upgrade review. See DEPENDENCY_AUDIT.md.
+  minimal research lock is supplied. The frontend router advisories were closed by the separately tested 7.18.5
+  update. See DEPENDENCY_AUDIT.md.
 - SQLite local storage is not encrypted. Audit chains can be keyed and anchored
   (SEC-01), but no key manager or anchor store ships: the operator holds both.
 - The MT5 worker (CR-06) is tested with a fake SDK in a real spawned process.

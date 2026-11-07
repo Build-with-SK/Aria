@@ -314,3 +314,11 @@ and stored daily/high-water history supersedes transport baseline. Calculator
 provider/account/symbol/side/permission checks added. Existing risk/review 248
 passed; follow-up authority suite 24 passed. No real broker source configured:
 read integration remains UNVERIFIED and execution disabled. No deployment action.
+
+
+## 2026-11-07 — Frontend dependency release check
+
+Upgraded existing router dependency to 7.18.5 in an isolated frontend copy; build
+and four offline verifiers passed, npm audit zero advisories. Copied only package
+and lockfile to branch. Shared node_modules untouched. Research lock audit: zero
+advisories in 38 packages. No runtime dependency upgrade or deployment.

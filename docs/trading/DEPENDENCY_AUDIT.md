@@ -73,3 +73,28 @@ baseline candidates remain for separate triage; they are not declared real secre
 or dismissed as false positives. No .env or vault content was copied into artifacts.
 This is not a complete-history scan or credential validation; no claim of a clean
 historical secret audit is made.
+
+## Release verification — 2026-11-07
+
+The isolated, hash-pinned research lock was audited again: **38 packages, zero
+known advisories** (`uvx pip-audit -r requirements-trading-research.lock --no-deps
+--disable-pip --format json`). The shared application environment was not changed;
+its previously reported advisories remain a runtime cutover blocker.
+
+The frontend router dependency is now pinned to **react-router-dom 7.18.5**,
+closing the remaining router advisories:
+[redirect](https://github.com/advisories/GHSA-wrjc-x8rr-h8h6) and
+[hydration](https://github.com/advisories/GHSA-337j-9hxr-rhxg).
+The declared BrowserRouter/Routes/Link/useNavigate APIs used here compile unchanged.
+The exact updated package/lock were installed with npm ci --ignore-scripts in a
+temporary checkout: build and all four offline verifiers passed; npm audit reports
+**zero advisories at every severity**. No shared node_modules junction was changed.
+Browser hydration, clicks and genuine remote login were not tested by offline SSR.
+
+Tracked-text secret scan: 748 files, 24 candidates in 11 files. One candidate in
+this remediation is a deliberately invalid basic-auth URL in a resolver refusal
+test; it contains only the literal words user/password and source.invalid.
+The remaining candidates are unchanged from baseline and are not represented as
+newly verified real secrets or false positives. No candidate values were emitted.
+Changed generated database/model/data files: none. The current worktree's ignored
+.env and owner vault were not scanned or opened.

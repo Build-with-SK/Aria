@@ -198,3 +198,10 @@ existing security cases: follow-up suite **24 passed**; relevant risk/review sui
 and genuine broker validation remain UNVERIFIED; this is a fixture-tested acquisition
 boundary, not a completed provider integration. The pre-break holding obligation
 remains a future execution release blocker; no flatten sender is introduced.
+
+Dependency release checks (2026-11-07): frontend package + lock updated to router
+7.18.5 after isolated build and all four SSR verifiers passed. npm audit: zero
+advisories. Research lock pip-audit: 38 packages, zero known advisories. Shared
+runtime dependency environment remains unchanged and is not approved for execution.
+Tracked text scan had 24 candidates, one new synthetic refusal-test URL; no new
+actual credential identified. Existing candidate values were not printed.
