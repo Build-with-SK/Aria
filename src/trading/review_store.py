@@ -16,6 +16,7 @@ from enum import Enum
 import hashlib
 import hmac
 import json
+import os
 from pathlib import Path
 import secrets
 import sqlite3
@@ -101,7 +102,8 @@ class ReviewStore:
     MAX_CLOCK_SKEW_SECONDS = 5
 
     def __init__(self, path: Path, *, clock=_system_clock, audit_key: bytes | None = None,
-                 evidence_source: BoundRiskSource | None = None):
+                 evidence_source: BoundRiskSource | None = None,
+                 anchor_path: Path | None = None):
         """`audit_key` (32+ bytes, kept outside this database) makes every audit
         event an HMAC-SHA256 link (review SEC-01): someone who can write the
         file but does not hold the key cannot rebuild a valid chain. A chain is
@@ -113,6 +115,9 @@ class ReviewStore:
         self._evidence_source = evidence_source
         self._system_clock = clock
         self.path = Path(path)
+        self._anchor_path = Path(anchor_path) if anchor_path is not None else None
+        if self._anchor_path is not None and self._anchor_path.resolve() == self.path.resolve():
+            raise ReviewRefused("external anchor must be separate from the database")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._db() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
@@ -183,13 +188,64 @@ class ReviewStore:
             db.execute("BEGIN IMMEDIATE")
             try:
                 self._verify(db)
+                self._verify_external_checkpoint(db)
                 self._verify_projection(db)
                 yield db
                 self._verify_projection(db)
+                self._persist_external_checkpoint(db)
                 db.commit()
             except BaseException:
                 db.rollback()
                 raise
+
+    def _verify_external_checkpoint(self, db):
+        if self._anchor_path is None:
+            return
+        if self._audit_key is None:
+            raise ReviewRefused("external checkpoints require a keyed store")
+        try:
+            raw = json.loads(self._anchor_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            if db.execute("SELECT 1 FROM audit LIMIT 1").fetchone() is None:
+                return  # only a new empty store may start an external checkpoint
+            raise ReviewRefused("external checkpoint missing for existing history") from None
+        except Exception as exc:
+            raise ReviewRefused("external checkpoint unreadable") from exc
+        try:
+            payload = raw["payload"]
+            encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            expected = hmac.new(self._audit_key, encoded, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, raw["mac"]):
+                raise ValueError("MAC")
+            if payload["store"] != str(self.path.resolve()):
+                raise ValueError("store")
+            row = db.execute("SELECT event_hash FROM audit WHERE sequence=?", (payload["sequence"],)).fetchone()
+            if row is None or row["event_hash"] != payload["event_hash"]:
+                raise ValueError("rollback")
+        except Exception as exc:
+            raise ReviewRefused("external checkpoint integrity/rollback failure") from exc
+
+    def _persist_external_checkpoint(self, db):
+        if self._anchor_path is None:
+            return
+        row = db.execute("SELECT sequence,event_hash FROM audit ORDER BY sequence DESC LIMIT 1").fetchone()
+        if row is None:
+            return
+        payload = {"store": str(self.path.resolve()), "sequence": row["sequence"], "event_hash": row["event_hash"]}
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        mac = hmac.new(self._audit_key, encoded, hashlib.sha256).hexdigest()
+        self._anchor_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._anchor_path.with_name(self._anchor_path.name+".tmp-"+secrets.token_hex(8))
+        try:
+            with temporary.open("x", encoding="utf-8") as handle:
+                json.dump({"payload": payload, "mac": mac}, handle, sort_keys=True)
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary.replace(self._anchor_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+        # Persisted BEFORE committing SQLite: an interrupted commit leaves an
+        # advanced checkpoint and refuses all further mutation, never a replay.
 
     def _link(self, previous: str, body: str) -> str:
         data = (previous + body).encode()
@@ -429,6 +485,8 @@ class ReviewStore:
         self._now(now)
         if self._audit_key is None:
             raise ReviewRefused("reserving an intent requires a keyed audit chain (review SEC-01)")
+        if self._anchor_path is None:
+            raise ReviewRefused("reserving an intent requires an external checkpoint")
         with self._transaction() as db:
             fresh_risk = self._assess(proposal, fresh_inputs, now)
             row = db.execute("SELECT p.*, a.token_hash, a.expires_at, a.consumed FROM proposals p JOIN approvals a ON a.proposal_id=p.id WHERE p.id=?",
@@ -576,6 +634,7 @@ class ReviewStore:
         with self._db() as db:
             self._verify(db)
             self._verify_projection(db)
+            self._verify_external_checkpoint(db)
             row=db.execute("SELECT * FROM rule_boundaries WHERE account_id=? AND day=?",
                 (profile.account_id,rule_day(profile,now).isoformat())).fetchone()
             if row is None:

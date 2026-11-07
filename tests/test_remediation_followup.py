@@ -140,7 +140,7 @@ from src.trading.snapshot_source import BoundRiskSource
 
 def configured_store(tmp_path, inputs, **kwargs):
     return ReviewStore(tmp_path/'authority.sqlite', clock=lambda:NOW, audit_key=AUDIT_KEY,
-                       evidence_source=snapshot_source(inputs), **kwargs)
+                       evidence_source=snapshot_source(inputs), anchor_path=tmp_path/'authority.anchor', **kwargs)
 
 
 def test_order_review_requires_configured_source(tmp_path,case):
@@ -212,7 +212,7 @@ def test_reservation_reacquires_source_and_cannot_use_cached_book(tmp_path,case)
         reads.append(proposal.proposal_id)
         return current[0]
     binding=BoundRiskSource(i.account.account_id,'fixture',i.profile,reader)
-    s=ReviewStore(tmp_path/'fresh.sqlite',clock=lambda:NOW,audit_key=AUDIT_KEY,evidence_source=binding)
+    s=ReviewStore(tmp_path/'fresh.sqlite',clock=lambda:NOW,audit_key=AUDIT_KEY,evidence_source=binding,anchor_path=tmp_path/'fresh.anchor')
     s.queue(p,i,now=NOW)
     token=s.approve(p.proposal_id,authenticated_owner='fixture-owner',now=NOW)
     current[0]=i.model_copy(update={'book':book(holding('EURUSD'))})
@@ -237,3 +237,63 @@ def test_reopening_same_account_under_new_registration_is_refused(tmp_path,case)
 def test_irregular_return_grid_is_not_annualised(freq,calendar):
     idx=pd.date_range('2025-01-06',periods=100,freq=freq).delete(20)
     assert periods_per_year(idx,calendar) is None
+
+
+def test_database_and_audit_rollback_cannot_replay_reserved_intent(tmp_path,case):
+    p,i=case
+    s=store_at(tmp_path,inputs=i)
+    s.queue(p,i,now=NOW)
+    token=s.approve(p.proposal_id,authenticated_owner='fixture-owner',now=NOW)
+    backup=tmp_path/'before-reserve.sqlite'
+    s.backup(backup)
+    s.reserve_intent(p,token,i,now=NOW)
+    # Database-only attacker restores a fully valid HMAC prefix and its tables.
+    with sqlite3.connect(backup) as source, sqlite3.connect(s.path) as target:
+        source.backup(target)
+    with pytest.raises(ReviewRefused,match='checkpoint integrity/rollback'):
+        s.reserve_intent(p,token,i,now=NOW)
+
+
+def test_reservation_requires_external_checkpoint(tmp_path,case):
+    p,i=case
+    s=ReviewStore(tmp_path/'unanchored.sqlite',clock=lambda:NOW,audit_key=AUDIT_KEY,
+                  evidence_source=snapshot_source(i))
+    s.queue(p,i,now=NOW)
+    token=s.approve(p.proposal_id,authenticated_owner='fixture-owner',now=NOW)
+    with pytest.raises(ReviewRefused,match='external checkpoint'):
+        s.reserve_intent(p,token,i,now=NOW)
+
+
+@pytest.mark.parametrize('damage',['missing','invalid'])
+def test_missing_or_corrupt_external_checkpoint_refuses_mutation(tmp_path,case,damage):
+    p,i=case
+    s=store_at(tmp_path,inputs=i)
+    s.queue(p,i,now=NOW)
+    if damage=='missing':
+        s._anchor_path.unlink()
+    else:
+        s._anchor_path.write_text('{}',encoding='utf-8')
+    with pytest.raises(ReviewRefused,match='checkpoint'):
+        s.approve(p.proposal_id,authenticated_owner='fixture-owner',now=NOW)
+
+
+def test_checkpoint_persisted_before_failed_database_commit_fails_closed(tmp_path,case,monkeypatch):
+    from contextlib import contextmanager
+    p,i=case
+    s=store_at(tmp_path,inputs=i)
+    s.queue(p,i,now=NOW)
+    token=s.approve(p.proposal_id,authenticated_owner='fixture-owner',now=NOW)
+    real_db=s._db
+    class FailCommit:
+        def __init__(self,db): self.db=db
+        def __getattr__(self,name): return getattr(self.db,name)
+        def commit(self): raise RuntimeError('fixture interruption before SQLite commit')
+    @contextmanager
+    def interrupted():
+        with real_db() as db: yield FailCommit(db)
+    monkeypatch.setattr(s,'_db',interrupted)
+    with pytest.raises(RuntimeError,match='fixture interruption'):
+        s.reserve_intent(p,token,i,now=NOW)
+    monkeypatch.setattr(s,'_db',real_db)
+    with pytest.raises(ReviewRefused,match='checkpoint integrity/rollback'):
+        s.reserve_intent(p,token,i,now=NOW)

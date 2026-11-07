@@ -331,3 +331,12 @@ crypto and weekday daily FX/exchange grids must match expected timestamps;
 intraday deltas must be uniform. Relevant annualisation cases 19 passed, including
 three missing-timestamp regressions. Session-gap/holiday grids need an explicit
 calendar adapter and return no annualised figure in this generic library.
+
+
+## 2026-11-07 — External anti-rollback checkpoint
+
+Required independent checkpoint for intent reservation; verify before mutation,
+persist authenticated head before SQLite commit. Added full database/audit rollback,
+missing/corrupt checkpoint and interrupted-commit cases; follow-up suite 32 passed,
+security selection 177 passed. Failure between checkpoint and commit requires
+verified manual recovery. No OS permission or real broker recovery claim.

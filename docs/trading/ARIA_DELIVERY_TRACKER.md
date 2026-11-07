@@ -205,3 +205,10 @@ advisories. Research lock pip-audit: 38 packages, zero known advisories. Shared
 runtime dependency environment remains unchanged and is not approved for execution.
 Tracked text scan had 24 candidates, one new synthetic refusal-test URL; no new
 actual credential identified. Existing candidate values were not printed.
+
+Whole-database rollback follow-up: external checkpoint is now mandatory before
+intent reservation. Authenticated head persisted before SQLite commit; old HMAC
+prefix restoration, checkpoint loss/corruption and interrupted commit all fail
+closed. Follow-up suite **32 passed**. Existing security selection **177 passed**.
+Concrete operational checkpoint ACLs/power-loss recovery and real provider readers
+remain UNVERIFIED; neither is implied by local fixture coverage.

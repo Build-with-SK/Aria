@@ -87,3 +87,22 @@ a reader through a model/request is forbidden. Arbitrary local code replacement
 remains outside this boundary. No production broker reader is configured or
 certified by fixture tests. Research `assess` remains an evidence-driven numerical
 calculation; ALLOW from it alone confers no approval or execution authority.
+
+## Whole-database rollback protection
+
+Intent reservation additionally requires a separate `anchor_path`. Every mutation
+on a configured store verifies the authenticated external checkpoint and atomically
+replaces it with the new event head (flushed/fsync'd) **before** committing SQLite.
+A database-only rollback to a previously valid HMAC prefix cannot pass this check.
+Missing/corrupt checkpoints refuse mutation. If SQLite commit fails after checkpoint
+persistence, the advanced checkpoint deliberately blocks subsequent mutations;
+there is no automatic repair that could authorize replay. Recovery requires a
+separately verified restore/migration. Backup restoration must reconcile the external
+checkpoint as well as the database and key; never overwrite a newer checkpoint
+with an older backup just to make validation pass.
+
+The checkpoint and key need owner-controlled storage permissions outside the
+attacker's database-write authority. A same-user process compromise able to edit
+code/key/checkpoint is beyond this control; no OS sandbox is claimed. Windows
+filesystem power-loss durability and real recovery drills remain operational
+validation requirements before any execution milestone.

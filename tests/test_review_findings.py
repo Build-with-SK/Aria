@@ -32,7 +32,8 @@ def clock():
 
 def store_at(tmp_path, name="review.sqlite", *, inputs=None):
     return ReviewStore(tmp_path / name, clock=clock, audit_key=AUDIT_KEY,
-                       evidence_source=None if inputs is None else snapshot_source(inputs))
+                       evidence_source=None if inputs is None else snapshot_source(inputs),
+                       anchor_path=tmp_path/(name+".anchor"))
 
 
 def forged_allow(proposal):

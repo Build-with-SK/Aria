@@ -92,3 +92,14 @@ real owner reviews; do not delete them as a code rollback.
 For a legacy runtime incident, use the existing documented authenticated halt and
 kill-switch procedures. This branch does not change the running legacy state,
 auto-execute toggles, owner sessions or broker credentials.
+
+## External checkpoint lifecycle
+
+A keyed review store now requires a separate `anchor_path` to reserve an intent.
+Keep the key and checkpoint outside broker-writable/database-writable state.
+The application checkpoints before SQLite commit and fails closed on an advanced,
+missing or corrupted checkpoint. A failed commit may therefore require manual
+recovery verification. Database backups alone do not establish current approval
+consumption: reconcile them with the newest independently held checkpoint. Existing
+stores without a checkpoint require a reviewed baseline/migration; never attach a
+new empty checkpoint to already-populated history and assume it is authenticated.
