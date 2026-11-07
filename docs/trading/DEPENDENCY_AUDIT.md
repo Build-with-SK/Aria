@@ -98,3 +98,11 @@ The remaining candidates are unchanged from baseline and are not represented as
 newly verified real secrets or false positives. No candidate values were emitted.
 Changed generated database/model/data files: none. The current worktree's ignored
 .env and owner vault were not scanned or opened.
+
+Publication-range history scan: 28 commits / 216 unique historical text blobs
+were scanned in an isolated directory with detect-secrets --all-files --no-verify.
+The scanner identified 377 npm lockfile SHA-512 integrity strings across two
+lock versions and two versions of the synthetic invalid basic-auth test URL.
+These were checked by content pattern without emitting candidate values. No
+actual credential was identified in that publication range. This does not
+certify all older history already present on the integration remote.

@@ -5,6 +5,11 @@ is DISABLED.** No broker, FTMO account, live order, registration, purchase, tran
 deployment or production-state change was made. Legacy desk configuration is
 separate; this extension's DISABLED label does not describe the legacy desk.
 
+Remediation evidence and remaining activation gates are in the
+[delivery tracker](ARIA_DELIVERY_TRACKER.md) and
+[review response](REMEDIATION_REVIEW_RESPONSE.md). The original review is frozen
+at its reviewed revision; current regression results do not grant broker authority.
+
 Start with [repository audit](REPOSITORY_AUDIT.md), [implementation matrix](IMPLEMENTATION_MATRIX.md),
 [test evidence](TEST_EVIDENCE.md) and [independent review packet](REVIEW_PACKET.md).
 The complete target platform is not declared finished: genuine MT5 connection,

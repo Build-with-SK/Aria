@@ -101,3 +101,26 @@ No skip was reclassified as a pass. No MT5/IBKR session or actual fill is inferr
 Static AST compatibility check: **all 228 baseline route declarations preserved,
 2 added**. Documentation relative-link check passed. Final branch product changes
 are listed in CHANGED_FILES.md. No production restart or deployment was performed.
+
+## Remediation release verification — 2026-11-07
+
+Code `4165e71`: full repository pytest with bytecode/cache disabled:
+**3,648 passed, 10 skipped, 1 warning in 453.19 s**, exit 0. Test isolation
+redirected 297 application modules; no production write block. Skips concern
+production ledger/symbol data and the opt-in GET runtime sweep. The warning is
+websockets.legacy deprecation. The separate hash-pinned research environment
+ran the seven multiasset modules and three review-regression modules:
+**314 passed, 1 warning** (Starlette TestClient deprecation).
+
+The independent review at dac263f had 15 genuine assertion failures despite a
+green full suite. Those were not counted as setup errors or erased. The follow-up
+adds 32 adversarial cases (including missing-open rejection, account-bound
+acquisition, SQL-row forgery, consumed-token replay, whole-DB rollback and a failed
+commit after checkpoint persistence), plus 10 research source/conflict cases.
+No updated independent review is claimed; these are implementation regression tests.
+
+Exact-lock frontend clean install/build and all four offline verifiers passed
+with router 7.18.5. They do not prove hydration, clicks or remote authentication.
+All broker-related tests use fixtures or a mock SDK in a spawned worker:
+TESTED_WITH_FIXTURES / TESTED_WITH_MOCK_BROKER. Genuine terminal/provider data,
+platform compliance and runtime recovery remain UNVERIFIED/BLOCKED.

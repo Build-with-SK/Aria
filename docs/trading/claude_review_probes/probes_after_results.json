@@ -1,0 +1,46 @@
+{
+  "scope": "FIXTURES ONLY; no current prices or broker activity",
+  "clock": "2026-11-06T12:00:00+00:00",
+  "E1_EURUSD_20_dollars": {
+    "verdict": "ALLOW",
+    "risk": "20.0000000",
+    "reasons": [
+      "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+    ]
+  },
+  "E5b_wrong_gold_contract": {
+    "verdict": "UNVERIFIED",
+    "risk": "0",
+    "reasons": [
+      "CONTRACT_SIZE_OUTSIDE_REVIEWED_REGISTRY",
+      "CONTRACT_SPEC_DISAGREES_WITH_BROKER"
+    ]
+  },
+  "E3b_inverted_GBPUSD": {
+    "verdict": "UNVERIFIED",
+    "risk": "0",
+    "reasons": [
+      "CONTRACT_SPEC_DISAGREES_WITH_BROKER"
+    ]
+  },
+  "E7_exact_floor": {
+    "verdict": "DENY",
+    "risk": "0",
+    "reasons": [
+      "WITHIN_FLOOR_BUFFER",
+      "MINIMUM_LOT_EXCEEDS_RISK_BUDGET",
+      "RISK_BUDGET_EXCEEDED"
+    ]
+  },
+  "E8_floating_daily_loss": {
+    "verdict": "EMERGENCY_HALT",
+    "risk": "0",
+    "reasons": [
+      "INTERNAL_DAILY_STOP"
+    ]
+  },
+  "R1_forged_allow": "REFUSED",
+  "R2_high_water_after_reversion": "10800",
+  "S_client_fact": "UNVERIFIED",
+  "S_conflicting_triggers": "ABSTAIN"
+}

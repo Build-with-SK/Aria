@@ -340,3 +340,15 @@ persist authenticated head before SQLite commit. Added full database/audit rollb
 missing/corrupt checkpoint and interrupted-commit cases; follow-up suite 32 passed,
 security selection 177 passed. Failure between checkpoint and commit requires
 verified manual recovery. No OS permission or real broker recovery claim.
+
+
+## 2026-11-07 — Release checks completed
+
+Code 4165e71: full suite 3,648 passed / 10 skipped / 1 warning, 453.19 s, exit 0;
+297 modules isolated, no production write blocks. Isolated research env: 314
+passed / 1 warning. Exact-lock frontend build and four offline verifiers passed;
+npm/research-lock audits zero known advisories. Publication-range historical
+scanner candidates all triaged as dependency integrity hashes or synthetic test
+URLs. Original four probes rerun at 7385130, current probe output recorded.
+Research-only CONDITIONAL_REVIEW; real provider/Windows/investor/ACL recovery and
+execution monitoring remain later gates. Existing untracked handoff preserved.
