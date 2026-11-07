@@ -98,3 +98,9 @@ Opposing family triggers on one completed bar force ABSTAIN and are returned as
 counterevidence. SupportResistance requires a close inside support/resistance;
 a close below support is a break. The original sinusoidal support-break fixture
 now abstains across SupportResistance, Breakout and MeanReversion.
+
+Cadence completeness: irregular or duplicate return timestamps now leave
+annualised metrics unavailable. Continuous crypto daily grids and weekday
+exchange/FX daily grids must match their expected frequency; fixed intraday grids
+must have consistent intervals. Holiday-adjusted or session-gap intraday datasets
+need a calendar-aware provider adapter instead of median-spacing inference.

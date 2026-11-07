@@ -46,13 +46,25 @@ def periods_per_year(index, calendar: str | None) -> float | None:
     days = TRADING_DAYS_PER_YEAR.get(calendar)
     if days is None or not isinstance(index, pd.DatetimeIndex) or len(index) < 2:
         return None
-    step = pd.Series(index).diff().dropna().median()
+    if not index.is_monotonic_increasing or index.has_duplicates:
+        return None
+    deltas = pd.Series(index).diff().dropna()
+    step = deltas.median()
     hours = step / pd.Timedelta(hours=1)
     session = SESSION_HOURS_PER_DAY[calendar]
     if 0 < hours <= session and hours != 24:
+        # A median is not evidence of a complete fixed-cadence return series.
+        # Session-gap intraday series need an explicit calendar-aware adapter.
+        if not (deltas == step).all():
+            return None
         return days * session / hours
     if hours == 24:
-        return days
+        local = index.tz_localize(None) if index.tz is not None else index
+        if calendar == "CRYPTO":
+            expected = pd.date_range(local[0], periods=len(local), freq="D")
+        else:
+            expected = pd.date_range(local[0], periods=len(local), freq="B")
+        return days if local.equals(expected) else None
     if 6 * 24 <= hours <= 8 * 24:
         return 52.0
     if 28 * 24 <= hours <= 31 * 24:

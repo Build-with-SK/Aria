@@ -322,3 +322,12 @@ Upgraded existing router dependency to 7.18.5 in an isolated frontend copy; buil
 and four offline verifiers passed, npm audit zero advisories. Copied only package
 and lockfile to branch. Shared node_modules untouched. Research lock audit: zero
 advisories in 38 packages. No runtime dependency upgrade or deployment.
+
+
+## 2026-11-07 — Return-grid completeness
+
+Removed median-only acceptance of irregular returns in annualisation. Continuous
+crypto and weekday daily FX/exchange grids must match expected timestamps;
+intraday deltas must be uniform. Relevant annualisation cases 19 passed, including
+three missing-timestamp regressions. Session-gap/holiday grids need an explicit
+calendar adapter and return no annualised figure in this generic library.

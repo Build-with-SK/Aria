@@ -231,3 +231,9 @@ def test_reopening_same_account_under_new_registration_is_refused(tmp_path,case)
     changed=p.model_copy(update={'proposal_id':'p2','rule_profile_hash':modified.profile_hash})
     with pytest.raises(ReviewRefused,match='registration changed'):
         other.queue(changed,j,now=NOW)
+
+
+@pytest.mark.parametrize('freq,calendar', [('h','CRYPTO'),('D','CRYPTO'),('B','FX')])
+def test_irregular_return_grid_is_not_annualised(freq,calendar):
+    idx=pd.date_range('2025-01-06',periods=100,freq=freq).delete(20)
+    assert periods_per_year(idx,calendar) is None
