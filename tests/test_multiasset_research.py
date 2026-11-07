@@ -62,7 +62,11 @@ def test_strategies_abstain_for_missing_data_and_unknown_regime(case):
         h=analyse(i.specification.instrument,(),now=NOW,family=s.family)
         assert h.decision_status=="ABSTAIN" and h.missing_information
         assert h.probability_status=="UNCALIBRATED" and h.estimated_probability_if_calibrated is None
-    h=analyse(i.specification.instrument,candles(case),now=NOW,regime="TREND")
+    # The original straight-rise fixture has opposing mean-reversion triggers.
+    conflict=analyse(i.specification.instrument,candles(case),now=NOW,regime="TREND")
+    assert conflict.decision_status=="ABSTAIN"
+    assert any("cross-family conflict" in item for item in conflict.missing_information)
+    h=analyse(i.specification.instrument,agreeing_candles(case),now=NOW,regime="TREND")
     assert h.decision_status=="APPROVE_FOR_HUMAN_REVIEW"
     assert h.supporting_evidence and h.alternative_scenarios
     assert h.planned_risk==0 and h.net_reward_risk is None
@@ -94,3 +98,18 @@ def test_costs_reproducible_bootstrap_and_no_ruin_probability():
         dataset_sha256=dataset_hash(b"fixture"),parameters_json="{}",costs_json="{}",seed=7,
         created_at=NOW,assumptions=("fixture only",))
     assert m.manifest_hash!=m.model_copy(update={"costs_json":'{"slippage":1}'}).manifest_hash
+
+
+def agreeing_candles(case):
+    """Uptrend with pullbacks, RSI near 59; latest breakout has no opposing trigger."""
+    steps = ([D("0.003"), D("0.003"), D("-0.0025"), D("-0.0025")] * 15)[:59] + [D("0.004")]
+    bars, price = [], D("1.1")
+    for j, step in enumerate(steps):
+        t = NOW - timedelta(hours=len(steps)-j)
+        opened, price = price, price + step
+        pv = case[1].quote.provenance.model_copy(update={"permission":"RESEARCH", "provider":"fixture",
+                                                         "observed_at":t, "retrieved_at":t})
+        bars.append(OHLCVBar(opens_at=t-timedelta(hours=1),closes_at=t,open=opened,close=price,
+            high=max(opened,price)+D("0.0002"),low=min(opened,price)-D("0.0002"),volume=None,
+            volume_type="UNAVAILABLE",completed=True,adjustment_basis="raw",provenance=pv))
+    return tuple(bars)

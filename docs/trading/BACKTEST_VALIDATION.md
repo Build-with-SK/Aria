@@ -83,3 +83,18 @@ Sparse paths without a reset balance are refused rather than carrying an
 unproven prior balance across midnight. The first day still assumes a fresh
 account with initial capital; intraday observations cannot rule out excursions
 between samples. Bootstrap outputs remain UNVERIFIED research estimates.
+
+## Research evidence and conflicting hypotheses
+
+Caller classifications cannot grant source authority. External claims enter
+support only after the configured server resolver fetched an approved HTTPS
+source and retained a content hash, fetch timestamp and matching claim. This
+confirms source attribution, not the truth of the source's statement. No API
+route configures that network resolver. Unresolved client evidence is labelled
+UNVERIFIED and returned separately. Sources fetched after research as-of are
+excluded from verified support. Analytical text never grants execution authority.
+
+Opposing family triggers on one completed bar force ABSTAIN and are returned as
+counterevidence. SupportResistance requires a close inside support/resistance;
+a close below support is a break. The original sinusoidal support-break fixture
+now abstains across SupportResistance, Breakout and MeanReversion.

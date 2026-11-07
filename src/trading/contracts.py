@@ -437,6 +437,10 @@ class TradeHypothesis(Contract):
     reason_to_trade_instead_of_abstaining: str
     research_confidence: Literal["LOW", "MEDIUM", "HIGH", "UNVERIFIED"]
     decision_status: Literal["APPROVE_FOR_HUMAN_REVIEW", "ABSTAIN", "REJECT"]
+    # Caller-supplied claims that are not support (review RQ-01): anything the
+    # caller labelled OBSERVED or VERIFIED_EXTERNAL_FACT without a server-side
+    # source check comes back here as UNVERIFIED.
+    client_evidence: tuple[ResearchEvidence, ...] = ()
 
     @model_validator(mode="after")
     def calibrated(self):

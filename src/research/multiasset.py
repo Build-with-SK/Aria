@@ -2,6 +2,12 @@
 
 No transport, execution import or model is involved. Results are research
 hypotheses; absence of a configured input produces an explicit ABSTAIN.
+
+Evidence a caller supplies is never support on the caller's word (review
+RQ-01): OBSERVED is what this module computed from bars it validated, and
+VERIFIED_EXTERNAL_FACT is what `source_resolver.SourceResolver` checked against a
+source it fetched itself. Every family's trigger is evaluated on the same bar;
+if any family points the other way, the result abstains (review RQ-02).
 """
 from datetime import datetime
 from decimal import Decimal
@@ -154,6 +160,50 @@ FAMILIES=("TrendFollowing","Momentum","Breakout","Pullback","MeanReversion",
           "SupportResistance","VolatilityBased","MacroDriven","Intraday","Swing")
 
 
+TRIGGER_FAMILIES = tuple(f for f in FAMILIES if f != "MacroDriven")
+
+
+def _trigger(family: str, completed, vals: dict, close: Decimal, sma: Decimal, rsi: Decimal,
+             atr: Decimal) -> str | None:
+    """One family's deterministic research trigger on the latest completed bar."""
+    prior = completed[-21:-1]
+    top, bottom = max(b.high for b in prior), min(b.low for b in prior)
+    momentum = close - completed[-11].close
+    if family in ("TrendFollowing", "Swing"):
+        return "BUY" if close > sma and momentum > 0 else "SELL" if close < sma and momentum < 0 else None
+    if family == "Momentum":
+        return "BUY" if momentum > atr else "SELL" if momentum < -atr else None
+    if family in ("Breakout", "Intraday"):
+        return "BUY" if close > top else "SELL" if close < bottom else None
+    if family == "Pullback":
+        return ("BUY" if momentum > 0 and close >= sma and completed[-1].low <= sma else
+                "SELL" if momentum < 0 and close <= sma and completed[-1].high >= sma else None)
+    if family == "MeanReversion":
+        return "BUY" if rsi < 30 else "SELL" if rsi > 70 else None
+    if family == "SupportResistance":
+        # A bounce needs the close at or above support (at or below resistance);
+        # a close through the level is a break, not a bounce (review RQ-02).
+        return ("BUY" if bottom <= close < bottom + atr / 2 else
+                "SELL" if top - atr / 2 < close <= top else None)
+    if family == "VolatilityBased":
+        return ("BUY" if close > Decimal(vals["BOLLINGER_UPPER"]) else
+                "SELL" if close < Decimal(vals["BOLLINGER_LOWER"]) else None)
+    return None
+
+
+def triggers_on_latest_bar(instrument: Instrument, bars: tuple[OHLCVBar, ...], *, now: datetime) -> dict:
+    """Every trigger family's direction on the latest completed bar (None: no trigger)."""
+    completed = validate_bars(instrument, bars, now=now)
+    technical = technical_evidence(instrument, completed, now=now)
+    if technical["status"] != "AVAILABLE":
+        return {}
+    vals = technical["indicators"]
+    if any(vals[k] is None for k in ("SMA20", "RSI14", "ATR14")) or Decimal(vals["ATR14"]) <= 0:
+        return {}
+    sma, rsi, atr = (Decimal(vals[k]) for k in ("SMA20", "RSI14", "ATR14"))
+    return {f: _trigger(f, completed, vals, completed[-1].close, sma, rsi, atr) for f in TRIGGER_FAMILIES}
+
+
 def strategy_registry() -> tuple[StrategyDefinition, ...]:
     return tuple(StrategyDefinition(strategy_id=f"research:{family}",version="1.0.0",family=family,
         supported_asset_classes=tuple(a for a in AssetClass if a != AssetClass.OTHER),
@@ -174,7 +224,8 @@ def strategy_registry() -> tuple[StrategyDefinition, ...]:
 
 def analyse(instrument: Instrument, bars: tuple[OHLCVBar, ...], *, now: datetime,
             family: str="TrendFollowing", timeframe: str="1h", regime: str="UNKNOWN",
-            evidence: tuple[ResearchEvidence, ...]=()) -> TradeHypothesis:
+            evidence: tuple[ResearchEvidence, ...]=(), sources=None) -> TradeHypothesis:
+    """`sources` is a `source_resolver.SourceResolver`; without one, no caller claim is support."""
     definition=next((s for s in strategy_registry() if s.family==family),None)
     if definition is None:
         raise ValueError("unknown strategy family")
@@ -199,6 +250,7 @@ def analyse(instrument: Instrument, bars: tuple[OHLCVBar, ...], *, now: datetime
         missing.append("intraday requires intraday completed candles")
     technical=technical_evidence(instrument,completed,now=now)
     direction=None
+    conflicts={}
     if not missing:
         close=completed[-1].close
         vals=technical["indicators"]
@@ -206,35 +258,34 @@ def analyse(instrument: Instrument, bars: tuple[OHLCVBar, ...], *, now: datetime
         if sma is None or rsi is None or atr is None or atr<=0:
             missing.append("nonfinite indicator or zero volatility")
         else:
-            prior=completed[-21:-1]
-            top,bottom=max(b.high for b in prior),min(b.low for b in prior)
-            momentum=close-completed[-11].close
-            if family in ("TrendFollowing","Swing"):
-                direction="BUY" if close>sma and momentum>0 else "SELL" if close<sma and momentum<0 else None
-            elif family=="Momentum":
-                direction="BUY" if momentum>atr else "SELL" if momentum<-atr else None
-            elif family in ("Breakout","Intraday"):
-                direction="BUY" if close>top else "SELL" if close<bottom else None
-            elif family=="Pullback":
-                direction="BUY" if momentum>0 and close>=sma and completed[-1].low<=sma else "SELL" if momentum<0 and close<=sma and completed[-1].high>=sma else None
-            elif family=="MeanReversion":
-                direction="BUY" if rsi<30 else "SELL" if rsi>70 else None
-            elif family=="SupportResistance":
-                direction="BUY" if close-bottom<atr/2 else "SELL" if top-close<atr/2 else None
-            elif family=="VolatilityBased":
-                direction="BUY" if close>Decimal(vals["BOLLINGER_UPPER"]) else "SELL" if close<Decimal(vals["BOLLINGER_LOWER"]) else None
-    if not direction:
+            triggers={f:_trigger(f,completed,vals,close,sma,rsi,atr) for f in TRIGGER_FAMILIES}
+            direction=triggers.get(family)
+            # Contradictory hypotheses on one bar are not a view (review RQ-02).
+            conflicts={f:d for f,d in triggers.items() if direction and d and d!=direction}
+            if conflicts:
+                missing.append("cross-family conflict on this bar: "+
+                               ", ".join(f"{f} {d}" for f,d in sorted(conflicts.items())))
+                direction=None
+    if not direction and not conflicts:
         missing.append("no qualifying research trigger; no trade")
-    supporting=tuple(e for e in evidence if e.classification in ("OBSERVED","VERIFIED_EXTERNAL_FACT"))
+    # Caller claims are never support on the caller's word (review RQ-01).
+    def vouched(e):
+        return e.classification=="VERIFIED_EXTERNAL_FACT" and sources is not None and sources.verified(e, as_of=now)
+    claims=tuple(e if vouched(e) or e.classification not in ("OBSERVED","VERIFIED_EXTERNAL_FACT")
+                 else e.model_copy(update={"classification":"UNVERIFIED"}) for e in evidence)
+    supporting=tuple(e for e in claims if vouched(e))
+    client_evidence=tuple(e for e in claims if not vouched(e))
     if direction and completed:
         supporting+=(ResearchEvidence(evidence_id=technical["dataset_hash"],
             claim=f"Completed-candle {family} research trigger: {direction}",classification="OBSERVED",
             provenance=completed[-1].provenance),)
-    contradicting=()
+    contradicting=tuple(ResearchEvidence(evidence_id=f'{technical["dataset_hash"]}:conflict:{f}',
+        claim=f"{f} research trigger on the same bar says {d}",classification="MODEL_INTERPRETATION",
+        provenance=completed[-1].provenance) for f,d in sorted(conflicts.items()))
     if direction and technical.get("indicators"):
         rsi_value=technical["indicators"].get("RSI14")
         if rsi_value is not None and ((direction=="BUY" and Decimal(rsi_value)>70) or (direction=="SELL" and Decimal(rsi_value)<30)):
-            contradicting=(ResearchEvidence(evidence_id=technical["dataset_hash"]+":counter-rsi",
+            contradicting+=(ResearchEvidence(evidence_id=technical["dataset_hash"]+":counter-rsi",
                 claim="RSI is stretched against the proposed direction; reversal risk warrants review",
                 classification="MODEL_INTERPRETATION",provenance=completed[-1].provenance),)
     return TradeHypothesis(hypothesis_id=content_hash({"instrument":instrument.instrument_id,
@@ -250,4 +301,5 @@ def analyse(instrument: Instrument, bars: tuple[OHLCVBar, ...], *, now: datetime
         take_profit_basis="2R before costs; no execution sizing",planned_risk=Decimal("0"),net_reward_risk=None,
         cancellation_conditions=("new quote or rule profile", "evidence expires"),
         reason_to_trade_instead_of_abstaining="research trigger warrants human review" if direction and not missing else "no justified trade",
-        research_confidence="UNVERIFIED",decision_status="APPROVE_FOR_HUMAN_REVIEW" if direction and not missing else "ABSTAIN")
+        research_confidence="UNVERIFIED",decision_status="APPROVE_FOR_HUMAN_REVIEW" if direction and not missing else "ABSTAIN",
+        client_evidence=client_evidence)

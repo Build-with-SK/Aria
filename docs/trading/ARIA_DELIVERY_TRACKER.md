@@ -176,3 +176,13 @@ Targeted regression selection: **48 passed**. New cases are in
 `tests/test_remediation_followup.py`; existing QA cases remain green.
 Reopened findings retain IN_PROGRESS pending the complete independent scenarios
 and full-suite release run. No source-authority claim is inferred from these tests.
+
+Research RQ-01/RQ-02: completed prior uncommitted implementation, resolving a
+module collision with the existing `src/research/sources/` package by naming the
+new module `source_resolver.py`. Client-labelled facts/observations are downgraded;
+only a server resolver's fetched claim record can support an external statement.
+Exact-source text presence proves attribution only, never economic truth. Resolver
+network integration is absent; fixtures use injected bounded fetchers. Cross-family
+conflict abstains and support breaks cannot count as bounces. Original conflicting
+fixture now asserts abstention; a separate agreeing fixture retains positive-path
+coverage. Research/API regression suite: **21 passed**. Ten new RQ cases.

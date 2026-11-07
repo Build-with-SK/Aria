@@ -295,3 +295,12 @@ balances and refused missing reset snapshots in dated replay. Added nine
 regression cases; relevant selection 48 passed. Corrected gap_rule NONE
 all-day news overblocking. Source acquisition and paid-account binding remain
 open; no runtime, deployment or broker activity.
+
+
+## 2026-11-07 — Research review findings
+
+Completed the preserved RQ changes with ten regression cases. Fixed the
+sources.py/package naming collision; new module is source_resolver.py.
+Research/API suite 21 passed. Source fetches in tests are fixtures only; no
+provider credentials or configured network resolver. Original conflicting
+fixture retained as abstention; separate agreeing fixture covers positive output.
