@@ -9,7 +9,17 @@ day closes. This module replays equity observations through the same limits
   minus `daily_loss_fraction` x initial account size;
 - overall floor = initial size (STATIC) or the highest day-start balance so far
   (TRAILING_EOD_BALANCE), minus `overall_loss_fraction` x initial size;
-- a breach is equity AT or below a floor, as in `evaluate_profile`.
+- a breach is equity AT or below a floor, as in `evaluate_profile`;
+- the profit target counts only on a flat account (equity equal to balance) whose
+  balance meets it, the two conditions `evaluate_objectives` checks
+  (PROFIT_TARGET_NOT_MET, OPEN_POSITIONS_REMAIN). TARGET_REACHED is that point,
+  not a pass: minimum days and consistency are not replayed.
+
+A sampled day (`DayPath`) ends flat: the next sampled day comes from another
+part of history and starts from the closing balance with no positions, so the
+close is itself a point the equity reached and is checked against the floors.
+A history that holds positions overnight should be replayed with `replay_path`,
+where carried positions are observed.
 
 `replay_path` replays one dated history. `breach_probabilities` resamples whole
 historical days (moving blocks, so streaky days stay together), replays each
@@ -55,7 +65,8 @@ class DayPath(Contract):
 
     `equity_pnl` is equity minus the opening balance at each observation through
     the day, in time order, including the worst point; `balance_pnl` is the
-    change in balance by the day's end.
+    change in balance by the day's end. The day ends flat, so the replay also
+    checks the closing balance against the floors.
     """
     equity_pnl: tuple[Decimal, ...] = Field(min_length=1)
     balance_pnl: Decimal
@@ -113,8 +124,10 @@ class _Account:
             return "DAILY_BREACH", daily
         return None
 
-    def reached_target(self) -> bool:
-        return self.target is not None and self.balance >= self.target
+    def reached_target(self, equity: Decimal) -> bool:
+        """Balance at the target on a flat account; an open loss or open profit
+        means positions remain, so the target is not yet reached."""
+        return self.target is not None and self.balance >= self.target and equity == self.balance
 
 
 def replay_path(profile: RuleProfile, observations: tuple[EquityObservation, ...]) -> ReplayResult:
@@ -155,7 +168,7 @@ def replay_path(profile: RuleProfile, observations: tuple[EquityObservation, ...
         if hit:
             return ReplayResult(outcome=hit[0], day_index=index, at=o.at, equity=o.equity,
                                 floor=hit[1], final_balance=o.balance)
-        if account.reached_target():
+        if account.reached_target(o.equity):
             return ReplayResult(outcome="TARGET_REACHED", day_index=index, at=o.at,
                                 equity=o.equity, final_balance=o.balance)
     return ReplayResult(outcome="OPEN", final_balance=account.balance)
@@ -174,8 +187,15 @@ def replay_days(profile: RuleProfile, days: tuple[DayPath, ...]) -> ReplayResult
                 account.balance = account.day_start + d.balance_pnl
                 return ReplayResult(outcome=hit[0], day_index=index, equity=equity,
                                     floor=hit[1], final_balance=account.balance)
-        account.balance = account.day_start + d.balance_pnl
-        if account.reached_target():
+        # The day ends flat (module docstring): its closing balance is also its
+        # closing equity, a point the floors apply to.
+        close = account.day_start + d.balance_pnl
+        hit = account.breach(close)
+        account.balance = close
+        if hit:
+            return ReplayResult(outcome=hit[0], day_index=index, equity=close,
+                                floor=hit[1], final_balance=close)
+        if account.reached_target(close):
             return ReplayResult(outcome="TARGET_REACHED", day_index=index,
                                 final_balance=account.balance)
     return ReplayResult(outcome="OPEN", final_balance=account.balance)
