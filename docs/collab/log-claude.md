@@ -762,3 +762,13 @@ A sampled day's closing balance is now checked against the floors (Codex probe:
 8,900 replayed OPEN → OVERALL_BREACH); the target counts only on a flat account
 (probe: target at equity 9,600 → the DAILY_BREACH at 9,400). Full suite 3,689
 passed, 21 skipped, exit 0; reviewer suite unchanged at 23/24. Not pushed.
+
+## 2026-11-08 — QA-04 adversarial A1/A2: DONE locally, awaiting Codex
+
+`9ecb808` (challenge_replay.py) + `tests/test_replay_evidence.py` (28; all red before).
+The replay's target now needs explicit flat evidence: a stated open-position count of
+zero (sampled days also state closing equity). Missing evidence never reaches the
+target; zero positions with equity != balance is refused; after a sampled close not
+shown flat, no target for the rest of the path. 3 existing target tests now state their
+evidence. Full suite 3,717 passed, 21 skipped, exit 0; reviewer suite unchanged at 23/24.
+A3 (sparse observations hide dips) documented, not addressed. Not pushed.
