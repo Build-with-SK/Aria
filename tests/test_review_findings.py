@@ -1289,7 +1289,9 @@ def test_qa04_trailing_overall_floor_follows_day_start_balances(case):
 
 def test_qa04_target_is_reached_on_balance(case):
     profile = ftmo(case, profit_target_fraction="0.10")
-    days = tuple(DayPath(equity_pnl=(D("-100"), D("300")), balance_pnl=D("300")) for _ in range(5))
+    # Each day states a flat close (review A1); without that evidence the target is never reached.
+    days = tuple(DayPath(equity_pnl=(D("-100"), D("300")), balance_pnl=D("300"),
+                         close_equity_pnl=D("300"), open_positions_at_close=0) for _ in range(5))
     result = replay_days(profile, days)
     assert result.outcome == "TARGET_REACHED" and result.day_index == 3 and result.final_balance == D("11200")
 

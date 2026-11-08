@@ -23,8 +23,10 @@ from src.backtesting.challenge_replay import (
 UTC = timezone.utc
 
 
-def observe(at, balance, equity=None):
-    return EquityObservation(at=at, balance=D(balance), equity=D(equity if equity is not None else balance))
+def observe(at, balance, equity=None, positions=None):
+    evidence = {} if positions is None else {"open_positions": positions}
+    return EquityObservation(at=at, balance=D(balance),
+                             equity=D(equity if equity is not None else balance), **evidence)
 
 
 def with_target(case):
@@ -77,8 +79,9 @@ def test_target_with_an_open_loss_is_not_reached(case):
 
 
 def test_target_is_reached_at_the_first_flat_observation(case):
-    path = (observe(NOW, "10000"), observe(NOW + timedelta(hours=1), "11000", "10800"),
-            observe(NOW + timedelta(hours=2), "11000"))
+    """Flat is stated by the open-position count (review A2), not inferred."""
+    path = (observe(NOW, "10000"), observe(NOW + timedelta(hours=1), "11000", "10800", positions=1),
+            observe(NOW + timedelta(hours=2), "11000", positions=0))
     result = replay_path(with_target(case), path)
     assert (result.outcome, result.at, result.final_balance) == (
         "TARGET_REACHED", NOW + timedelta(hours=2), D("11000"))
@@ -98,10 +101,11 @@ def test_target_with_open_profit_above_balance_is_not_reached(case):
 
 
 def test_sampled_target_is_still_reached_on_a_flat_close(case):
-    """Pins existing behaviour: a sampled day ends flat, so its closing balance
-    is the account's value."""
+    """A day whose close evidence shows it flat (review A1): its closing
+    balance is the account's value."""
     profile = ftmo(case, profit_target_fraction="0.10")
-    days = tuple(DayPath(equity_pnl=(D("-100"), D("300")), balance_pnl=D("300")) for _ in range(5))
+    days = tuple(DayPath(equity_pnl=(D("-100"), D("300")), balance_pnl=D("300"),
+                         close_equity_pnl=D("300"), open_positions_at_close=0) for _ in range(5))
     result = replay_days(profile, days)
     assert (result.outcome, result.day_index, result.final_balance) == ("TARGET_REACHED", 3, D("11200"))
 

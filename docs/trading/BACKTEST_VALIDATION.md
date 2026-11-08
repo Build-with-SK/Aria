@@ -59,6 +59,22 @@ whether the historical days represent the future. "Target reached" is the
 balance target alone; minimum trading days and consistency remain
 `evaluate_objectives`' job. Status: UNVERIFIED research tooling.
 
+The target needs explicit evidence that the account is flat (review A1/A2,
+2026-11-08): a dated observation's `open_positions` of zero, or a sampled day's
+`close_equity_pnl` together with `open_positions_at_close` of zero. Equity equal
+to balance is not evidence, since open positions can net to zero. Missing
+evidence never reaches the target; zero positions with equity different from
+balance is refused as contradictory. A sampled day's stated closing equity and
+its closing balance are both checked against the floors. After any sampled
+close not shown flat, the target is refused for the rest of that path, because
+the next resampled day knows nothing of the open position;
+`breach_probabilities` reports how many input days are not shown flat.
+
+Coverage limit (review A3, not addressed): both replays see only the equity
+points supplied. A dip between two observations that recovers before the next
+is invisible, so sparse observations understate breaches. Each day's worst
+equity should be among the observations.
+
 No new full contract-specific fill simulator, stop-gap/partial-fill model,
 survivorship-safe universe or corporate-action replay was built. Existing indicator
 and replay tests are retained, but these additions have **UNVERIFIED** validation

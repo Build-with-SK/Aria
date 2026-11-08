@@ -10,16 +10,30 @@ day closes. This module replays equity observations through the same limits
 - overall floor = initial size (STATIC) or the highest day-start balance so far
   (TRAILING_EOD_BALANCE), minus `overall_loss_fraction` x initial size;
 - a breach is equity AT or below a floor, as in `evaluate_profile`;
-- the profit target counts only on a flat account (equity equal to balance) whose
-  balance meets it, the two conditions `evaluate_objectives` checks
-  (PROFIT_TARGET_NOT_MET, OPEN_POSITIONS_REMAIN). TARGET_REACHED is that point,
-  not a pass: minimum days and consistency are not replayed.
+- the profit target counts only when explicit evidence shows the account flat
+  and its balance meets the target, the two conditions `evaluate_objectives`
+  checks (PROFIT_TARGET_NOT_MET, OPEN_POSITIONS_REMAIN). Flat means a stated
+  open-position count of zero; equity equal to balance is not enough, since
+  open positions can net to zero (review A2). Missing evidence never reaches
+  the target, and zero positions with equity different from balance is
+  contradictory and refused. TARGET_REACHED is that point, not a pass: minimum
+  days and consistency are not replayed.
 
-A sampled day (`DayPath`) ends flat: the next sampled day comes from another
-part of history and starts from the closing balance with no positions, so the
-close is itself a point the equity reached and is checked against the floors.
-A history that holds positions overnight should be replayed with `replay_path`,
-where carried positions are observed.
+A sampled day (`DayPath`) states its close: closing equity and open positions
+(review A1). Its closing balance and stated closing equity are both checked
+against the floors; the balance is a conservative stand-in, so open profit at
+the close does not save a balance below a floor. The next sampled day starts
+from the closing balance but comes from another part of history, so a position
+still open at a close is lost to the replay: after any close not shown flat the
+target is refused for the rest of that path, and the path's later breaches see
+only the sampled days' own equity. A history that holds positions overnight
+should be replayed with `replay_path`, where carried positions are observed.
+
+Coverage (review A3, not addressed here): both replays see only the equity
+points they are given. A dip between two observations that recovers before the
+next one is invisible, so sparse observations understate breaches; nothing here
+interpolates or bounds the unobserved path. Each day's worst equity (the
+broker's intraday low) should be among the observations.
 
 `replay_path` replays one dated history. `breach_probabilities` resamples whole
 historical days (moving blocks, so streaky days stay together), replays each
@@ -35,7 +49,7 @@ from zoneinfo import ZoneInfo
 from decimal import Decimal
 import math
 import random
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, model_validator
 
@@ -44,12 +58,21 @@ from src.trading.rule_profiles import RuleProfile, rule_day
 
 Outcome = Literal["DAILY_BREACH", "OVERALL_BREACH", "TARGET_REACHED", "OPEN"]
 
+# A count of open positions is the evidence that an account is flat. Whole
+# numbers only: False, "0" or 0.0 must not pass for "no positions".
+PositionCount = Annotated[int, Field(ge=0, strict=True)]
+
 
 class EquityObservation(Contract):
-    """Account balance and equity at one moment, in the account currency."""
+    """Account balance and equity at one moment, in the account currency.
+
+    `open_positions` is the number of positions open at that moment. Without it
+    the account is not known to be flat (review A2).
+    """
     at: datetime
     balance: Decimal
     equity: Decimal
+    open_positions: PositionCount | None = None
 
     @model_validator(mode="after")
     def aware(self):
@@ -57,7 +80,13 @@ class EquityObservation(Contract):
             raise ValueError("timezone-aware observation time required")
         if not (self.balance.is_finite() and self.equity.is_finite()):
             raise ValueError("finite balance and equity required")
+        if self.open_positions == 0 and self.equity != self.balance:
+            raise ValueError("contradictory evidence: no open positions, but equity differs from balance")
         return self
+
+    @property
+    def shown_flat(self) -> bool:
+        return self.open_positions == 0 and self.equity == self.balance
 
 
 class DayPath(Contract):
@@ -65,17 +94,32 @@ class DayPath(Contract):
 
     `equity_pnl` is equity minus the opening balance at each observation through
     the day, in time order, including the worst point; `balance_pnl` is the
-    change in balance by the day's end. The day ends flat, so the replay also
-    checks the closing balance against the floors.
+    change in balance by the day's end. The close is stated, not assumed
+    (review A1): `close_equity_pnl` is equity minus the opening balance at the
+    close and `open_positions_at_close` the positions still open then. The day
+    is shown flat only when both are given, the count is zero and the closing
+    equity equals the closing balance.
     """
     equity_pnl: tuple[Decimal, ...] = Field(min_length=1)
     balance_pnl: Decimal
+    close_equity_pnl: Decimal | None = None
+    open_positions_at_close: PositionCount | None = None
 
     @model_validator(mode="after")
     def finite(self):
-        if not all(v.is_finite() for v in (*self.equity_pnl, self.balance_pnl)):
+        stated = () if self.close_equity_pnl is None else (self.close_equity_pnl,)
+        if not all(v.is_finite() for v in (*self.equity_pnl, self.balance_pnl, *stated)):
             raise ValueError("finite P/L required")
+        if (self.open_positions_at_close == 0 and self.close_equity_pnl is not None
+                and self.close_equity_pnl != self.balance_pnl):
+            raise ValueError("contradictory close evidence: no open positions, "
+                             "but closing equity differs from closing balance")
         return self
+
+    @property
+    def closes_flat(self) -> bool:
+        return (self.open_positions_at_close == 0 and self.close_equity_pnl is not None
+                and self.close_equity_pnl == self.balance_pnl)
 
 
 class ReplayResult(Contract):
@@ -124,10 +168,10 @@ class _Account:
             return "DAILY_BREACH", daily
         return None
 
-    def reached_target(self, equity: Decimal) -> bool:
-        """Balance at the target on a flat account; an open loss or open profit
-        means positions remain, so the target is not yet reached."""
-        return self.target is not None and self.balance >= self.target and equity == self.balance
+    def reached_target(self, shown_flat: bool) -> bool:
+        """Balance at the target on an account that explicit evidence shows flat.
+        Open positions, or no evidence either way, mean it is not reached."""
+        return shown_flat is True and self.target is not None and self.balance >= self.target
 
 
 def replay_path(profile: RuleProfile, observations: tuple[EquityObservation, ...]) -> ReplayResult:
@@ -168,16 +212,24 @@ def replay_path(profile: RuleProfile, observations: tuple[EquityObservation, ...
         if hit:
             return ReplayResult(outcome=hit[0], day_index=index, at=o.at, equity=o.equity,
                                 floor=hit[1], final_balance=o.balance)
-        if account.reached_target(o.equity):
+        if account.reached_target(o.shown_flat):
             return ReplayResult(outcome="TARGET_REACHED", day_index=index, at=o.at,
                                 equity=o.equity, final_balance=o.balance)
     return ReplayResult(outcome="OPEN", final_balance=account.balance)
 
 
 def replay_days(profile: RuleProfile, days: tuple[DayPath, ...]) -> ReplayResult:
-    """Replay undated rule days in order, from a fresh account."""
-    profile = _checked(profile)
+    """Replay undated rule days in order, from a fresh account.
+
+    Days are revalidated first, so one built without validation cannot carry
+    contradictory close evidence past the contract.
+    """
+    return _replay_days(_checked(profile), tuple(revalidated(d) for d in days))
+
+
+def _replay_days(profile: RuleProfile, days: tuple[DayPath, ...]) -> ReplayResult:
     account = _Account(profile)
+    shown_flat = True  # a fresh account holds no positions
     for index, d in enumerate(days):
         account.new_day()
         for pnl in d.equity_pnl:
@@ -187,15 +239,19 @@ def replay_days(profile: RuleProfile, days: tuple[DayPath, ...]) -> ReplayResult
                 account.balance = account.day_start + d.balance_pnl
                 return ReplayResult(outcome=hit[0], day_index=index, equity=equity,
                                     floor=hit[1], final_balance=account.balance)
-        # The day ends flat (module docstring): its closing balance is also its
-        # closing equity, a point the floors apply to.
+        # The stated closing equity is a point the account reached; the closing
+        # balance is checked too, as a conservative stand-in (module docstring).
         close = account.day_start + d.balance_pnl
-        hit = account.breach(close)
+        low = close if d.close_equity_pnl is None else min(close, account.day_start + d.close_equity_pnl)
+        hit = account.breach(low)
         account.balance = close
         if hit:
-            return ReplayResult(outcome=hit[0], day_index=index, equity=close,
+            return ReplayResult(outcome=hit[0], day_index=index, equity=low,
                                 floor=hit[1], final_balance=close)
-        if account.reached_target(close):
+        # A close not shown flat leaves a position the next sampled day knows
+        # nothing of, so the account is never shown flat again on this path.
+        shown_flat = shown_flat and d.closes_flat
+        if account.reached_target(shown_flat):
             return ReplayResult(outcome="TARGET_REACHED", day_index=index,
                                 final_balance=account.balance)
     return ReplayResult(outcome="OPEN", final_balance=account.balance)
@@ -227,7 +283,7 @@ def breach_probabilities(profile: RuleProfile, days: tuple[DayPath, ...], *, hor
         while len(path) < horizon_days:
             start = rng.randrange(len(days) - block_size + 1)
             path.extend(days[start:start + block_size])
-        counts[replay_days(profile, tuple(path[:horizon_days])).outcome] += 1
+        counts[_replay_days(profile, tuple(path[:horizon_days])).outcome] += 1
 
     def estimate(outcome):
         low, high = wilson_interval(counts[outcome], samples)
@@ -235,9 +291,12 @@ def breach_probabilities(profile: RuleProfile, days: tuple[DayPath, ...], *, hor
 
     return {"seed": seed, "samples": samples, "block_size": block_size,
             "horizon_days": horizon_days, "historical_days": len(days),
+            "historical_days_not_shown_flat": sum(not d.closes_flat for d in days),
             "profile_hash": profile.profile_hash,
             "daily_breach": estimate("DAILY_BREACH"), "overall_breach": estimate("OVERALL_BREACH"),
             "target_reached": estimate("TARGET_REACHED"), "open_at_horizon": estimate("OPEN"),
             "assumption": ("moving-block resampling of supplied historical days; intervals cover "
-                           "simulation error only, not whether those days represent the future"),
+                           "simulation error only, not whether those days represent the future; "
+                           "a path counts the target only while every day so far closed shown "
+                           "flat by its stated close evidence"),
             "validation_status": "UNVERIFIED"}
