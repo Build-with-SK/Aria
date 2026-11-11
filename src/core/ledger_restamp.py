@@ -40,16 +40,27 @@ USAGE
         dry run, plus the row-by-row plan as CSV
     python -m src.core.ledger_restamp --db data/aria_core.db --apply --plan-hash <hash>
         the owner-approved write; refuses unless a fresh plan has that hash
+    python -m src.core.ledger_restamp --db data/aria_core.db --revert <backup dir>
+        row-level undo of an apply, from the backup it took
+
+On a host whose app does not carry this module, run it as a script with the
+app on the path, as the user the app's service runs as (the dry run fills the
+app's price cache, and --apply writes data/backups/ beside the database):
+    sudo -u <service user> env PYTHONPATH=<app root> <app python> \\
+        /path/to/ledger_restamp.py --db <app root>/data/aria_core.db
 
 THE LEDGER IS LIVE
 ------------------
 The backend's ledger loop grades every 30 minutes, and it reads the due rows
 before it grades them. A pass that read a row before the re-stamp could write
-a stale "skipped" over it afterwards. So --apply refuses while a grading pass
-is running or could start within minutes (from the `workers` heartbeat). It
-also refuses unless a fresh plan, rebuilt at apply time, matches the hash the
-owner approved. The writes are compare-and-set inside one transaction, after
-a WAL-safe backup.
+a stale "skipped" over it afterwards. So --apply checks the loop's `workers`
+heartbeat twice: once before the backup, and again inside the write
+transaction, where it is airtight. The loop records `last_start` before it
+reads due rows, and that write waits on this tool's lock. The manual
+/api/ledger/resolve endpoint keeps no heartbeat, so do not call it during an
+apply. --apply also refuses unless a fresh plan, rebuilt at apply time,
+matches the hash the owner approved. The writes are compare-and-set inside
+one transaction, after a WAL-safe backup.
 """
 from __future__ import annotations
 
@@ -62,8 +73,13 @@ from contextlib import closing
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable, Optional
+from zoneinfo import ZoneInfo
 
 SOURCE = "ml-ensemble"
+#: Every candidate was written on the Windows laptop, whose ledger stores
+#: naive UK-local times. Read them as that, not as whatever zone the host
+#: running this tool is in (the cloud VM is UTC).
+WRITTEN_TZ = "Europe/London"
 #: The fixed recorder went live when the backend restarted onto c2ffa8b.
 #: Rows written from then on carry the stated identity; a disagreement there
 #: would be a new defect to investigate, not something to re-stamp.
@@ -81,6 +97,11 @@ WRITES = (RESTAMP, RESTAMP_AND_RESET)
 _FINGERPRINT_COLS = ("id", "subject", "source", "created_at", "price_at",
                      "provider_symbol", "identity_basis", "venue", "market_session",
                      "information_session", "resolved", "correct", "outcome_note")
+
+#: Every column an apply can write. --revert restores exactly these.
+_WRITTEN_COLS = ("provider_symbol", "identity_basis", "venue", "market_session",
+                 "resolved", "resolved_at", "price_end", "actual_return", "correct",
+                 "error", "outcome_note")
 
 #: How close to the ledger loop's next pass an apply may run.
 GRADER_MARGIN = timedelta(minutes=5)
@@ -141,6 +162,8 @@ def plan_row(row: dict, price_on: PriceOn) -> dict:
              "skipped" if row["correct"] is None else "graded")
     try:
         at = datetime.fromisoformat(str(row["created_at"]))
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=ZoneInfo(WRITTEN_TZ))
     except ValueError:
         at = None
     venue, session = derive_market_context(new, at)
@@ -209,11 +232,21 @@ def build_plan(db: Path, price_on: Optional[PriceOn] = None) -> dict:
 
 def grader_clear(db: Path, now: Optional[datetime] = None) -> tuple[bool, str]:
     """Is it safe to write without racing the backend's grading pass?"""
-    now = now or datetime.now()
     try:
         with _connect_ro(db) as conn:
-            w = conn.execute("SELECT last_start, last_ok, interval_s FROM workers "
-                             "WHERE name='ledger'").fetchone()
+            return _grader_state(conn, now)
+    except sqlite3.Error as e:
+        return False, f"cannot read the ledger worker's heartbeat: {e}"
+
+
+def _grader_state(conn: sqlite3.Connection, now: Optional[datetime] = None
+                  ) -> tuple[bool, str]:
+    """The heartbeat check on an open connection, so --apply can repeat it
+    inside its own write transaction."""
+    now = now or datetime.now()
+    try:
+        w = conn.execute("SELECT last_start, last_ok, interval_s FROM workers "
+                         "WHERE name='ledger'").fetchone()
     except sqlite3.Error as e:
         return False, f"cannot read the ledger worker's heartbeat: {e}"
     if w is None or not w["last_ok"]:
@@ -271,6 +304,14 @@ def apply(db: Path, expected_hash: str, *, price_on: Optional[PriceOn] = None,
     conn.row_factory = sqlite3.Row
     try:
         conn.execute("BEGIN IMMEDIATE")          # no other writer from here to COMMIT
+        if not grader_stopped:
+            # The authoritative check. A pass that started before BEGIN shows
+            # last_start > last_ok here; one starting now waits on this lock
+            # and then reads the committed rows.
+            ok, why = _grader_state(conn, now)
+            if not ok:
+                conn.execute("ROLLBACK")
+                raise SystemExit(f"REFUSING: {why}")
         marks = ",".join("?" * len(ids))
         current = [dict(r) for r in conn.execute(
             f"SELECT * FROM predictions WHERE id IN ({marks})", ids)]
@@ -319,12 +360,90 @@ def apply(db: Path, expected_hash: str, *, price_on: Optional[PriceOn] = None,
         "backup": str(backup), "integrity_after": check_after,
         "rows_not_as_planned": wrong,
         "other_rows_changed_meanwhile": drift,    # another writer, never this tool
-        "restore": (f"stop the ARIA Backend task, delete {db.name}-wal and {db.name}-shm "
-                    f"beside {db}, then copy {backup} over {db}"),
+        "undo": f"--db {db} --revert {backup_dir}",
+        "last_resort": (
+            "a whole-file restore loses every later write to the database (events, "
+            "decisions, new predictions and grades). Only if --revert cannot be used: "
+            "stop every writer (on the cloud VM the aria service and the aria-pipeline "
+            f"timer and service), confirm nothing holds {db.name} (fuser), remove "
+            f"{db.name}-wal and {db.name}-shm FIRST, then replace {db.name} with {backup}"),
     }
     (backup_dir / "result.json").write_text(json.dumps(result, indent=1, default=str),
                                             encoding="utf-8")
     return result
+
+
+def revert(db: Path, backup_dir: Path, *, grader_stopped: bool = False,
+           now: Optional[datetime] = None) -> dict:
+    """Undo an apply row by row, from the backup it took.
+
+    Each written row gets its written columns back from the backup, but only
+    while it still carries the stamp the apply wrote. Every other row, and
+    every later write to the database, is left as it is. A reset row the
+    grader has regraded since loses that grade and goes back to its old skip,
+    which is what undoing the repair means."""
+    db, backup_dir = Path(db), Path(backup_dir)
+    backup = backup_dir / db.name
+    if not (backup_dir / "result.json").exists():
+        # An apply writes result.json only after it committed. Without it,
+        # this folder records a plan that was never written.
+        raise SystemExit(f"REFUSING: {backup_dir} holds no committed apply (no result.json)")
+    plan = json.loads((backup_dir / "plan.json").read_text(encoding="utf-8"))
+    writes = [p for p in plan["plans"] if p["action"] in WRITES]
+    if not backup.exists() or not writes:
+        raise SystemExit(f"REFUSING: no backup or no written rows in {backup_dir}")
+    if not grader_stopped:
+        ok, why = grader_clear(db, now)
+        if not ok:
+            raise SystemExit(f"REFUSING: {why}")
+
+    cols = ", ".join(_WRITTEN_COLS)
+    conn = sqlite3.connect(str(db), timeout=30, isolation_level=None)
+    conn.row_factory = sqlite3.Row
+    reverted, left = [], []
+    try:
+        conn.execute("ATTACH DATABASE ? AS b", (str(backup),))
+        conn.execute("BEGIN IMMEDIATE")
+        if not grader_stopped:
+            ok, why = _grader_state(conn, now)
+            if not ok:
+                conn.execute("ROLLBACK")
+                raise SystemExit(f"REFUSING: {why}")
+        for p in writes:
+            n = p["new"]
+            cur = conn.execute(
+                f"UPDATE main.predictions SET ({cols}) = "
+                f"(SELECT {cols} FROM b.predictions WHERE id=?) "
+                "WHERE id=? AND provider_symbol=? AND identity_basis=? "
+                "AND venue IS ? AND market_session IS ? "
+                "AND EXISTS (SELECT 1 FROM b.predictions WHERE id=?)",
+                (p["id"], p["id"], n["provider_symbol"], n["identity_basis"],
+                 n["venue"], n["market_session"], p["id"]))
+            (reverted if cur.rowcount == 1 else left).append(p["id"])
+        conn.execute("COMMIT")
+    finally:
+        try:
+            conn.execute("DETACH DATABASE b")
+        except sqlite3.Error:
+            pass
+        conn.close()
+
+    # Read back: every reverted row now carries the backup's values.
+    wrong = []
+    if reverted:
+        marks = ",".join("?" * len(reverted))
+        with _connect_ro(db) as live, _connect_ro(backup) as before:
+            want = {r["id"]: tuple(r) for r in before.execute(
+                f"SELECT id, {cols} FROM predictions WHERE id IN ({marks})", reverted)}
+            for r in live.execute(f"SELECT id, {cols} FROM predictions WHERE id IN ({marks})",
+                                  reverted):
+                if tuple(r) != want.get(r["id"]):
+                    wrong.append(r["id"])
+            check_after = live.execute("PRAGMA integrity_check").fetchone()[0]
+    else:
+        check_after = "not checked (nothing reverted)"
+    return {"reverted": len(reverted), "not_reverted": left, "rows_not_as_backup": wrong,
+            "integrity_after": check_after, "backup": str(backup)}
 
 
 CSV_COLS = ("id", "subject", "created_at", "horizon_days", "resolve_after", "state", "action",
@@ -382,11 +501,22 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--csv", type=Path, help="write the row-by-row plan here")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--plan-hash", help="the full hash printed by the dry run")
+    ap.add_argument("--revert", type=Path, metavar="BACKUP_DIR",
+                    help="undo an apply, row by row, from the backup directory it made")
     ap.add_argument("--grader-stopped", action="store_true",
-                    help="the backend is stopped, so no grading pass can race the write")
+                    help="you have stopped the backend, so no grading pass can race the "
+                         "write; nothing checks this")
     args = ap.parse_args(argv)
     if not args.db.exists():
         raise SystemExit(f"no database at {args.db}")
+    if args.apply and args.revert:
+        raise SystemExit("--apply and --revert are exclusive")
+    if args.revert:
+        result = revert(args.db, args.revert, grader_stopped=args.grader_stopped)
+        print(json.dumps(result, indent=1, default=str))
+        clean = not (result["not_reverted"] or result["rows_not_as_backup"])
+        return 0 if clean and result["integrity_after"] in (
+            "ok", "not checked (nothing reverted)") else 1
     if args.apply:
         if not args.plan_hash:
             raise SystemExit("--apply needs --plan-hash from a dry run")

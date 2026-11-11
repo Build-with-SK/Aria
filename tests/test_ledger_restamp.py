@@ -21,6 +21,9 @@ import pytest
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "universe_fixture.py"
 MADE = "2026-10-17T23:40:28"             # the first bad ML pass
 ASOF = "2026-10-16"                      # the last US bar that pass saw
+#: The grader runs on a pinned clock. On the real one the 20-day "pending"
+#: row falls due on 2026-11-14 and the fixture would skip it too.
+GRADED_ON = datetime(2026, 10, 30, 12, 0)
 
 
 @pytest.fixture
@@ -72,7 +75,7 @@ def _row(spine, pid) -> dict:
 def _skip_by_grading(spine, monkeypatch):
     """Let the grader meet the bad stamp, as the live grader did."""
     monkeypatch.setattr(spine, "_price_on", prices())
-    spine.resolve_due()
+    spine.resolve_due(now=GRADED_ON)
 
 
 @pytest.fixture
@@ -168,6 +171,7 @@ def test_apply_writes_exactly_the_plan_after_a_backup(spine, tmp_path, ledger_wi
     from src.core import ledger_restamp as rs
     ids = ledger_with_bad_rows
     london_before = _row(spine, ids["london"])
+    before = {k: _row(spine, ids[k]) for k in ("aal", "ba")}
     plan = rs.build_plan(_db(tmp_path), prices())
     out = rs.apply(_db(tmp_path), plan["plan_hash"], price_on=prices(), grader_stopped=True)
 
@@ -180,10 +184,11 @@ def test_apply_writes_exactly_the_plan_after_a_backup(spine, tmp_path, ledger_wi
     # The skipped row is pending again, with no trace of the wrong grading.
     assert (ba["provider_symbol"], ba["resolved"], ba["correct"]) == ("BA", 0, None)
     assert ba["resolved_at"] is None and ba["outcome_note"] is None
-    # What the model said is untouched.
-    for col in ("claim", "direction", "price_at", "horizon_days", "created_at",
-                "information_session", "data_as_of", "subject"):
-        assert ba[col] == _row(spine, ids["ba"])[col]
+    # Every column the apply does not write is exactly as it was.
+    for key, row in (("aal", aal), ("ba", ba)):
+        for col, was in before[key].items():
+            if col not in rs._WRITTEN_COLS:
+                assert row[col] == was, f"{key}.{col} changed"
     assert _row(spine, ids["london"]) == london_before
     # The backup holds the ledger as it was.
     with sqlite3.connect(out["backup"]) as b:
@@ -258,7 +263,7 @@ def test_after_the_repair_the_grader_grades_on_the_us_listing(spine, tmp_path, m
         asked.append(symbol)
         return {"BA": 190.0 if on == ASOF else 185.0}.get(symbol, CLOSES.get(symbol))
     monkeypatch.setattr(spine, "_price_on", closes)
-    spine.resolve_due()
+    spine.resolve_due(now=GRADED_ON)
     ba = _row(spine, ids["ba"])
     assert ba["resolved"] == 1 and ba["correct"] == 1        # a bear call, and BA fell
     assert ba["actual_return"] == pytest.approx((185.0 - 190.0) / 190.0, abs=1e-4)
@@ -276,3 +281,153 @@ def test_the_command_line_dry_run(spine, tmp_path, monkeypatch, capsys, ledger_w
     assert lines[0].startswith("id,subject,created_at") and len(lines) == 3
     with pytest.raises(SystemExit, match="needs --plan-hash"):
         rs.main(["--db", str(_db(tmp_path)), "--apply"])
+
+
+# ── the last lines of defence, inside the write transaction ────────────────
+
+def _stamps(spine, ids) -> dict:
+    return {k: _row(spine, ids[k])["provider_symbol"] for k in ("aal", "ba")}
+
+
+def test_a_row_graded_after_the_plan_was_rebuilt_stops_the_write(spine, tmp_path, monkeypatch,
+                                                                  ledger_with_bad_rows):
+    """A grade lands between the hash check and BEGIN: the in-transaction
+    fingerprint refuses, and nothing is written."""
+    from src.core import ledger_restamp as rs
+    ids = ledger_with_bad_rows
+    plan = rs.build_plan(_db(tmp_path), prices())
+
+    def grade_meanwhile(db, now=None):
+        spine.grade(ids["aal"], correct=None,
+                    note="GRADING_SKIPPED / IDENTITY_UNRESOLVED — t", announce=False)
+        return True, "clear"
+    monkeypatch.setattr(rs, "grader_clear", grade_meanwhile)
+    monkeypatch.setattr(rs, "_grader_state", lambda conn, now=None: (True, "clear"))
+    with pytest.raises(SystemExit, match="changed after the plan was built"):
+        rs.apply(_db(tmp_path), plan["plan_hash"], price_on=prices())
+    assert _stamps(spine, ids) == {"aal": "AAL.L", "ba": "BA.L"}
+
+
+def test_a_grading_pass_that_starts_after_the_first_check_stops_the_write(
+        spine, tmp_path, monkeypatch, ledger_with_bad_rows):
+    """The heartbeat says a pass began after the early check: the check
+    inside the transaction refuses."""
+    from src.core import ledger_restamp as rs
+    ids = ledger_with_bad_rows
+    now = datetime.now()
+    _heartbeat(_db(tmp_path), last_start=now - timedelta(seconds=5),
+               last_ok=now - timedelta(minutes=10))
+    plan = rs.build_plan(_db(tmp_path), prices())
+    monkeypatch.setattr(rs, "grader_clear", lambda db, now=None: (True, "looked clear"))
+    with pytest.raises(SystemExit, match="a grading pass is running"):
+        rs.apply(_db(tmp_path), plan["plan_hash"], price_on=prices(), now=now)
+    assert _stamps(spine, ids) == {"aal": "AAL.L", "ba": "BA.L"}
+
+
+def test_a_failed_compare_and_set_rolls_back_every_earlier_write(spine, tmp_path, monkeypatch,
+                                                                ledger_with_bad_rows):
+    """Behind the hash and the fingerprint, each UPDATE still checks the row
+    is as planned. If the last one is not, the earlier ones are rolled back."""
+    from src.core import ledger_restamp as rs
+    ids = ledger_with_bad_rows
+    plan = rs.build_plan(_db(tmp_path), prices())
+    last = [p for p in plan["plans"] if p["action"] in rs.WRITES][-1]["id"]
+    with spine.connect() as conn:          # whichever row sorts last, pending or skipped
+        conn.execute("UPDATE predictions SET correct=1 WHERE id=?", (last,))
+    # Blind the two earlier checks: a stale plan and a fingerprint that always agrees.
+    monkeypatch.setattr(rs, "build_plan", lambda db, price_on=None: plan)
+    monkeypatch.setattr(rs, "_fingerprint", lambda rows: plan["fingerprint"])
+    with pytest.raises(SystemExit, match="was not in its planned state"):
+        rs.apply(_db(tmp_path), plan["plan_hash"], price_on=prices(), grader_stopped=True)
+    first = next(k for k in ("aal", "ba") if ids[k] != last)
+    was = next(p["old"]["provider_symbol"] for p in plan["plans"] if p["id"] == ids[first])
+    assert _row(spine, ids[first])["provider_symbol"] == was
+
+
+# ── undo ───────────────────────────────────────────────────────────────────
+
+def test_revert_puts_back_exactly_what_the_apply_wrote(spine, tmp_path, monkeypatch,
+                                                       ledger_with_bad_rows):
+    from src.core import ledger_restamp as rs
+    ids = ledger_with_bad_rows
+    before = {k: _row(spine, ids[k]) for k in ids}
+    plan = rs.build_plan(_db(tmp_path), prices())
+    out = rs.apply(_db(tmp_path), plan["plan_hash"], price_on=prices(), grader_stopped=True)
+    # Later writes the undo must keep: a new prediction, and a regrade of the
+    # repaired BA row on the US listing.
+    later = spine.record_prediction(subject="AAPL", claim="later", source="technical",
+                                    direction="bull", horizon_days=5, price_at=150.0,
+                                    announce=False)
+    monkeypatch.setattr(spine, "_price_on",
+                        lambda s, on: {"BA": 190.0 if on == ASOF else 185.0}.get(s))
+    spine.resolve_due(now=GRADED_ON)
+    assert _row(spine, ids["ba"])["correct"] == 1
+
+    res = rs.revert(_db(tmp_path), Path(out["backup"]).parent, grader_stopped=True)
+    assert (res["reverted"], res["not_reverted"], res["rows_not_as_backup"]) == (2, [], [])
+    assert res["integrity_after"] == "ok"
+    for k in ("aal", "ba", "london"):
+        assert _row(spine, ids[k]) == before[k], k
+    assert _row(spine, later)["claim"] == "later"
+
+
+def test_revert_leaves_a_row_someone_changed_since(spine, tmp_path, ledger_with_bad_rows):
+    from src.core import ledger_restamp as rs
+    ids = ledger_with_bad_rows
+    plan = rs.build_plan(_db(tmp_path), prices())
+    out = rs.apply(_db(tmp_path), plan["plan_hash"], price_on=prices(), grader_stopped=True)
+    with spine.connect() as conn:
+        conn.execute("UPDATE predictions SET provider_symbol='AAL.X' WHERE id=?", (ids["aal"],))
+    res = rs.revert(_db(tmp_path), Path(out["backup"]).parent, grader_stopped=True)
+    assert res["reverted"] == 1 and res["not_reverted"] == [ids["aal"]]
+    assert _row(spine, ids["aal"])["provider_symbol"] == "AAL.X"
+    assert _row(spine, ids["ba"])["provider_symbol"] == "BA.L"
+
+
+# ── where it runs ──────────────────────────────────────────────────────────
+
+def test_creation_times_are_read_as_uk_time_whatever_the_host_zone(spine, tmp_path,
+                                                                   monkeypatch):
+    """The rows were written as naive UK-local times on the laptop; the cloud
+    VM runs in UTC. The session state is derived at the UK time."""
+    from src.core import ledger_restamp as rs
+    from src.intelligence import provenance
+    _bad(spine, "AAL", 11.88, created="2026-10-21T09:26:00")
+    seen = []
+    real = provenance.derive_market_context
+
+    def spy(symbol, at):
+        seen.append(at)
+        return real(symbol, at)
+    monkeypatch.setattr(provenance, "derive_market_context", spy)
+    rs.build_plan(_db(tmp_path), prices())
+    assert seen and seen[-1].utcoffset() == timedelta(hours=1)     # BST on 21 Oct
+    assert seen[-1].hour == 9 and seen[-1].minute == 26
+
+
+def test_revert_refuses_a_folder_from_an_apply_that_never_committed(spine, tmp_path,
+                                                                    ledger_with_bad_rows):
+    from src.core import ledger_restamp as rs
+    plan = rs.build_plan(_db(tmp_path), prices())
+    out = rs.apply(_db(tmp_path), plan["plan_hash"], price_on=prices(), grader_stopped=True)
+    folder = Path(out["backup"]).parent
+    (folder / "result.json").unlink()
+    with pytest.raises(SystemExit, match="no committed apply"):
+        rs.revert(_db(tmp_path), folder, grader_stopped=True)
+
+
+@pytest.mark.parametrize("early", [True, False])
+def test_revert_waits_for_a_quiet_moment_too(spine, tmp_path, monkeypatch, early,
+                                            ledger_with_bad_rows):
+    from src.core import ledger_restamp as rs
+    ids = ledger_with_bad_rows
+    plan = rs.build_plan(_db(tmp_path), prices())
+    out = rs.apply(_db(tmp_path), plan["plan_hash"], price_on=prices(), grader_stopped=True)
+    now = datetime.now()
+    _heartbeat(_db(tmp_path), last_start=now - timedelta(seconds=5),
+               last_ok=now - timedelta(minutes=10))
+    if not early:          # the early check is fooled; the one inside the transaction is not
+        monkeypatch.setattr(rs, "grader_clear", lambda db, now=None: (True, "looked clear"))
+    with pytest.raises(SystemExit, match="a grading pass is running"):
+        rs.revert(_db(tmp_path), Path(out["backup"]).parent, now=now)
+    assert _stamps(spine, ids) == {"aal": "AAL", "ba": "BA"}

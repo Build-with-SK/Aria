@@ -2,6 +2,50 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-11-11 — ledger re-stamp: independent review APPROVE; apply blocked on VM access
+The owner chose "Review, then apply" for the 83 mis-stamped ML rows.
+**The live ledger has moved.** Since 2026-11-06 ARIA runs on the Oracle VM at
+`feature/aria-multiasset-trading` (c806605), and the laptop ledger is a stale dev copy. c806605
+contains the identity fix (170405f..c2ffa8b) but not this tool. The modules the tool depends on are
+byte-identical between c2ffa8b and c806605: `ledger.py`, `identity.py`, `provenance.py`, `workers.py`,
+`sessions.py`.
+Measured on the cloud ledger, from a copy extracted from the verified 03:16 daily backup
+(`server-backup-20261111_031626`, downloaded to Windows; the VM was not touched):
+- Still exactly 83 candidates. 0 of 8,343 ML rows written after FIXED_AT are mis-stamped, so the fix
+  holds on the cloud.
+- The plan is now 53 RESTAMP_AND_RESET and 30 RESTAMP. The only change since 10-30 is that 9 five-day
+  rows due 10-31/11-01 were skipped meanwhile. Gap to the US close 0.00%; London ≥3.4x off.
+- Hash `8985d4456dc414e1…`. The 10-30 hash `b056eddc…` is stale.
+Independent review (fresh Claude reviewer): **REQUEST CHANGES** on 99f8d47 (no blocker), then
+**APPROVE** on the fixes. All seven findings were fixed:
+1. Tests would start failing on 11-15 because the fixture graded on the real clock; it now uses a
+   pinned `now`. They pass with the clock faked to 11-15.
+2. The restore text named the Windows task and was a whole-file restore that loses later writes.
+   Added a row-level `--revert BACKUP_DIR`: ATTACH the backup, restore the 11 written columns where the
+   row still holds the written stamp, all inside the grader check. It refuses a folder without
+   `result.json` and reads back what it wrote. The whole-file restore is now `last_resort`: the VM's
+   stop list, `fuser`, and remove -wal/-shm first.
+3. The grader heartbeat check now also runs inside `BEGIN IMMEDIATE`, which makes it airtight against
+   the loop (it writes `last_start` before reading due rows). The manual `/api/ledger/resolve` endpoint
+   has no heartbeat, so the runbook says not to call it during an apply.
+4. Compare-and-set and rollback had no tests; now they do, along with the in-transaction fingerprint
+   and heartbeat checks and revert's grader checks.
+5. A vacuous assertion was replaced: every unwritten column on planned rows is compared with a
+   capture taken before the apply.
+6. Naive `created_at` is read as Europe/London (`WRITTEN_TZ`); the VM is UTC. The hash is unchanged
+   for this data.
+7. The docstring has the run-as-script command, run as the service user.
+Each guard was checked by breaking it: 10 mutations plus the reviewer's 3; every one fails a test.
+Suite on the final code: 3337 passed / 1 failed / 10 skipped. The failure is
+`test_stabilization::test_the_universe_audit_reports_without_repairing`, which is known and depends on
+test order. The dry run on the final code gives the same hash.
+Apply: **not done**. The auto-mode classifier denied SSH to the VM, even for read-only checks ("Production
+Reads"). I did not work around it. Running it needs the owner's permission, or the owner runs the kit
+(ledger_restamp.py + vm_restamp.sh: check / dry / apply <hash> / revert <dir> / verify). The VM's dry
+run must reproduce the hash before `--apply`. 10 pending rows fall due 11-14, so after the grader's
+11-15 pass the plan changes and needs a fresh dry run and approval.
+The laptop ledger still has the 83 bad rows; it is a stale copy and is not repaired.
+
 ## 2026-10-30 — re-stamp of the 83 mis-stamped ML rows: dry run only, awaiting the owner
 The owner asked for a re-stamp plan as a dry run, with nothing written until approved.
 New: `src/core/ledger_restamp.py` (`python -m src.core.ledger_restamp --db PATH`) and
