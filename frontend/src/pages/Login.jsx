@@ -17,6 +17,7 @@
  */
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
+import { nextAfterLogin } from '../core/appPath'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -33,7 +34,9 @@ export default function Login() {
       .catch(() => {})
   }, [])
 
-  const next = new URLSearchParams(location.search).get('next') || '/'
+  // A router path ('/brain'); nextAfterLogin adds the /app base and refuses
+  // anything outside the app.
+  const next = nextAfterLogin(new URLSearchParams(location.search).get('next') || '/')
 
   const submit = async e => {
     e.preventDefault()
