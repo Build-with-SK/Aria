@@ -242,7 +242,9 @@ def state(*, include_world: bool = True) -> dict:
     except Exception:
         try:
             import urllib.request
-            with urllib.request.urlopen("http://localhost:11434/api/tags",
+
+            from src.inference.base import ollama_base
+            with urllib.request.urlopen(f"{ollama_base()}/api/tags",
                                         timeout=1.5) as r:
                 llm_up = r.status == 200
         except Exception:

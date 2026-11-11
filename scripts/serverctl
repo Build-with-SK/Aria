@@ -1,0 +1,275 @@
+#!/bin/bash
+# ============================================================================
+# scripts/serverctl — the Mac mini's control surface for ARIA and SENTINEL.
+#
+#   serverctl install [--boot]     put the launchd jobs in place
+#   serverctl start|stop|restart [aria|sentinel|all]
+#   serverctl status               launchd state + liveness + readiness + tunnel
+#   serverctl health               exit 0 only if everything is READY
+#   serverctl logs [aria|sentinel] [-f]
+#   serverctl backup               snapshot both apps' data (never secrets)
+#   serverctl update               pull, install, preflight, restart, verify
+#   serverctl uninstall            remove the launchd jobs (data untouched)
+#
+# TWO SYSTEMS, ONE MACHINE
+# ------------------------
+# ARIA and SENTINEL stay separate products with separate repositories, venvs,
+# processes and launchd jobs. This script is the one thing that knows about both,
+# because the MACHINE is shared: one tunnel, one disk, one set of backups.
+#
+# AGENTS OR DAEMONS
+# -----------------
+# `install` puts LaunchAgents in ~/Library/LaunchAgents: no sudo, but they only
+# run while this user is logged in — so the mini needs automatic login.
+# `install --boot` puts LaunchDaemons in /Library/LaunchDaemons with UserName set
+# to you: they start at boot with nobody logged in. Needs sudo.
+#
+# FILEVAULT: with FileVault on, a reboot stops at the unlock screen and NOTHING
+# starts — agents or daemons — until someone types the password at the machine.
+# A power cut therefore takes the server down until you are physically there.
+# For planned reboots use `sudo fdesetup authrestart`. See docs/MAC_MINI_SERVER.md.
+# ============================================================================
+set -uo pipefail
+
+ARIA_HOME="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -n "${SENTINEL_HOME:-}" ]; then
+  :
+elif [ -d "$ARIA_HOME/../atlas/sentinel" ]; then
+  SENTINEL_HOME="$(cd "$ARIA_HOME/../atlas" && pwd)"
+elif [ -d "$ARIA_HOME/../sentinel/sentinel" ]; then
+  SENTINEL_HOME="$(cd "$ARIA_HOME/../sentinel" && pwd)"
+else
+  SENTINEL_HOME=""
+fi
+
+ARIA_LABEL="com.aria.backend"
+SENTINEL_LABEL="com.sentinel.server"
+WATCHDOG_LABEL="com.aria.watchdog"
+ARIA_URL="http://127.0.0.1:8000"
+SENTINEL_URL="http://127.0.0.1:8300"
+
+AGENT_DIR="$HOME/Library/LaunchAgents"
+DAEMON_DIR="/Library/LaunchDaemons"
+MODE_FILE="$ARIA_HOME/data/.serverctl-mode"      # "agent" or "daemon"
+
+G=$'\e[32m'; R=$'\e[31m'; Y=$'\e[33m'; B=$'\e[1m'; X=$'\e[0m'
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '  %sOK%s    %s\n' "$G" "$X" "$*"; }
+bad()  { printf '  %sFAIL%s  %s\n' "$R" "$X" "$*"; }
+warn() { printf '  %sWARN%s  %s\n' "$Y" "$X" "$*"; }
+
+mode() { cat "$MODE_FILE" 2>/dev/null || echo agent; }
+
+domain() {
+  if [ "$(mode)" = daemon ]; then echo "system"; else echo "gui/$(id -u)"; fi
+}
+
+plist_path() {   # label -> installed plist path
+  if [ "$(mode)" = daemon ]; then echo "$DAEMON_DIR/$1.plist"; else echo "$AGENT_DIR/$1.plist"; fi
+}
+
+SUDO() { if [ "$(mode)" = daemon ]; then sudo "$@"; else "$@"; fi; }
+
+labels_for() {
+  case "${1:-all}" in
+    aria)     echo "$ARIA_LABEL" ;;
+    sentinel) [ -n "$SENTINEL_HOME" ] && echo "$SENTINEL_LABEL" ;;
+    all)      echo "$ARIA_LABEL"; [ -n "$SENTINEL_HOME" ] && echo "$SENTINEL_LABEL"; echo "$WATCHDOG_LABEL" ;;
+    *)        say "unknown target: $1 (aria|sentinel|all)"; exit 2 ;;
+  esac
+}
+
+render() {   # template -> stdout, placeholders filled
+  sed -e "s|__ARIA_HOME__|$ARIA_HOME|g" \
+      -e "s|__SENTINEL_HOME__|$SENTINEL_HOME|g" "$1"
+}
+
+cmd_install() {
+  local m=agent
+  [ "${1:-}" = "--boot" ] && m=daemon
+  mkdir -p "$ARIA_HOME/data/logs"
+  [ -n "$SENTINEL_HOME" ] && mkdir -p "$SENTINEL_HOME/data/logs"
+  echo "$m" > "$MODE_FILE"
+
+  local dir; dir="$( [ "$m" = daemon ] && echo "$DAEMON_DIR" || echo "$AGENT_DIR")"
+  [ "$m" = agent ] && mkdir -p "$AGENT_DIR"
+
+  local pairs=("$ARIA_HOME/scripts/com.aria.backend.plist:$ARIA_LABEL"
+               "$ARIA_HOME/scripts/com.aria.watchdog.plist:$WATCHDOG_LABEL")
+  if [ -n "$SENTINEL_HOME" ]; then
+    pairs+=("$SENTINEL_HOME/deploy/launchd/com.sentinel.server.plist:$SENTINEL_LABEL")
+  else
+    warn "SENTINEL not found beside ARIA (set SENTINEL_HOME) — installing ARIA only"
+  fi
+
+  for pair in "${pairs[@]}"; do
+    local src="${pair%%:*}" label="${pair##*:}" dst="$dir/${pair##*:}.plist"
+    if [ "$m" = daemon ]; then
+      # A daemon runs as root unless told otherwise. It must run as the owner:
+      # root would own every file it writes, and a compromise of either app
+      # would be a compromise of the machine. plutil, not sed: macOS's sed
+      # cannot do this multi-line insert portably.
+      local tmp; tmp="$(mktemp)"
+      render "$src" > "$tmp"
+      plutil -insert UserName -string "$(id -un)" "$tmp"
+      sudo install -o root -g wheel -m 644 "$tmp" "$dst"
+      rm -f "$tmp"
+    else
+      render "$src" > "$dst"
+    fi
+    plutil -lint "$dst" >/dev/null || { bad "$dst is not a valid plist"; exit 1; }
+    SUDO launchctl bootout "$(domain)/$label" 2>/dev/null || true
+    SUDO launchctl bootstrap "$(domain)" "$dst" && ok "installed $label ($m)"
+  done
+  say
+  say "Next: serverctl status"
+  [ "$m" = agent ] && say "Agents need this user logged in. For an unattended box: System Settings → Users & Groups → Automatic login, or re-run with --boot."
+}
+
+cmd_uninstall() {
+  for label in $(labels_for all); do
+    SUDO launchctl bootout "$(domain)/$label" 2>/dev/null || true
+    SUDO rm -f "$(plist_path "$label")"
+    ok "removed $label"
+  done
+  rm -f "$MODE_FILE"
+  say "Data, logs and backups were not touched."
+}
+
+cmd_start() {
+  for label in $(labels_for "${1:-all}"); do
+    local p; p="$(plist_path "$label")"
+    [ -f "$p" ] || { bad "$label is not installed — run: serverctl install"; continue; }
+    SUDO launchctl bootstrap "$(domain)" "$p" 2>/dev/null
+    SUDO launchctl kickstart "$(domain)/$label" && ok "started $label"
+  done
+}
+
+cmd_stop() {
+  for label in $(labels_for "${1:-all}"); do
+    # bootout, not kill: KeepAlive would restart a killed process within 15 s.
+    SUDO launchctl bootout "$(domain)/$label" 2>/dev/null && ok "stopped $label" \
+      || warn "$label was not running"
+  done
+}
+
+cmd_restart() {
+  for label in $(labels_for "${1:-all}"); do
+    if SUDO launchctl kickstart -k "$(domain)/$label" 2>/dev/null; then
+      ok "restarted $label"
+    else
+      cmd_start "$( [ "$label" = "$ARIA_LABEL" ] && echo aria || echo sentinel)"
+    fi
+  done
+}
+
+probe() {   # name url -> prints, returns 0 if ready
+  local name="$1" url="$2" h r
+  h="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$url/health")"
+  r="$(curl -s -o /dev/null -m 5 -w '%{http_code}' "$url/ready")"
+  if [ "$h" != 200 ]; then bad "$name: not answering on $url (health $h)"; return 1; fi
+  if [ "$r" = 200 ]; then ok "$name: live and ready"; return 0; fi
+  bad "$name: live but NOT READY ($r) — reasons are in its log, or in the dashboard once signed in"
+  return 1
+}
+
+cmd_health() {
+  local fail=0
+  probe ARIA "$ARIA_URL" || fail=1
+  if [ -n "$SENTINEL_HOME" ]; then probe SENTINEL "$SENTINEL_URL" || fail=1; fi
+  if pgrep -x cloudflared >/dev/null; then ok "tunnel: cloudflared running"
+  else warn "tunnel: cloudflared is not running — nothing is reachable remotely"; fi
+  local free_mb
+  free_mb="$(df -m "$ARIA_HOME" | awk 'NR==2 {print $4}')"
+  if [ "${free_mb:-0}" -lt 1024 ]; then warn "disk: ${free_mb} MB free"; else ok "disk: ${free_mb} MB free"; fi
+  return $fail
+}
+
+cmd_status() {
+  say "${B}launchd ($(mode))${X}"
+  for label in $(labels_for all); do
+    local line; line="$(SUDO launchctl print "$(domain)/$label" 2>/dev/null | awk -F'= ' '/^\tstate/ {print $2; exit}')"
+    local pid; pid="$(SUDO launchctl print "$(domain)/$label" 2>/dev/null | awk -F'= ' '/^\tpid/ {print $2; exit}')"
+    if [ -n "$line" ]; then ok "$label: ${line}${pid:+ (pid $pid)}"; else warn "$label: not loaded"; fi
+  done
+  say; say "${B}services${X}"
+  cmd_health
+}
+
+cmd_logs() {
+  local which="${1:-aria}" follow="${2:-}" file
+  case "$which" in
+    aria)     file="$ARIA_HOME/data/aria.log" ;;
+    sentinel) file="$SENTINEL_HOME/data/logs/sentinel.log" ;;
+    watchdog) file="$ARIA_HOME/data/logs/watchdog.log" ;;
+    *) say "logs aria|sentinel|watchdog [-f]"; exit 2 ;;
+  esac
+  [ -f "$file" ] || { bad "no log yet at $file"; exit 1; }
+  # JSON lines -> one readable line each, when python is to hand.
+  local fmt='import sys,json
+for l in sys.stdin:
+    try: r=json.loads(l); print(r["ts"], r["level"].ljust(7), r["logger"]+":", r["msg"]); print(r["exc"]) if "exc" in r else None
+    except Exception: print(l, end="")
+'
+  if [ "$follow" = "-f" ]; then tail -n 50 -F "$file" | "$ARIA_HOME/venv/bin/python" -u -c "$fmt"
+  else tail -n 200 "$file" | "$ARIA_HOME/venv/bin/python" -c "$fmt"; fi
+}
+
+cmd_backup() {
+  "$ARIA_HOME/venv/bin/python" "$ARIA_HOME/scripts/backup.py" "$@"
+}
+
+update_repo() {   # dir name -> pulls, refuses a dirty tree
+  local dir="$1" name="$2"
+  ( cd "$dir" || exit 1
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+      bad "$name: working tree is dirty — commit or stash first; not overwriting"; exit 1
+    fi
+    git rev-parse HEAD > "$ARIA_HOME/data/.last-good-$name"
+    git pull --ff-only && ok "$name: now at $(git rev-parse --short HEAD)"
+  )
+}
+
+cmd_update() {
+  say "${B}1. backup first${X}"; cmd_backup || { bad "backup failed — not updating"; exit 1; }
+  say "${B}2. code${X}"
+  update_repo "$ARIA_HOME" aria || exit 1
+  [ -n "$SENTINEL_HOME" ] && { update_repo "$SENTINEL_HOME" sentinel || exit 1; }
+  say "${B}3. dependencies${X}"
+  "$ARIA_HOME/venv/bin/pip" install -q -r "$ARIA_HOME/requirements.txt" && ok "aria deps"
+  if [ -n "$SENTINEL_HOME" ] && [ -f "$SENTINEL_HOME/requirements.txt" ]; then
+    "$SENTINEL_HOME/venv/bin/pip" install -q -r "$SENTINEL_HOME/requirements.txt" && ok "sentinel deps"
+  fi
+  if command -v npm >/dev/null && [ -d "$ARIA_HOME/frontend" ]; then
+    ( cd "$ARIA_HOME/frontend" && npm ci --silent && npm run build --silent ) && ok "frontend rebuilt"
+  fi
+  say "${B}4. preflight${X}"
+  "$ARIA_HOME/venv/bin/python" "$ARIA_HOME/scripts/mini_preflight.py" \
+    || { bad "preflight found blockers — services NOT restarted; old code still running"; exit 1; }
+  say "${B}5. restart and verify${X}"
+  cmd_restart all
+  local i
+  for i in $(seq 1 30); do cmd_health >/dev/null 2>&1 && break; sleep 2; done
+  if cmd_health; then
+    say; ok "update complete"
+  else
+    say; bad "not ready after update. To roll back:"
+    say "   cd $ARIA_HOME && git checkout \$(cat data/.last-good-aria) && scripts/serverctl restart"
+    [ -n "$SENTINEL_HOME" ] && say "   cd $SENTINEL_HOME && git checkout \$(cat $ARIA_HOME/data/.last-good-sentinel)"
+    exit 1
+  fi
+}
+
+case "${1:-}" in
+  install)   shift; cmd_install "$@" ;;
+  uninstall) cmd_uninstall ;;
+  start)     cmd_start "${2:-all}" ;;
+  stop)      cmd_stop "${2:-all}" ;;
+  restart)   cmd_restart "${2:-all}" ;;
+  status)    cmd_status ;;
+  health)    cmd_health ;;
+  logs)      cmd_logs "${2:-aria}" "${3:-}" ;;
+  backup)    shift; cmd_backup "$@" ;;
+  update)    cmd_update ;;
+  *) sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

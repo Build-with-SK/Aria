@@ -1,0 +1,188 @@
+{
+  "measured_at": "2026-10-06T13:26:28",
+  "created_after": null,
+  "cutoff": "2026-09-19T21:30:12",
+  "overall": {
+    "scored": 560,
+    "directional": {
+      "n": 536,
+      "hits": 245,
+      "rate": 0.4571,
+      "ci95": [
+        0.4154,
+        0.4994
+      ]
+    },
+    "neutral": {
+      "n": 24,
+      "hits": 4,
+      "rate": 0.1667,
+      "ci95": [
+        0.0668,
+        0.3585
+      ]
+    },
+    "stated_probability": {
+      "n": 16,
+      "brier": 0.25026,
+      "brier_se": 0.00453,
+      "skill": -0.0011,
+      "ece": 0.0161,
+      "buckets": [
+        {
+          "range": "0.00-0.55",
+          "n": 16,
+          "stated": 0.5161,
+          "rate": 0.5,
+          "ci95": [
+            0.28,
+            0.72
+          ]
+        }
+      ]
+    },
+    "kinds": {
+      "stated": 16,
+      "mapped": 61,
+      "none": 483
+    },
+    "regimes": [
+      "Expansion (Goldilocks)"
+    ],
+    "created": [
+      "2026-07-18T14:03:47",
+      "2026-09-19T21:30:12"
+    ]
+  },
+  "by_source": {
+    "desk": {
+      "scored": 61,
+      "directional": {
+        "n": 61,
+        "hits": 28,
+        "rate": 0.459,
+        "ci95": [
+          0.3401,
+          0.5828
+        ]
+      },
+      "neutral": {
+        "n": 0,
+        "hits": 0,
+        "rate": null,
+        "ci95": null
+      },
+      "stated_probability": {
+        "n": 0,
+        "brier": null,
+        "brier_se": null,
+        "skill": null,
+        "ece": null,
+        "buckets": []
+      },
+      "kinds": {
+        "stated": 0,
+        "mapped": 61,
+        "none": 0
+      },
+      "regimes": [
+        "Expansion (Goldilocks)"
+      ],
+      "created": [
+        "2026-07-18T14:03:47",
+        "2026-08-01T17:32:11"
+      ]
+    },
+    "technical": {
+      "scored": 459,
+      "directional": {
+        "n": 459,
+        "hits": 209,
+        "rate": 0.4553,
+        "ci95": [
+          0.4103,
+          0.5011
+        ]
+      },
+      "neutral": {
+        "n": 0,
+        "hits": 0,
+        "rate": null,
+        "ci95": null
+      },
+      "stated_probability": {
+        "n": 0,
+        "brier": null,
+        "brier_se": null,
+        "skill": null,
+        "ece": null,
+        "buckets": []
+      },
+      "kinds": {
+        "stated": 0,
+        "mapped": 0,
+        "none": 459
+      },
+      "regimes": [
+        "Expansion (Goldilocks)"
+      ],
+      "created": [
+        "2026-07-27T21:30:06",
+        "2026-09-19T21:30:12"
+      ]
+    },
+    "v5": {
+      "scored": 40,
+      "directional": {
+        "n": 16,
+        "hits": 8,
+        "rate": 0.5,
+        "ci95": [
+          0.28,
+          0.72
+        ]
+      },
+      "neutral": {
+        "n": 24,
+        "hits": 4,
+        "rate": 0.1667,
+        "ci95": [
+          0.0668,
+          0.3585
+        ]
+      },
+      "stated_probability": {
+        "n": 16,
+        "brier": 0.25026,
+        "brier_se": 0.00453,
+        "skill": -0.0011,
+        "ece": 0.0161,
+        "buckets": [
+          {
+            "range": "0.00-0.55",
+            "n": 16,
+            "stated": 0.5161,
+            "rate": 0.5,
+            "ci95": [
+              0.28,
+              0.72
+            ]
+          }
+        ]
+      },
+      "kinds": {
+        "stated": 16,
+        "mapped": 0,
+        "none": 24
+      },
+      "regimes": [
+        "Expansion (Goldilocks)"
+      ],
+      "created": [
+        "2026-08-01T16:57:56",
+        "2026-08-31T22:51:30"
+      ]
+    }
+  },
+  "note": "Frozen 2026-10-06 after the probability-semantics correction. Compare only on predictions created after `cutoff`."
+}

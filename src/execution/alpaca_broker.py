@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import threading
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -45,6 +48,60 @@ try:
 except ImportError:
     ALPACA_AVAILABLE = False
     logger.warning("alpaca-py not installed. Run: pip install alpaca-py")
+
+
+# ── which symbols Alpaca can quote at all ───────────────────────────────────
+#
+# Alpaca's crypto endpoint validates pairs against ^[A-Z]+x?/[A-Z]+$ (so no
+# digits: 1INCH and API3 are refused) and its stock endpoint knows US listings
+# only. Asking anyway produced ~13,000 identical warnings in one log, one every
+# three seconds per symbol, which buried every warning that mattered. A symbol
+# the shape check passes but Alpaca still refuses as invalid is remembered for
+# UNQUOTABLE_TTL_S, so it is asked about once per window, not forever.
+
+_ALPACA_CRYPTO_PAIR = re.compile(r"^[A-Z]+x?/[A-Z]+$")
+_ALPACA_STOCK = re.compile(r"^[A-Z]{1,5}([.][A-Z]{1,2})?$")
+UNQUOTABLE_TTL_S = 6 * 3600
+_unquotable: dict[str, float] = {}
+_unquotable_lock = threading.Lock()
+
+
+def _shape_ok(ticker: str) -> bool:
+    t = (ticker or "").upper().strip()
+    if "-USD" in t or "/" in t:
+        return bool(_ALPACA_CRYPTO_PAIR.match(crypto_symbol(t)))
+    return bool(_ALPACA_STOCK.match(t))
+
+
+def quotable(ticker: str, now: Optional[float] = None) -> bool:
+    """Can Alpaca quote this symbol? Pure: a shape check plus the cache of
+    symbols Alpaca has already refused. Touches no network and no account."""
+    t = (ticker or "").upper().strip()
+    if not _shape_ok(t):
+        return False
+    now = time.time() if now is None else now
+    with _unquotable_lock:
+        until = _unquotable.get(t)
+        if until is not None and until > now:
+            return False
+        if until is not None:
+            _unquotable.pop(t, None)
+    return True
+
+
+def _mark_unquotable(ticker: str, reason: str) -> None:
+    t = (ticker or "").upper().strip()
+    with _unquotable_lock:
+        first = t not in _unquotable
+        _unquotable[t] = time.time() + UNQUOTABLE_TTL_S
+    if first:
+        logger.warning("Alpaca cannot quote %s (%s) — not asking again for %dh",
+                       t, reason[:160], UNQUOTABLE_TTL_S // 3600)
+
+
+def _is_invalid_symbol_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return "invalid symbol" in msg or "does not match" in msg
 
 
 def crypto_symbol(ticker: str) -> str:
@@ -103,6 +160,21 @@ def _status_token(alpaca_status) -> str:
     if "." in token:                      # "OrderStatus.FILLED" → "FILLED"
         token = token.rsplit(".", 1)[-1]
     return token.strip().lower()
+
+
+def _classify_submit_failure(exc: Exception, req: OrderRequest) -> "OrderStatus":
+    """REJECTED only when the broker definitely refused; otherwise UNKNOWN.
+
+    An API error with a 4xx status is Alpaca saying no: the order does not
+    exist. Anything else — a timeout, a dropped connection, a 5xx — leaves the
+    order's existence unknown. That distinction only helps a caller who can
+    look the order up afterwards, so UNKNOWN is reported only when a
+    client_order_id was supplied; legacy callers keep the old behaviour.
+    """
+    code = getattr(exc, "status_code", None)
+    if isinstance(code, int) and 400 <= code < 500:
+        return OrderStatus.REJECTED
+    return OrderStatus.UNKNOWN if req.client_order_id else OrderStatus.REJECTED
 
 
 def _parse_status(alpaca_status, filled_qty: float = 0.0) -> OrderStatus:
@@ -297,6 +369,11 @@ class AlpacaBroker(BrokerBase):
                     symbol=req.ticker, qty=req.qty, side=side, time_in_force=tif
                 )
 
+            if req.client_order_id:
+                # alpaca-py request models are pydantic; the field exists on all
+                # four order types and Alpaca rejects a reused value, which is
+                # the broker-side half of idempotency.
+                order_req.client_order_id = req.client_order_id
             order = self._client.submit_order(order_data=order_req)
             filled = float(order.filled_qty or 0)
             return OrderResult(
@@ -311,9 +388,36 @@ class AlpacaBroker(BrokerBase):
             logger.error(f"Alpaca submit_order error: {e}")
             return OrderResult(
                 broker_order_id="",
-                status=OrderStatus.REJECTED,
+                status=_classify_submit_failure(e, req),
                 error_message=str(e),
             )
+
+    def get_order_by_client_id(self, client_order_id: str) -> Optional[OrderResult]:
+        """The order sent with this client id, or None if Alpaca has none.
+
+        What settles an UNKNOWN: after a timeout, ask by the id we chose. Raises
+        on a transport failure — "could not ask" must never read as "not found",
+        or an order that did arrive would be sent again.
+        """
+        if not self._client:
+            raise ConnectionError("Alpaca client not connected")
+        try:
+            order = self._client.get_order_by_client_id(client_order_id)
+        except Exception as e:
+            code = getattr(e, "status_code", None)
+            if code == 404:
+                return None
+            raise
+        filled = float(order.filled_qty or 0)
+        return OrderResult(
+            broker_order_id=str(order.id),
+            status=_parse_status(order.status, filled),
+            filled_qty=filled,
+            avg_fill_price=float(order.filled_avg_price or 0),
+            filled_at=order.filled_at,
+            raw={"id": str(order.id), "status": str(order.status),
+                 "client_order_id": client_order_id},
+        )
 
     def cancel_order(self, broker_order_id: str) -> bool:
         if not self._client:
@@ -399,9 +503,11 @@ class AlpacaBroker(BrokerBase):
             for o in orders:
                 out.append(to_dict(o))
                 # OCO stop legs sit "held" under the parent — expose them so
-                # bracket healing can see the stop actually exists
+                # bracket healing can see the stop actually exists. The
+                # parent id links the legs: only one of them can fill, which
+                # the reduce-only check (src/execution/reduce_only) relies on.
                 for leg in (getattr(o, "legs", None) or []):
-                    out.append(to_dict(leg))
+                    out.append({**to_dict(leg), "parent_id": str(o.id)})
             return out
         except Exception as e:
             logger.error(f"Alpaca get_open_orders error: {e}")
@@ -434,6 +540,8 @@ class AlpacaBroker(BrokerBase):
     def get_quote(self, ticker: str) -> dict:
         if not self._stock_data:
             return {}
+        if not quotable(ticker):
+            return {}
         try:
             is_crypto = "-USD" in ticker.upper() or "/" in ticker
             if is_crypto:
@@ -462,8 +570,18 @@ class AlpacaBroker(BrokerBase):
                 mid = round(ask or bid, 4)
             else:
                 return {}
+            ts = getattr(q, "timestamp", None)
             return {"ask": ask, "bid": bid, "mid": mid,
-                    "one_sided": not (ask > 0 and bid > 0)}
+                    "one_sided": not (ask > 0 and bid > 0),
+                    # When the VENUE produced the quote. Without it a quote
+                    # cannot be checked for staleness, and src/trading treats
+                    # an undated quote as stale.
+                    "timestamp": ts.isoformat() if ts is not None else None,
+                    "bid_size": float(getattr(q, "bid_size", 0) or 0),
+                    "ask_size": float(getattr(q, "ask_size", 0) or 0)}
         except Exception as e:
-            logger.warning(f"Alpaca get_quote({ticker}): {e}")
+            if _is_invalid_symbol_error(e):
+                _mark_unquotable(ticker, str(e))
+            else:
+                logger.warning(f"Alpaca get_quote({ticker}): {e}")
             return {}

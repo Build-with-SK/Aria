@@ -41,3 +41,10 @@ ARIA (the app) reads the same vault via `src/brain/vault.py` — a ChromaDB sema
 - Backend: only ADD endpoints to `backend/main.py`, never remove/rename; lazy-import heavy modules inside functions
 - Frontend: inline styles only, Bloomberg-terminal aesthetic (`var(--mono)`, `var(--orange)`, `var(--green)`); no new npm packages
 - The brain proposes, the human approves: nothing may call `approve_and_execute` autonomously
+
+## Working alongside the other agent
+
+Claude Code and Codex both work on this repo, each in its own folder and
+branch. Before starting any task read `docs/collab/WORK_PLAN.md`: it says which
+areas are yours, which branch you commit to, and the invariants neither agent
+may weaken. Record every task in your own log under `docs/collab/`.

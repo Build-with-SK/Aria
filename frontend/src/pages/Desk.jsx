@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import axios from 'axios'
 import { useCurrency } from '../currency/CurrencyContext'
 import Term from '../components/Term'
 
@@ -72,7 +73,12 @@ function AutoExecToggle({ status, onChanged }) {
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState('')
   const gates = status?.gates || {}
-  const armed = !!status?.config?.auto_execute
+  // usePoll gives null until the first answer and after a failed one. Unknown
+  // is not OFF: it used to render "ARM AUTO-EXECUTE", "OFF by default" and a
+  // FAILed paper check while the desk was armed and trading, with a live button
+  // acting on that guess.
+  const known = typeof status?.config?.auto_execute === 'boolean'
+  const armed = known && status.config.auto_execute
   const account = gates.account || 'disconnected'
   const paperOk = gates.env_paper && account === 'paper'
   const live = account === 'live'
@@ -80,11 +86,15 @@ function AutoExecToggle({ status, onChanged }) {
   const toggle = async () => {
     setBusy(true); setRefusal('')
     try {
-      const r = await fetch(`/api/desk/auto-execute?enabled=${!armed}`, { method: 'POST' })
-      if (!r.ok) {
-        const e = await r.json().catch(() => ({}))
-        setRefusal(e.detail || `Refused (${r.status})`)
-      }
+      // axios, not fetch: arming needs a recent "confirm it's you", and the
+      // step-up interceptor (auth/StepUp.jsx) only sees axios requests.
+      // Disarming never asks — the server does not require it.
+      await axios.post(`/api/desk/auto-execute?enabled=${!armed}`)
+      onChanged && onChanged()
+    } catch (e) {
+      const d = e?.response?.data?.detail
+      setRefusal(typeof d === 'string' ? d
+        : d?.detail || `Refused (${e?.response?.status || 'no response'})`)
       onChanged && onChanged()
     } finally { setBusy(false) }
   }
@@ -93,24 +103,30 @@ function AutoExecToggle({ status, onChanged }) {
     <div className="bb-card glow-frame" style={{ padding: 16 }}>
       <div className="bb-card-header">AUTONOMOUS EXECUTION</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-        <button onClick={toggle} disabled={busy || live} style={{
+        <button onClick={toggle} disabled={busy || live || !known} style={{
           fontFamily: MONO, fontSize: 13, fontWeight: 800, letterSpacing: '.14em',
-          padding: '14px 26px', borderRadius: 6, cursor: live ? 'not-allowed' : 'pointer',
+          padding: '14px 26px', borderRadius: 6, cursor: live || !known ? 'not-allowed' : 'pointer',
           background: armed ? 'var(--green-bg)' : 'var(--bg-3)',
           color: armed ? 'var(--green)' : live ? 'var(--muted)' : 'var(--text-dim)',
           border: `1px solid ${armed ? 'var(--green-dim)' : 'var(--border-2)'}`,
           boxShadow: armed ? '0 0 18px rgba(43,227,139,.3)' : 'none',
           animation: armed ? 'pulseGlow 3.2s ease-in-out infinite' : 'none',
         }}>
-          {armed ? '■ AUTO-EXECUTE ARMED' : '▶ ARM AUTO-EXECUTE'}
+          {!known ? '— AUTO-EXECUTE STATE UNKNOWN' : armed ? '■ AUTO-EXECUTE ARMED' : '▶ ARM AUTO-EXECUTE'}
         </button>
+        {!known ? (
+          <div style={{ fontFamily: MONO, fontSize: 11, lineHeight: 1.8, color: 'var(--muted)' }}>
+            Desk status unavailable — whether auto-execute is armed is unknown,
+            so it is shown as neither on nor off and cannot be changed here.
+          </div>
+        ) : (
         <div style={{ fontFamily: MONO, fontSize: 11, lineHeight: 1.8 }}>
           <div style={{ color: paperOk ? 'var(--green)' : live ? 'var(--red)' : 'var(--yellow)', fontWeight: 700 }}>
             {account === 'paper' ? '● PAPER — auto-exec permitted' :
               live ? '○ LIVE — manual only (locked)' : '○ BROKER DISCONNECTED — manual only'}
           </div>
           <div style={{ color: 'var(--muted)', fontSize: 10 }}>
-            ALPACA_PAPER gate: <span style={{ color: gates.env_paper ? 'var(--green)' : 'var(--red)' }}>
+            Paper-account check: <span style={{ color: gates.env_paper ? 'var(--green)' : 'var(--red)' }}>
               {gates.env_paper ? 'PASS' : 'FAIL'}</span>
             {' · '}budget left <span className="white">${(gates.budget_left ?? 0).toLocaleString()}</span>
             {' · '}trades left <span className="white">{gates.trades_left ?? '—'}</span>
@@ -120,6 +136,7 @@ function AutoExecToggle({ status, onChanged }) {
               'OFF by default. Trades wait in the approval queue until you arm it.'}
           </div>
         </div>
+        )}
       </div>
       {refusal && (
         <div style={{
@@ -143,7 +160,7 @@ function DebateTheatre({ debates }) {
   if (!list.length) return (
     <div className="bb-card"><div className="bb-card-header">DEBATE THEATRE</div>
       <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 20 }}>
-        No debates yet — hit RUN CYCLE and the researchers will take the floor.
+        No debates yet. Press RUN CYCLE NOW to start one.
       </div></div>
   )
 
@@ -372,7 +389,7 @@ function PaperPnL({ pnl }) {
       )}
       {!pnl.connected && (
         <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 10, color: 'var(--yellow)' }}>
-          ⚠ Broker disconnected — set ALPACA_API_KEY / ALPACA_SECRET_KEY / ALPACA_PAPER=true in .env
+          ⚠ Broker disconnected — no paper-trading credentials are configured on the server.
         </div>
       )}
     </div>
@@ -404,7 +421,7 @@ function Performance({ perf }) {
       <div className="bb-card-header">REALIZED PERFORMANCE — CLOSED TRADES ONLY</div>
       {!s.trades ? (
         <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 8 }}>
-          No closed trades yet — the exit engine reports here once positions complete their lifecycle.
+          No closed trades yet. Realised results appear here once a position is closed.
         </div>
       ) : (
         <>
@@ -510,8 +527,9 @@ export default function Desk() {
       </div>
 
       <div style={{ marginTop: 14, fontFamily: MONO, fontSize: 9, color: 'var(--muted)', letterSpacing: '.08em', lineHeight: 1.8 }}>
-        SAFETY CONTRACT: auto-execution is PAPER-ONLY and hard-gated in code — ALPACA_PAPER must equal "true",
-        the toggle must be armed, budgets must have room, and a live account ALWAYS routes to manual approval.
+        SAFETY CONTRACT: auto-execution trades the paper account only, enforced in code — the paper-account
+        check must pass, the toggle must be armed and the budget must have room. A live account ALWAYS routes to
+        manual approval.
         Every fill links to its debate transcript and evidence. Research &amp; education only — not financial advice.
       </div>
     </div>

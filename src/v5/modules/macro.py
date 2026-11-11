@@ -22,7 +22,7 @@ import pandas as pd
 
 from src.v5 import marketdata as md
 from src.v5.contract import Evidence, ModuleReport, insufficient
-from src.v5.modules._util import (BASE_RATE_LOOKBACK, ann_vol, clamp,
+from src.v5.modules._util import (BASE_RATE_LOOKBACK, clamp,
                                   conditional_hit_rate, effective_interval,
                                   hit_rate_probability, logistic, overlap_weakness, pct,
                                   regime_weakness, sma)

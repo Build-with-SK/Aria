@@ -11,15 +11,16 @@
  * expected outcome of an honest gate, not a bug, and the page says so rather
  * than showing an empty table that reads as breakage.
  */
-import React, { useEffect, useState } from 'react'
+import React, { useState } from 'react'
 import axios from 'axios'
 import { Empty, SectionHeader, Spinner } from '../components/UI'
-import { useWorld } from '../hooks/useApi'
+import { useApiData, useWorld } from '../hooks/useApi'
+import { DataUnavailable } from '../components/DataState'
 
 const mono = { fontFamily: 'var(--mono)' }
 
 const Num = ({ v, digits = 2, good }) => {
-  if (v == null) return <span style={{ color: 'var(--muted)' }}>—</span>
+  if (v == null || !Number.isFinite(Number(v))) return <span style={{ color: 'var(--muted)' }}>—</span>
   const n = Number(v)
   const color = good == null ? '#fff' : (n >= good ? 'var(--green)' : 'var(--red)')
   return <span style={{ color, fontWeight: 700 }}>{n.toFixed(digits)}</span>
@@ -27,18 +28,15 @@ const Num = ({ v, digits = 2, good }) => {
 
 export default function Strategies() {
   const { data: world } = useWorld()
-  const [strategies, setStrategies] = useState(null)
-  const [campaigns, setCampaigns] = useState(null)
-  const [papers, setPapers] = useState(null)
+  const { data: strategies, loading, error, reload: reloadStrategies } = useApiData('/api/quant/strategies')
+  const { data: campaigns, error: campaignError, reload: reloadCampaigns } = useApiData('/api/evolution/campaigns')
+  const { data: papers, reload: reloadPapers } = useApiData('/api/quant/papers')
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
 
   const load = () => {
-    axios.get('/api/quant/strategies').then(r => setStrategies(r.data)).catch(() => setStrategies([]))
-    axios.get('/api/evolution/campaigns').then(r => setCampaigns(r.data)).catch(() => setCampaigns(null))
-    axios.get('/api/quant/papers').then(r => setPapers(r.data)).catch(() => setPapers(null))
+    reloadStrategies(); reloadCampaigns(); reloadPapers()
   }
-  useEffect(load, [])
 
   const runLab = async () => {
     setBusy(true); setNote('')
@@ -55,6 +53,11 @@ export default function Strategies() {
     : (strategies?.strategies || [])
   const lab = world?.strategies?.lab
   const desk = world?.strategies?.desk
+  // Auto-execute and the slate come from /api/world. When that has not
+  // answered, the desk's state is UNKNOWN — showing it as OFF / 0 picks told
+  // the owner the desk was idle while it was armed and trading.
+  const autoKnown = typeof desk?.auto_execute === 'boolean'
+  const slateKnown = desk?.slate_size != null && Number.isFinite(Number(desk.slate_size))
   const camps = Array.isArray(campaigns) ? campaigns : (campaigns?.campaigns || [])
 
   // A challenger has to beat the gate, not merely exist. Sorting by
@@ -63,7 +66,10 @@ export default function Strategies() {
     ((b?.metrics?.oos?.sharpe ?? -99) - (a?.metrics?.oos?.sharpe ?? -99)))
   const survivors = ranked.filter(s => (s?.metrics?.oos?.sharpe ?? -99) > 0.5)
 
-  if (!strategies) return <Spinner />
+  if (loading && !strategies) return <Spinner />
+  if (error || strategies == null || (!Array.isArray(strategies) && !Array.isArray(strategies.strategies))) {
+    return <DataUnavailable name="Strategies" error={error} />
+  }
 
   return (
     <div style={{ maxWidth: 1160, margin: '0 auto' }}>
@@ -101,14 +107,19 @@ export default function Strategies() {
           <div>
             <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: '.15em' }}>AUTO-EXECUTE</div>
             <div style={{ ...mono, fontSize: 15, fontWeight: 800,
-                          color: desk?.auto_execute ? 'var(--yellow)' : 'var(--green)' }}>
-              {desk?.auto_execute ? 'ARMED' : 'OFF'}
+                          color: !autoKnown ? 'var(--muted)'
+                            : desk.auto_execute ? 'var(--yellow)' : 'var(--green)' }}>
+              {!autoKnown ? '—' : desk.auto_execute ? 'ARMED' : 'OFF'}
             </div>
+            {!autoKnown && (
+              <div style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>unavailable</div>
+            )}
           </div>
           <div>
             <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: '.15em' }}>SLATE</div>
-            <div style={{ ...mono, fontSize: 15, fontWeight: 800, color: '#fff' }}>
-              {desk?.slate_size ?? 0} picks
+            <div style={{ ...mono, fontSize: 15, fontWeight: 800,
+                          color: slateKnown ? '#fff' : 'var(--muted)' }}>
+              {slateKnown ? `${desk.slate_size} picks` : '—'}
             </div>
           </div>
           <div>
@@ -119,9 +130,9 @@ export default function Strategies() {
           </div>
         </div>
         <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 10, lineHeight: 1.6 }}>
-          Nothing on this page can place a trade. The desk's safety contract is
-          enforced in code, not here: auto-execute is paper-only behind an env
-          gate, and every order still needs a human approval.
+          Nothing on this page places a trade. When armed, auto-execute trades
+          the paper account only — enforced in code, not by this page. Any order
+          on a live account needs your approval.
         </div>
       </div>
 
@@ -175,7 +186,7 @@ export default function Strategies() {
                           already carries the title — printing the whole thing
                           here rendered every row twice as wide as it needed to
                           be, with the same sentence in both columns. */}
-                      {s.template || (s.name || s.id).split(' · ')[0]}
+                      {s.template || (s.name || s.id || 'Unnamed strategy').split(' · ')[0]}
                     </td>
                     <td style={{ padding: '5px 6px', color: 'var(--muted)', maxWidth: 260,
                                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -207,6 +218,7 @@ export default function Strategies() {
 
       {/* ── EVOLUTION ── */}
       <SectionHeader>EVOLUTION CAMPAIGNS</SectionHeader>
+      {(campaignError || campaigns == null) && <DataUnavailable name="Evolution campaigns" error={campaignError} />}
       <div className="bb-card">
         {!camps.length && (
           <div style={{ ...mono, fontSize: 11, color: 'var(--muted)', lineHeight: 1.7 }}>

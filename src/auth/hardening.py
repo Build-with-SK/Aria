@@ -87,7 +87,15 @@ class RateLimiter:
     """
 
     BUCKETS = {
-        "/api/auth/": (20, 300),        # 20 sign-in attempts per 5 min
+        # The two routes that accept a credential. Deliberately NOT the whole
+        # /api/auth/ prefix any more: that swept in /api/auth/me, which the
+        # interface calls on every page load, and AuthContext reads ANY error
+        # from /me — a 429 included — as "signed out". A handful of reloads
+        # therefore bounced the owner to the login page. Per-credential
+        # brute-force defence (backoff, lockout) now lives in ownerauth; this
+        # is the coarse per-IP layer above it.
+        "/api/auth/login": (20, 300),   # 20 sign-in attempts per 5 min
+        "/api/auth/confirm": (20, 300), # step-up is a sign-in by another name
         "/api/chat": (20, 3600),        # 20 chats/hour — the mini is the bottleneck
         "/api/v5/": (60, 3600),         # analysis is ~7s of CPU each
         "": (300, 60),                  # everything else: 300/min

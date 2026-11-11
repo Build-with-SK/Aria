@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
+import { streamChat } from '../hooks/streamChat'
 import { startThinking, speakReply } from '../core/ariaVoice'
 import { setCoreState } from '../core/coreBus'
 import { useSystemHealth } from '../hooks/useApi'
@@ -110,15 +111,17 @@ function Bubble({ msg }) {
           color: '#333', textAlign: isUser ? 'left' : 'right',
         }}>
           {msg.time}
-          {msg.tokens && (
+          {/* Both chat routes return `tokens: {}`, which is truthy — the old
+              check rendered a bare "↓ tokens" under every reply. */}
+          {msg.tokens?.out != null && (
             <span style={{ marginLeft: 8 }}>{msg.tokens.in ? `${msg.tokens.in}↑ ` : ''}{msg.tokens.out}↓ tokens</span>
           )}
           {msg.source && (
             <span style={{
               marginLeft: 8,
-              color: msg.source === 'cloud' ? 'var(--orange)' : '#00aa44',
+              color: msg.degraded ? 'var(--yellow)' : msg.source === 'cloud' ? 'var(--orange)' : '#00aa44',
             }}>
-              [{msg.source === 'cloud' ? 'CLOUD' : `LOCAL · ${msg.model || ''}`}]
+              [{msg.source === 'cloud' ? 'ARIA' : 'DIRECT'}{msg.model ? ` · ${msg.model}` : ''}{msg.degraded ? ' · DEGRADED' : ''}]
             </span>
           )}
         </div>
@@ -128,7 +131,7 @@ function Bubble({ msg }) {
 }
 
 // ─── Typing indicator ─────────────────────────────────────────────────────────
-function Typing() {
+function Typing({ status }) {
   return (
     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 16 }}>
       <div style={{
@@ -149,6 +152,11 @@ function Typing() {
             animation: `dot-bounce 1.2s ${i * 0.2}s ease-in-out infinite`,
           }} />
         ))}
+        {/* What she is actually doing, from the server — never a script. */}
+        {status && (
+          <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--text-dim)',
+                         marginLeft: 8, letterSpacing: '.04em' }}>{status}</span>
+        )}
       </div>
     </div>
   )
@@ -179,13 +187,14 @@ export default function Chat({ embedded = false }) {
     },
     {
       role: 'assistant',
-      content: "I'm **ARIA** — your trading intelligence agent. I have full access to the current signal engine output: 766 tickers, ML ensemble predictions, macro regime analysis, and live execution queue.\n\nAsk me anything about the market, a specific ticker, trade ideas, or the system methodology. What would you like to analyse?",
+      content: "I'm **ARIA**. I work from the current signal book, the ensemble's predictions, the macro regime and your research notes, and I tell you how old each of them is.\n\nAsk about the market, a specific ticker, a trade idea, or how the system reaches its calls.",
       time: now(),
     },
   ])
 
   const [input, setInput]   = useState('')
   const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState('')
   const [error, setError]   = useState('')
   const [mode, setMode]     = useState('cloud')          // 'cloud' | 'local'
   const [localModel, setLocalModel] = useState('')
@@ -224,19 +233,56 @@ export default function Chat({ embedded = false }) {
         .filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({ role: m.role, content: m.content }))
 
-      const r = mode === 'local'
-        ? await axios.post('/api/chat/local', { messages: history, model: localModel || 'qwen2.5-coder:7b' })
-        : await axios.post('/api/chat', { messages: history })
+      let data
+      if (mode === 'local') {
+        data = (await axios.post('/api/chat/local', { messages: history, model: localModel || 'qwen2.5-coder:7b' })).data
+      } else {
+        // STREAMED. A draft message fills in as the answer is written; the
+        // status line under the dots says which step is actually running.
+        // `done` carries the recorded reply and replaces the draft, so what is
+        // left on screen is exactly what /api/chat would have returned.
+        const draftTime = now()
+        // Pure updaters only: React may run them twice (StrictMode), so the
+        // draft is found by its `draft` marker, never by a flag mutated here.
+        const setDraft = update => setMessages(prev => {
+          const last = prev[prev.length - 1]
+          return last?.draft
+            ? [...prev.slice(0, -1), update(last)]
+            : [...prev, update({ role: 'assistant', content: '', time: draftTime, source: mode, draft: true })]
+        })
+        const dropDraft = () => setMessages(prev =>
+          prev[prev.length - 1]?.draft ? prev.slice(0, -1) : prev)
+        try {
+          data = await streamChat('/api/chat/stream', { messages: history }, {
+            status: d => setStatus(d.text),
+            token: d => { setStatus(''); setDraft(m => ({ ...m, content: m.content + d.text })) },
+            reset: () => setDraft(m => ({ ...m, content: '' })),
+          })
+        } catch (e) {
+          dropDraft()
+          // An answer-shaped refusal is an answer: say it, do not retry it.
+          // Only a stream that could not START falls back to the blocking route.
+          if (e.abstained || [401, 403, 429].includes(e.status)) {
+            throw Object.assign(e, { response: { data: { detail: e.message } } })
+          }
+          data = (await axios.post('/api/chat', { messages: history })).data
+        }
+        dropDraft()
+      }
       const ariaMsg = {
         role: 'assistant',
-        content: r.data.content,
+        content: data.content,
         time: now(),
-        tokens: r.data.tokens,
+        tokens: data.tokens,
         source: mode,
-        model: mode === 'local' ? (r.data.model || localModel) : undefined,
+        // The brain path names the model that actually answered, and whether
+        // it was a fallback (`degraded`, only under ARIA_DEGRADE=disclose).
+        model: data.model || (mode === 'local' ? localModel : undefined),
+        degraded: !!data.degraded,
+        timing: data.timing,
       }
       setMessages(prev => [...prev, ariaMsg])
-      speakReply(r.data.content, null, { voice: false })   // beat the core through the reply
+      speakReply(data.content, null, { voice: false })   // beat the core through the reply
     } catch (e) {
       const detail = e.response?.data?.detail || e.message
       setError(detail)
@@ -248,6 +294,7 @@ export default function Chat({ embedded = false }) {
       setCoreState('idle')
     } finally {
       setLoading(false)
+      setStatus('')
       setTimeout(() => inputRef.current?.focus(), 100)
     }
   }
@@ -292,7 +339,7 @@ export default function Chat({ embedded = false }) {
             ARIA INTELLIGENCE
           </div>
           <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)' }}>
-            Autonomous Research &amp; Investment Architect · 766-ticker universe · LightGBM ensemble
+            Autonomous Research &amp; Investment Architect · self-hosted
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -312,7 +359,7 @@ export default function Chat({ embedded = false }) {
         scrollbarWidth: 'thin', scrollbarColor: '#222 transparent',
       }}>
         {messages.map((msg, i) => <Bubble key={i} msg={msg} />)}
-        {loading && <Typing />}
+        {loading && !messages[messages.length - 1]?.draft && <Typing status={status} />}
         <div ref={bottomRef} />
       </div>
 
@@ -336,10 +383,15 @@ export default function Chat({ embedded = false }) {
         </div>
       )}
 
-      {/* Cloud / Local mode toggle */}
+      {/* Brain / direct-model toggle. The internal mode is still called
+          'cloud' because the state and the reply's `source` field use it, but
+          the label said "Claude API" long after /api/chat stopped calling one:
+          the router filters vendor providers out of this path unless the owner
+          sets ARIA_ALLOW_VENDOR_BRAIN (src/inference/policy.py). */}
       <div style={{ display: 'flex', gap: 8, marginTop: 8, flexShrink: 0, alignItems: 'center' }}>
         <button
           onClick={() => setMode('cloud')}
+          title="ARIA's own brain, self-hosted. Streams the reply, and can queue a trade idea for your approval."
           style={{
             background: mode === 'cloud' ? 'var(--orange)' : 'transparent',
             color: mode === 'cloud' ? '#000' : 'var(--text-dim)',
@@ -347,9 +399,10 @@ export default function Chat({ embedded = false }) {
             borderRadius: 4, padding: '4px 12px', cursor: 'pointer',
             fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 800, letterSpacing: 1,
           }}
-        >☁ CLOUD — Claude API</button>
+        >◆ ARIA BRAIN</button>
         <button
           onClick={() => setMode('local')}
+          title="Ask one local model directly. Same market context; never queues a trade."
           style={{
             background: mode === 'local' ? '#00aa44' : 'transparent',
             color: mode === 'local' ? '#000' : 'var(--text-dim)',
@@ -357,13 +410,13 @@ export default function Chat({ embedded = false }) {
             borderRadius: 4, padding: '4px 12px', cursor: 'pointer',
             fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 800, letterSpacing: 1,
           }}
-        >⚡ LOCAL — {localModel || 'no model'}</button>
+        >⚡ DIRECT — {localModel || 'no model'}</button>
         {mode === 'local' && !ollamaUp && (
           <span style={{
             fontFamily: 'var(--mono)', fontSize: 10, color: '#000',
             background: 'var(--orange)', borderRadius: 3, padding: '3px 10px', fontWeight: 800,
           }}>
-            ⚠ OLLAMA OFFLINE — run: ollama serve
+            ⚠ LOCAL MODEL OFFLINE — direct mode unavailable
           </span>
         )}
       </div>

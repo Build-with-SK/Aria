@@ -382,7 +382,8 @@ class UniverseManager:
     def _load_bse_equities(self) -> int:
         """Official BSE equity master via the UDiFF bhavcopy (walk back up to 7
         trading days until a file exists). Display = ticker symbol; yahoo = the
-        numeric BSE scrip code + .BO (the form Yahoo Finance uses)."""
+        numeric BSE scrip code + .BO initially. Preserve a provider-verified
+        correction for the same ISIN; numeric codes do not all have feeds."""
         self._ensure_currency_column()
         text = None
         for days_back in range(1, 8):
@@ -422,13 +423,26 @@ class UniverseManager:
                 isin = (r.get("ISIN") or "").strip()
                 # display uses .BO-suffixed scrip form to avoid NSE symbol collisions
                 display = f"{sym}.BO"
+                provider = f"{code}.BO"
+                proof = conn.execute("SELECT value FROM meta WHERE key=?",
+                                     (f"provider_repair:{display}",)).fetchone()
+                existing = conn.execute("SELECT yahoo, isin FROM symbols WHERE symbol=?", (display,)).fetchone() if proof else None
+                if proof and existing:
+                    try:
+                        checked = json.loads(proof["value"])
+                        if (isin and isin == existing["isin"] == checked.get("isin")
+                                and existing["yahoo"] == checked.get("candidate")
+                                and checked.get("verified") is True):
+                            provider = existing["yahoo"]
+                    except (ValueError, TypeError):
+                        pass
                 conn.execute(
                     """INSERT INTO symbols(symbol, yahoo, name, exchange, asset_class, isin, currency, updated_at)
                        VALUES(?,?,?,?,?,?,?,?)
                        ON CONFLICT(symbol) DO UPDATE SET
                          yahoo=excluded.yahoo, name=excluded.name, isin=excluded.isin,
                          currency=excluded.currency, updated_at=excluded.updated_at""",
-                    (display, f"{code}.BO", name, "BSE", "equity", isin, "INR", now),
+                    (display, provider, name, "BSE", "equity", isin, "INR", now),
                 )
                 count += 1
         logger.info(f"Loaded {count} BSE symbols")
@@ -952,6 +966,44 @@ class UniverseManager:
                      updated_at=excluded.updated_at""",
                 (symbol, yahoo, name, exchange, asset_class, currency, now))
 
+    def repair_bse_provider(self, symbol: str, ticker_factory=None) -> dict:
+        """Maintenance-only verified repair; run with the backend stopped.
+
+        No public read endpoint calls this. Keep historical predictions and
+        all listing fields intact. Restart the backend after repairs to clear
+        in-process quote/history caches.
+        """
+        from src.data.provider_audit import verify_bse_candidate
+        from src.core.identity import assert_provider_symbol_safe
+        row = self._lookup(symbol)
+        if not row:
+            return {"symbol": symbol, "applied": False, "reason": "unknown listing"}
+        proof = verify_bse_candidate(row, ticker_factory)
+        if not proof["verified"]:
+            return {**proof, "applied": False}
+        with self._lock, self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute("SELECT * FROM symbols WHERE symbol=?", (row["symbol"],)).fetchone()
+            if not current or any(current[k] != row[k] for k in ("yahoo", "isin", "name", "exchange", "currency")):
+                return {**proof, "applied": False, "reason": "listing changed during verification"}
+            ok, why = assert_provider_symbol_safe(proof["candidate"], row["symbol"], row["name"], isin=row.get("isin"))
+            if not ok:
+                return {**proof, "applied": False, "reason": f"identity guard: {why}"}
+            safe = row["symbol"]
+            # Candidates have a strict filename-safe grammar in provider_audit.
+            # Invalidate display-keyed disk caches before changing the mapping.
+            (DOSSIER_DIR / f"{safe}.json").unlink(missing_ok=True)
+            cache = ROOT / "data" / "cache" / "v5"
+            for path in cache.glob(f"{safe}__*"):
+                if path.is_file() and path.suffix in (".csv", ".json"):
+                    path.unlink()
+            conn.execute("DELETE FROM quotes WHERE symbol=?", (row["symbol"],))
+            conn.execute("UPDATE symbols SET yahoo=?, updated_at=? WHERE symbol=?",
+                         (proof["candidate"], datetime.now().isoformat(), row["symbol"]))
+            conn.execute("INSERT OR REPLACE INTO meta(key,value) VALUES(?,?)",
+                         (f"provider_repair:{row['symbol']}", json.dumps(proof)))
+        return {**proof, "applied": True}
+
     def explore(self, query: str, prefer: Optional[str] = None,
                 n_peers: int = 5) -> Dict[str, Any]:
         """Search ANY global ticker (streaming/LOD): resolve+fetch it live if
@@ -1031,6 +1083,9 @@ class UniverseManager:
         if info.get("currency"):
             return info["currency"]
         y = (info.get("yahoo") or "")
+        classified = _classify(y).get("currency")
+        if classified:
+            return classified
         if y.endswith(".NS") or y.endswith(".BO"):
             return "INR"
         if y.endswith(".L"):

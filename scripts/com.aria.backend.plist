@@ -1,6 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  ARIA backend under launchd. Installed by `scripts/serverctl install`, which
+  substitutes __ARIA_HOME__ and __USER__. Do not load this file directly.
+
+  Runs through scripts/serve.py rather than bare uvicorn: serve.py owns the
+  process's streams, so the application's rotating JSON log (data/aria.log) is
+  authoritative and the file launchd captures below only ever holds what
+  bypasses logging — a crash before logging starts, a C-extension traceback.
+
+  Binds 127.0.0.1. Nothing on the LAN reaches it; only cloudflared does.
+-->
 <plist version="1.0">
 <dict>
   <key>Label</key><string>com.aria.backend</string>
@@ -8,16 +19,28 @@
   <key>ProgramArguments</key>
   <array>
     <string>__ARIA_HOME__/venv/bin/python</string>
-    <string>-m</string>
-    <string>uvicorn</string>
-    <string>backend.main:app</string>
-    <string>--host</string><string>127.0.0.1</string>
-    <string>--port</string><string>8000</string>
+    <string>__ARIA_HOME__/scripts/serve.py</string>
   </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ARIA_HOST</key><string>127.0.0.1</string>
+    <key>ARIA_PORT</key><string>8000</string>
+    <key>ARIA_LOG_FORMAT</key><string>json</string>
+    <key>ARIA_LOG_CONSOLE</key><string>0</string>
+    <key>PYTHONUNBUFFERED</key><string>1</string>
+    <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
   <key>RunAtLoad</key><true/>
+  <!-- Restart whenever it exits, but not faster than every 15 s: a crash loop
+       must not pin the CPU of the machine it is crashing on. -->
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>__ARIA_HOME__/logs/backend.out</string>
-  <key>StandardErrorPath</key><string>__ARIA_HOME__/logs/backend.err</string>
   <key>ThrottleInterval</key><integer>15</integer>
+  <!-- Lower priority than an interactive user; the server yields first. -->
+  <key>Nice</key><integer>5</integer>
+  <key>ProcessType</key><string>Background</string>
+  <key>SoftResourceLimits</key>
+  <dict><key>NumberOfFiles</key><integer>4096</integer></dict>
+  <key>StandardOutPath</key><string>__ARIA_HOME__/data/logs/launchd-backend.log</string>
+  <key>StandardErrorPath</key><string>__ARIA_HOME__/data/logs/launchd-backend.log</string>
 </dict>
 </plist>

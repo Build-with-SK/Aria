@@ -19,10 +19,11 @@ import json
 import logging
 import threading
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import timezone, datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -139,6 +140,13 @@ def as_of(when):
 
     A module run under it cannot see a bar it could not have seen on the day —
     which is what makes a walk-forward result mean anything.
+
+    Two modes. A DATE (naive) keeps every bar dated on or before it — fine
+    when every series comes from one venue. An aware INSTANT keeps only bars
+    whose venue had closed by then (src/markets/sessions.bar_known_by): at
+    09:00 Tokyo on Monday, New York's Monday bar does not exist yet, and a
+    date-based cut would hand it to a Tokyo replay. Use the instant mode for
+    anything that mixes markets.
     """
     previous = getattr(_AS_OF, "when", None)
     _AS_OF.when = pd.Timestamp(when) if when is not None else None
@@ -152,19 +160,42 @@ def current_as_of():
     return getattr(_AS_OF, "when", None)
 
 
-def history(symbol: str, period: str = "2y", interval: str = "1d") -> Optional[pd.DataFrame]:
+def _truncate_point_in_time(symbol: str, full: pd.DataFrame, cutoff,
+                            interval: str = "1d") -> Optional[pd.DataFrame]:
+    if cutoff.tzinfo is None or interval != "1d":
+        naive = cutoff.tz_convert("UTC").tz_localize(None) if cutoff.tzinfo else cutoff
+        return full[full.index <= naive]
+    from src.markets import sessions
+    when = cutoff.to_pydatetime()
+    provider = symbol[len(EXACT):] if symbol.startswith(EXACT) else (
+        (_PROVENANCE.get(f"{symbol}|{interval}") or {}).get("provider_symbol") or symbol)
+    venue = sessions.resolve(provider).venue
+    # Bars dated two or more days before the cutoff's UTC date are over
+    # everywhere; only the last few need the session arithmetic.
+    utc_day = when.astimezone(timezone.utc).date()
+    idx_dates = full.index.date
+    certain = idx_dates < (utc_day - timedelta(days=2))
+    near = ~certain & (idx_dates <= utc_day + timedelta(days=1))
+    keep = certain.copy()
+    for i in np.flatnonzero(near):
+        keep[i] = sessions.bar_known_by(venue, idx_dates[i], when)
+    return full[keep]
+
+
+def history(symbol: str, period: str = "2y", interval: str = "1d", *, verify_identity: bool = False) -> Optional[pd.DataFrame]:
     """Daily (or `interval`) OHLCV for one symbol, or None.
 
     Columns are normalised to Open/High/Low/Close/Volume with a tz-naive
     DatetimeIndex. Slices out of one long series per symbol.
     """
-    full = _full_history(symbol, interval)
+    full = (_full_history(symbol, interval, verify_identity=True) if verify_identity
+            else _full_history(symbol, interval))
     if full is None or full.empty:
         return None
     cutoff_date = current_as_of()
     if cutoff_date is not None:
-        full = full[full.index <= cutoff_date]
-        if full.empty:
+        full = _truncate_point_in_time(symbol, full, cutoff_date, interval)
+        if full is None or full.empty:
             return None
     days = PERIOD_DAYS.get(period)
     if days:
@@ -173,11 +204,13 @@ def history(symbol: str, period: str = "2y", interval: str = "1d") -> Optional[p
     return full if len(full) >= 5 else None
 
 
-def _full_history(symbol: str, interval: str) -> Optional[pd.DataFrame]:
+def _full_history(symbol: str, interval: str, *, verify_identity: bool = False) -> Optional[pd.DataFrame]:
     key = f"{symbol}|{interval}"
     with _LOCK:
         hit = _MEM.get(key)
-        if hit and datetime.now() - hit[0] < timedelta(minutes=30):
+        identity = (_PROVENANCE.get(key) or {}).get("identity") or {}
+        confirmed = bool(identity.get("symbol")) and identity["symbol"].upper() == (_PROVENANCE[key].get("provider_symbol") or "").upper()
+        if hit and datetime.now() - hit[0] < timedelta(minutes=30) and (not verify_identity or confirmed):
             return hit[1]
         miss = _MISSES.get(key)
         if miss and datetime.now() - miss < timedelta(minutes=10):
@@ -187,27 +220,58 @@ def _full_history(symbol: str, interval: str) -> Optional[pd.DataFrame]:
     with lock:
         with _LOCK:                          # another thread may have filled it
             hit = _MEM.get(key)
-            if hit and datetime.now() - hit[0] < timedelta(minutes=30):
+            identity = (_PROVENANCE.get(key) or {}).get("identity") or {}
+            confirmed = bool(identity.get("symbol")) and identity["symbol"].upper() == (_PROVENANCE[key].get("provider_symbol") or "").upper()
+            if hit and datetime.now() - hit[0] < timedelta(minutes=30) and (not verify_identity or confirmed):
                 return hit[1]
 
         prov = {"symbol": symbol, "interval": interval}
-        df = _from_raw(symbol) if interval == "1d" else None
+        # data/raw is written by the signals pipeline, whose files are named
+        # by PROVIDER symbol, while the vendor path below fetches resolve()'s
+        # answer from the master namespace. Reading raw by the bare symbol
+        # would serve Boeing's file for "BA" one day and BAE Systems (BA.L,
+        # pence) from the vendor the next. Both sources use the resolved name.
+        if symbol.startswith(EXACT):
+            provider = symbol[len(EXACT):]
+        else:
+            with _quiet_vendor():
+                provider = resolve(symbol)
+        prov["provider_symbol"] = provider
+        df = _from_raw(provider) if interval == "1d" and not verify_identity else None
         if df is not None:
             prov.update(served_from="raw_csv", vendor=None, degraded=False,
+                        adjustment="split+dividend",
                         detail=f"data/raw/{_safe(symbol)}.csv")
         if df is None:
-            df = _from_cache(symbol, interval)
+            meta = _cache_meta(symbol, interval)
+            identity = meta.get("identity") or {}
+            bound = (meta.get("provider_symbol") == provider and str(identity.get("symbol") or "").upper() == provider.upper())
+            df = _from_cache(symbol, interval) if not verify_identity or bound else None
             if df is not None:
-                prov.update(served_from="disk_cache", vendor=None, degraded=False,
-                            detail=f"cache within {CACHE_TTL_HOURS}h TTL")
+                # The cache used to be served as clean, un-degraded data
+                # whichever vendor had filled it — a fallback series, raw
+                # closes included, came back looking like a primary fetch for
+                # six hours. The sidecar keeps what the vendor fetch knew.
+                meta = _cache_meta(symbol, interval)
+                prov.update(served_from="disk_cache",
+                            vendor=meta.get("vendor"),
+                            degraded=bool(meta) and not meta.get("is_primary", False),
+                            adjustment=meta.get("adjustment", "unknown"),
+                            identity=meta.get("identity") or {},
+                            detail=(f"cache within {CACHE_TTL_HOURS}h TTL"
+                                    + (f", filled by {meta['vendor']}" if meta.get("vendor")
+                                       else ", filler not recorded")))
         if df is None:
-            df, prov = _from_vendors(symbol, interval, prov)
+            df, prov = (_from_vendors(symbol, interval, prov, verify_identity=True) if verify_identity
+                        else _from_vendors(symbol, interval, prov))
 
         df = _normalise(df) if df is not None else None
         with _LOCK:
             if df is None or len(df) < 5:
                 _MISSES[key] = datetime.now()
                 _PROVENANCE[key] = {**prov, "ok": False,
+                                    "rows": 0 if df is None else int(len(df)),
+                                    "unavailable_reason": "no usable provider history" if df is None else "provider history below central minimum of 5 bars",
                                     "stale": True, "last_bar": None,
                                     "last_bar_age_days": None,
                                     "at": datetime.now().isoformat(timespec="seconds")}
@@ -242,15 +306,25 @@ def _finish_provenance(prov: dict, df: pd.DataFrame) -> dict:
         pass
 
     too_old = age_days is not None and age_days > STALE_AFTER_DAYS
-    stale = bool(prov.get("degraded")) or too_old
+    from src.v5.dataquality import assess
+    quality = assess(df, adjustment=prov.get("adjustment", "unknown"))
+    # A "bad" series (non-positive prices, future-dated bars, an unadjusted
+    # split) is treated like stale data: still served for research, but the
+    # meta-review cuts the edge and the report says why.
+    bad = quality["status"] == "bad"
+    stale = bool(prov.get("degraded")) or too_old or bad
     reasons = []
     if prov.get("degraded"):
         reasons.append(prov.get("detail") or "degraded source")
     if too_old:
         reasons.append(f"newest bar is {age_days:.1f} days old "
                        f"(stale after {STALE_AFTER_DAYS})")
+    if bad:
+        reasons.append("data quality: " + "; ".join(quality["issues"]))
 
     return {**prov,
+            "adjustment": prov.get("adjustment", "unknown"),
+            "quality": quality,
             "ok": True,
             "last_bar": last_bar.date().isoformat() if last_bar else None,
             "last_bar_age_days": age_days,
@@ -335,6 +409,18 @@ def _cache_path(symbol: str, interval: str) -> Path:
     return CACHE_DIR / f"{_safe(symbol)}__{interval}.csv"
 
 
+def _cache_meta_path(symbol: str, interval: str) -> Path:
+    return CACHE_DIR / f"{_safe(symbol)}__{interval}.meta.json"
+
+
+def _cache_meta(symbol: str, interval: str) -> dict:
+    """What the vendor fetch that filled the cache knew. {} when not recorded."""
+    try:
+        return json.loads(_cache_meta_path(symbol, interval).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 def _from_cache(symbol: str, interval: str) -> Optional[pd.DataFrame]:
     p = _cache_path(symbol, interval)
     if not p.exists() or _age_days(p) * 24 > CACHE_TTL_HOURS:
@@ -346,7 +432,7 @@ def _from_cache(symbol: str, interval: str) -> Optional[pd.DataFrame]:
 
 
 def _from_vendors(symbol: str, interval: str,
-                  prov: dict) -> tuple[Optional[pd.DataFrame], dict]:
+                  prov: dict, *, verify_identity: bool = False) -> tuple[Optional[pd.DataFrame], dict]:
     """Live fetch through the vendor chain, then the stale cache as last resort.
 
     The stale cache is still here — old data beats no data for a research
@@ -357,8 +443,11 @@ def _from_vendors(symbol: str, interval: str,
     """
     from src.v5 import vendors
 
-    with _quiet_vendor():
-        yahoo = resolve(symbol)
+    if symbol.startswith(EXACT):
+        yahoo = symbol[len(EXACT):]
+    else:
+        with _quiet_vendor():
+            yahoo = resolve(symbol)
 
     df, report = vendors.fetch(yahoo, interval, FULL_PERIOD)
     if df is not None:
@@ -368,11 +457,18 @@ def _from_vendors(symbol: str, interval: str,
             if getattr(out.index, "tz", None) is not None:
                 out.index = out.index.tz_localize(None)
             out.to_csv(_cache_path(symbol, interval))
+            _cache_meta_path(symbol, interval).write_text(json.dumps({
+                "vendor": report["vendor"], "is_primary": report["is_primary"],
+                "adjustment": report.get("adjustment", "unknown"),
+                "provider_symbol": yahoo, "identity": report.get("identity") or {},
+                "fetched_at": report.get("fetched_at")}), encoding="utf-8")
         except Exception as e:
             logger.debug(f"v5 cache write failed for {symbol}: {e}")
         return df, {**prov,
                     "served_from": f"vendor:{report['vendor']}",
                     "vendor": report["vendor"],
+                    "adjustment": report.get("adjustment", "unknown"),
+                    "identity": report.get("identity") or {},
                     # A fallback vendor is degraded even when its data is
                     # perfectly fresh: the primary is down and somebody should
                     # know before it matters.
@@ -382,7 +478,10 @@ def _from_vendors(symbol: str, interval: str,
                     "vendor_attempts": report["attempts"]}
 
     p = _cache_path(symbol, interval)
-    if p.exists():
+    meta = _cache_meta(symbol, interval)
+    bound = (meta.get("provider_symbol") == yahoo and
+             str((meta.get("identity") or {}).get("symbol") or "").upper() == yahoo.upper())
+    if p.exists() and (not verify_identity or bound):
         try:
             age = _age_days(p)
             logger.warning(f"v5 using STALE cache for {symbol} "
@@ -390,7 +489,9 @@ def _from_vendors(symbol: str, interval: str,
             return pd.read_csv(p, index_col=0, parse_dates=True), {
                 **prov,
                 "served_from": "stale_cache",
-                "vendor": None,
+                "vendor": meta.get("vendor"),
+                "adjustment": meta.get("adjustment", "unknown"),
+                "identity": meta.get("identity") or {},
                 "degraded": True,
                 "detail": f"every vendor failed; cache is {age:.1f} days old",
                 "vendor_attempts": report["attempts"]}
@@ -426,6 +527,25 @@ def _normalise(df: pd.DataFrame) -> Optional[pd.DataFrame]:
     except Exception as e:
         logger.debug(f"v5 normalise failed: {e}")
         return None
+
+
+#: Prefix that marks a symbol as an exact PROVIDER symbol: never re-resolved
+#: through the master namespace, and cached under its own key, so "@BA"
+#: (Boeing) and "BA" (resolved to BA.L, BAE Systems) can never share an entry.
+EXACT = "@"
+
+
+def provider_closes(provider_symbol: str, period: str = "10y") -> Optional[pd.Series]:
+    """Closes for an exact provider symbol (e.g. from identity resolution).
+
+    For grading and pricing paths that already know WHICH instrument they
+    mean. Same vendor chain, cache, provenance and quality checks as closes();
+    only the namespace lookup is skipped."""
+    return closes(EXACT + provider_symbol, period=period)
+
+
+def provider_provenance(provider_symbol: str, interval: str = "1d") -> dict:
+    return provenance(EXACT + provider_symbol, interval)
 
 
 def closes(symbol: str, period: str = "2y") -> Optional[pd.Series]:

@@ -203,7 +203,7 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="SEARCH 3,143 SYMBOLS — NSE · US · CRYPTO · FX…"
+          placeholder="SEARCH ANY SYMBOL — NSE · LSE · US · CRYPTO · FX…"
           spellCheck={false}
           style={{
             width: '100%', background: 'var(--bg-1)', border: '1px solid var(--border-2)',
@@ -241,7 +241,7 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
       {loading && (
         <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--orange)', padding: 30 }}>
           ▸ STREAMING DOSSIER<span className="blink">█</span>
-          <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>tier-2 fetch — 5y prices + fundamentals for one symbol only</div>
+          <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>Five years of prices and fundamentals — usually a few seconds</div>
         </div>
       )}
       {error && <div className="mono" style={{ color: 'var(--red)', fontSize: 12, padding: 20 }}>ERROR ▸ {error}</div>}
@@ -324,7 +324,7 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
                 </span>
               </div>
               <CompareChart series={chartSeries} window={win} />
-              <SrcLine>Yahoo Finance weekly closes · normalized locally · peers stream in as explored</SrcLine>
+              <SrcLine>Yahoo Finance weekly closes · rebased to 100 at the start of the window · peers added as they load</SrcLine>
             </div>
 
             <div className="bb-card">
@@ -350,7 +350,7 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
           <div className="bb-card">
             <div className="bb-card-header">GLOBAL CHART — TRADINGVIEW · {tvSymbol(report)}</div>
             <TVChart symbol={tvSymbol(report)} />
-            <SrcLine>official TradingView embed — live global coverage (all exchanges, currencies, futures), streamed by TradingView, not stored by ARIA</SrcLine>
+            <SrcLine>Chart and data by TradingView · not stored by ARIA</SrcLine>
           </div>
 
           {/* Row 3 — SWOT */}
@@ -384,7 +384,7 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
             <div className="bb-card-header">PEERS — SAME SECTOR · TOP BY MCAP</div>
             {(report.peers || []).length === 0
               ? <div className="muted mono" style={{ fontSize: 11 }}>
-                  NO PEERS MAPPED YET — the sector map fills in as more symbols are explored (background prefetch is running)
+                  NO PEERS MAPPED YET — sector peers appear as more symbols in this sector are researched
                 </div>
               : <table>
                   <thead><tr><th>SYMBOL</th><th>NAME</th><th>MKT CAP</th><th>P/E</th><th>ROE</th><th>1Y</th><th>CHART</th></tr></thead>
@@ -397,12 +397,12 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
                         <td>{num(p.trailingPE)}</td>
                         <td>{p.returnOnEquity != null ? (p.returnOnEquity * 100).toFixed(1) + '%' : 'N/A'}</td>
                         <td style={{ color: retColor(p.returns?.['1Y']) }}>{p.returns?.['1Y'] != null ? `${p.returns['1Y'] > 0 ? '+' : ''}${p.returns['1Y']}%` : 'N/A'}</td>
-                        <td className="muted">{p.series ? '● cached' : '○ streaming…'}</td>
+                        <td className="muted">{p.series ? '● ready' : '○ loading…'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>}
-            <SrcLine>peer set from local universe index · dossiers stream in background</SrcLine>
+            <SrcLine>Select a peer to open its research</SrcLine>
           </div>
 
           <div className="muted mono" style={{ fontSize: 9, textAlign: 'center', padding: '4px 0 12px' }}>

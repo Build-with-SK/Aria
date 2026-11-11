@@ -92,7 +92,9 @@ def analyze(ticker: str, *, families: list[str] | None = None,
                 modules=[r.to_dict() for r in reports],
                 rationale=recommendation["headline"],
                 risk={"verdict": risk.verdict, "size_pct": risk.position_size_pct},
-                weights_version=ens.weights_version)
+                weights_version=ens.weights_version,
+                data_as_of=(provenance or {}).get("last_bar"),
+                provider_symbol=(provenance or {}).get("provider_symbol"))
         except Exception as e:
             logger.warning(f"v5 could not log prediction for {ticker}: {e}")
 
@@ -133,6 +135,10 @@ def _data_block(ticker: str, prov: dict) -> dict:
         "last_bar_age_days": prov.get("last_bar_age_days") if prov else None,
         "stale": stale,
         "stale_reason": prov.get("stale_reason", "") if prov else "no data was loaded",
+        "adjustment": prov.get("adjustment", "unknown") if prov else "unknown",
+        "quality": (prov.get("quality") or {}).get("status") if prov else None,
+        "quality_notes": ((prov.get("quality") or {}).get("issues", [])
+                          + (prov.get("quality") or {}).get("warnings", [])) if prov else [],
         "citation": md.source_label(ticker),
     }
     if prov.get("vendor_attempts"):

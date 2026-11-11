@@ -20,8 +20,10 @@
  * true right now.
  */
 
-const VERSION = 'aria-shell-v1'
-const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icons/icon-192.png']
+const VERSION = 'aria-shell-v2'
+const BASE = new URL(self.registration.scope)
+const SHELL = ['', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png']
+  .map(path => new URL(path, BASE).href)
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -36,7 +38,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k.startsWith('aria-shell-') && k !== VERSION).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   )
 })
@@ -51,12 +53,13 @@ self.addEventListener('fetch', event => {
   // Never touch the API, auth or health. No cache read, no cache write, no
   // offline fallback — see the header comment.
   if (url.pathname.startsWith('/api/') || url.pathname === '/health') return
+  if (!url.pathname.startsWith(BASE.pathname)) return
 
   // SPA navigations: try the network so a deploy is picked up immediately,
   // fall back to the cached shell only when genuinely offline.
   if (req.mode === 'navigate') {
     event.respondWith(
-      fetch(req).catch(() => caches.match('/index.html').then(r => r || Response.error()))
+      fetch(req).catch(() => caches.match(new URL('index.html', BASE).href).then(r => r || Response.error()))
     )
     return
   }

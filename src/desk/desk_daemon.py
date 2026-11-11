@@ -60,27 +60,37 @@ def _snapshot_technical_recs():
     """Record today's technical recommendations so their forward performance
     can be measured. Runs once daily; safe no-op on any failure."""
     try:
-        from src.data.technical_tracker import snapshot
-        snapshot(timeframe="1d", limit=30)
+        from src.data.technical_tracker import snapshot_catchup
+        snapshot_catchup(timeframe="1d", limit=30)
     except Exception as e:
         logger.warning(f"technical recs snapshot failed: {e}")
 
 
 def us_equities_open(now: datetime | None = None) -> bool:
-    """US cash session 09:30–16:00 ET, Mon–Fri. Best-effort (holidays and
-    early closes are not modelled — a closed-market order just queues at
-    the broker). Crypto is always eligible and bypasses this check."""
-    try:
+    """Is the US cash session (NYSE/Nasdaq continuous trading) open now?
+
+    Answered by src/markets/sessions — holidays and early closes included,
+    which the old 09:30-16:00 weekday check here did not model. UNKNOWN (no
+    verified calendar for the year) is False. Prefer `instrument_open(symbol)`
+    for anything that knows which instrument it means.
+    """
+    from src.markets.sessions import SessionState, venue_state
+    if now is not None and now.tzinfo is None:
         from zoneinfo import ZoneInfo
-        et = (now or datetime.now(ZoneInfo("America/New_York")))
-        if et.tzinfo is None:
-            et = et.replace(tzinfo=ZoneInfo("America/New_York"))
-    except Exception:
-        et = now or datetime.now()
-    if et.weekday() >= 5:
+        now = now.replace(tzinfo=ZoneInfo("America/New_York"))
+    return venue_state("XNYS", now)[0] == SessionState.OPEN
+
+
+def instrument_open(symbol: str, now: datetime | None = None,
+                    asset_class: str | None = None) -> bool:
+    """Is THIS instrument in continuous trading at its own venue now?
+    `asset_class` is what the position or playbook already records, so a
+    broker's "BTCUSD" is read as the crypto pair, not a US ticker."""
+    from src.markets.sessions import session
+    try:
+        return session(symbol, now, asset_class=asset_class).tradable
+    except Exception:                       # unknown is never open
         return False
-    minutes = et.hour * 60 + et.minute
-    return 9 * 60 + 30 <= minutes < 16 * 60
 
 
 class DeskDaemon:
@@ -138,18 +148,21 @@ class DeskDaemon:
         # the machine stays up: predictions were only ever logged when a human
         # opened a page, and resolution only ever ran from a manual POST.
         from src.v5 import loop as v5_loop
-        self.scheduler.add_job(v5_loop.predict_once, "cron",
-                               hour=v5_loop.PREDICT_HOUR, minute=10,
+        # PREDICT is checked every hour, not fired once at 22:10. The old cron
+        # needed the process alive at 22:10 London and the box never was from
+        # 23 Sep to 6 Oct, so no call was made for thirteen days.
+        # predict_catchup() is idempotent per NYSE session: it declines inside
+        # the session window and once a session's calls exist, so running it
+        # hourly (and on weekends) cannot add rows — it can only stop missing
+        # them.
+        self.scheduler.add_job(v5_loop.predict_catchup, "cron", minute=10,
                                id="v5_predict", replace_existing=True)
         self.scheduler.add_job(v5_loop.resolve_once, "interval",
                                hours=v5_loop.RESOLVE_INTERVAL_HOURS,
                                id="v5_resolve", replace_existing=True,
                                next_run_time=datetime.now())
-        # RESOLVE catches up on startup; PREDICT did not, and that asymmetry is
-        # why the loop kept turning with nothing going into it. A machine that
-        # is asleep at 22:10 skipped the whole day's predictions silently.
-        # predict_catchup() declines before the slot and declines twice in one
-        # day — it makes today's call late, it does not invent past ones.
+        # And once at startup, beside resolve: a box that wakes at 07:40 makes
+        # the previous session's calls before the open instead of an hour later.
         self.scheduler.add_job(v5_loop.predict_catchup, "date",
                                run_date=datetime.now(),
                                id="v5_predict_catchup", replace_existing=True)
@@ -170,9 +183,13 @@ class DeskDaemon:
         # Nightly state backup (cheap insurance against a corrupted JSON file)
         self.scheduler.add_job(_backup_desk_state, "cron", hour=2, minute=0,
                                id="desk_backup", replace_existing=True)
-        # Daily technical-recommendations snapshot (for forward hit-rate)
-        self.scheduler.add_job(_snapshot_technical_recs, "cron", hour=21,
-                               minute=30, id="tech_snapshot", replace_existing=True)
+        # Technical-recommendations snapshot (for forward hit-rate). Checked
+        # hourly and at startup, taken once per settled NYSE session: the old
+        # 21:30 cron needed the box awake at 21:30 London (none was from
+        # 28 Sep) and fired before the US daily bar was final.
+        self.scheduler.add_job(_snapshot_technical_recs, "cron", minute=20,
+                               id="tech_snapshot", replace_existing=True,
+                               next_run_time=datetime.now())
         self.scheduler.start()
         self.running = True
         # REFLEX fast lane — watches armed playbooks, fires in seconds

@@ -64,6 +64,10 @@ class PendingTrade:
     filled_at:       str = ""
     rejection_reason: str = ""
     executed_at:     str = ""
+    # An EXIT: when sent it is re-checked against the broker's position at
+    # that moment (src/execution/reduce_only) and clipped or refused, so an
+    # exit approved after the position is gone cannot open a new one.
+    reduce_only:     bool = False
 
 
 def _load_queue() -> list[dict]:
@@ -132,6 +136,7 @@ class ApprovalQueue:
             bear_case=bear_case,
             invalidation=invalidation,
             broker=broker,
+            reduce_only=bool(getattr(req, "reduce_only", False)),
         )
 
         with _QUEUE_LOCK:

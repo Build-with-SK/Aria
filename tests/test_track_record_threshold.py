@@ -165,9 +165,13 @@ def test_the_loop_is_actually_scheduled():
     a manual endpoint, so the counter could never move unattended."""
     import inspect
     from src.desk import desk_daemon
+    from src.v5 import loop
     src = inspect.getsource(desk_daemon.DeskDaemon.start)
     assert "v5_predict" in src and "v5_resolve" in src
-    assert "predict_once" in src and "resolve_once" in src
+    # PREDICT is scheduled through the session-guarded catch-up (2026-10-06),
+    # which is the only caller of the raw leg — so assert both links.
+    assert "predict_catchup" in src and "resolve_once" in src
+    assert "predict_once()" in inspect.getsource(loop.predict_catchup)
 
 
 def test_the_scheduler_will_not_silently_drop_a_late_job():

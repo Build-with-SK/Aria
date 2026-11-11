@@ -58,7 +58,7 @@ def _clear_ccy_cache():
 
 # ── regression: the pence MODEL itself is correct and must stay correct ─────
 
-def test_pence_converts_at_one_hundred_to_the_pound():
+def test_pence_converts_at_one_hundred_to_the_pound(_deterministic_fx_rates):
     """100 GBp is £1.00, not £100. This is the arithmetic the rest of the
     system depends on, and it is right today."""
     assert cur.to_base(100.0, "GBp", "GBP") == pytest.approx(1.0)
@@ -108,7 +108,7 @@ def test_the_two_universes_disagree_about_four_tickers():
         assert signal_name != master_name
 
 
-def test_a_signals_price_survives_conversion_at_its_true_scale():
+def test_a_signals_price_survives_conversion_at_its_true_scale(_deterministic_fx_rates):
     """§8 — the 100x failure mode, now closed, demonstrated on real state.
 
     THIS TEST USED TO BE A STRICT XFAIL. Its flip to PASS is the proof that
@@ -126,7 +126,12 @@ def test_a_signals_price_survives_conversion_at_its_true_scale():
     """
     signals = json.loads(Path("data/signals.json").read_text(encoding="utf-8"))
     price = signals["BA"]["current_price"]
-    assert price > 200, "fixture assumption: signals.json holds Boeing's US price"
+    # The assertion is about SCALE, not about what Boeing costs today. It used
+    # to read `> 200` and began failing when the pipeline refreshed the file at
+    # 198.20 — a test that breaks on a 1% price move is measuring the market,
+    # not the defect. The defect turned $214 into $2.92, so anything in the
+    # hundreds proves the join was made on the right instrument.
+    assert price > 100, "fixture assumption: signals.json holds Boeing's US price"
 
     ccy = cur.provider_currency("BA")
     assert ccy == "USD", (
@@ -151,7 +156,7 @@ def test_the_batch_endpoint_defaults_to_the_signal_namespace():
     assert master == {"BA": "GBp"}
 
 
-def test_a_london_signal_price_is_still_read_as_pence():
+def test_a_london_signal_price_is_still_read_as_pence(_deterministic_fx_rates):
     """The other direction of the same defect: fixing the US case must not
     start reading London prices as pounds."""
     assert cur.provider_currency("BA.L") == "GBp"

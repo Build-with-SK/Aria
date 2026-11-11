@@ -1,0 +1,45 @@
+{
+  "_comment": "BSE (XBOM) Equity Cash segment. This file states ONLY the special trading sessions verified below (two Muhurat Trading sessions plus one Union Budget 2026 live-trading Sunday) — it is NOT a BSE holiday calendar. `years` is deliberately empty: listing 2024/2025/2026 here would hand this file sole authority for those years (src/markets/calendars.py `_day()`), and every BSE holiday or early close that year NOT also transcribed here would then silently read as a plain open trading day. Every other BSE date, in 2024, 2025, 2026 or any other year, is answered by the calendar provider (exchange_calendars XBOM) exactly as if this file did not exist.",
+  "source": "BSE Notices 20241019-1 (19 Oct 2024), 20250922-21 (22 Sep 2025) and 20260116-33 (16 Jan 2026); the first two are \"Muhurat Trading Session for Equity Segment on account of Diwali Laxmi Pujan\", the third is \"Equity Trading Session on account of Union Budget 2026\"",
+  "segment": "BSE Equity (cash) segment — Muhurat trading sessions and the Union Budget 2026 special Sunday session only; no other BSE schedule or holiday data",
+  "years": [],
+  "retrieved": "2026-10-16",
+  "verification": {"status": "verified",
+                   "how": "all three notices fetched directly from bseindia.com on 2026-10-16 with a plain HTTP GET (urllib, no JS rendering needed — the notice text is in the static HTML); sha256 of the fetched page recorded beside each in provenance",
+                   "open_items": ["No other BSE (XBOM) holiday, early-close or special-session date has been verified from a BSE source by this file; none is implied by its presence."]},
+  "provenance": [
+    {"ref": "BSE Notice 20241019-1", "date": "2024-10-19",
+     "title": "Muhurat Trading Session for Equity Segment on account of Diwali Laxmi Pujan",
+     "url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20241019-1",
+     "sha256": "f15c0aff2355d6f31ceeb3a2fdf122948f38f12e668e166ac40b04140640206b",
+     "covers": "Friday 2024-11-01 Muhurat: log-in 17:00-17:30, pre-open order entry 17:45-17:53 / matching 17:53-18:00, continuous trading 18:00-19:00, closing 19:00-19:10, post-closing 19:10-19:20 IST"},
+    {"ref": "BSE Notice 20250922-21", "date": "2025-09-22",
+     "title": "Muhurat Trading Session for Equity Segment on account of Diwali Laxmi Pujan",
+     "url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20250922-21",
+     "sha256": "405a16a07144f030925cee534103e485a3213dc90a0ee685e63b044d14487c92",
+     "covers": "Tuesday 2025-10-21 Muhurat: log-in 12:45-13:15, pre-open order entry 13:30-13:38 / matching 13:38-13:45, continuous trading 13:45-14:45, closing 14:45-14:55, post-closing 14:55-15:05 IST"},
+    {"ref": "BSE Notice 20260116-33", "date": "2026-01-16",
+     "title": "Equity Trading Session on account of Union Budget 2026",
+     "url": "https://www.bseindia.com/markets/MarketInfo/DispNewNoticesCirculars.aspx?page=20260116-33",
+     "sha256": "02f3101234cb9378912253ae846ab0073e865759cd7796d40fab6f3ec84e8ada",
+     "covers": "Sunday 2026-02-01 Union Budget live session: log-in 7:00am-9:00am, pre-open order entry 9:00am-9:08am / matching 9:08am-9:15am, continuous trading 9:15am-3:30pm, closing 3:30pm-3:40pm, post-closing 3:40pm-4:00pm IST; no T+0 settlement session or auction session for settlement default"}
+  ],
+  "special_sessions": {
+    "2024-11-01": {"name": "Muhurat Trading (Diwali Laxmi Pujan)", "ref": "BSE Notice 20241019-1",
+                   "phases": [["PRE_OPEN", "17:45", "18:00"], ["OPEN", "18:00", "19:00"], ["POST_MARKET", "19:10", "19:20"]]},
+    "2025-10-21": {"name": "Muhurat Trading (Diwali Laxmi Pujan)", "ref": "BSE Notice 20250922-21",
+                   "phases": [["PRE_OPEN", "13:30", "13:45"], ["OPEN", "13:45", "14:45"], ["POST_MARKET", "14:55", "15:05"]]},
+    "2026-02-01": {"name": "Union Budget 2026 live trading session", "ref": "BSE Notice 20260116-33",
+                   "phases": [["PRE_OPEN", "09:00", "09:15"], ["OPEN", "09:15", "15:30"], ["POST_MARKET", "15:40", "16:00"]]}
+  },
+  "notes": [
+    "The BSE closing session (19:00-19:10 in 2024, 14:45-14:55 in 2025, 15:30-15:40 in 2026) is not modelled as a phase here, the same convention data/calendars/XNSE.json uses for NSE's equivalent closing session.",
+    "NSE ran Diwali Muhurat at the same clock times on both dates (NSE/CMTR/70319 for 2025-10-21, already in data/calendars/XNSE.json; the NSE 2024 circular is not transcribed here since this file is XBOM-only) — read as the two exchanges coordinating Muhurat timing that year, not inferred for BSE from NSE's file.",
+    "The Union Budget 2026 session (Sunday 2026-02-01) is read ONLY from BSE's own notice 20260116-33 above, not inferred from any NSE circular or from BSE's Muhurat precedent; data/calendars/XNSE.json makes no claim about this date, so BSE and NSE are independently verified and may diverge on it.",
+    "A public end-of-day feed (e.g. yfinance TCS.BO) showing zero volume for 2025-10-21 is a data-provider gap, not evidence BSE was closed: BSE's own notice above states continuous trading ran 13:45-14:45 that day. This file records the exchange's own schedule, not a particular vendor's capture of it."
+  ],
+  "limitations": [
+    "This file answers ONLY 2024-11-01, 2025-10-21 and 2026-02-01 for XBOM. No BSE holiday list, early close, or any other special session — for 2024, 2025, 2026 or any other year — has been verified from a BSE source and none is claimed here.",
+    "Other dates are outside this file; they continue to use the existing provider/built-in calendar and remain UNKNOWN when that source lacks verified coverage. In particular, no other Sunday (e.g. the Sundays immediately before or after 2026-02-01) is claimed by this file: each remains whatever the provider/built-in calendar says, since BSE does not ordinarily trade on a Sunday and only this one date has a BSE notice opening it."
+  ]
+}

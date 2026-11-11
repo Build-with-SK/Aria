@@ -45,20 +45,25 @@ def direction_label(
     threshold_pct: float = 0.005,  # 0.5% min move to avoid labelling noise
 ) -> pd.Series:
     """
-    3-class label: 1 (up), -1 (down), 0 (flat/noise).
+    3-class label: 1 (up), -1 (down), 0 (flat/noise), NaN (future unknown).
     Threshold filters out tiny moves that aren't tradeable signals.
+
+    The last `horizon` rows have no future close. They used to be labelled 0,
+    and the trainer's `y.notna()` filter — written for exactly those rows —
+    kept them, so every model was trained to say "not up" on the most recent
+    conditions it had seen. Unknown is NaN, and is dropped.
     """
     fwd = future_return(close, horizon)
-    labels = pd.Series(0, index=close.index, dtype=int)
-    labels[fwd >  threshold_pct] =  1
-    labels[fwd < -threshold_pct] = -1
-    return labels
+    labels = pd.Series(0.0, index=close.index)
+    labels[fwd >  threshold_pct] =  1.0
+    labels[fwd < -threshold_pct] = -1.0
+    return labels.where(fwd.notna())
 
 
 def binary_direction(close: pd.Series, horizon: int) -> pd.Series:
-    """Binary: 1 if up, 0 if down. Used for probability calibration."""
+    """Binary: 1 if up, 0 if down, NaN where the future is unknown."""
     fwd = future_return(close, horizon)
-    return (fwd > 0).astype(int)
+    return (fwd > 0).astype(float).where(fwd.notna())
 
 
 def triple_barrier_label(
@@ -75,7 +80,9 @@ def triple_barrier_label(
      0: hit horizon without touching either barrier
     Much more realistic than simple forward return.
     """
-    labels = pd.Series(0, index=close.index, dtype=int)
+    # NaN until a row has a full window ahead of it: an unfinished window is
+    # unknown, not "hit the horizon without touching a barrier".
+    labels = pd.Series(np.nan, index=close.index)
     closes = close.values
     atrs   = atr.values
     n = len(closes)

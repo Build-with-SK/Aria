@@ -5,6 +5,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionBanner from './components/ConnectionBanner'
 import CommandPalette from './components/CommandPalette'
 import Login from './pages/Login'
+import StepUpPrompt from './auth/StepUp'
 import { useAuth } from './auth/AuthContext'
 import OwnerOnly from './auth/OwnerOnly'
 /* ── the eight workspaces ── */
@@ -115,12 +116,12 @@ export default function App() {
   const loc = useLocation()
   const { ready, authenticated, role, owner } = useAuth()
 
-  // The break-glass path. The backend already grants owner on loopback when no
-  // ARIA_OWNER_TOKEN is set, and honouring that here is what stops you being
-  // locked out of your own machine before any OAuth provider is configured —
-  // a login screen whose every button is greyed out is a locked door. This
-  // grants nothing: the server reached the same conclusion independently, and
-  // is the thing actually enforcing it.
+  // The break-glass path. The backend grants owner on loopback when no owner
+  // credential is configured at all, and honouring that here is what stops you
+  // being locked out of your own machine before you have set one — a sign-in
+  // screen you have no credential for is a locked door. This grants nothing:
+  // the server reached the same conclusion independently, and is the thing
+  // actually enforcing it.
   const admitted = authenticated || role === 'owner'
 
   // Nothing renders until the session is known. Showing the deck first and
@@ -152,6 +153,7 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh' }}>
+      <StepUpPrompt />
       <Boot />
       {/* CRT scanlines + sweep + drifting grid */}
       <div className="scanline" />

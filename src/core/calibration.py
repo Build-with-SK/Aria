@@ -113,6 +113,32 @@ def _dedupe(preds: Iterable[dict]) -> list[dict]:
     return out
 
 
+def _as_stated(r: dict) -> dict:
+    """Split one ledger row's number into the two claims it can carry.
+
+      probability  the stated P(direction right) — Brier, ECE and the curve
+                   read only this. None unless the source stated one for a
+                   directional call (neutral calls state no P(flat)).
+      strength     anything that ORDERS calls: the stated probability, or a
+                   mapped conviction. Population means and the rank test read
+                   this, because ordering is testable for both.
+
+    Rows written before the 2026-10-06 migration carry no kind; their legacy
+    number is treated as a strength, never as a probability.
+    """
+    kind = r.get("probability_kind")
+    directional = (r.get("direction") or "") in ("bull", "bear")
+    stated = kind == "stated" and r.get("p_correct") is not None and directional
+    if stated:
+        strength = r["p_correct"]
+    elif kind in ("mapped", None) and r.get("probability") is not None:
+        strength = r["probability"]
+    else:
+        strength = None
+    return {**r, "probability": r["p_correct"] if stated else None,
+            "strength": strength, "legacy_probability": r.get("probability")}
+
+
 def _brier(rows: list[dict]) -> Optional[float]:
     usable = [r for r in rows
               if r.get("probability") is not None and r.get("correct") is not None]
@@ -133,6 +159,13 @@ def investigate(source: Optional[str] = None, *, pool_populations: bool = False)
 
     raw = ledger.predictions(limit=2000, source=source, resolved=True)
     raw = [r for r in raw if r.get("correct") is not None]
+    # Every probability read below is p_correct, and only where the source
+    # STATED one (probability_kind == "stated"). The legacy `probability`
+    # column mixed V5's P(bull), the desk's mapped conviction and nothing —
+    # scoring those as P(correct) is what produced a meaningless Brier of
+    # 0.288 in the 2026-10-06 audit. Rows without a stated probability still
+    # count toward hit rates; they simply carry no probability here.
+    raw = [_as_stated(r) for r in raw]
     deduped = _dedupe(raw)
 
     out: dict = {
@@ -149,9 +182,15 @@ def investigate(source: Optional[str] = None, *, pool_populations: bool = False)
         },
     }
 
-    # ── overall, on independent events only ─────────────────────────────────
+    # ── overall, on DISTINCT events ─────────────────────────────────────────
+    # Distinct is not independent: de-duplication removes the same claim made
+    # twice, not thirty calls that share one day's market move or ten-day
+    # windows that overlap. `overall` keeps its shape (neutral calls included,
+    # Wilson interval on the row count); `directional` below is the figure that
+    # may be compared with a coin.
     hits = sum(1 for r in deduped if r["correct"])
     out["overall"] = rate(hits, len(deduped))
+    out["directional"] = _directional(deduped)
 
     # ── by population ───────────────────────────────────────────────────────
     # The desk records its verdict in the rationale ("Desk verdict NO_TRADE at
@@ -171,11 +210,11 @@ def investigate(source: Optional[str] = None, *, pool_populations: bool = False)
 
     out["by_population"] = {
         name: {**rate(sum(1 for r in rs if r["correct"]), len(rs)),
-               "mean_confidence": (round(sum(r["probability"] for r in rs
-                                             if r.get("probability") is not None)
+               "mean_confidence": (round(sum(r["strength"] for r in rs
+                                             if r.get("strength") is not None)
                                          / max(1, sum(1 for r in rs
-                                                      if r.get("probability") is not None)), 4)
-                                   if any(r.get("probability") is not None for r in rs) else None)}
+                                                      if r.get("strength") is not None)), 4)
+                                   if any(r.get("strength") is not None for r in rs) else None)}
         for name, rs in sorted(pops.items(), key=lambda kv: -len(kv[1]))
     }
     if len(pops) > 1 and not pool_populations:
@@ -200,7 +239,51 @@ def investigate(source: Optional[str] = None, *, pool_populations: bool = False)
         else max(pops, key=lambda k: len(pops[k])) if pops else "all")
 
     # ── confidence as probability vs as ranking ─────────────────────────────
-    out["confidence_semantics"] = _semantics(target)
+    # The rank test asks only for ORDER, which a mapped strength can carry.
+    out["confidence_semantics"] = _semantics(
+        [dict(r, probability=r.get("strength")) for r in target])
+    out["probability_field"] = ("p_correct where the source stated it; mapped "
+                                "strengths are used for ordering only")
+    return out
+
+
+def _directional(events: list[dict]) -> dict:
+    """Bull/bear calls only, per source, with an interval that knows the calls
+    share dates.
+
+    The headline used to be `overall`: every source pooled, neutral calls
+    included, a Wilson interval on the number of rows. On 2026-10-10 that read
+    "567 independent resolved events, 46.0% correct (95% CI 42.0%-50.1%)" for a
+    sample that was 489 technical-composite calls made on 17 days with a
+    ten-day horizon. The rate was right; "independent" and the width were not.
+
+    The interval here is the existing cluster-robust one
+    (src.intelligence.evaluation.rate_block: one cluster per information date,
+    Student's t on clusters-1, the wider of that and Wilson decides). It still
+    understates the dependence of overlapping horizons across dates, and says
+    so. Below the evaluator's own minimums it reports INSUFFICIENT_DATA rather
+    than a rate.
+    """
+    rows = [e for e in events if (e.get("direction") or "") in ("bull", "bear")]
+    by_source: dict = {}
+    for e in rows:
+        s = by_source.setdefault(e.get("source") or "unknown", {"n": 0, "hits": 0})
+        s["n"] += 1
+        s["hits"] += 1 if e["correct"] else 0
+    out = {"population": "directional (bull/bear) resolved calls, all sources pooled",
+           "by_source": dict(sorted(by_source.items(), key=lambda kv: -kv[1]["n"])),
+           "n": len(rows),
+           "n_dates": len({str(e.get("created_at") or "")[:10] for e in rows}),
+           "independence": ("calls on one date share that day's market move, and "
+                            "horizons longer than a day overlap across dates; the "
+                            "clustered interval corrects for the first only")}
+    try:
+        from src.intelligence.evaluation import rate_block
+        out.update(rate_block([{"outcome": bool(e["correct"]),
+                                "created_at": str(e.get("created_at") or "")}
+                               for e in rows]))
+    except Exception as exc:                     # the diagnostic must not vanish
+        out.update({"status": "UNAVAILABLE", "why": f"{type(exc).__name__}: {exc}"})
     return out
 
 
@@ -296,5 +379,15 @@ def summary_line() -> str:
     o = d["overall"]
     if o["rate"] is None:
         return "No resolved predictions yet, so accuracy is not measurable."
-    return (f"{o['n']} independent resolved events, {o['rate']:.1%} correct "
-            f"(95% CI {o['ci95'][0]:.1%}–{o['ci95'][1]:.1%}) — {o['verdict']}.")
+    x = d.get("directional") or {}
+    sources = ", ".join(f"{name} {v['n']}" for name, v in (x.get("by_source") or {}).items())
+    where = (f"Ledger, all sources pooled ({sources}): {x.get('n', 0)} directional "
+             f"predictions graded on {x.get('n_dates', 0)} distinct dates")
+    tail = (" This is the pooled ledger, not the V5 prediction log; horizons "
+            "overlap, so even this interval overstates the evidence.")
+    if x.get("status") == "MEASURED":
+        lo, hi = x["ci95_cluster"]
+        return (f"{where}, {x['rate']:.1%} correct (95% interval {lo:.1%}–{hi:.1%}, "
+                f"clustered by date) — {x['verdict']}." + tail)
+    return (f"{where} — accuracy is not measurable yet "
+            f"({x.get('why') or 'insufficient data'})." + tail)

@@ -60,8 +60,9 @@ Three related defects found while fixing those:
 
 ### Still open
 
-`HANDOFF_TOMORROW.md` is stale (dated 3 August, cites 327 tests and branch
-`main`) and should be rewritten before the next session reads it as current.
+The stale 3 August handoff (327 tests, branch `main`) was removed during the
+2026-10-16 launch tidy; Git history retains it. Current coordination lives in
+`docs/collab/WORK_PLAN.md` and the per-agent logs.
 The bare `yf.Ticker().history()` in `src/brain/cognitive/learner.py` still has
 no deadline, unlike its guarded twin in `src/v5/vendors.py` — the same missing
 timeout that once stalled a debate for twelve and a half hours. The watchdog

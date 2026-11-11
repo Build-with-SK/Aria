@@ -30,14 +30,13 @@ import json
 import logging
 import threading
 import time
-import uuid
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from pathlib import Path
 
-from src.desk.config import load_config, paper_mode_confirmed
-from src.desk.opinion import load_data_json
-from src.desk.position_manager import _sane_levels, trading_age_days
+from src.desk.config import load_config
+from src.desk.opinion import load_data_json, signals_freshness
+from src.desk.position_manager import _sane_levels
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +62,36 @@ class Playbook:
     expires_at: str
     asset_class: str = "equity"
     thesis: str = ""
-    status: str = "armed"     # armed | fired | expired
+    status: str = "armed"     # armed | fired | expired | rejected
 
     def to_dict(self) -> dict:
         return asdict(self)
+
+
+# ── what this lane can actually execute ─────────────────────────────────────
+
+def executable(ticker: str) -> tuple[bool, str, str]:
+    """(can the reflex lane trade it, asset class, reason) — from the symbol.
+
+    The lane used to label everything that did not end in -USD as "equity",
+    so NG=F, KC=F, BTC=F and ETH=F were armed as equity playbooks and polled
+    against Alpaca's stock endpoint every three seconds for days (about 5,700
+    rejected quotes in one log). A future can never fill on this broker, and a
+    playbook that can never fire is not caution, it is noise that hides real
+    failures. The classification is the shared one in src/core/identity, and
+    the executable set is the single source of truth in src/risk/profiles.
+    Equities must be a US listing: Alpaca does not route NSE or LSE.
+    """
+    from src.core.identity import classify_provider_symbol
+    from src.risk.profiles import EXECUTABLE_ASSET_CLASSES
+    c = classify_provider_symbol(ticker)
+    aclass = c.get("asset_class") or "unknown"
+    if aclass not in EXECUTABLE_ASSET_CLASSES:
+        return False, aclass, f"{aclass} is research-only — not executable here"
+    if aclass == "equity" and c.get("exchange") != "US":
+        return False, aclass, (f"listed on {c.get('exchange') or 'an unknown venue'}"
+                               f" — the reflex broker trades US listings only")
+    return True, aclass, ""
 
 
 # ── pure trigger / confidence logic (unit-tested) ────────────────────────────
@@ -118,10 +143,27 @@ def load_playbooks() -> list[dict]:
     return []
 
 
+#: One load → modify → save at a time. The reflex loop's scan, a manual
+#: POST /api/desk/reflex-scan and arming (desk ticks) run on different threads;
+#: without this a scan holding a stale copy could write a fired playbook back
+#: as armed, and the next crossing would send a second order (independent
+#: review of ab78b1d, 2026-10-16). Re-entrant so a locked caller may arm.
+_PLAYBOOKS_LOCK = threading.RLock()
+
+
 def save_playbooks(pbs: list[dict]):
     PLAYBOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
     PLAYBOOKS_FILE.write_text(json.dumps(pbs, indent=2, default=str),
                               encoding="utf-8")
+
+
+def _count(value) -> int:
+    """A stored attempt counter, read without trusting it: a hand-edited or
+    damaged value counts as 0 rather than raising mid-scan."""
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
 
 
 def _expiry(days: int) -> str:
@@ -143,6 +185,8 @@ def arm_from_debate(transcript: dict, conviction_bar: int,
     """A debate that landed just UNDER the bar with a clean trigger level arms
     a playbook instead of being discarded. Called from the hunt cycle."""
     cfg = cfg or load_config()
+    if not signals_freshness()["fresh"]:
+        return None              # trigger/stop would be computed from stale prices
     judge = transcript.get("judge") or {}
     verdict = judge.get("verdict")
     conviction = int(judge.get("conviction", 0))
@@ -174,6 +218,11 @@ def arm_from_signal(cfg: dict | None = None, account: dict | None = None) -> lis
     """Intraday composite spikes on liquid, unheld names arm signal playbooks.
     Called on the management tick (cheap: reads cached signals)."""
     cfg = cfg or load_config()
+    sf = signals_freshness()
+    if not sf["fresh"]:
+        # A "spike" in a nine-day-old composite is not an intraday spike.
+        logger.debug("REFLEX not arming from signals: %s", sf["why"])
+        return []
     spike = float(cfg.get("reflex_signal_spike", 40.0))
     held = {p.get("ticker") for p in (account or {}).get("positions") or []}
     armed_now = {p["ticker"] for p in load_playbooks() if p.get("status") == "armed"}
@@ -206,18 +255,31 @@ def arm_from_signal(cfg: dict | None = None, account: dict | None = None) -> lis
 
 def _arm(ticker, side, trigger, stop, target, conviction, debate_id,
          source, sig, cfg, thesis) -> dict | None:
+    ok, aclass, why = executable(ticker)
+    if ok:
+        # The same check the scan applies before polling. Without it a symbol
+        # Alpaca can never quote (API3-USD: digits are not a valid pair) was
+        # armed 222 times, each retired as "rejected" without a single poll.
+        # Owner-approved arming policy, 2026-10-16.
+        from src.execution.alpaca_broker import quotable
+        if not quotable(ticker):
+            ok, why = False, "the broker cannot quote this symbol"
+    if not ok:
+        logger.debug("REFLEX not arming %s: %s", ticker, why)
+        return None
     days = int(cfg.get("reflex_playbook_expiry_days", 2))
     pb = Playbook(
         ticker=ticker, side=side, trigger_price=round(float(trigger), 4),
         stop=stop, target=target, conviction=conviction, debate_id=debate_id,
         source=source, armed_at=datetime.now().isoformat(),
         expires_at=_expiry(days),
-        asset_class="crypto" if str(ticker).endswith("-USD") else "equity",
+        asset_class=aclass,
         thesis=thesis).to_dict()
-    pbs = [p for p in load_playbooks()
-           if not (p["ticker"] == ticker and p.get("status") == "armed")]
-    pbs.append(pb)
-    save_playbooks(pbs)
+    with _PLAYBOOKS_LOCK:
+        pbs = [p for p in load_playbooks()
+               if not (p["ticker"] == ticker and p.get("status") == "armed")]
+        pbs.append(pb)
+        save_playbooks(pbs)
     logger.info(f"REFLEX armed {source} playbook: {side.upper()} {ticker} "
                 f"@ trigger {pb['trigger_price']} (conviction {conviction})")
     return pb
@@ -259,6 +321,12 @@ class ReflexEngine:
     # ── one scan pass (also the manual/tested entry point) ───────────────
 
     def scan_once(self) -> list[dict]:
+        # The whole load → fire → save runs under the playbook lock, so two
+        # scans (loop + manual) or a scan and an arming never interleave.
+        with _PLAYBOOKS_LOCK:
+            return self._scan_locked()
+
+    def _scan_locked(self) -> list[dict]:
         self.cfg = load_config()      # pick up kill-switch / param changes
         if not self.cfg.get("reflex_enabled", True):
             return []
@@ -272,32 +340,99 @@ class ReflexEngine:
         if mgr is None or mgr._alpaca is None or not mgr._alpaca.is_connected():
             return []
 
-        # Equities only fire while the US market can fill; crypto 24/7.
-        from src.desk.desk_daemon import us_equities_open
-        equities_open = us_equities_open()
+        # Each playbook fires only while ITS instrument is in continuous
+        # trading at its own venue (src/markets/sessions) — a London or Tokyo
+        # name is not gated on New York hours, and a holiday is not "open".
+        from src.desk.desk_daemon import instrument_open
         results, changed = [], False
-        for pb in armed:
-            if is_expired(pb):
-                pb["status"] = "expired"
+        from src.execution.alpaca_broker import quotable
+        # Saved in `finally`: if a later playbook raises, a playbook that has
+        # already fired in this pass must still be stored as fired, or the next
+        # crossing after a restart would send a second order.
+        try:
+            for pb in armed:
+                if is_expired(pb):
+                    pb["status"] = "expired"
+                    changed = True
+                    continue
+                # Playbooks armed before executable() existed (or for a symbol the
+                # broker has since refused to quote) are retired with the reason,
+                # not polled forever.
+                ok, _, why = executable(pb["ticker"])
+                if ok and not quotable(pb["ticker"]):
+                    ok, why = False, "the broker cannot quote this symbol"
+                if not ok:
+                    pb["status"] = "rejected"
+                    pb["rejected_reason"] = why
+                    changed = True
+                    continue
+                if not instrument_open(pb["ticker"], asset_class=pb.get("asset_class")):
+                    continue
+                price = self._quote(pb["ticker"], mgr)
+                if price <= 0:
+                    continue
+                prev = self._last_price.get(pb["ticker"])
+                self._last_price[pb["ticker"]] = price
+                if not crossed(pb["side"], pb["trigger_price"], prev, price):
+                    continue
+                outcome = self._attempt(pb, price, account_snapshot, mgr)
+                results.append(outcome)
+                # Status first: nothing below may stand between an executed
+                # order and the playbook leaving "armed".
+                if outcome.get("executed") or outcome.get("terminal"):
+                    pb["status"] = "fired" if outcome.get("executed") else "expired"
                 changed = True
-                continue
-            if pb["asset_class"] != "crypto" and not equities_open:
-                continue
-            price = self._quote(pb["ticker"], mgr)
-            if price <= 0:
-                continue
-            prev = self._last_price.get(pb["ticker"])
-            self._last_price[pb["ticker"]] = price
-            if not crossed(pb["side"], pb["trigger_price"], prev, price):
-                continue
-            outcome = self._fire(pb, price, account_snapshot(), mgr)
-            results.append(outcome)
-            if outcome.get("executed") or outcome.get("terminal"):
-                pb["status"] = "fired" if outcome.get("executed") else "expired"
-                changed = True
-        if changed:
-            save_playbooks(pbs)
+                # Record every attempt on the playbook itself. A gate that stops a
+                # crossed trigger is not terminal, so the playbook stays armed and
+                # later reads "expired" — 1,073 of them did, and nothing anywhere
+                # said whether their triggers had ever crossed or which gate held.
+                pb["attempts"] = _count(pb.get("attempts")) + 1
+                pb["last_attempt"] = {"at": datetime.now().isoformat(timespec="seconds"),
+                                      "price": price, "stage": outcome.get("stage"),
+                                      "reason": str(outcome.get("reason") or "")[:200],
+                                      # an uncertain fire may have sent the order:
+                                      # unknown, not "not executed"
+                                      "executed": (None if outcome.get("uncertain")
+                                                   else bool(outcome.get("executed"))),
+                                      "filled": (None if outcome.get("uncertain")
+                                                 else bool(outcome.get("filled")))}
+                if outcome.get("uncertain"):
+                    pb["last_attempt"]["uncertain"] = True
+                if outcome.get("stage") != "execute":
+                    logger.info("REFLEX %s %s crossed %s but stopped at %s: %s",
+                                str(pb.get("side")).upper(), pb["ticker"],
+                                pb.get("trigger_price"), outcome.get("stage"),
+                                pb["last_attempt"]["reason"])
+        finally:
+            if changed:
+                save_playbooks(pbs)
         return results
+
+    def _attempt(self, pb: dict, price: float, account_snapshot, mgr) -> dict:
+        """_fire, with its failures turned into outcomes that can be recorded.
+
+        No account snapshot means nothing could have been sent: the attempt is
+        recorded and the playbook stays armed. An exception from _fire itself
+        may come after the order left (the execute stage), so whether it was
+        sent is unknown: the playbook is retired (terminal) rather than left
+        armed for a second order on the next crossing.
+        """
+        base = {"at": datetime.now().isoformat(), "ticker": pb.get("ticker"),
+                "side": pb.get("side"), "trigger": pb.get("trigger_price"),
+                "price": price, "source": pb.get("source"), "executed": False}
+        try:
+            account = account_snapshot()
+        except Exception as e:
+            logger.warning("REFLEX %s: no account snapshot, nothing sent: %s",
+                           pb.get("ticker"), e)
+            return {**base, "stage": "account", "reason": f"{type(e).__name__}: {e}"}
+        try:
+            return self._fire(pb, price, account, mgr)
+        except Exception as e:
+            logger.exception("REFLEX %s: fire raised; outcome unknown, playbook retired",
+                             pb.get("ticker"))
+            return {**base, "stage": "error", "terminal": True, "uncertain": True,
+                    "reason": f"fire raised, outcome unknown: {type(e).__name__}: {e}"}
 
     # ── the fast pipeline for one triggered playbook ─────────────────────
 
@@ -314,6 +449,13 @@ class ReflexEngine:
         if not sig.get("current_price"):
             return {**self._base(pb, price), "stage": "validate",
                     "reason": "no signal data", "executed": False}
+        sf = signals_freshness()
+        if not sf["fresh"]:
+            # The comment above always said "fresh signal"; nothing checked it.
+            # Terminal: a playbook armed on stale data is retired, not retried.
+            return {**self._base(pb, price), "stage": "validate",
+                    "reason": f"signals stale — {sf['why']}", "executed": False,
+                    "terminal": True}
 
         # 3. confidence gate (cheap; do before the paid veto)
         ok, prob = confidence_ok(sig, pb["side"], float(self.cfg["reflex_min_prob"]))
@@ -353,14 +495,20 @@ class ReflexEngine:
         record = AutoExecutor(self.cfg)._handle(entry, transcript)
         lat["submit"] = _ms(t3)
         lat["total"] = _ms(t0)
+        # executed = the broker accepted the order; filled = it confirmed a fill.
+        # An accepted order whose fill is unconfirmed is not a fill.
         executed = record.get("mode") == "auto"
+        filled = executed and bool(record.get("fill_confirmed"))
         out = {**self._base(pb, price), "stage": "execute",
                "reason": record.get("reason", record.get("mode")),
-               "executed": executed, "mode": record.get("mode"),
-               "fill_price": record.get("fill_price"), "latency_ms": lat}
+               "executed": executed, "filled": filled,
+               "order_status": record.get("order_status"), "mode": record.get("mode"),
+               "fill_price": record.get("fill_price") if filled else None,
+               "latency_ms": lat}
         logger.info(f"REFLEX {'FIRED' if executed else 'stopped at exec'} "
                     f"{pb['side'].upper()} {ticker} — total {lat['total']}ms "
-                    f"({record.get('mode')})")
+                    f"({record.get('mode')}, order {record.get('order_status') or 'n/a'}, "
+                    f"fill {'confirmed' if filled else 'unconfirmed'})")
         return out
 
     # ── stage helpers ────────────────────────────────────────────────────

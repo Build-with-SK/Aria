@@ -75,22 +75,19 @@ fi
 echo "preflight clean."
 echo
 cat <<EOF
-To start the backend now (LOOPBACK ONLY — read the warning below):
-  cd $ROOT && venv/bin/python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+Install or restart the services:
+  $ROOT/scripts/serverctl install        # first time (add --boot for no-login start)
+  $ROOT/scripts/serverctl restart        # after an update
+  $ROOT/scripts/serverctl status
 
-!! Do NOT bind --host 0.0.0.0 as things stand. None of the 106 endpoints
-   require authentication, and they include /api/execute/approve/<id> and
-   /api/desk/auto-execute. On 0.0.0.0 anyone on the Wi-Fi can approve a trade
-   or arm auto-execution, and every chat answer is grounded in the owner's
-   private Obsidian vault. The approval gate is currently enforced by the port
-   being unreachable, not by a check.
+Both apps bind 127.0.0.1 and are reached through the cloudflared tunnel.
+Never bind 0.0.0.0: authentication is real now (see docs/AUTH_SETUP.md), but
+nothing is gained by putting either app on the LAN, and the tunnel is what
+supplies HTTPS.
 
-   To reach the UI from another machine, tunnel instead of binding wide:
-     ssh -N -L 8000:127.0.0.1:8000 <user>@<mini>   # run on the other machine
+Future updates are one command, which backs up, pulls, runs this preflight and
+refuses to restart onto code that fails it:
+  $ROOT/scripts/serverctl update
 
-To run it permanently (survives logout/reboot), install the launchd agent
-described in docs/MAC_MINI_SETUP.md.
-
-Nightly pipeline (cron -e):
-  30 7 * * 1-5 cd $ROOT && venv/bin/python main.py >> data/cron.log 2>&1
+Runbook: docs/MAC_MINI_SERVER.md
 EOF

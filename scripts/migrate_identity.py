@@ -291,9 +291,15 @@ def build_plan() -> dict:
     # one instrument). What must NOT happen is one SUBJECT mapping to two
     # different provider symbols — that would mean the migration itself is
     # ambiguous about what the subject denoted.
+    #
+    # Only the rows this migration would WRITE are compared. A row that
+    # already carries an identity was stamped at write time by the instrument
+    # it was priced on, and since 2026-10-20 that may differ by namespace:
+    # the ML pass stamps `AAL` (American Airlines, signals namespace) beside
+    # technical rows stamped `AAL.L`. Counting those made every --apply refuse.
     by_subject: dict[str, set] = {}
     for p in plans:
-        if p["provider_symbol"]:
+        if p["provider_symbol"] and p["status"] in WRITABLE:
             by_subject.setdefault(p["subject"], set()).add(p["provider_symbol"])
     conflicting = {s: sorted(v) for s, v in by_subject.items() if len(v) > 1}
 

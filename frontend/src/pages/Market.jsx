@@ -25,6 +25,7 @@ import { useFutures, useOptions, useRegime, useSignals, useWorld, useWorldChange
   from '../hooks/useApi'
 import { ActionBadge, Empty, ScoreBadge, SectionHeader, Spinner } from '../components/UI'
 import LiveNews from '../components/LiveNews'
+import { DataUnavailable, hasRecord, displayValue } from '../components/DataState'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -67,13 +68,16 @@ export default function Market() {
   const { data: sigData, loading, error } = useSignals()
   const { data: futures } = useFutures()
   const { data: options } = useOptions()
+  // Imported and rendered in fifteen places, but never called — every visit to
+  // this page threw "regime is not defined" into the error boundary.
+  const { data: regime } = useRegime()
   const [search, setSearch] = useState('')
   const [side, setSide] = useState('all')
 
   if (loading && !sigData) return <Spinner />
 
   const m = world?.market
-  const all = Object.values(sigData?.signals || {})
+  const all = Object.values(sigData?.signals || {}).filter(Boolean)
   const ranked = [...all].sort((a, b) => (b.composite_score || 0) - (a.composite_score || 0))
   const opportunities = ranked.filter(s => (s.composite_score || 0) > 25).slice(0, 12)
   const risks = ranked.filter(s => (s.composite_score || 0) < -25).slice(-12).reverse()
@@ -89,9 +93,10 @@ export default function Market() {
   })
 
   const futureRows = Object.entries(futures || {})
+    .filter(([, value]) => value != null)
     .sort((a, b) => (b[1].confirmation_score || 0) - (a[1].confirmation_score || 0))
     .slice(0, 8)
-  const optionRows = Object.entries(options || {}).slice(0, 8)
+  const optionRows = Object.entries(options || {}).filter(([, value]) => value != null).slice(0, 8)
 
   return (
     <div style={{ maxWidth: 1240, margin: '0 auto' }}>
@@ -100,11 +105,12 @@ export default function Market() {
           ∿ MARKET
         </div>
         <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
-          Equities, macro, futures, options and volatility as one state — not four tabs.
+          Equities, macro, futures, options and volatility in a single view.
         </div>
       </div>
 
       {/* ── CURRENT MARKET STATE ── */}
+      {!hasRecord(world?.market) && <DataUnavailable name="Market state" />}
       <SectionHeader>CURRENT MARKET STATE</SectionHeader>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))',
                     gap: 10, marginBottom: 8 }}>
@@ -120,10 +126,10 @@ export default function Market() {
               sub={regime?.stale ? `from macro data ${regime.age_days}d old`
                    : regime?.coverage != null
                      ? `${(regime.coverage * 100).toFixed(0)}% input coverage`
-                     : (m?.regime?.agree ? 'brain agrees' : 'brain disagrees')} />
-        <Cell label="BREADTH" value={m ? `${m.breadth.advancing_pct}%` : '—'}
+                     : (m?.regime?.agree == null ? 'comparison unavailable' : m.regime.agree ? 'brain agrees' : 'brain disagrees')} />
+        <Cell label="BREADTH" value={m?.breadth?.advancing_pct != null ? `${m.breadth.advancing_pct}%` : '—'}
               color={(m?.breadth?.net_tilt || 0) >= 0 ? 'var(--green)' : 'var(--red)'}
-              sub={m ? `${m.breadth.bullish}↑ / ${m.breadth.bearish}↓ of ${m.breadth.tracked}` : null} />
+              sub={m?.breadth ? `${m.breadth.bullish ?? '—'}↑ / ${m.breadth.bearish ?? '—'}↓ of ${m.breadth.tracked ?? '—'}` : 'unavailable'} />
         <Cell label="VOLATILITY" value={m?.volatility?.vix ?? '—'} color="var(--blue)"
               warn={m?.volatility?.vix_stale}
               sub={m?.volatility?.vix_stale ? 'VIX is stale'
@@ -153,16 +159,16 @@ export default function Market() {
       <div className="bb-card" style={{ marginBottom: 14 }}>
         {!(changes?.changed || []).length && (
           <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
-            {changes?.note || 'Nothing material moved in the window.'}
+            {changes?.note || (Array.isArray(changes?.changed) ? 'Nothing material moved in the window.' : 'Change history unavailable.')}
           </div>
         )}
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
           {(changes?.changed || []).map((c, i) => (
             <div key={i} style={{ ...mono, fontSize: 11 }}>
               <span style={{ color: 'var(--muted)' }}>{c.field}: </span>
-              <span style={{ color: 'var(--red)' }}>{String(c.from)}</span>
+              <span style={{ color: 'var(--red)' }}>{displayValue(c.from)}</span>
               <span style={{ color: 'var(--muted)' }}> → </span>
-              <span style={{ color: 'var(--green)', fontWeight: 700 }}>{String(c.to)}</span>
+              <span style={{ color: 'var(--green)', fontWeight: 700 }}>{displayValue(c.to)}</span>
             </div>
           ))}
         </div>

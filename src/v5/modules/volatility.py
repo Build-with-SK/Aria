@@ -12,7 +12,6 @@ from __future__ import annotations
 import math
 from datetime import datetime
 
-import pandas as pd
 
 from src.v5 import marketdata as md
 from src.v5.contract import Evidence, ModuleReport, insufficient

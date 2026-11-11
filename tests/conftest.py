@@ -48,6 +48,25 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REAL_DATA = (REPO_ROOT / "data").resolve()
 
+
+def _load_universe_fixture_builder():
+    """Load tests/fixtures/universe_fixture.py by PATH, not by `tests.fixtures`
+    dotted import.
+
+    `tests/` has no `__init__.py` — pytest's rootdir import mode adds it to
+    sys.path directly rather than treating it as a package — and at least one
+    CI environment had an unrelated third-party `tests` package (with its own
+    `__init__.py`) earlier on sys.path, which wins package resolution outright
+    and makes `tests.fixtures` unreachable regardless of path order. Loading
+    the file directly sidesteps the name collision entirely.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "aria_universe_fixture", REPO_ROOT / "tests" / "fixtures" / "universe_fixture.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.build
+
 #: Hosts a test must never reach. These are metered: the BLS keyless API allows
 #: roughly 25 requests per IP per day, and a single unguarded suite run
 #: exhausted it, which is what made CPI and unemployment go None in production.
@@ -55,7 +74,25 @@ METERED_HOSTS = ("api.bls.gov", "home.treasury.gov", "markets.newyorkfed.org",
                  "stlouisfed.org")
 
 _TMP_DATA: Path | None = None
+#: What `isolate_production_state` actually put at <tmp_data>/universe.db
+#: this session — the owner's real master copied verbatim, or the small
+#: named-instrument fallback. Tests that assert a row COUNT read this
+#: instead of guessing which one is under test; see `universe_reference`.
+_UNIVERSE_SOURCE: dict = {}
 _patched_modules: set[str] = set()
+#: Every module name `_sweep` needs never look at again: ARIA modules fully
+#: redirected, and every non-ARIA module.
+_examined_modules: set[str] = set()
+
+# ── the audit log ────────────────────────────────────────────────────────────
+# Set at IMPORT, not in a fixture: pytest imports this file before it collects
+# test modules, and test modules import backend.main at collection time, which
+# attaches the rotating file handler there and then. A session fixture runs too
+# late — that is how data/aria.log came to hold "KILL SWITCH ENGAGED by test"
+# and promotions of strategies that only exist in fixtures.
+_TEST_LOG_DIR = Path(tempfile.mkdtemp(prefix="aria-test-logs-"))
+os.environ["ARIA_LOG_FILE"] = str(_TEST_LOG_DIR / "aria_test.log")
+TEST_LOG_FILE = Path(os.environ["ARIA_LOG_FILE"])
 
 
 def _redirect_module(mod, tmp_data: Path) -> int:
@@ -96,6 +133,31 @@ def _redirect_module(mod, tmp_data: Path) -> int:
                         moved += 1
                     except Exception:
                         pass
+        else:
+            # INSTANCE attributes, for a module-level object that holds its own
+            # paths. `src.auth.session.SESSIONS` is one: an OwnerAuth built at
+            # import time with the session store and the signing key baked in.
+            # Redirecting only the module constants left it pointing at the
+            # real data directory, so running the suite signed the owner out of
+            # his own browser — a leak with a symptom nobody would connect to
+            # pytest.
+            #
+            # General rather than a named exception, for the reason the note at
+            # the top of this file gives: a list somebody has to remember to
+            # extend is a list that will be short by one. Only paths that
+            # actually resolve under the real data directory are touched.
+            try:
+                attrs = list(vars(value).items())
+            except TypeError:
+                attrs = []                            # no __dict__, nothing to do
+            for attr, aval in attrs:
+                new_a = remap(aval)
+                if new_a is not None:
+                    try:
+                        setattr(value, attr, new_a)
+                        moved += 1
+                    except Exception:
+                        pass
     return moved
 
 
@@ -107,13 +169,35 @@ def _sweep(tmp_data: Path) -> int:
     enough. The autouse fixture below re-sweeps only modules it has not seen.
     """
     moved = 0
-    for name, mod in list(sys.modules.items()):
-        if mod is None or name in _patched_modules:
+    # Only names not examined before. The set difference runs in C, so a sweep
+    # costs time in proportion to what is NEW, not to everything ever imported.
+    # The import hook below runs this on every executed `from src... import`,
+    # including those inside hot functions (src/markets/sessions.resolve);
+    # once scipy and sklearn are loaded sys.modules holds ~3,400 entries, and
+    # looping over all of them in Python made a ~50 us session() cost ~1.4 ms
+    # under pytest — failing test_global_calendars' latency check on harness
+    # overhead, not on the code it measures. Semantics are unchanged: a
+    # non-ARIA name can never become an ARIA name, a patched name was already
+    # skipped, and a module still initializing is not marked, so it is looked
+    # at again exactly as before.
+    for name in list(sys.modules.keys() - _examined_modules):
+        mod = sys.modules.get(name)
+        if mod is None:
+            continue                     # a failed-import placeholder: look again later
+        if name in _patched_modules or not (
+                name == "src" or name.startswith("src.") or name.startswith("backend")):
+            _examined_modules.add(name)
             continue
-        if not (name == "src" or name.startswith("src.") or name.startswith("backend")):
-            continue
-        _patched_modules.add(name)
         moved += _redirect_module(mod, tmp_data)
+        # A module still executing its own body is swept for what exists so
+        # far but NOT marked done. backend/main.py imports src.* near its top,
+        # so the import hook below used to sweep it half-built, mark it, and
+        # never look again — every data path defined further down the file
+        # (CHAT_STREAM_METRICS was the one that showed it) kept its REAL value
+        # and tests wrote into the owner's data directory.
+        if not getattr(getattr(mod, "__spec__", None), "_initializing", False):
+            _patched_modules.add(name)
+            _examined_modules.add(name)
     return moved
 
 
@@ -140,10 +224,28 @@ def isolate_production_state():
     # would make every symbol IDENTITY_UNRESOLVED and the grading tests would
     # pass for the wrong reason. Copy it so tests get the real mappings while
     # remaining unable to corrupt the original.
+    #
+    # CI has no such file — it is the owner's ~22k-row live dataset and is
+    # never committed — so fall back to a small, real-instrument fixture
+    # (tests/fixtures/universe_fixture.py) covering exactly the symbols the
+    # identity/currency/migration tests name. It cannot stand in for the few
+    # tests that assert a fact about the PRODUCTION master's size; those
+    # branch on `universe_reference["kind"]` and only check that claim when
+    # the real file is present, rather than padded out with invented rows.
     real_universe = REAL_DATA / "universe.db"
+    _UNIVERSE_SOURCE.clear()
     if real_universe.exists():
         try:
             shutil.copy2(real_universe, tmp_data / "universe.db")
+            _UNIVERSE_SOURCE["kind"] = "production"
+        except OSError:                      # pragma: no cover - best effort
+            pass
+    else:
+        try:
+            _build_universe_fixture = _load_universe_fixture_builder()
+            rows = _build_universe_fixture(tmp_data / "universe.db")
+            _UNIVERSE_SOURCE["kind"] = "fallback_fixture"
+            _UNIVERSE_SOURCE["rows"] = rows
         except OSError:                      # pragma: no cover - best effort
             pass
 
@@ -177,6 +279,13 @@ def isolate_production_state():
                     "ARIA_DATA_DIR"):
             os.environ.pop(key, None)
         shutil.rmtree(tmp_root, ignore_errors=True)
+        # Windows will not delete a file a handler still holds open.
+        import logging
+        for h in list(logging.getLogger().handlers):
+            if str(_TEST_LOG_DIR) in str(getattr(h, "baseFilename", "")):
+                logging.getLogger().removeHandler(h)
+                h.close()
+        shutil.rmtree(_TEST_LOG_DIR, ignore_errors=True)
 
 
 @pytest.fixture(autouse=True)
@@ -232,6 +341,42 @@ def _block_metered_hosts(monkeypatch):
     yield
 
 
+@pytest.fixture
+def _deterministic_fx_rates(monkeypatch):
+    """Currency conversion must not depend on a live Yahoo FX fetch.
+
+    `src.data.currency.rates()` falls back to a network pull of spot FX pairs
+    on a cache miss. A sandboxed CI run has no network at all, so GBP never
+    entered the rate table and every GBp<->USD round trip returned None
+    instead of a number — not a wrong answer, but an untestable one. Every
+    assertion that depends on this fixes a RATIO (100 GBp is always 1/100 of
+    its GBP reading, whatever the rate actually is — see
+    tests/test_identity_safety.py's pence tests), so a fixed, realistic rate
+    table makes the arithmetic deterministic without weakening what is
+    checked. A test that wants its own rates (tests/test_currency.py's
+    `fixed_rates`) still overrides this one, same as it would the real
+    function.
+
+    Requested explicitly by the handful of tests whose own assertions go
+    through `cur.to_base`/`cur.convert` — not autouse. `to_base` calls
+    `rates(base)` even on a pure GBp->GBP pence ratio where the table is
+    never read, so every OTHER test in the suite (identity resolution,
+    execution, the brain) must keep running against the real function, not a
+    fixed table nobody asked for.
+    """
+    from src.data import currency as cur
+
+    fixed = {
+        "base": "USD", "as_of": "fixture (tests/conftest.py)", "unavailable": [],
+        "rates": {"USD": 1.0, "GBP": 0.79, "INR": 87.0, "EUR": 0.92,
+                  "JPY": 149.0, "AUD": 1.52, "CAD": 1.37, "CHF": 0.80,
+                  "SGD": 1.30, "HKD": 7.80, "AED": 3.67, "CNY": 7.10,
+                  "ZAR": 17.60, "BRL": 5.60},
+    }
+    monkeypatch.setattr(cur, "rates", lambda base="USD": fixed)
+    yield
+
+
 @pytest.fixture(scope="session", autouse=True)
 def forbid_production_writes(isolate_production_state):
     """Make a write into the real data directory a LOUD failure.
@@ -246,14 +391,24 @@ def forbid_production_writes(isolate_production_state):
     read committed fixtures and the repository's own source.
     """
     import builtins
+    import os
+    import shutil
     import sqlite3
 
     real_open, real_wt, real_wb = builtins.open, Path.write_text, Path.write_bytes
     real_connect = sqlite3.connect
+    real_os = {n: getattr(os, n) for n in ("replace", "rename", "remove", "unlink")}
+    real_path = {n: getattr(Path, n) for n in ("unlink", "rename", "replace", "touch")}
+    real_shutil = {n: getattr(shutil, n) for n in ("move", "rmtree")}
 
     def _offending(target) -> Path | None:
+        if isinstance(target, int):
+            return None                               # a file descriptor
+        s = os.fspath(target) if isinstance(target, os.PathLike) else target
+        if isinstance(s, str) and s.startswith("file:"):
+            s = s[5:].split("?", 1)[0]               # sqlite URI: the path part
         try:
-            p = Path(target).resolve()
+            p = Path(s).resolve()
         except (TypeError, ValueError, OSError):
             return None
         try:
@@ -263,6 +418,12 @@ def forbid_production_writes(isolate_production_state):
         return p
 
     def _boom(p: Path, how: str):
+        # Recorded BEFORE raising: production code with a broad `except
+        # Exception` would otherwise swallow the AssertionError, the write
+        # would be blocked but the leak would go unnoticed. The session fails
+        # on any recorded attempt (pytest_sessionfinish, below).
+        if not _EXPECTED_BLOCKS:
+            BLOCKED_PRODUCTION_WRITES.append(f"{how}: {p}")
         raise AssertionError(
             f"test wrote PRODUCTION state via {how}: {p}\n"
             f"Everything under {REAL_DATA} is the owner's live record. Use the "
@@ -297,15 +458,84 @@ def forbid_production_writes(isolate_production_state):
                 _boom(p, "sqlite3.connect")
         return real_connect(database, *a, **k)
 
+    def _guard_os(name):
+        real = real_os[name]
+
+        def guarded(*a, **k):
+            for target in a[:2]:
+                p = _offending(target)
+                if p:
+                    _boom(p, f"os.{name}")
+            return real(*a, **k)
+        return guarded
+
+    def _guard_path(name):
+        real = real_path[name]
+
+        def guarded(self, *a, **k):
+            for target in (self, *a[:1]):
+                p = _offending(target)
+                if p:
+                    _boom(p, f"Path.{name}")
+            return real(self, *a, **k)
+        return guarded
+
+    def _guard_shutil(name):
+        real = real_shutil[name]
+
+        def guarded(*a, **k):
+            for target in a[:2]:
+                p = _offending(target)
+                if p:
+                    _boom(p, f"shutil.{name}")
+            return real(*a, **k)
+        return guarded
+
     builtins.open = guarded_open
     Path.write_text, Path.write_bytes = guarded_wt, guarded_wb
     sqlite3.connect = guarded_connect
+    for n in real_os:
+        setattr(os, n, _guard_os(n))
+    for n in real_path:
+        setattr(Path, n, _guard_path(n))
+    for n in real_shutil:
+        setattr(shutil, n, _guard_shutil(n))
     try:
         yield
     finally:
         builtins.open = real_open
         Path.write_text, Path.write_bytes = real_wt, real_wb
         sqlite3.connect = real_connect
+        for n, f in real_os.items():
+            setattr(os, n, f)
+        for n, f in real_path.items():
+            setattr(Path, n, f)
+        for n, f in real_shutil.items():
+            setattr(shutil, n, f)
+
+
+#: Every write into the real data directory the guard blocked. Non-empty at the
+#: end of a run means a leak existed — even one production code swallowed.
+BLOCKED_PRODUCTION_WRITES: list[str] = []
+#: Set by `expect_production_write_blocked` for tests that probe the guard on
+#: purpose, so their deliberate attempts are not reported as leaks.
+_EXPECTED_BLOCKS: list[bool] = []
+
+
+@pytest.fixture
+def expect_production_write_blocked():
+    """For tests that deliberately attempt a production write to prove the
+    guard stops it. Attempts made inside are not counted as leaks."""
+    _EXPECTED_BLOCKS.append(True)
+    try:
+        yield
+    finally:
+        _EXPECTED_BLOCKS.pop()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if BLOCKED_PRODUCTION_WRITES:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 @pytest.fixture
@@ -315,8 +545,51 @@ def tmp_data_dir() -> Path:
     return _TMP_DATA
 
 
+@pytest.fixture
+def universe_reference(isolate_production_state) -> dict:
+    """What `idt.UNIVERSE_DB` actually holds this session: the owner's real
+    master copied in verbatim (`kind: "production"`), or the small
+    named-instrument fallback (`kind: "fallback_fixture"`, `rows: 16`) built
+    because CI never has `data/universe.db`. A test asserting a row COUNT
+    needs to know which one it is reading rather than guessing."""
+    assert _UNIVERSE_SOURCE, "isolation fixture did not run"
+    return dict(_UNIVERSE_SOURCE)
+
+
+@pytest.fixture
+def clean_trading_state(isolate_production_state, monkeypatch):
+    """An empty src/trading world: no mode, no limits, no journal, no halt.
+
+    Every store under data/trading/ is shared process state, so a test that
+    left a strategy registered or the order engine halted would decide the
+    next test's result. The live switch and the kill switch are cleared from
+    the environment for the same reason — and because a test that passes only
+    because a variable happened to be set proves nothing.
+    """
+    monkeypatch.delenv("ARIA_KILL_SWITCH", raising=False)
+    monkeypatch.delenv("ARIA_LIVE_TRADING_ENABLED", raising=False)
+    from src.execution import kill_switch
+    from src.trading import modes
+
+    trading = modes.STATE_FILE.parent
+    shutil.rmtree(trading, ignore_errors=True)
+    trading.mkdir(parents=True, exist_ok=True)
+    kill_switch.STATE_FILE.unlink(missing_ok=True)
+    try:
+        yield trading
+    finally:
+        shutil.rmtree(trading, ignore_errors=True)
+        kill_switch.STATE_FILE.unlink(missing_ok=True)
+
+
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
-    """State the isolation result, so a regression is visible in the output."""
+    """State the isolation result, so a regression is visible in the output,
+    and — if any leaked — report the blocked production writes that make the
+    session fail. One hook, so neither report can mask the other."""
     terminalreporter.write_sep(
         "-", f"isolation: {len(_patched_modules)} ARIA modules redirected away "
              f"from {REAL_DATA}")
+    if BLOCKED_PRODUCTION_WRITES:
+        terminalreporter.section("PRODUCTION WRITES BLOCKED — the run FAILS", red=True)
+        for line in sorted(set(BLOCKED_PRODUCTION_WRITES)):
+            terminalreporter.write_line(line, red=True)

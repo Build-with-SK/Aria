@@ -58,9 +58,13 @@ def get_order_manager(rebuild: bool = False):
     if _order_manager is None:
         try:
             from src.execution.alpaca_broker import AlpacaBroker
-            from src.execution.live_guard import PaperOnlyBroker
             from src.execution.order_manager import OrderManager
-            _order_manager = OrderManager(alpaca=PaperOnlyBroker(AlpacaBroker()))
+            from src.trading.access import gate_for_desk
+            # gate_for_desk is a PaperOnlyBroker that ALSO asks the execution
+            # mode on every write: RESEARCH places nothing, PAPER is the paper
+            # gate as before, and the desk's ceiling is PAPER in every mode —
+            # it predates the hard limits and never reaches real money.
+            _order_manager = OrderManager(alpaca=gate_for_desk(AlpacaBroker()))
         except Exception as e:
             logger.warning(f"desk order manager init failed: {e}")
     return _order_manager
@@ -136,9 +140,17 @@ class AutoExecutor:
         confirmed = account.get("paper_confirmed")
         g["paper_confirmed"] = confirmed
         g["paper_status"] = account.get("paper_status")
+        # Gate 6 (2026-10-06): nothing executes without a human on signals the
+        # world model calls stale. Red sends the trade to the approval queue
+        # like every other gate — the human can still take it.
+        from src.desk.opinion import signals_freshness
+        sf = signals_freshness()
+        g["signals_fresh"] = sf["fresh"]
+        g["signals_age_hours"] = sf.get("age_hours")
         g["auto_allowed"] = (env_paper and armed and account.get("connected")
                              and broker_paper is True
                              and confirmed is True
+                             and sf["fresh"] is True
                              and budget_left > 0 and trades_left > 0)
         return g
 
@@ -226,6 +238,14 @@ class AutoExecutor:
             record["action"] = "entry"
             record["fill_price"] = fill
             record["broker_order_id"] = result.get("broker_order_id", "")
+            # "auto" means the broker accepted the order, not that it filled:
+            # Alpaca acks market orders as accepted, and when the fill is not
+            # confirmed in the poll window fill_price above is the intended
+            # entry. These two fields say which one this record is.
+            record["order_status"] = str(result.get("status") or "")
+            # Alpaca reports a missing average price as 0.0, never None.
+            record["fill_confirmed"] = (record["order_status"] == "filled"
+                                        and float(result.get("fill_price") or 0) > 0)
             record_trade(entry.get("notional", 0.0))
             # Hand lifecycle ownership to the exit engine
             try:
@@ -237,6 +257,14 @@ class AutoExecutor:
             push(fmt_entry(entry["side"], entry["qty"], entry["ticker"], fill,
                            entry.get("stop"), entry.get("target")), self.cfg)
             self._alert_feed(entry, fill)
+        elif result.get("session_closed"):
+            # The market closed (or became unknown) between the cycle's check
+            # and the send. Not a failure: the trade waits in the queue for
+            # the owner, exactly like any other red gate.
+            record["mode"] = "queued"
+            record["reason"] = result.get("error", "market not in continuous trading")
+            self._notify(f"⏸ QUEUED {entry['side'].upper()} {entry['qty']:g} {entry['ticker']}",
+                         f"Awaiting your approval — {record['reason']}")
         else:
             record["mode"] = "failed"
             record["reason"] = result.get("error", "broker rejected")
@@ -281,6 +309,11 @@ class AutoExecutor:
             reasons.append("max trades/day reached")
         if g["budget_left"] <= 0:
             reasons.append("daily notional budget spent")
+        if g.get("signals_fresh") is not True:
+            age = g.get("signals_age_hours")
+            reasons.append("signals are stale" + (f" ({age:.0f}h old)" if age is not None else
+                                                  " (age unknown)")
+                           + " — run the pipeline before anything executes unattended")
         return "; ".join(reasons) or "safety gate closed"
 
     def _log(self, record: dict):

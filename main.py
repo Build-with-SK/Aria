@@ -59,6 +59,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger("TIS")
 
+# ── Run marker ────────────────────────────────────────────────────────────────
+# A run the scheduler kills cannot log its own death. Until this existed, every
+# scheduled run since 2026-08-22 was stopped by the task's two-hour limit in the
+# middle of ML training — tis_run.log just ends — so ml_predictions.json was
+# never written and nothing after step 7 ran, with no record anywhere that the
+# pipeline had not finished. A start marker with no finish is that record;
+# src/core/world.pipeline_run() reads it for /api/data/freshness.
+RUN_STATUS = Path(__file__).resolve().parent / "data" / "pipeline_run.json"
+_run: dict = {}
+
+
+def _mark_run(step: str, *, completed: bool = False) -> None:
+    now = datetime.now().isoformat(timespec="seconds")
+    if not _run:
+        _run.update({"started_at": now, "pid": os.getpid()})
+    _run.update({"step": step, "step_at": now, "completed": completed,
+                 "finished_at": now if completed else None})
+    try:
+        RUN_STATUS.parent.mkdir(parents=True, exist_ok=True)
+        RUN_STATUS.write_text(json.dumps(_run, indent=1), encoding="utf-8")
+    except Exception as e:                   # the marker must never stop a run
+        logger.warning(f"TIS: run marker not written: {e}")
+
 
 # ── Config ────────────────────────────────────────────────────────────────────
 def load_config(path: str = "configs/universe.yaml") -> dict:
@@ -340,27 +363,40 @@ def run_macro(config: dict):
 
 
 # ── Sentiment ─────────────────────────────────────────────────────────────────
+def _sentiment_record(r) -> dict:
+    """One ticker's sentiment in the shape the strategy modules read: `score`
+    (signed; distressed.py uses its sign), `headlines` (event_driven.py's M&A
+    scan), `label`, `article_count`. A dict passes through unchanged."""
+    if isinstance(r, dict):
+        return r
+    return {
+        "score":         float(getattr(r, "sentiment_score", 0.0) or 0.0),
+        "label":         getattr(r, "label", "Neutral"),
+        "article_count": int(getattr(r, "n_articles", 0) or 0),
+        "headlines":     list(getattr(r, "top_headlines", None) or []),
+        "warning":       getattr(r, "warning", ""),
+    }
+
+
 def run_sentiment(tickers: list, config: dict) -> dict:
     try:
         from src.sentiment.sentiment_analyzer import analyze_all_sentiment
-        raw = analyze_all_sentiment(tickers)
+        # analyze_all_sentiment reads the universe from the CONFIG. It was handed
+        # the ticker list, so `config.get` raised on every run from 2026-07-22
+        # ("'list' object has no attribute 'get'") and sentiment was always {}.
+        raw = analyze_all_sentiment(config)
 
         # Handle every possible return format gracefully
         if isinstance(raw, dict):
-            # Already {ticker: result} — ideal
-            results = raw
+            # {ticker: SentimentResult} — the strategies read dicts, not dataclasses
+            results = {t: _sentiment_record(r) for t, r in raw.items()}
 
         elif isinstance(raw, list):
             # List of SentimentResult objects or dicts
             results = {}
             for item in raw:
                 if hasattr(item, "ticker"):
-                    # SentimentResult dataclass
-                    results[item.ticker] = {
-                        "score":         getattr(item, "score",         0.0),
-                        "article_count": getattr(item, "article_count", 0),
-                        "label":         getattr(item, "label",         "neutral"),
-                    }
+                    results[item.ticker] = _sentiment_record(item)
                 elif isinstance(item, dict):
                     ticker = item.get("ticker") or item.get("symbol") or item.get("name")
                     if ticker:
@@ -455,12 +491,37 @@ def run_ml(featured_data: Dict[str, pd.DataFrame], config: dict) -> dict:
         try:
             payload = _ml_to_json(results)
             if payload:
+                # Stamp each ticker with the last bar it was trained through and
+                # when this run produced it, so a forecast can be aged against
+                # its own data and horizon rather than against the file.
+                generated_at = datetime.now().isoformat(timespec="seconds")
+                for t, row in payload.items():
+                    row["data_as_of"] = _last_bar_date((featured_data or {}).get(t))
+                    row["generated_at"] = generated_at
                 path = Path("data/ml_predictions.json")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(payload, indent=1, default=str),
                                 encoding="utf-8")
                 logger.info(f"TIS: ML predictions written — {len(payload)} "
                             f"tickers -> data/ml_predictions.json")
+                # ...and into the prediction ledger, so they can be graded at
+                # all (src/intelligence/recorders). Forward only; a SCORE, never
+                # a probability.
+                try:
+                    from src.intelligence.recorders import record_ml_predictions
+                    from src.models.model_trainer import _MODEL_VERSION
+                    asof, last = {}, {}
+                    for t, df in (featured_data or {}).items():
+                        try:
+                            asof[t] = str(df.index[-1].date())
+                            last[t] = float(df["Close"].iloc[-1])
+                        except Exception:
+                            continue
+                    rec = record_ml_predictions(payload, data_as_of=asof, last_close=last,
+                                                trainer_version=_MODEL_VERSION)
+                    logger.info(f"TIS: ML predictions recorded in the ledger: {rec}")
+                except Exception as e:
+                    logger.warning(f"TIS: ML predictions not recorded in the ledger: {e}")
             else:
                 # Do NOT overwrite a good file with an empty one. A run that
                 # produced nothing must leave the last real predictions alone
@@ -912,6 +973,14 @@ def _auto_propose_trades(signal_scores: dict, macro_snapshot, config: dict):
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
+def _last_bar_date(df) -> Optional[str]:
+    """ISO date of a price frame's last bar, or None if it cannot be read."""
+    try:
+        return str(df.index[-1].date())
+    except Exception:
+        return None
+
+
 def export_rich_signals(raw_data, config):
     """Rebuild the full SignalEngine output (stops, targets, atr_pct,
     invalidation, drivers, explanations) and write data/signals.json."""
@@ -925,6 +994,7 @@ def export_rich_signals(raw_data, config):
         signals = build_all_signals(featured, metadata)
         from src.core.identity import signal_identity
         out = {}
+        generated_at = datetime.now().isoformat(timespec="seconds")
         for ticker, sig in signals.items():
             # Identity travels WITH the price. A signal key is a provider
             # symbol — configs/universe.yaml holds exactly the strings handed to
@@ -952,6 +1022,13 @@ def export_rich_signals(raw_data, config):
                 "position_size_pct": sig.position_size_pct, "regime": sig.regime,
                 "drivers": sig.drivers, "risks": sig.risks, "explanation": sig.explanation,
                 "price_52w_high": sig.price_52w_high, "price_52w_low": sig.price_52w_low,
+                # WHEN the data is from, as opposed to when this file was
+                # written. Until now the rows carried neither, so every reader
+                # aged the FILE and called it the market's age. `data_as_of` is
+                # the last bar this signal was computed on; None when the frame
+                # cannot say — never a guess.
+                "data_as_of": _last_bar_date(raw_data.get(ticker)),
+                "generated_at": generated_at,
             }
         path = Path("data/signals.json")
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -968,17 +1045,21 @@ def main():
     logger.info("=" * 70)
 
     # 1. Config
+    _mark_run("config")
     config  = load_config("configs/universe.yaml")
     tickers = get_all_tickers(config)
     logger.info(f"Universe: {len(tickers)} tickers loaded.")
 
     # 2. Data download
+    _mark_run("data download")
     raw_data = download_all_data(tickers, config)
 
     # 3. Feature engineering
+    _mark_run("features")
     featured_data = compute_features(raw_data, config)
 
     # 4. Signal scores
+    _mark_run("signals")
     signal_scores = compute_signal_scores(featured_data, config)
 
     # 4b. Export the RICH per-ticker signals to data/signals.json — the desk
@@ -988,27 +1069,33 @@ def main():
     export_rich_signals(raw_data, config)
 
     # 5. Macro snapshot
+    _mark_run("macro")
     macro_snapshot = run_macro(config)
 
     # 6. Sentiment
+    _mark_run("sentiment")
     sentiment_results = run_sentiment(tickers, config)
 
     # 7. ML models
+    _mark_run("ml")
     ml_results = {}
     if config.get("ml", {}).get("enabled", True):
         ml_results = run_ml(featured_data, config)
 
     # 8. Backtester (off by default — set run_backtest: true in universe.yaml)
+    _mark_run("backtest")
     bt_results = {}
     if config.get("backtest", {}).get("run_backtest", False):
         bt_results = run_backtest(featured_data, signal_scores, config)
 
     # 9. Fundamentals
+    _mark_run("fundamentals")
     yf_info = {}
     if config.get("data", {}).get("fetch_fundamentals", True):
         yf_info = fetch_yf_info(tickers)
 
     # 10. All 14 strategy modules
+    _mark_run("strategies")
     logger.info("")
     logger.info("━" * 60)
     logger.info("  RUNNING STRATEGY MODULES")
@@ -1023,6 +1110,7 @@ def main():
     )
 
     # 11. Multi-strategy allocator
+    _mark_run("allocator")
     logger.info("")
     logger.info("━" * 60)
     logger.info("  MULTI-STRATEGY ALLOCATOR")
@@ -1030,6 +1118,7 @@ def main():
     allocation = run_allocator(strategy_results, config)
 
     # 12. Master portfolio
+    _mark_run("master portfolio")
     logger.info("")
     logger.info("━" * 60)
     logger.info("  MASTER PORTFOLIO SYNTHESIS")
@@ -1038,6 +1127,7 @@ def main():
     master, briefing = run_master(strategy_results, allocation, risk_report, config)
 
     # 13. Political Intelligence Layer (future phase — wires in when built)
+    _mark_run("political")
     if _POLITICAL_AVAILABLE:
         logger.info("")
         logger.info("━" * 60)
@@ -1050,6 +1140,7 @@ def main():
         run_political_layer(external_signals=_pol_signals)
 
     # 14. Obsidian export
+    _mark_run("obsidian export")
     logger.info("")
     logger.info("━" * 60)
     logger.info("  OBSIDIAN EXPORT")
@@ -1065,6 +1156,7 @@ def main():
     )
 
     # 15. Auto-propose high-conviction trades to the approval queue.
+    _mark_run("proposals")
     # OFF by default since the v3.1 desk trades autonomously — pipeline
     # proposals just clutter the Execute tab next to it. Re-enable with
     # pipeline_propose_trades: true in universe.yaml if ever wanted.
@@ -1086,6 +1178,7 @@ def main():
         logger.info(f"  1d 99%% VaR:      ${master.portfolio_var:,.0f}")
     logger.info(f"  Strategies run:   {len(strategy_results)}/14")
     logger.info("=" * 70)
+    _mark_run("complete", completed=True)
 
 
 if __name__ == "__main__":

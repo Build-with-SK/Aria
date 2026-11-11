@@ -20,6 +20,8 @@ import { SectionHeader } from '../components/UI'
 import Explorer from './Explorer'
 import Nexus from './Nexus'
 import V5 from './V5'
+import ResearchAnalysis from '../components/ResearchAnalysis'
+import { isExactGoldContract } from '../components/technicalEvidence'
 
 const MONO = 'var(--mono)'
 const CCY_SYMBOL = { INR: '₹', GBP: '£', USD: '$', EUR: '€', JPY: '¥' }
@@ -33,8 +35,18 @@ export default function Research() {
   const [results, setResults] = useState([])
   const [symbol, setSymbol] = useState(urlSymbol)
   const [tab, setTab] = useState(urlTab)
+  const [indexed, setIndexed] = useState(null)
   const deep = tab === 'deep'
   const debounce = useRef(null)
+
+  // The subtitle quotes the index size the server reports, never a number
+  // typed into this file — three of those were already stale (766, 3,000+,
+  // 3,143) against an index of 22,022.
+  useEffect(() => {
+    axios.get('/api/universe/status')
+      .then(r => setIndexed(r.data?.total_symbols || null))
+      .catch(() => setIndexed(null))
+  }, [])
 
   // The URL is the source of truth, so a deep link and a back button both work.
   useEffect(() => { setSymbol(urlSymbol) }, [urlSymbol])
@@ -42,13 +54,14 @@ export default function Research() {
 
   useEffect(() => {
     clearTimeout(debounce.current)
+    let cancelled = false
     if (!q.trim() || q.trim().toUpperCase() === symbol) { setResults([]); return }
     debounce.current = setTimeout(() => {
       axios.get('/api/universe/search', { params: { q: q.trim(), n: 12 } })
-        .then(r => setResults(Array.isArray(r.data) ? r.data : r.data.results || []))
-        .catch(() => setResults([]))
+        .then(r => { if (!cancelled) setResults(Array.isArray(r.data) ? r.data : r.data.results || []) })
+        .catch(() => { if (!cancelled) setResults([]) })
     }, 240)
-    return () => clearTimeout(debounce.current)
+    return () => { cancelled = true; clearTimeout(debounce.current) }
   }, [q, symbol])
 
   const choose = useCallback((sym, view) => {
@@ -69,8 +82,8 @@ export default function Research() {
           ◬ RESEARCH
         </div>
         <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)' }}>
-          Any listing — India (₹ NSE/BSE) · UK (£ LSE) · US ($) · crypto · FX. Nothing is
-          preloaded; everything is fetched fresh when you look it up.
+          Global coverage — {indexed ? `${indexed.toLocaleString()} symbols` : 'equities, ETFs, crypto and FX'} across
+          40+ exchanges, from NSE and LSE to NYSE and Tokyo. Any other listing resolves on demand.
         </div>
       </div>
 
@@ -139,10 +152,11 @@ export default function Research() {
           Each layer mounts only once the one above it has a symbol, so opening
           a ticker does not fire forty modules before you have decided to
           look. */}
-      {symbol && (
+      {symbol && <ResearchAnalysis key={symbol} symbol={symbol} technicalOnly />}
+      {symbol && !isExactGoldContract(symbol) && (
         <>
           <SectionHeader>OVERVIEW · {symbol}</SectionHeader>
-          <Explorer symbol={symbol} embedded />
+          <Explorer key={symbol} symbol={symbol} embedded />
 
           <div style={{ marginTop: 22 }}>
             <SectionHeader>EVIDENCE &amp; SCORING</SectionHeader>

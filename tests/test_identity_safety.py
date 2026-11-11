@@ -235,7 +235,7 @@ def test_provider_symbol_uniqueness_holds_except_for_known_exceptions():
 
 # ── 9-10: price unit ────────────────────────────────────────────────────────
 
-def test_one_hundred_pence_is_one_pound():
+def test_one_hundred_pence_is_one_pound(_deterministic_fx_rates):
     """9 — the arithmetic everything else rests on."""
     assert cur.to_base(100.0, "GBp", "GBP") == pytest.approx(1.0)
     assert cur.to_base(2100.0, "GBp", "GBP") == pytest.approx(21.0)
@@ -253,7 +253,7 @@ def test_every_london_instrument_reports_pence_not_pounds():
         assert ident.currency == "GBp", f"{sym} would be 100x wrong"
 
 
-def test_raw_pence_cannot_reach_a_base_currency_unnormalised():
+def test_raw_pence_cannot_reach_a_base_currency_unnormalised(_deterministic_fx_rates):
     """10 — the normalisation is not optional. A GBp amount converted to USD
     must pass through the /100 step; if it ever equals the naive conversion,
     the pence handling has been bypassed."""
@@ -516,7 +516,7 @@ def test_no_downstream_sink_consumes_a_price_without_its_currency():
             f"with it would be scaled wrongly downstream")
 
 
-def test_a_pence_price_is_never_equal_to_its_pound_interpretation():
+def test_a_pence_price_is_never_equal_to_its_pound_interpretation(_deterministic_fx_rates):
     """The 100x, stated as an invariant rather than a hope."""
     for pence in (100.0, 2100.0, 3966.0):
         as_pence = cur.to_base(pence, "GBp", "GBP")

@@ -36,6 +36,7 @@ import { useAlerts, useBrain, useBrainActivity, useDailyReport, useWorldChanges,
 import LiveCognition, { StatusDot } from '../components/LiveCognition'
 import LiveNews from '../components/LiveNews'
 import Chat from './Chat'
+import { DataUnavailable, hasRecord, displayValue } from '../components/DataState'
 
 const mono = { fontFamily: 'var(--mono)' }
 
@@ -334,9 +335,9 @@ function WorldContext({ brain, changes }) {
       {moved.map((c, i) => (
         <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'baseline', padding: '2px 0' }}>
           <span style={{ ...mono, fontSize: 9, color: 'var(--muted)', minWidth: 118 }}>{c.field}</span>
-          <span style={{ ...mono, fontSize: 10, color: 'var(--red)' }}>{String(c.from)}</span>
+          <span style={{ ...mono, fontSize: 10, color: 'var(--red)' }}>{displayValue(c.from)}</span>
           <span style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>→</span>
-          <span style={{ ...mono, fontSize: 10, color: 'var(--green)', fontWeight: 700 }}>{String(c.to)}</span>
+          <span style={{ ...mono, fontSize: 10, color: 'var(--green)', fontWeight: 700 }}>{displayValue(c.to)}</span>
         </div>
       ))}
       <Link to="/market" style={{ ...mono, fontSize: 9, color: 'var(--orange)',
@@ -459,10 +460,12 @@ function Today({ report }) {
 /* ── the page ──────────────────────────────────────────────────────────── */
 
 export default function AriaBrain() {
-  const { data: brain, reload: reloadBrain } = useBrain()
+  const { data: brain, error, loading, reload: reloadBrain } = useBrain()
   const { data: activity } = useBrainActivity(60)
   const { data: changes } = useWorldChanges(24)
   const { data: report } = useDailyReport()
+
+  if (!loading && (error || !hasRecord(brain) || !brain.status)) return <DataUnavailable name="ARIA Brain" error={error} />
 
   return (
     <div style={{ maxWidth: 1280, margin: '0 auto' }}>

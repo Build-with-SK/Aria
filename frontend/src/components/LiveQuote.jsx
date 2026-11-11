@@ -130,6 +130,24 @@ export default function LiveQuote({ symbol, nativeCurrency }) {
             </span>
           )}
         </div>
+        {q.session && (
+          // The venue's AUTHORITATIVE session (src/markets/sessions) — the
+          // same answer the execution path uses. The dot above is the feed's
+          // own evidence; when the two disagree, that is worth seeing.
+          <div title={(q.session.reasons || []).join(' · ')}
+               style={{ fontFamily: MONO, fontSize: 8.5, marginTop: 2, letterSpacing: '.08em',
+                        color: q.session.tradable ? 'var(--green)'
+                          : q.session.state === 'UNKNOWN' ? 'var(--yellow)' : 'var(--muted)' }}>
+            SESSION {q.session.state.replace('_', ' ')}
+            {q.session.venue ? ` · ${q.session.venue}` : ''}
+            {q.session.local_time ? ` · ${q.session.local_time.slice(11, 16)} local` : ''}
+            {!q.session.tradable && q.session.next_open
+              ? ` · next open ${new Date(q.session.next_open).toLocaleString(undefined, {
+                  weekday: 'short', hour: '2-digit', minute: '2-digit' })}`
+              : ''}
+            {q.session.calendar_verified === false ? ' · calendar unverified' : ''}
+          </div>
+        )}
         {q.delayed_hint && (
           <div style={{ fontFamily: MONO, fontSize: 8.5, color: 'var(--yellow)', marginTop: 2, maxWidth: 430, lineHeight: 1.5 }}>
             ⚑ {q.delayed_hint}

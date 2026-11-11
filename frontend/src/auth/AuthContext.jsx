@@ -9,6 +9,7 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import axios from 'axios'
+import { appUrl } from '../core/appPath'
 
 const Ctx = createContext({
   ready: false, authenticated: false, owner: false, role: 'anon', user: null,
@@ -42,7 +43,7 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     try { await axios.post('/api/auth/logout') } catch { /* clearing anyway */ }
     setState({ ready: true, authenticated: false, owner: false, role: 'anon', user: null })
-    window.location.href = '/login'
+    window.location.href = appUrl('/login')
   }, [])
 
   useEffect(() => { refresh() }, [refresh])

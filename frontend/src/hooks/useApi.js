@@ -14,7 +14,7 @@ async function fetchJson(url) {
   return res.json()
 }
 
-function useApiData(url, interval = null) {
+export function useApiData(url, interval = null) {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState(null)
@@ -81,6 +81,7 @@ export async function fetchNexusResearch(symbol) {
 export const useWorld        = () => useApiData('/api/aria/world',          60_000)
 export const useWorldChanges = (h = 24) => useApiData(`/api/aria/world/changes?hours=${h}`, 120_000)
 export const useWorkers      = () => useApiData('/api/aria/workers',        30_000)
+export const useDataFreshness = () => useApiData('/api/data/freshness',      60_000)
 // The honest status dot. `/health` returns ok whenever the web server can
 // answer, which told you nothing about whether the daemons behind it were
 // still running — the exact failure this system already had for a week.
@@ -96,6 +97,10 @@ export const useCalibration  = () => useApiData('/api/ledger/calibration',  300_
 // "confidence is inverted, skill -0.222"; on independent events the honest
 // answer is that the sample cannot yet tell.
 export const useInvestigation = () => useApiData('/api/ledger/investigate', 300_000)
+// Model intelligence (src/intelligence): per-model evaluation, registry,
+// calibration status and routing, from the last evidence snapshot.
+export const useModelIntelligence = () => useApiData('/api/intelligence/models', 600_000)
+export const useDebateValue = () => useApiData('/api/intelligence/debate', 900_000)
 
 // The consultation bridge to SENTINEL — a SEPARATE general intelligence in its
 // own process, not a part of ARIA. This reports whether a second opinion is

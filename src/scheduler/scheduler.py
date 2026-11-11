@@ -107,11 +107,21 @@ def install_windows_task(
     args = "--no-sentiment" if no_sentiment else ""
     cmd  = f'"{PYTHON_EXE}" "{MAIN_PY}" {args}'
 
-    # PowerShell command to create the scheduled task
+    # PowerShell command to create the scheduled task.
+    #
+    # The limit was 2 hours, and ML training alone takes ~2-6: every scheduled
+    # run in tis_run.log (2026-08-22, 09-24, 10-07) was killed at 09:29:5x in
+    # the middle of training, so ml_predictions.json was never written and
+    # nothing after step 7 of main.py ever ran under the scheduler. The one
+    # run that finished (2026-09-06, by hand) took 6 h; 8 h covers it and
+    # still stops a run that has hung. Without -StartWhenAvailable a 07:30
+    # trigger missed while the PC sleeps is skipped for the day — 3 scheduled
+    # runs happened in ~50 days. main.py's data/pipeline_run.json reports a run
+    # that does not finish (/api/data/freshness).
     ps_script = f"""
 $Action  = New-ScheduledTaskAction -Execute '{PYTHON_EXE}' -Argument '"{MAIN_PY}" {args}' -WorkingDirectory '{PROJECT_ROOT}'
 $Trigger = New-ScheduledTaskTrigger -Daily -At {run_time}
-$Settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 2) -RestartCount 2 -RestartInterval (New-TimeSpan -Minutes 5)
+$Settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 8) -StartWhenAvailable -RestartCount 2 -RestartInterval (New-TimeSpan -Minutes 5)
 Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $Action -Trigger $Trigger -Settings $Settings -RunLevel Highest -Force
 Write-Host "Task '{TASK_NAME}' created. Will run daily at {run_time}."
 """

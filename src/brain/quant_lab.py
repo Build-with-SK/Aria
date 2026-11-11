@@ -176,12 +176,53 @@ def backtest(template: str, params: Dict, closes) -> Dict[str, Any]:
     net = gross - turnover * COST_PER_SIDE
     eq = (1 + net).cumprod()
     monthly_eq = eq.resample("ME").last().dropna()
+    oos = net.tail(OOS_DAYS)
     return {
         "full": _metrics(net),
-        "oos": _metrics(net.tail(OOS_DAYS)),
+        "oos": {**_metrics(oos), **_moments(oos)},
         "equity_curve": [[str(k.date()), round(float(v), 4)] for k, v in monthly_eq.items()],
         "exposure_pct": round(float((active > 0).mean()) * 100, 1),
     }
+
+
+def _moments(rets) -> Dict[str, Any]:
+    """Skew and (non-excess) kurtosis of daily returns, for the deflated Sharpe."""
+    try:
+        from src.evolution.backtest import moments
+        sk, ku = moments(rets)
+        return {"skew": round(float(sk), 4), "kurtosis": round(float(ku), 4)}
+    except Exception:
+        return {}
+
+
+def deflate_library(strategies: List[Dict[str, Any]]) -> None:
+    """Attach a deflated-Sharpe verdict to every strategy, in place.
+
+    The library is ranked by out-of-sample Sharpe and the top of it is what
+    gets reported. Reporting the best of N without charging for N is the
+    selection bias the evolution lab exists to correct, so the same
+    statistic (src/evolution/statistics.py) is applied here: each OOS Sharpe
+    is tested against the Sharpe the luckiest of N worthless strategies would
+    post, N being the whole library. Moments default to normal for entries
+    recorded before they were stored, which flatters fat-tailed strategies —
+    the note says so. Sharpe here is RAW (not excess); on an INR basket with a
+    ~6.5% risk-free rate that overstates every figure.
+    """
+    from src.evolution.statistics import deflated_sharpe
+    sharpes = [s["metrics"]["oos"]["sharpe"] for s in strategies
+               if (s.get("metrics") or {}).get("oos", {}).get("sharpe") is not None]
+    n_trials = len(strategies)
+    for s in strategies:
+        oos = (s.get("metrics") or {}).get("oos") or {}
+        if oos.get("sharpe") is None or not oos.get("days"):
+            s["deflated"] = {"probability": None, "verdict": "insufficient data"}
+            continue
+        d = deflated_sharpe(oos["sharpe"], sharpes, n_observations=int(oos["days"]),
+                            skew=oos.get("skew", 0.0), kurtosis=oos.get("kurtosis", 3.0),
+                            n_trials=n_trials)
+        d["note"] = (f"charged for {n_trials} library strategies; raw Sharpe"
+                     + ("" if "skew" in oos else "; moments assumed normal"))
+        s["deflated"] = d
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -423,6 +464,10 @@ class QuantLab:
             # 4 — RECORD
             strategies.sort(key=lambda s: (s["metrics"]["oos"]["sharpe"] is not None,
                                            s["metrics"]["oos"]["sharpe"] or -99), reverse=True)
+            try:
+                deflate_library(strategies)
+            except Exception as e:
+                summary["errors"].append(f"deflation: {e}")
             self._save_json(STRATEGIES_FILE, strategies[:200])
             self._write_report(strategies)
 
@@ -455,13 +500,18 @@ class QuantLab:
             "not investment advice. Backtests are simulations of the past._", "",
             f"Strategies tested: **{len(strategies)}** · basket: NSE large-cap 20 · "
             f"costs {COST_PER_SIDE*100:.1f}%/side · OOS = last {OOS_DAYS} trading days", "",
-            "| # | Strategy | OOS Sharpe | OOS CAGR | OOS MaxDD | Full Sharpe | Paper |",
-            "|---|----------|-----------:|---------:|----------:|------------:|-------|",
+            "Ranked by raw OOS Sharpe. **DSR p** is the deflated-Sharpe probability that "
+            "the OOS Sharpe is real after charging for every strategy in the library; "
+            "below 0.95 it is indistinguishable from the luckiest of that many tries.", "",
+            "| # | Strategy | OOS Sharpe | DSR p | OOS CAGR | OOS MaxDD | Full Sharpe | Paper |",
+            "|---|----------|-----------:|------:|---------:|----------:|------------:|-------|",
         ]
         for i, s in enumerate(strategies[:15], 1):
             oos, full = s["metrics"]["oos"], s["metrics"]["full"]
+            dp = (s.get("deflated") or {}).get("probability")
             lines.append(
-                f"| {i} | {s['template']} | {oos['sharpe']} | {oos['cagr_pct']}% "
+                f"| {i} | {s['template']} | {oos['sharpe']} | "
+                f"{'—' if dp is None else f'{dp:.2f}'} | {oos['cagr_pct']}% "
                 f"| {oos['max_dd_pct']}% | {full['sharpe']} "
                 f"| [{s['paper']['title'][:40]}…]({s['paper']['link']}) |"
             )

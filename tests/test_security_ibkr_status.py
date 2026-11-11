@@ -15,6 +15,7 @@ rejected order was rejected. Where the summary and the events disagree, the
 events are the record of what happened.
 """
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -490,13 +491,29 @@ class _RecordingBroker:
         self._filled = filled
         self._price = price
         self.placed = []
+        self.held = 0.0          # what a filled entry leaves the account holding
+
+    def get_account(self):
+        from src.execution.broker_base import AccountInfo
+        return AccountInfo(broker="fake", cash=1e6, portfolio_value=1e6,
+                           buying_power=1e6, currency="USD")
+
+    def get_quote(self, ticker):
+        # timed at the instant these tests send at (_NYSE_OPEN, below)
+        return {"bid": 9.99, "ask": 10.01, "mid": 10.0, "timestamp": _NYSE_OPEN.isoformat()}
+
+    def get_positions(self):
+        return ([{"ticker": "AAPL", "qty": abs(self.held),
+                  "side": "long" if self.held > 0 else "short"}] if self.held else [])
 
     def is_connected(self):
         return True
 
     def submit_order(self, req):
-        from src.execution.broker_base import OrderResult
+        from src.execution.broker_base import OrderResult, OrderSide, OrderType
         self.placed.append(req)
+        if req.order_type == OrderType.MARKET and self._filled:
+            self.held += self._filled if req.side == OrderSide.BUY else -self._filled
         return OrderResult(broker_order_id=f"o{len(self.placed)}",
                            status=self._status, filled_qty=self._filled,
                            avg_fill_price=self._price)
@@ -512,8 +529,12 @@ class _RecordingBroker:
     def get_open_orders(self):
         return []
 
-    def get_positions(self):
-        return []
+
+#: A Tuesday 11:00 New York instant. OrderManager.execute checks the
+#: instrument's session at the moment of sending; these tests are about
+#: brackets, so they send inside regular hours rather than at whatever time
+#: the suite happens to run.
+_NYSE_OPEN = datetime(2026, 10, 6, 15, 0, tzinfo=timezone.utc)
 
 
 def _queue_a_trade(tmp_path, monkeypatch, **overrides):
@@ -543,7 +564,7 @@ def test_order_manager_does_not_bracket_a_partial_fill(tmp_path, monkeypatch):
     # waiting, keep the outcome the code would actually see.
     monkeypatch.setattr(OrderManager, "_await_fill",
                         lambda self, b, r, **kw: b.get_order_status(r.broker_order_id))
-    result = mgr.execute(queued.id)
+    result = mgr.execute(queued.id, now=_NYSE_OPEN)
 
     assert result["ok"] is True
     assert result["status"] == OrderStatus.PARTIAL.value
@@ -555,19 +576,30 @@ def test_order_manager_does_not_bracket_a_partial_fill(tmp_path, monkeypatch):
 
 
 def test_order_manager_brackets_a_real_fill(tmp_path, monkeypatch):
-    """The counterpart: a genuine fill must still get its protection."""
+    """The counterpart: a genuine fill must still get its protection.
+
+    Changed 2026-10-07: this broker has no OCO, and the test used to require a
+    full-size STOP *and* a separate full-size LIMIT. Two independent exits for
+    one position can both fill — up through the target, back down through
+    the stop — and turn a 100-share long into a 100-share short. Without OCO
+    the protection is the stop alone, sized to the position the broker
+    reports, and the missing target is reported rather than silently risked.
+    The OCO case is tested in tests/test_reduce_only.py."""
     from src.execution.order_manager import OrderManager
     from src.execution.broker_base import OrderType
 
     broker = _RecordingBroker(OrderStatus.FILLED, filled=100)
     queued = _queue_a_trade(tmp_path, monkeypatch)
     mgr = OrderManager(alpaca=broker)
-    result = mgr.execute(queued.id)
+    result = mgr.execute(queued.id, now=_NYSE_OPEN)
 
     assert result["ok"] is True
-    types = {r.order_type for r in broker.placed[1:]}
-    assert OrderType.STOP in types and OrderType.LIMIT in types
-    assert result["brackets_pending"] is False
+    protective = broker.placed[1:]
+    assert [r.order_type for r in protective] == [OrderType.STOP]
+    assert protective[0].qty == 100 and protective[0].reduce_only is True
+    assert result["stop_loss_order"] is not None
+    assert result["brackets_pending"] is True            # the target was not placed
+    assert "no OCO" in result["protection"]["target_skipped"]
 
 
 def test_order_manager_marks_a_rejection_rejected(tmp_path, monkeypatch):
@@ -578,7 +610,7 @@ def test_order_manager_marks_a_rejection_rejected(tmp_path, monkeypatch):
     broker = _RecordingBroker(OrderStatus.REJECTED)
     queued = _queue_a_trade(tmp_path, monkeypatch)
     mgr = OrderManager(alpaca=broker)
-    result = mgr.execute(queued.id)
+    result = mgr.execute(queued.id, now=_NYSE_OPEN)
 
     assert result["ok"] is False
     # The queue is the audit trail. execute() marks a trade approved before it

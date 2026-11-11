@@ -1,0 +1,390 @@
+# Codex log
+
+Only Codex edits this file. Newest entry at the top.
+
+## 2026-10-16 — S2.1 — diagnosis complete; no tuning; for Claude review
+Changed: eight synthetic checks in `tests/test_v5_direction_diagnosis.py` test the hypotheses that the ensemble cannot say bear, treats the two directions asymmetrically, or lets low confidence veto only bears. All production code/settings unchanged. State readers (benches, learned multipliers, version, registry sizes) are replaced in these tests; no research modules, vendor feeds, broker or API are run.
+
+Measured at ~17:29 BST: read-only Node aggregation of the primary V5 log, 2,637,199 bytes, SHA256 `6409bf417619042394bdefc975cc503f8faa29ee1db21c7760ca558c4725825c`. The original figure is reproducible from the first 498 records, ending 2026-10-09 22:12:17. The file now has 588 records, 2026-08-01 16:44:23 through 2026-10-15 22:11:28, covering 30 ticker labels. These are logged calls/module occurrences, not independent market experiments or traded positions.
+
+| Cohort | Neutral | Bull | Bear | Calls with at least one bearish voting module | Module abstentions |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Original 498 | 399 | 99 | 0 | 428 | 3,880 / 19,422 |
+| Next 90 | 71 | 19 | 0 | 87 | 708 / 3,510 |
+| All 588 | 470 | 118 | 0 | 515 | 4,588 / 22,932 |
+
+**Thresholds and arithmetic.** Current `src/v5/contract.py:45` uses the symmetric band ±10: strictly above +10 is bull, strictly below −10 is bear; the boundary and the interior are neutral. `ensemble.py:179` averages signed module net scores using fixed family weights, coverage sqrt(voting/registered), equal within-family weight and learned multipliers. Missing modules abstain and weights renormalize. `from_probability` moves interval width into neutral mass (clamped 10–85%); net before rounding is `(100-neutral)*(2*p-1)`. The current ensemble preserves this mass with `p_bull = 0.5 + net/200`. Confidence penalties are separate from the direction; `pipeline.py` logs ens.direction even if meta/risk refuses a position. A low-confidence bear is possible (synthetic test: net −13.5, confidence below .55, direction bear). There is no observed one-sided bear clamp.
+
+**Observed scores explain zero aggregate bears.** A read-only diagnostic replay of the compact module nets with current fixed weights/coverage, unit multipliers and no benches gives net min −5.1659, median +6.0180, max +17.6346; 61 scores are negative but none crosses −10. Closest is NKE, 2026-10-06 22:34:22: net −5.1659, logged p_bull .4742, neutral. All logged p_bull values are >= .4742 (none < .45). Replay agrees with logged probabilities within .011 net-score units for 583/588 and directions for 587/588; all latest 90 agree. The five exceptions are early 2026-08-01..03 calls. Initial source `d4e7b55` used a ±5 aggregate band and divided out neutral mass; `9f7660b` introduced the shared ±10 band/neutral-preserving formula. One early MSFT bull (replayed current net +7.62) is therefore not a present-day threshold example. Historical exact replay is not claimed: the compact log lacks per-call CIs, applied weights/benches and code provenance for those rows.
+
+**Positive inputs dominate, rather than bearish opinions being absent.** Across the 18,344 voting module occurrences: 5,623 bull, 1,528 bear, 11,193 neutral. Bayesian is positive in all 588 (net +3.52..+27.50; 531 bull), momentum has 261 bull / 0 bear / 327 neutral, time_series 470 bull / 18 bear / 100 neutral, volatility 385 bull / 1 bear / 202 neutral. Value has 169 bear votes and Kalman 184, so bearish engines work. Mean diagnostic weighted-net contributions: quant +1.938, price +1.499, fundamental +1.109, volatility +.997, macro +.218, machine +.174, behavioural +.115 (total +6.05). Source-level explanation: Bayesian uses the benchmark's long-run positive-return prior (30 pseudo-observations) plus unconditional instrument returns; momentum/volatility and several quant models ask the historical probability of a positive absolute return, not excess return over a baseline. A weak state can still have a >50% positive-return base rate. This equity-shaped watchlist/sample plus those persistent positive base rates is consistent with the measured tilt; it does not establish useful predictive skill or prove each missing module would have voted bear.
+
+**Coverage and data gaps.** Every call contains 39 live modules (41 registered minus research-only reinforcement_learning and alternative_data), not 41 voting engines. Voting range is 21–37, median 31; 4,588/22,932 occurrences abstain (~20%). Machine family abstains 1,875/2,352 times (~80%). Specific gaps:
+
+| Module | Abstained / 588 | What the evidence supports |
+| --- | ---: | --- |
+| ml_ensemble | 443 | Only 7/30 logged ticker labels exist in current ml_predictions.json; all 145 votes belong to those seven. |
+| news_nlp | 443 | Same 7/30 stored coverage and same 145 voting calls; all its votes are neutral. Live enrichment can be attempted by source, but no feed was called for this diagnosis. |
+| relationship_graph | 404 | Only 184 votes across nine ticker labels; compact log does not preserve individual absence reasons. |
+| relative_strength | 438 | Source requires overlapping benchmark history and >=20 effective conditional observations on a 3y window; either missing history or insufficient sample can abstain. |
+| event_detection | 585 | Can deliberately abstain when no recent abnormal event exists, or when history/event sample is insufficient; not 585 proven API outages. |
+| sentiment_extremes | 570 | Can deliberately abstain outside RSI tails or below the sample floor; absence is not agreement. |
+| seasonality | 583 | Last vote 2026-08-03. Current 10y monthly subset yields roughly 10 effective 21-day windows, below min_n=40 after overlap discount; this sample gate structurally explains silence at typical coverage. No gate was lowered. |
+
+The current ML and sentiment files both have 26 keys, only seven overlapping the 30-label V5 watchlist, and file mtimes 2026-05-31 00:18 UTC. None of their rows carries timestamp/generated_at/data_as_of. `marketdata.data_json` and those two module loaders do not impose an age check on stored values. This is a measured stale/undated input risk, not evidence that historical prices were always stale: 210 V5 calls carry last-bar stamps matching their analysis day; 378 older calls carry no data_as_of/provider/model version, so their bar freshness/identity cannot be retrospectively verified. All 588 log weights_version=1. File hashes: ML `c0e0de6f0554dcfa5164010e701fcd20624970481567f8b3046201ee680d47c4`; sentiment `6ffa1b535f9faa0fbc643ce5bfc6374be51376c3a8bc992d4927a571f973e120`.
+
+Validation: `..\trading-intelligence-system\venv\Scripts\python.exe -m pytest tests/test_v5_direction_diagnosis.py tests/test_paper_test_report.py -q -p no:randomly`: 25 passed, 3.34s (8 V5 diagnostic + 17 L9 fixture tests). No production source/config changed, no new dependencies, network/API call, data write or server. This measures behavior and coverage, not an improvement in returns.
+
+Open: compact prediction modules contain only module/family/net/view/abstained; zero stored abstention reasons or intervals. Consequently the exact historical split of no-signal vs missing-data vs exception cannot be recovered, nor can a causal full-market counterfactual be claimed. Cached fundamentals/news are not point-in-time snapshots. The 30-label positive-return sample cannot establish behavior in a broad bear regime or for all asset classes. No threshold, weight, neutral-mass rule, sample minimum, freshness gate or approval path was changed.
+
+For Claude: review the diagnosis/test commit after L9=f03c7c1. The supported explanation is positive weighted inputs plus the symmetric neutral band, with substantial partial/undated inputs; it is not a broken bear branch and does not justify forcing equal bull/bear counts. Historical abstention reasons/interval/provenance capture and explicit ML/news freshness/coverage would be separate follow-up tasks before any tuning or edge claim. Final full-suite/integration/runtime review remains yours; no push or integration merge from Codex.
+
+## 2026-10-16 — S2.1 — diagnosis started
+Using the structured debug workflow: reproduce the old 498-call count, measure the current append-only V5 log, trace the signed-score/neutral-mass/coverage arithmetic, then check missing-input hypotheses. Read-only Node measurements avoid application imports and vendor requests. No thresholds, weights, module lookbacks or trading gates will be changed; any added tests use synthetic module reports with state readers replaced.
+
+## 2026-10-16 — L9 — complete; for Claude review
+Changed: standalone stdlib-only `scripts/paper_test_report.py`, defaulting to the primary sibling's data root through `--data-dir`; stdout report plus optional exclusive-create `--json PATH` outside all data directories/input root. Includes baseline/latest in-window equity and dollar/% change, realised/unrealised/residual, each closed exit with exposure side/prices/P&L/hold duration, win/loss averages and rate, chronological peak drawdown, crypto/equity/unknown split, in-progress/completed status and the two-days-cannot-separate-skill-from-luck caveat. Strict interval is started_at < record time <= min(now, ends_at); optional --as-of makes cutoffs reproducible. Closed log alone supplies realised P&L (execution duplicates never add it twice); partial exits remain individually labelled.
+Measured: inspected only the five authorized primary desk input schemas and their source writers, without importing/running them. Baseline has explicit +01:00 timestamps, while writer timestamps are naive local time; report uses baseline offset. `..\trading-intelligence-system\venv\Scripts\python.exe -m pytest tests/test_paper_test_report.py -q -p no:randomly`: 17 passed, 1.44s; fixture files only, no production reads in these tests, no application modules imported, no network. Coverage includes pre-start/equal-start/future/after-end exclusion, marked long/short open positions as unrealised, missing marks, empty/missing logs, baseline/chronological drawdown, asset split, win/loss denominator, naive timestamps, malformed/estimated records, unchanged input bytes/mtimes, export rejection under data/input roots and no overwriting exports. Whitespace check passes. Python used for fixture tests only; no production report invocation or export performed.
+Open: positions.json's actual writer persists entry/stop/high-water fields, not current marks. Open P&L is therefore withheld when marks are absent; high-water prices and the equity residual are never relabelled unrealised profit. A positions snapshot written after the cutoff cannot establish end-of-test positions and is withheld. Historical end equity uses the last recorded mark at/before the end (its timestamp is printed), not an invented mark exactly at the end. Equity change may include fees/cash flows/unlogged activity; partial exits are exit records rather than independent strategies.
+For Claude: review/merge this one task commit before use. Run with `--data-dir ..\trading-intelligence-system\data`; --json requires an existing parent outside data and creates a new .json file only. No broker/API/application imports, desk config/risk/execution/auth change, runtime start, data write or push. Existing writers would need a separately authorized mark snapshot for exact per-position unrealised P&L at test end; this report deliberately does not alter them.
+
+## 2026-10-16 — L9 / S2.1 — started
+Synced codex/work to integration 6f40949 (contains merged launch work and the new section-5 assignment). L9 scope: standalone read-only scripts/paper_test_report.py and fixture-only tests; no broker/API calls, production writes or protected-path edits. S2.1 scope: measured V5 diagnosis only, no tuning. The owner explicitly authorizes reading the named primary desk test-report inputs and V5 prediction evidence for these tasks; .env/credentials/vault remain excluded. One commit per task; no pushes, integration merges or runtime starts/restarts.
+
+## 2026-10-16 — S1.5 — implementation complete; screenshot open for Claude
+Changed: read-only `/system` dataset table from `/api/data/freshness`, via the shared 60s read hook; one row per returned dataset with status, age/budget, as-of/date basis, market observation range/completeness where supplied, writer and legacy marker. Displays the global pipeline_run state and last step above the table without inventing a per-dataset run result. Missing age is unavailable, not zero; file-write age is explicitly distinguished from a market observation date. Freshness remains reachable when worker status fails; existing world warnings remain below it. Inline styles, no packages, no backend or safety/action changes.
+Measured: all 48 route renders + 5 loaded Research snapshot renders still pass, plus 11 freshness cases (four run states, null/[]/withheld/error/loading, zero vs null age, legacy sources, dated-row coverage). Existing technical dashboard verifier passes with 8834-byte encoded fixture; expected SSR warnings captured outside Git. Worker/source + final built shell checks pass. Final staging build Vite 8.2.0: 700 modules, 1.63s, 21 files / 1,075,291 bytes; main JS 291.19 kB (95.20 gzip), largest Term chunk unchanged 353.25 kB (96.71 gzip). Output: `C:/Users/sound/.codex/visualizations/2026/10/15/01a140fe-fe3c-74f3-9a05-c671adcb2ec6/aria-launch-final`. Only build notice: outside-root outDir will not be emptied. `git diff --check` passes. No served dist, ports, primary data, .env/credentials or vault accessed.
+Open: S1.5's live screenshot evidence is still required after Claude merges/builds/cuts over; offline SSR does not measure a live API fetch, hydration or layout. No runtime restart was authorized to Codex for this launch, so none was attempted. L1/L3/L5/L6 and full-suite L4 remain Claude's gates.
+For Claude: review S1.5 separately after L2=5cbef01, L7=09123d9, L8=bdf3594; run the three offline verifiers from frontend and your final primary suite, build/cut over once, then capture `/app/system` including the dataset table/pipeline marker and recheck font/script console errors across the eight routes. Latest build is staging only. No push or merge into aria/integrity-upgrade occurred in this launch work; branch codex/work holds the review commits.
+
+## 2026-10-16 — S1.5 — started after L2/L7/L8
+Existing System.jsx has world.unknowns warnings only; it does not fetch `/api/data/freshness`. Adding a read-only dataset table and the endpoint's last pipeline run state/step. Contract checked in backend/main.py, src/core/world.py and tests/test_data_freshness_api.py without calling the runtime or reading data files. No fabricated per-dataset pipeline completion: the API exposes one global run marker, not a run/step result per dataset. Keep this distinction visible.
+
+## 2026-10-16 — LAUNCH L8 — complete; for Claude review
+Changed: rechecked then git-rm'd the seven owner-authorized S1.6 removals: ARIA_BRAIN_BUILD_PROMPT.md, ARIA_V3_BUILD_PROMPT.md, ATLAS_BUILD_PROMPT.md, ATLAS_V2_BUILD_PROMPT.md, ARIA_FINAL_COMPLETION_REPORT.md, ARIA_FINAL_REPORT.md, HANDOFF_TOMORROW.md. Updated CHANGELOG's old instruction to rewrite the stale handoff to a historical removal note and the current collaboration location. All removals are recoverable from Git history.
+Measured: reference search across source/scripts/frontend/tests/root Markdown/docs found no operational import, link or loader dependency. Remaining mentions are the launch removal brief and historical inventories in the two agent logs, deliberately retained (Claude's log untouched); CHANGELOG now describes the removal rather than directing someone to use/rewrite the deleted file. No tracked main_backup_phase5.py, main_phase4_backup.py, *.pyc or *.pyo. The five S1.6 keep reports/audits plus run_political.py remain tracked. Whitespace/diff check passes; no runtime test was needed for deleting unreferenced historical Markdown.
+Open: none for these seven authorized removals; no claim that every historical document in the repository is current.
+For Claude: review this gate commit; no generated build output, backup or runtime/data file is included. Kept the identity/sentinel reports and ARCHITECTURE_AUDIT.md exactly as S1.6 requested. L2=5cbef01, L7=09123d9 precede this gate; no pushes or integration/runtime changes.
+
+## 2026-10-16 — LAUNCH L7 — complete; for Claude review
+Changed: README `Run ARIA` with Python/venv and Node prerequisites, npm lockfile install, private owner credential configuration and session-cookie sign-in, production and dev commands with `/app/` base, optional Ollama, local data locations, paper brokers and live gating, tests/offline staging checks, and a plain no-measured-edge/descriptive-consensus/no-financial-advice paragraph. Removed the stale 1,556-test claim and outdated browser bearer-token guidance.
+Measured: cross-checked command paths against requirements.txt/requirements-ci.txt, frontend package/lock/Vite engine config, backend static mount and login handler, Login.jsx, BrainDaemon default/retry startup, source data-path constants, tests/conftest.py and src/trading/modes.py. Markdown diff/whitespace check passes. No startup command was executed for this documentation gate; no runtime/data/credential read, protected edit, new dependency or network request.
+Open: first-run instructions are source-verified, not a new installation acceptance test. Provider configuration and data availability are not implied by a running server.
+For Claude: the requested “PAPER default” has two different repo facts: broker adapters default paper, but `src/trading/modes.py:DEFAULT` is RESEARCH on a fresh/unreadable state. README states both and requires PAPER for this launch, without pretending to measure the current runtime mode. Please include actual PAPER/live-gate state in your L6 evidence. Owner sign-in now uses a session cookie, so the former README paragraph was obsolete.
+
+## 2026-10-16 — LAUNCH L2 — offline acceptance complete; for Claude review
+Changed: repeatable `frontend/scripts/verify-launch-routes.mjs` (all eight workspace routes), `verify-shell.mjs`, explicit missing/error views, null breadth/calibration/news guards, missing score/percentage labels, readable structured world changes. Strategies' three read GETs now use the existing shared read hook; null/error responses no longer spin forever or masquerade as an empty successful catalogue. Extracted Explorer's read-only snapshot JSX to test loaded news/fundamentals; exact selection and generation cancellation remain in the loader. PortfolioWorkspace change is one explanatory sentence only; no risk calculations, queue behaviour or trading actions changed.
+Measured: 48 route renders (8 × realistic/null/[]/summary:null+consensus:null/failed/partial), plus 5 loaded Explorer snapshots, pass without thrown errors, unexpected React warnings, NaN, undefined, Infinity or [object Object]. Existing `verify-technical-dashboard.mjs` passes nine-horizon/full/withheld/conflict/error checks (8834 encoded evidence bytes); its existing React Router SSR useLayoutEffect warnings remain. Worker VM checks pass /app/ installation URLs, manifest/icons, cache namespace cleanup, API/auth/health bypass, offline navigation and static caching. `git diff --check` passes. Vite 8.2.0 staging build: 699 modules, 12.71s, 21 files / 1,071,523 bytes; main JS 291.13 kB (95.18 gzip), largest chunk Term 353.25 kB (96.71 gzip). Output: `C:/Users/sound/.codex/visualizations/2026/10/15/01a140fe-fe3c-74f3-9a05-c671adcb2ec6/aria-launch-L2`. Warnings: outDir outside project will not be emptied; plugin timing advisory (86% in hooks, mainly build-html). No served frontend/dist build or server start.
+Open: SSR intentionally does not run hydration/useEffects, external chart scripts, owner sign-in or action handlers; nested effect-only loaders remain at initial render. No assertion of a live-browser, runtime or full-suite launch gate. The loaded Research snapshot and technical evidence have separate synthetic checks rather than pretending effects ran.
+For Claude: review this gate commit and recheck the eight routes after your merge/cutover. The repeated script 404 was `register('/sw.js')`; now `/app/sw.js` with `/app/` scope via Vite BASE_URL, plus scoped shell and manifest paths. The blocked font request came from index.css @import (not index.html); removed it and used installed system font stacks, so no CSP origin additions are needed. System previously had only world.unknowns freshness warnings, no `/api/data/freshness` dataset/step panel; optional S1.5 follows L7/L8.
+
+## 2026-10-16 — LAUNCH L2/L7/L8 — started
+Synced codex/work to integration c341538; read LAUNCH_CODEX and WORK_PLAN launch gates. Files planned: frontend pages/components and offline scripts, local font/PWA asset paths, README Run ARIA, seven explicitly authorized S1.6 removals, own log. One commit per gate; no further push, integration merge, runtime restart, backend/auth/risk/execution edit, credential/vault read or production-data write. Claude owns full-suite/integration/runtime gates. Prior TECH-09 release6249cd9 was deployed/pushed before this instruction; targeted deployed feed and exact-Gold smoke commands both exited0. Subsequent S0/TECH-10 integration is now the launch baseline, so those earlier runtime observations are historical and do not prove L1 for c341538.
+
+## 2026-10-16 — TECH-09 — implementation validated; ready for Claude integration
+Changed: methodology v2 session-open 5h aggregation, contiguous valid-history restart (200 valid following bars required), closed-bar/count diagnostics, explicit verification scopes, provider-bound daily caches including stale fallback, bounded official BSE history recovery, exact-pair FX hourly-to-daily recovery, provider-audit history depth, dashboard/SENTINEL source limitations. Actual Claude wrote the canonical helper plus narrow BSE calendar/config/test changes (34576d3,5f43437,a1e313b); imported ONLY its six owned market/config/test files, each matched to final a1e313b bytes, excluding its log to preserve the primary dirty log.
+Measured: focused121 passed; broader compatibility241 passed; final affected-area267 passed/exit0, actual Claude calendar209 passed. Clean isolated full run3088 passed/9existing skips/exit0 (496.82s); it collected the pre-Budget follow-up test snapshot, followed by the final267 checks including both new Budget tests. Final primary full suite and CI still required on the integration commit. Frontend offline checks/build pass; nine-frame consultation fixture8834 encoded bytes under14000. Public isolated probes: BSE SAIL/RELIANCE/HDFCBANK each247 valid daily bars, exact identities/full warm-up/calendar verified; TCS495 valid daily bars with explicit scheduled gaps; AAPL494 session-anchored5h bars; EURUSD407 reconstructed daily bars. Manual public spot check15/15 closing prices matched BSE vs Yahoo within INR0.011 rounding tolerance; full OHLC is NOT comparable from continuous-session intraday bars because auction coverage differs, so no full-history/global independent-price badge is set.
+Limits: FX weekly/monthly malformed native data has no established verified keyless alternative; GC=Fmonthly188 valid suffix bars, BTCmonthly145 and exactGoldmonthly61 cannot meet200. BSE one-year recovery cannot provide200 weekly/monthly bars. These stay withheld, never neutral/fake. No clipping, subscription, NSE/continuous substitution, credential/vault/account read, order path change, calibration/performance claim, or production worktree writes. Existing79 non-data backlog hashes preserved; no backlog staged. Rollback source/frontend snapshots outside Git. Deployment/publication pending Claude integration and full primary tests; root will restart only existing primary task and verify authenticated runtime/UI/PAPER before pushing the integration branch (main unchanged).
+
+## 2026-10-16 — TECH-09 — feed wiring and coverage validation started
+Files planned: src/data technical_engine/recommendations/provider_audit plus verified alternative-history adapters, corresponding tests, frontend quality/provenance labels if needed, docs and own log. Synced integrationba81a3e. Owner supplied Claude's read-only review and authorizes manually wiring remaining feeds. Codex owns data/engine/frontend; actual Claude assigned only an additive src/markets session/candle-grid helper and tests in its isolated branch, then review/integration. Fix actual5h session anchoring, distinguish short history from malformed calendar rows, verify alternative provider identities and retain strict price/identity/freshness/warm-up safeguards. No blanket verified flags, price clipping, other-venue/continuous substitution, autonomous orders, vault read, credential disclosure, or production writes from worktrees. Existing90-path primary backlog remains untouched. New provider credentials/paid services cannot be fabricated; record hard coverage limits explicitly.
+
+## 2026-10-16 — TECH-08 — deployed and verified; publication pending
+Source5960a7b integrated by actual Claude at724aeae, full primary **3185 passed /1xfail /exit0** (272.54s), clean Codex **3031 passed /9existing skips /exit0** (485.84s), no blocked production writes. Original79 non-data hashes/deletions preserved; Claude's own log is the authorized exception; original90-path backlog unstaged.
+Deployed staged final frontend outside served dist, retaining old hashes and rollback build. Stopped verified primary ARIA Backend task/listener, backed up public universe and affected caches, applied **four provider-verified same-BSE/INR mappings** (SAIL.BO,RELIANCE.BO,HDFCBANK.BO,TCS.BO), restarted existing task. Health/ready/auth/refusal/SENTINEL checks pass; modePAPER/livegatefalse/brokeraccessfalse. No orders or ledger rewrites. Whole-catalogue structural audit22,023 differs from live verification: post-deploy sampled16assets x9frames=144 frame results across all nine catalogue classes, correctedBSEprovider IDs exact, GoldstillGCZ26.CMX/CMX/December2026, unavailable/stale/short-warmup recommendations withheld. No claim of all22k live coverage.
+Browser verified shared panel ABOVE SAIL overview; quote/fundamentals now load and intradayframes show evidence; daily/history limitations remain. Switching through UI toAAPL resets priorSAILanalysis and resolves exactAAPL. Browser caught one remaining embedded-engine description still promising the separate scan; corrected that copy and asserted its request description. This last copy-only follow-up needs Claude integration and required full suite, then final frontend rebuild/publication. Runtime reports/backups remain outside Git in the local artifact folder. No new endpoint, npm package, risk/approval change, vault/credential/account read, or performance improvement claim.
+
+## 2026-10-16 — TECH-08 — all-assets coverage update; integration pending
+Files: src/data/{universe.py,provider_audit.py}, frontend research/Explorer/analysis/selection and offline smoke checks, scripts/audit_asset_coverage.py, tests/test_provider_audit.py, docs/ASSET_COVERAGE.md and own log. Owner requests checking/updating every asset visible in ARIA. Synced integration c478b9f; original main backlog remains untouched.
+Changed: Shared nine-timeframe panel above overview for every selected symbol; embedded engine keeps its existing fundamental/risk/thesis functionality without duplicate technical requests. Exact dated Gold retains strict routing. Exact display/unique provider selection replaces first fuzzy result; generation/cancellation guards prevent old responses overwriting another asset. Unknown currency is labelled instead of defaulting to USD; missing stored currency uses canonical provider shape in quote cards. Added read-only whole-catalogue audit and explicit maintenance-only BSE repair requiring OHLC, exact symbol/BSE/INR and matching full company name or ISIN, plus core collision guard and concurrent-row check. Repairs preserve other fields, record proof, invalidate affected display-keyed quote/dossier/V5 disk caches; backend must be stopped and restarted to clear memory. BSE refresh preserves verified correction only for same nonempty ISIN. No API writes or ledger edits.
+Measured: Whole structural audit **22,023 rows / 47 exchange labels / nine asset classes**, flags4,873 numeric BSE candidates and2,777 empty stored currencies (includes20 currency-free index levels). This is not live validation of all22k. Live verification **four named BSE candidates**: SAIL.BO, RELIANCE.BO, HDFCBANK.BO and TCS.BO, exactBSE/INR/full names; firstthree onlyone daily bar, TCS22. No repairs applied yet. Twelve read-only daily API probes across asset classes:9 usable, FX EURUSD=X malformedOHLC withheld, two BSEnumeric feeds unavailable. Focused113 passed/2existing skips; offline React render/request-routing/identity checks pass across11 ordinary symbols andfour exact-Gold aliases. Production build passes outside served dist. Full clean suite running; no performance improvement claim.
+Review: Actual Claude read-only identity/cache review then full source review found no backend identity/security defects; one duplicate panel-label defect was fixed and covered by direct embedded-engine rendering. Also removed unnecessary second lookup for BSE rows without repair proof. No vault, credentials or account/ledger contents read.
+Open / for Claude: Confirm UI label correction, then integrate finished Codex branch only, preserving primary90-path backlog and hash snapshot. Run primary full suite before deployment. Maintenance cutover must back up public universe and four affected caches, stop primary backend, run audit CLI with --apply --maintenance --verify-bse SAIL.BO RELIANCE.BO HDFCBANK.BO TCS.BO, assert four repairs applied, restart existing ARIA Backend task, publish staged frontend build (keep old hashed assets), run auth/PAPER/Gold/all-asset smoke checks, then push integration branch under existing owner authorization. Do not rewrite remaining numeric BSE mappings without verification; unchecked live coverage remains explicit. No main merge, new server, endpoint change or order operations needed.
+
+
+## 2026-10-16 — TECH-07 — other-asset visibility diagnosis
+Files: own log only; read-only investigation requested by owner. Synced codex/work with integration (already current). Observed research UI routes the four exact Gold aliases directly to ResearchAnalysis; ordinary symbols render it inside Explorer, below quote/chart/news after universe resolution. Explorer still selects first search result if no exact match; not changed in this diagnostic task.
+Measured: authenticated live /api/technical/summary for SAIL.BO returned all nine rows unavailable, resolved provider500113.BO (BSE); provider reported missing prices/timezone and central daily bars lacked OHLC. Universe lookup confirms stored SAIL.BO ->500113.BO. AAPL request returned nine rows with daily/weekly/monthly evidence, stale intraday rows honestly withheld and unavailable5h. Thus feature is not Gold-only; SAIL's data mapping and different panel placement are actual blockers. No source/data/auth/runtime changes, no orders; existing local backlog preserved. No claim that all BSE listings fail, or that a substitute exchange is equivalent. Listing-specific mapping was not covered by deployment's GCZ6/AAPL provider probes. Direct provider probe: SAIL.BO returned one daily candle with exact SAIL.BO/BSE/INR metadata and Steel Authority of India name;500113.BO raised YFPricesMissingError. This confirms the listing mapping defect, not sufficient history across all horizons.
+
+
+## 2026-10-15 — TECH-06 — clean CI candidate verified; integration requested
+Files: own log, release documentation; Claude owns candidate7363716 and comment correction561ed21. Reviewed minimal sklearn/joblib test deps, 16-row explicit public symbol reference, broker request-shape stand-ins, opt-in FX mocks used by nine conversion tests, fixture provenance, and audit byte-preservation/count regression. No source/auth/risk/execution behavior changes. Requested narrowing the original global FX override and keeping the >20,000 production-reference assertion; Claude implemented both. Exact fallback count16 is checked independently and audit must leave SQLite bytes unchanged. No fake count padding or new skips.
+Measured: focused clean tests201 passed/2 skipped, new audit checks2 passed. Full Codex checkout with NO local universe.db, clean CI dependencies, no vendor/broker/Chroma SDK: **3,011 passed, 9 skipped, process exit0** in277.63s; no blocked writes. Previously same clean setup had2,967 passed/41 failed/11 skipped. This is test reproducibility, not a market-performance gain. Candidate and prose correction merged into codex/work; actual Claude to integrate and run primary full suite preserving90dirty paths before publication. Prior GitHub security/fence jobs passed; next Actions run pending publication.
+Runtime: technical/auth/assets/SENTINEL/PAPER checks still pass more than30min after cutover. Optional Chroma memory initialized successfully on next scheduled cycle (memory_count3354); transient startup error recovered without data repair. No vault contents were read; no keys were copied, disclosed or published.
+
+## 2026-10-15 — TECH-06 — clean CI fixture/dependency audit
+Files: own log; shared test fixture/dependency fixes delegated to actual Claude, who owns those areas. Reviewed 56d3907 (PyYAML plus own log), pushed follow-up integration993bec8. Actions38813911355: protected-paths/security-regression PASS; full-suite 2,961 passed/47 failed/11 skipped, actual exit1. Failures expose absent sklearn/joblib and public symbol-master identity/sector fixtures, plus mocked broker tests that still import unavailable request SDKs. No technical-engine failures in this run. Actual Claude tasked with hermetic public reference fixtures, necessary test deps, mocked SDK interface and unchanged assertions/guards. Codex preparing a clean dependency venv and no-reference worktree test run; no production database copied or modified. Runtime technical/auth/SENTINEL/PAPER smoke passed. Post-restart monitoring observed one optional Chroma memory initialization KeyError; no memory/vault contents were read or changed, and this is not claimed resolved.
+
+## 2026-10-15 — TECH-05 — GitHub CI dependency correction
+Files: own log; requirements-ci.txt correction requested from Claude (owner). Release deployed and pushed successfully: a80ae6b, remote branch aria/integrity-upgrade. Actions run 38813015922 passed protected-paths and security-regression; full-suite failed collection because tests/test_ml_persistence.py imports main.py and CI lacks yaml. Production requirements already declare PyYAML; no runtime failure. Actual Claude tasked with a minimal CI dependency addition in its isolated branch, targeted tests and integration preserving backlog. No workflow/test weakening or runtime restart. Follow-up Actions result must be checked before reporting CI green.
+
+## 2026-10-15 — TECH-04 — deployed; GitHub publication
+Files: docs/TECHNICAL_RECOMMENDATIONS.md, own log. Actual Claude Code authenticated through claude.ai after removing invalid inherited API-key overrides in its child environment. Claude reviewed/integrated c03acfd, d40442f, bcdce55/8d2057f, and final UI 29154ef; no simulated collaboration.
+Measured: final primary full suite 3,164 passed, 1 expected failure, actual exit 0 in 211.93 s; no blocked production writes. UI route/dashboard render and production build passed; 27 UI/API contract tests exit 0; protected-path fence passed. All 79 captured non-data backlog paths other than Claude's authorized own-log insertion match original hashes; all 90 dirty paths remain unstaged. Existing local backlog is not part of the GitHub release snapshot.
+Deployed: cutover 2026-10-15T21:49:28Z, code 29154ef. Existing ARIA Backend task restarted with configuration unchanged, one listener on 8000. Prior UI build retained outside Git; previous hashed assets retained for open browser sessions. Health/ready and new assets 200; anonymous technical 401; authenticated unsupported 2h refused. Actual nine-frame GCZ6 probe exact GCZ26.CMX/CMX/2026-12-29 expiry; 1m/5m/15m stale and 1M under-warmed labels withheld, six conflicts, aggregate null. AAPL daily adapter loaded. SENTINEL reachable/AVAILABLE. PAPER mode, live gate closed, live broker inaccessible; no order operation.
+Open: no new cloud host migration, no authenticated browser click/pixel review, no independently verified second price feed or profitability claim. Owner explicitly authorized push; publish committed aria/integrity-upgrade only, then check Actions. Claude to merge this documentation-only result before publication; no need to re-run source tests for prose changes.
+
+## 2026-10-15 — TECH-03 — exact-contract research route
+Files: frontend/src/pages/Research.jsx, frontend/src/components/{ResearchAnalysis.jsx,technicalEvidence.js}, frontend/scripts/verify-technical-dashboard.mjs, own log. Synced codex/work to integration 8d2057f. Full integrated backend suite: 3,164 passed, 1 expected failure, actual process exit 0, no blocked production writes. Correcting GCZ6 research routing before cutover: bypass generic universe search and unsupported equity engines, keeping the requested contract literal. Claude authenticated through the signed-in profile and owns review/integration. Exact-route regression renders all four accepted aliases directly into ResearchAnalysis; rejects continuous/unknown aliases. Dashboard smoke and production build pass; 27 UI architecture/API contract tests pass with actual exit 0. Build staged outside the served dist.
+Correction to TECH-02: earlier baseline/candidate GREEN labels were inferred from assertion totals and were not sufficient evidence of successful pytest exit. Integrated assertions initially passed but isolation correctly failed the session. Claude repaired duplicate terminal reporting and late-bound the compression DB default; the deliberate guard probe is now explicitly expected by its test. The final integrated run above is the verified successful result. No isolation exemption or execution permission was added.
+
+## 2026-10-15 — TECH-02 — preflight green; waiting for Claude authentication
+Files: own collaboration log; release documentation and any fixes identified in review. Owner explicitly authorizes deployment and GitHub push, with Claude collaboration. Main checkout source-change hashes recorded outside Git; no backlog staging/commit. Actual Claude Code CLI read-only review requested; main full-suite baseline running under existing isolation. Plan: resolve review/test blockers, have Claude integrate disjoint Codex changes, test merged tree, back up replaced source/build, restart the existing backend task, verify authenticated API/UI, then push the release branch and report CI. No changes to execution permissions.
+Preflight update: primary checkout baseline is green: 3,113 passed, 1 expected failure in 217.59 s. Found and fixed a daily adapter compatibility issue: central daily bars are intentionally timezone-naive; date-only bars now use the exact provider symbol's resolved venue timezone, while ambiguous clock times remain rejected. Preserve upstream stale flags and reject provider mismatches. Added five regression cases; focused suite 176 passed. Provider test mocks now inject yfinance's interface for minimal CI. A read-only SQLite snapshot of the public 22,023-row symbol reference was placed in the isolated worktree, matching the existing conftest reference-copy design; no private vault, keys, positions or state stores copied. Candidate full suite running against that reference. Credential-pattern scan over 287 changed files since remote main found none; protected-path fence passed. Original main non-data working edits still match the captured hashes. Rollback source/build archive prepared outside Git.
+Preflight result: candidate full suite GREEN — 3,022 passed / 6 skipped in 181.01 s using the public symbol reference snapshot. Primary existing working tree baseline GREEN — 3,113 passed / 1 expected failure. The difference reflects the main checkout's uncommitted tests/code backlog, which was preserved. Focused suite 176 passed, including all new daily-adapter tests. No claim of improved trading performance. New correction commit: 5242943.
+Claude coordination: actual CLI review attempts returned HTTP 401 (invalid externally configured API key), with no signed-in fallback profile. Owner selected “I’ll reconnect Claude Code”; integration remains reserved for Claude while authentication is being restored. No Claude approval or review is claimed.
+
+
+## 2026-10-15 — TECH-01 — implementation verified; integration pending
+Files: src/data/technical_engine.py, src/data/technical_recommendations.py, src/data/technical_summary.py, src/v5/modules/price.py, src/backtesting/technical_replay.py, scripts/technical_replay.py, frontend/src/components/{ResearchAnalysis.jsx,TechnicalDashboard.jsx,technicalEvidence.js}, frontend/scripts/verify-technical-dashboard.mjs, tests/test_technical_engine.py, docs/TECHNICAL_RECOMMENDATIONS.md.
+Discovered: ARIA runs FastAPI on 8000, SENTINEL lives in atlas and runs separately on 8300; both actually answered health requests. Queried ARIA's scoped /api/specialist/analysis and SENTINEL's authenticated /api/consult. ARIA reported stale signal/ML stores. SENTINEL is an advisory generalist using two-pass evidence reasoning and web research; no verified independent OHLCV engine was found. Reused the existing authenticated/scrubbed consultation bridge and owner endpoint; no backend, auth, execution or SENTINEL source changes.
+Changed: Independent versioned MA/indicator family scoring, nine timeframes (1m through 1M), numeric breakdown, ATR/Bollinger/volume/range structure, explicit exact-contract identity/expiry, closed-bar/timezone/OHLC validation, history/freshness/evidence quality, no predictive confidence percentage. Neutral votes stay in the denominator. Stale/under-warmed rows withhold current labels; opposing horizons retain both conclusions and withhold aggregate direction. Dashboard shows ARIA and requested SENTINEL review separately, with explicit withheld-horizon warnings. V5 cannot consume stale/provisional technical counts. Legacy pure snapshot helpers remain compatible; no new trade setup, stop or order path. Added offline causal replay/CLI requiring exact contracts, expiration and explicit costs; each trade is flat at its candle close and contracts warm up separately.
+Measured: 171 focused Python tests passed (technical, existing tracker, SENTINEL bridge/protocol and V5); the new suite alone has 43 passing cases including actual FastAPI route/auth boundary. Final npm production build passed; offline rendering verifies nine rows, conflicts, unavailable contract, no fabricated independent review and compact evidence (6,638 encoded bytes on the smoke fixture). Replay CLI synthetic accounting: 5 trades, $10 gross, $125 fees/slippage, -$115 net; this is a fixture accounting check, not a market result. Initial full suite: 2,975 passed / 32 failed / 10 skipped; all 32 failures reproduced with unmodified HEAD versions of changed modules. Final full suite: 2,985 passed / 29 failed / 9 skipped in 212.37 s; all 29 final failures reproduced against HEAD in the same environment (22.44 s). Failures concern absent/partial isolated symbol-master/sector data, including README count expectations. The provider probe initialized a minimal non-production universe store, so one formerly skipped data-count test now fails and four identity tests pass; this is environment variation, not a measured performance improvement. No production stores were copied to fix tests. Full suite is NOT green.
+Live integration: exact Yahoo GCZ26.CMX / COMEX confirmed with expiration 2026-12-29T00:00:00Z through secondary quote metadata after history metadata omitted expiration. All nine horizons requested; snapshot withheld stale 1m and under-warmed 1M, found 12 opposing valid pairs, aggregate null. SENTINEL actually reviewed these calculated candles: AVAILABLE / UNCERTAIN, request c-ea0f6fde78. It described withheld horizons directionally and added extraneous research: those statements remain unverified, and the dashboard explicitly warns about that boundary. No second independent price feed or profitability is claimed.
+Open: Integrator review/merge and normal deployment remain; the running app was not restarted or replaced. Full-suite symbol-master/sector fixture failures need resolution in their owners' areas before integration is called green. Browser policy blocked local-file preview URLs, so pixel-level screenshot review and a live authenticated UI click remain deployment checks; no workaround server was started. No audited cost/rollover history exists for a real GCZ6 performance backtest. Unknown vendor latency and exchange-calendar gaps remain visible limitations.
+For Claude: Existing /api/technical/summary already imports the public functions, so no endpoint addition or permission expansion is needed. Existing /api/consult remains owner-only; the UI supplies compact evidence in its supported query parameters, withholds the overall hypothesis, and does not auto-consult. Backend chat rendering currently prints aggregate None on conflict; consider rendering assessment/conflicts explicitly when integrating. Review the documented methodology and final test failures before merging codex/work. No pushes or integration-branch merges performed.
+
+## 2026-10-15 — TECH-01 — started
+Files: src/data/technical_summary.py, src/data/technical_engine.py, src/research/technical_review.py, frontend/src/components/ResearchAnalysis.jsx, frontend/src/components/TechnicalDashboard.jsx, tests/test_technical_engine.py, docs/TECHNICAL_RECOMMENDATIONS.md, scripts/technical_replay.py.
+Plan: discover running ARIA/SENTINEL through existing authenticated interfaces; retain backend/auth/execution ownership; implement independent scoring, nine timeframe adapters, explicit instrument/data integrity and conflict handling; add dashboard with opt-in SENTINEL review via existing endpoint; verify calculations, integration and causal replay; run existing suite. Synced integration branch: already up to date. New owner mission authorizes this work despite the older stage backlog. No production restart or merge.
+
+
+
+## 2026-10-11 — S1.6 correction — done
+Files: `docs/collab/log-codex.md`
+Changed: Corrected the S1.6 inventory after Claude's review; this remains report-only and no files were removed. Build prompts: `ARIA_BRAIN_BUILD_PROMPT.md`, `ARIA_V3_BUILD_PROMPT.md`, `ATLAS_BUILD_PROMPT.md`, and `ATLAS_V2_BUILD_PROMPT.md` — remove (old prompts; no current references found). Reports: `ARIA_FINAL_COMPLETION_REPORT.md` and `ARIA_FINAL_REPORT.md` — remove/archive (historical, no current references found); `ARIA_IDENTITY_SAFETY_REPORT.md` and `PHASE_UNIVERSE_IDENTITY_AUDIT_REPORT.md` — keep (audit reference value); `SENTINEL_RUNTIME_COMPLETION_REPORT.md` — keep (referenced by `docs/ARIA_SENTINEL_CONTRACT.md`); `SENTINEL_INTEGRATION_FINAL_REPORT.md` — keep (cross-referenced with the runtime report). `run_political.py` — keep (standalone documented CLI entry point; political pipeline is also wired into `main.py` and the API); `ARCHITECTURE_AUDIT.md` — keep (linked by `docs/SERVER_BUILD_REPORT.md`); `HANDOFF_TOMORROW.md` — remove/archive (dated 2026-08-03 and explicitly called stale by `CHANGELOG.md`). `main_backup_phase5.py`, `main_phase4_backup.py`, and root-level `*.pyc` files are absent from this worktree. Claude reports the other nine root Python files in its list are already deleted in the pending S0 backlog; I did not infer their status from this worktree. The hidden-entry-point check is corrected: `src/scheduler/scheduler.py` is tracked and present; `chat.py` and `src/dashboard/dashboard.py` are present. Tests and frontend planning references were searched; no module was called dead based only on import search.
+Measured: Fast-forwarded `aria/integrity-upgrade` (`50c8e5f` to `e373cfa`) before reviewing `docs/collab/log-claude.md`. Confirmed the SENTINEL runtime report references in `docs/ARIA_SENTINEL_CONTRACT.md` and the root artifact references with `rg`; checked file existence and tracked state. S1.7 finding remains: `subscribe()` has no production callers; only its definition and `tests/test_core_spine.py` use it. Production event consumers read the durable SQLite event log through `bus.recent()` (API and world state).
+Open: Owner decision needed before removing or archiving any listed prompt/report. Bus options: (1) remove `subscribe()` and its subscriber-specific tests until a real consumer exists; (2) retain it and implement a first real subscriber. Recommend option 1: all current consumers query the persisted log, while synchronous callbacks add lifecycle/thread-safety surface without serving a current consumer. Reintroduce a subscription alongside the concrete consumer that needs it.
+For Claude: Corrected the three S1.6 issues identified in your review. No product-code change or wiring needed. No tests run; documentation-only correction.
+
+Entry format:
+
+```
+## YYYY-MM-DD — <task id> — started | done | blocked
+Files: ...
+Changed: ...
+Measured: ...
+Open: ...
+For Claude: ...
+```
+# 2026-11-06 — MA-001 — started
+
+Files: docs/trading/*; additive src/trading multiasset contracts/rules/review/MT5
+modules, src/research and src/backtesting extensions, tests, frontend components;
+backend/main.py additive read-only routes only. Latest owner brief assigns Codex
+the implementation branch and Claude read-only review for this task. Existing
+protected auth/live-gate/approval files and WORK_PLAN.md remain untouched.
+Measured: new isolated worktree feature/aria-multiasset-trading from 58f5f25;
+merged aria/integrity-upgrade (already up to date). Main runtime data untouched.
+Discovery: 317 source modules, 151 test modules, 228 decorated baseline API routes.
+Baseline suite running with shared venv against worktree isolation.
+For Claude: review packet will be docs/trading/REVIEW_PACKET.md. No merge/push or
+runtime changes authorised by this task.
+
+## 2026-11-06 — MA-001 audit / baseline — done
+
+Changed: discovery documentation and static inventory; isolated the universe audit
+test from earlier tests' writes to the shared test master. No production fixture
+or audit implementation changed; the exact 16-row and read-only assertions remain.
+Measured: baseline 3321 passed, 10 skipped, 1 failed in 401.49s; corrected
+test_stabilization.py 22 passed in 1.04s. The 29 rows were accumulated test state,
+not a change in the fallback fixture. Full final suite remains required.
+For Claude: review this independent test-order fix with the audit commit.
+
+## 2026-11-06 — MA-002 precise contracts / provider rules / research risk — done
+
+Files: src/trading/contracts.py, rule_profiles.py, multiasset_risk.py;
+tests/test_multiasset_risk.py, test_multiasset_rules.py.
+Changed: immutable Decimal/UTC financial contracts, explicit lot/tick/currency
+identity, versioned unconfirmed-by-default provider profiles, Prague daily/static/
+trailing equity floors, separate historical/new consistency objective formulas,
+independent research risk with costs, freshness, margin and pending-book checks.
+Measured: 93 focused financial/rule/review/adapter cases passed in 2.86s; earlier
+full suite 3430 passed, 10 skipped, 1 warning in 294.74s. Final clean-environment
+run follows remaining additions. No account configuration or runtime change.
+Open: no authoritative broker snapshot builder, nonlinear calculator, full
+operational compliance or active exception approval. ALLOW is not authority.
+For Claude: source-discovery selector uses exact 09:00 GMT+3 publication cutover;
+rule-day arithmetic independently uses Europe/Prague. No active FTMO profile.
+
+## 2026-11-06 — MA-003 transactional review / read-only MT5 — done
+
+Files: src/trading/review_store.py, mt5_readonly.py, extension_policy.py;
+tests/test_multiasset_review.py, test_multiasset_rule_store.py,
+test_multiasset_providers.py; src/data/provider_contracts.py.
+Changed: atomic approval consumption and reserved intent, validated pre-send state
+transitions, restart reconciliation holds, audit-chain verification/backup, exact
+daily snapshot history with monotone balance highs and row/evidence verification.
+MT5 SDK is lazy and optional; actual demo identity checked before/after reads;
+all writes refused. Third-party loading remains disabled without a real sandbox.
+Measured: all seven new test modules pass in a fresh separately hash-pinned
+environment: 104 passed, one Starlette/httpx deprecation warning in 7.06s. No SDK,
+terminal or broker session required. No known advisories in the minimal lock.
+Open: these are library primitives, not an activated approval API or sender;
+actual broker lifecycle and private worker are blocked pending independent review
+and genuine authorised demo evidence. See docs/trading/IMPLEMENTATION_MATRIX.md.
+
+## 2026-11-06 — MA-004 research vertical slice / dashboard — done
+
+Files: src/research/multiasset.py, src/backtesting/experiments.py,
+scripts/multiasset_research.py, backend/main.py (31 additive lines only),
+frontend MultiassetWorkspace + PortfolioWorkspace integration + offline verifier,
+tests/test_multiasset_research.py and test_multiasset_api.py.
+Changed: nine-asset applicability/universe checks, fixture provider, completed-
+candle technical evidence reusing ta and existing summary, ten research definitions
+(MacroDriven abstains), typed hypotheses/counterevidence and experiment/split/
+bootstrap utilities. Owner-only status and analysis API; Portfolio disabled/
+disconnected panel. No actual balance, quote, fill or edge is fabricated.
+Measured: 104 new tests passed in the clean minimal environment; initial full
+suite 3430 passed with final two persistence tests separately green. Final full
+rerun underway. Frontend clean install/build and all four verifiers passed with
+patched lock: 48 routes, 5 research states, 11 freshness cases, new multiasset
+states and existing technical/shell checks. SSR scope only; no broker actions.
+Open: live providers, full contract replay, populated account UI and authenticated
+approval/worker integration remain separate reviewed milestones. No endpoint removed.
+
+## 2026-11-06 — MA-005 dependency isolation / security — done
+
+Files: frontend/package.json/package-lock.json; requirements-trading-research.txt
+and .lock. Changed: patched existing axios and allowed transitive/build packages;
+added a separate minimal hash-pinned research environment, no broker/model SDKs.
+Measured: npm audit initially 2 high + 2 moderate production findings; final full
+audit 0 high/critical + 2 moderate router findings. Updated-lock clean install,
+build (Vite 8.3.6) and all four offline verifiers passed. Minimal 38-package Python
+lock audit reported no known vulnerabilities; clean focused suite 104 passed.
+Shared existing venv: pip check passes, but advisory scan reports 188 findings in
+18 installed packages; no shared package was modified. Secret scan current tracked
+files: 23 baseline candidates in 10 unchanged files, zero in changed feature code;
+values withheld; not a complete-history audit. Protected-path fence clean.
+Open: router major migration and shared deployment environment remediation; details
+in DEPENDENCY_AUDIT.md. No execution release is approved from these measurements.
+
+## 2026-11-06 — MA-006 final verification / review handoff — done
+
+Files: docs/trading/* and this log. Measured: final full suite 3432 passed,
+10 skipped, one websockets deprecation warning in 225.56s. Clean audited minimal
+environment: all 104 new tests pass. Updated-lock clean frontend build and all
+four offline verifiers pass. All 228 baseline API declarations preserved, 2 added.
+Documentation links/diff whitespace/protected-path history checks pass. No blocked
+production writes. Main checkout runtime data and shared dependencies untouched.
+Changed: architecture/security/risk/FTMO/MT5/broker/plugin/MCP/validation/operations
+documents, exact matrix, limitations, roadmap, test evidence and PR/review packets.
+For Claude: docs/trading/REVIEW_PACKET.md is ready for independent read-only review.
+No review approval, genuine connection, order, profit or compliance claim. Remaining
+work is explicit in IMPLEMENTATION_MATRIX.md and ROADMAP.md. No push, PR creation,
+merge, protected branch edit, startup service or production restart performed.
+
+
+
+## 2026-11-07 — Remediation review follow-up
+
+Read the independent dac263f review and reopened partial findings in the delivery
+tracker. Implemented transaction-entry/commit reconstruction of mutable approval,
+intent and boundary state against authenticated audit events. Added six database
+attacker regressions; store-focused tests 19 passed. Evidence-source authority
+and remaining quantitative review cases stay open. Existing research edits and
+untracked handoff preserved. No runtime, broker, Oracle, merge or push action.
+
+
+## 2026-11-07 — Quantitative review corrections
+
+Fixed missing-Open retroactive stops by refusing missing/nonfinite opens;
+corrected initial/final equity accounting; disclosed missing range rows; retained
+hourly trade timestamps; corrected 21-hour annualisation; used exact midnight
+balances and refused missing reset snapshots in dated replay. Added nine
+regression cases; relevant selection 48 passed. Corrected gap_rule NONE
+all-day news overblocking. Source acquisition and paid-account binding remain
+open; no runtime, deployment or broker activity.
+
+
+## 2026-11-07 — Research review findings
+
+Completed the preserved RQ changes with ten regression cases. Fixed the
+sources.py/package naming collision; new module is source_resolver.py.
+Research/API suite 21 passed. Source fetches in tests are fixtures only; no
+provider credentials or configured network resolver. Original conflicting
+fixture retained as abstention; separate agreeing fixture covers positive output.
+
+
+## 2026-11-07 — Account-bound snapshot acquisition
+
+ReviewStore queue/reserve require configured BoundRiskSource; caller evidence
+substitution fails, each operation reacquires, account registration is event-bound,
+and stored daily/high-water history supersedes transport baseline. Calculator
+provider/account/symbol/side/permission checks added. Existing risk/review 248
+passed; follow-up authority suite 24 passed. No real broker source configured:
+read integration remains UNVERIFIED and execution disabled. No deployment action.
+
+
+## 2026-11-07 — Frontend dependency release check
+
+Upgraded existing router dependency to 7.18.5 in an isolated frontend copy; build
+and four offline verifiers passed, npm audit zero advisories. Copied only package
+and lockfile to branch. Shared node_modules untouched. Research lock audit: zero
+advisories in 38 packages. No runtime dependency upgrade or deployment.
+
+
+## 2026-11-07 — Return-grid completeness
+
+Removed median-only acceptance of irregular returns in annualisation. Continuous
+crypto and weekday daily FX/exchange grids must match expected timestamps;
+intraday deltas must be uniform. Relevant annualisation cases 19 passed, including
+three missing-timestamp regressions. Session-gap/holiday grids need an explicit
+calendar adapter and return no annualised figure in this generic library.
+
+
+## 2026-11-07 — External anti-rollback checkpoint
+
+Required independent checkpoint for intent reservation; verify before mutation,
+persist authenticated head before SQLite commit. Added full database/audit rollback,
+missing/corrupt checkpoint and interrupted-commit cases; follow-up suite 32 passed,
+security selection 177 passed. Failure between checkpoint and commit requires
+verified manual recovery. No OS permission or real broker recovery claim.
+
+
+## 2026-11-07 — Release checks completed
+
+Code 4165e71: full suite 3,648 passed / 10 skipped / 1 warning, 453.19 s, exit 0;
+297 modules isolated, no production write blocks. Isolated research env: 314
+passed / 1 warning. Exact-lock frontend build and four offline verifiers passed;
+npm/research-lock audits zero known advisories. Publication-range historical
+scanner candidates all triaged as dependency integrity hashes or synthetic test
+URLs. Original four probes rerun at 7385130, current probe output recorded.
+Research-only CONDITIONAL_REVIEW; real provider/Windows/investor/ACL recovery and
+execution monitoring remain later gates. Existing untracked handoff preserved.
+
+
+## 2026-11-07 — GitHub delivery
+
+Feature push succeeded without force; ls-remote matched d133ddded54760392a273e745eff91a6228706fb.
+Created draft PR #5 to main through GitHub connector; returned head matched.
+https://github.com/Build-with-SK/Aria/pull/5 . Inherited 137-commit/477-file ancestry
+is disclosed. This entry and final handover are documentation-only; no merge,
+deploy or runtime activity. Current gate remains CONDITIONAL_REVIEW, research only.
+
+
+## 2026-11-07 — Linux CI collection prerequisite
+
+First pushed full-suite job failed before tests: yfinance absent from CI
+requirements while test_pipeline_sentiment imports it eagerly. Added exact
+1.3.0 used by the verified local suite. No workflow edit or skip; awaiting
+remote rerun. Publication status remains draft/conditional until CI is checked.
+
+
+## 2026-11-07 — CI portability and acquisition time guard
+
+Linux now collects all tests; one scheduler-generation test mutated global
+os.name and broke pathlib. Patched the scheduler-local os dependency in that
+test, preserving assertions and production-write isolation. No scheduler/runtime
+change. Added post-acquisition/pre-intent store-clock recheck and slow-source
+regression; local store/follow-up selection 44 passed. Remote full rerun required.
+
+
+## 2026-11-07 — Hosted checks green and handover
+
+Source 1c7e94e6356f4de36ab4f54912fd641f45f0617c remote-verified. Push and PR
+workflows 42409885570/42409891844 succeeded (all three jobs). Linux full suite
+3,636 passed / 11 skipped / 390 warnings, 125.59 s; latest local follow-up 65
+passed. Added ENGINEERING_HANDOVER.md and final tracker/evidence receipt.
+PR #5 stays draft and unmerged; gate conditional, research only. Final documentation
+commit will be pushed and checked without touching integration/runtime state.

@@ -220,9 +220,102 @@ def test_it_does_not_flatten_learning_into_a_flat_no(monkeypatch):
     error: a claim that outruns the evidence."""
     S._cache["report"] = None
     text = S.for_prompt()
-    assert "MECHANISMS exist and run" in text
+    # "exist" is unconditional; "and run" is now a measured claim (see the
+    # brain-cycle tests below) and is asserted only when the registry says so.
+    assert "MECHANISMS exist" in text
     assert "as wrong as saying you are already improving" in text
     assert "long-term memory" in text
+
+
+# ── the cognitive cycle is reported from measurement, not from its setting ──
+#
+# The prompt said "a cognitive cycle every 15 minutes ... These MECHANISMS
+# exist and run" whatever the brain was doing. On 2026-10-10 the last completed
+# cycle was 43 hours old — the daemon never started on that boot — and she was
+# still being told, and so still saying, that it runs every 15 minutes.
+
+def _brain_registry(monkeypatch, row):
+    monkeypatch.setattr("src.core.workers.status",
+                        lambda: {"workers": [row] if row else []})
+    S._cache["report"] = None
+
+
+def test_a_running_cycle_is_said_to_run(monkeypatch):
+    from datetime import datetime, timedelta
+    last = (datetime.now() - timedelta(minutes=9)).isoformat(timespec="seconds")
+    _brain_registry(monkeypatch, {"name": "brain", "state": "ok", "last_ok": last})
+    text = S.for_prompt()
+    assert "MECHANISMS exist and run" in text
+    assert "Cognitive cycle, measured: running" in text
+    assert "configured for every 15 minutes" in text
+
+
+def test_a_stalled_cycle_is_not_said_to_run(monkeypatch):
+    from datetime import datetime, timedelta
+    last = (datetime.now() - timedelta(hours=43)).isoformat(timespec="seconds")
+    _brain_registry(monkeypatch, {"name": "brain", "state": "stalled", "last_ok": last})
+    text = S.for_prompt()
+    assert "MECHANISMS exist and run" not in text
+    assert "MECHANISMS exist" in text
+    assert "NOT running on schedule" in text and "43.0h ago" in text
+    assert "Do not say it runs every 15 minutes" in text
+    assert "cognitive cycle every 15 minutes" not in text, \
+        "the configured interval is being stated as something that happens"
+
+
+def test_a_cycle_that_never_ran_says_so(monkeypatch):
+    _brain_registry(monkeypatch, {"name": "brain", "state": "unknown", "last_ok": None})
+    assert "never completed a cycle" in S.brain_cycle()["detail"]
+    _brain_registry(monkeypatch, None)
+    assert S.brain_cycle()["state"] == S.UNKNOWN
+    assert "MECHANISMS exist and run" not in S.for_prompt()
+
+
+def test_an_unreadable_registry_is_unknown_not_running(monkeypatch):
+    def boom():
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr("src.core.workers.status", boom)
+    S._cache["report"] = None
+    assert S.brain_cycle()["state"] == S.UNKNOWN
+    assert "MECHANISMS exist and run" not in S.for_prompt()
+
+
+# ── the two track-record figures are never the same sample ──────────────────
+
+def test_the_track_record_line_names_the_v5_log_and_splits_it(monkeypatch):
+    """She reported "468 logged, 42 resolved" (the V5 log) beside "46.0%, CI
+    42.0-50.1%" (567 pooled ledger calls) as if one described the other."""
+    preds = ([{"resolved": True, "direction": "bull"}] * 17
+             + [{"resolved": True, "direction": "neutral"}] * 25
+             + [{"resolved": False, "direction": "neutral"}] * 426)
+    monkeypatch.setattr("src.v5.learning.load_predictions", lambda: preds)
+    S._cache["report"] = None
+    text = S.for_prompt()
+    assert "V5 prediction log ONLY" in text
+    assert "468 predictions logged, 42 resolved (17 directional, 25 neutral)" in text
+    assert "DIFFERENT, pooled sample" in text and "never attach it" in text
+
+
+def test_the_data_sense_says_which_clock_it_is_reading(tmp_path, monkeypatch):
+    """"My market state is 56 hours old" was the age of a FILE whose rows
+    recorded no date at all."""
+    import json, os, time
+    monkeypatch.setattr(S, "DATA", tmp_path)
+    f = tmp_path / "signals.json"
+    f.write_text(json.dumps({"AAPL": {"composite_score": 1}}), encoding="utf-8")
+    old = time.time() - 56 * 3600
+    os.utime(f, (old, old))
+    s = S.sense_data()
+    assert s.state == S.DEGRADED and s.facts["age_basis"] == "file_mtime"
+    assert "56 hours old by the time it was written" in s.detail
+    assert "record no bar date" in s.detail and s.facts["latest_bar"] is None
+    assert "market state" not in s.detail
+
+    f.write_text(json.dumps({"AAPL": {"data_as_of": "2026-10-07"},
+                             "MSFT": {"data_as_of": "2026-10-06"}}), encoding="utf-8")
+    os.utime(f, (old, old))
+    s = S.sense_data()
+    assert "bars through 2026-10-07" in s.detail and s.facts["latest_bar"] == "2026-10-07"
 
 
 def test_a_served_adapter_is_reported_as_such(monkeypatch):

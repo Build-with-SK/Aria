@@ -17,7 +17,6 @@ Research and educational purposes only.
 
 import os
 import csv
-import json
 import logging
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Tuple

@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import json
 import logging
-import math
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -62,35 +61,52 @@ def calibration() -> dict:
     Only V5 predictions carry a stated probability, so only they can be
     calibrated. The desk and technical loops report hit rates, which is a
     weaker but still useful claim.
+
+    The probability is read through the same contract the ledger uses
+    (`src.core.ingest.v5_stated_probability`: post-review P(direction right))
+    and scored through `src.intelligence.semantics.brier_score`. A call with no
+    usable stated probability is EXCLUDED and counted — it used to be scored as
+    an invented 50%, and an out-of-range value was clamped into range, so the
+    two calibration surfaces could disagree about the same calls.
     """
+    from src.core.ingest import v5_stated_probability
+    from src.intelligence.semantics import ProbabilityType, brier_score
     from src.v5.learning import load_predictions
 
     resolved = [e for e in load_predictions()
                 if e.get("resolved") and e.get("correct") is not None
                 and e.get("direction") in ("bull", "bear")]
 
-    if len(resolved) < MIN_FOR_CALIBRATION:
+    rows, excluded = [], 0
+    for e in resolved:
+        p = v5_stated_probability(e)
+        if p is None:
+            excluded += 1
+            continue
+        rows.append((p, 1.0 if e.get("correct") else 0.0))
+
+    if len(rows) < MIN_FOR_CALIBRATION:
         return {
             "measurable": False,
-            "n_resolved": len(resolved),
+            "n_resolved": len(rows),
+            "n_excluded": excluded,
             "n_required": MIN_FOR_CALIBRATION,
-            "note": (f"{len(resolved)} directional calls have resolved. Calibration is not "
-                     f"reported below {MIN_FOR_CALIBRATION} — a curve drawn through three "
-                     f"points would be decoration, not evidence."),
+            "note": (f"{len(rows)} directional calls with a stated probability have "
+                     f"resolved"
+                     + (f" ({excluded} more carry none and are not scored)" if excluded else "")
+                     + f". Calibration is not reported below {MIN_FOR_CALIBRATION} — a "
+                       f"curve drawn through three points would be decoration, not evidence."),
             "buckets": [],
         }
 
-    rows = []
-    for e in resolved:
-        p = float(e.get("confidence") or 0.5)
-        rows.append((max(0.5, min(1.0, p)), 1.0 if e.get("correct") else 0.0))
-
-    brier = sum((p - o) ** 2 for p, o in rows) / len(rows)
+    brier = brier_score([(p, o, ProbabilityType.STATED_PROBABILITY) for p, o in rows])
     baseline = sum((0.5 - o) ** 2 for _, o in rows) / len(rows)
     skill = 1 - (brier / baseline) if baseline > 0 else None
 
     buckets, ece_num, ece_den = [], 0.0, 0
-    for lo, hi in BUCKETS:
+    # V5 states P(correct) in [0.5, 1]; the extra bottom bucket only shows if a
+    # call ever breaks that contract, so no scored call drops out of the curve.
+    for lo, hi in [(0.0, 0.50)] + BUCKETS:
         sel = [(p, o) for p, o in rows if lo <= p < hi]
         if not sel:
             continue
@@ -116,6 +132,7 @@ def calibration() -> dict:
     return {
         "measurable": True,
         "n_resolved": len(rows),
+        "n_excluded": excluded,
         "brier": round(brier, 4),
         "brier_baseline": round(baseline, 4),
         "skill": _pct_or_none(skill),

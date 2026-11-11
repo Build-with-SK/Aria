@@ -4,8 +4,8 @@ src/portfolio/holdings.py
 WHAT HE ACTUALLY OWNS.
 
 The Portfolio page has been showing a portfolio nobody bought. `/api/portfolio`
-serves `data/portfolio_analysis.json`, which `portfolio_analyzer.py` computes
-over a FIXED ANALYSIS UNIVERSE — AAPL, MSFT, TSLA, ^GSPC, ^N225, EURUSD=X,
+serves `data/portfolio_analysis.json`, which the old `portfolio_analyzer.py`
+(removed 2026-10-09; nothing ran it) computed over a FIXED ANALYSIS UNIVERSE — AAPL, MSFT, TSLA, ^GSPC, ^N225, EURUSD=X,
 GC=F and twenty others — and the copy on disk was written on 31 May. Meanwhile
 the account holds BNO, bought by the desk on 11 August.
 

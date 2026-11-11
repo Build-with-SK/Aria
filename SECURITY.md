@@ -26,23 +26,26 @@ execution are unreachable for any role but owner, and no plan, flag or upgrade
 changes that. The vault check lives inside the function that would ground a
 reply in those notes, so there is no configuration that shares them.
 
-**Identity.** OAuth Authorization Code flow. ARIA never sees a password. The
-code is exchanged server-side with a secret the browser never holds, so what
-crosses the wire is an identity, not a credential.
+**Identity.** One owner credential (`ARIA_OWNER_TOKEN`, or its scrypt hash in
+`ARIA_OWNER_TOKEN_HASH`). Google, GitHub and Apple sign-in were removed. The
+browser posts the credential once to `/api/auth/login` and receives a session
+cookie; it never stores the credential. Scripts may send it as a bearer token.
 
-**Ownership cannot be claimed.** It is derived from the provider-verified email
-against `ARIA_OWNER_EMAIL` and re-derived on every cookie read, so a stale
-cookie loses owner rights the moment that variable changes. With it unset,
-nobody is owner over OAuth — it fails closed.
+**Ownership cannot be claimed.** A session exists only because the credential
+was presented, so there is no stored owner flag to forge. Loopback-inferred
+ownership (no credential configured at all) never reaches a broker.
 
-**Sessions.** Signed with a per-install key that is generated on first run and
-gitignored. Cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` under HTTPS.
+**Sessions.** Server-side records (`src/auth/ownerauth.py`, shared with
+SENTINEL): 7-day absolute and 2-day idle expiry, revocable one at a time or all
+at once, listed at `/api/auth/sessions`. Cookies are `HttpOnly`,
+`SameSite=Strict`, and `Secure` under HTTPS.
 
-**CSRF.** The OAuth `state` parameter is signed and short-lived; a callback
-whose state does not verify is refused before any code is exchanged. Mutating
-requests carrying a browser `Origin` must match the allowlist. `next` is
-restricted to same-site absolute paths, so the login cannot be turned into an
-open redirect.
+**Brute force.** Failed sign-ins back off exponentially after four attempts and
+lock the client out for 15 minutes after twelve; a locked-out caller's
+credential is not read at all.
+
+**CSRF.** `SameSite=Strict`, plus: mutating requests carrying a browser `Origin`
+must match the allowlist or the app's own origin.
 
 **Rate limits.** Per-IP fixed windows, tightest on sign-in and chat. Applied
 before authentication, so an unauthenticated flood is not free.

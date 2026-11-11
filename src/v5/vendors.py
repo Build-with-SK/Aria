@@ -62,6 +62,7 @@ class VendorResult:
     df: Optional[pd.DataFrame] = None
     error: str = ""
     fetched_at: datetime = field(default_factory=datetime.now)
+    identity: dict = field(default_factory=dict)
 
     @property
     def ok(self) -> bool:
@@ -134,15 +135,20 @@ def fetch_yfinance(symbol: str, interval: str = "1d",
         return VendorResult("yfinance", error=f"yfinance not installed: {e}")
     try:
         from src.v5.marketdata import _quiet_vendor
+        def read():
+            ticker = yf.Ticker(symbol)
+            frame = ticker.history(period=period, interval=interval, auto_adjust=True)
+            metadata = getattr(ticker, "history_metadata", {}) or {}
+            return frame, metadata if isinstance(metadata, dict) else {}
         with _quiet_vendor():
-            df = _with_deadline(
-                lambda: yf.Ticker(symbol).history(period=period,
-                                                  interval=interval,
-                                                  auto_adjust=True),
-                YF_DEADLINE, f"yfinance {symbol}")
+            df, metadata = _with_deadline(read, YF_DEADLINE, f"yfinance {symbol}")
         if df is None or df.empty:
             return VendorResult("yfinance", error="empty response")
-        return VendorResult("yfinance", df=df)
+        observed = str(metadata.get("symbol") or "").upper()
+        if observed and observed != symbol.upper():
+            return VendorResult("yfinance", error="provider returned a different instrument")
+        identity = {key: metadata[key] for key in ("symbol", "exchangeName", "exchangeTimezoneName", "currency") if metadata.get(key)}
+        return VendorResult("yfinance", df=df, identity=identity)
     except Exception as e:
         return VendorResult("yfinance", error=str(e))
 
@@ -215,6 +221,17 @@ def fetch_alphavantage(symbol: str, interval: str = "1d",
     if not rows:
         return VendorResult(name, error="series present but unparseable")
     df = pd.DataFrame(rows).set_index("Date").sort_index()
+    # These closes are as traded. A split inside the window would put a fake
+    # -50%/-75% bar into every return, ATR and momentum figure computed from
+    # it, so a raw series that contains one is refused and the chain moves on
+    # to a vendor that adjusts — conventions are never mixed silently.
+    from src.v5.dataquality import probable_splits
+    splits = probable_splits(df)
+    if splits:
+        return VendorResult(name, error=(
+            "unadjusted series contains a probable split on "
+            + ", ".join(f"{j['date']} (x{j['ratio']})" for j in splits[:3])
+            + " — refused rather than served with the wrong scale"))
     return VendorResult(name, df=df)
 
 
@@ -305,11 +322,14 @@ def fetch(symbol: str, interval: str = "1d", period: str = "10y",
             if name != PRIMARY:
                 logger.warning("market data for %s served by FALLBACK vendor %s "
                                "— %s failed", symbol, name, PRIMARY)
+            from src.v5.dataquality import ADJUSTMENT
             return res.df, {
                 "vendor": name,
+                "adjustment": ADJUSTMENT.get(name, "unknown"),
                 "is_primary": name == PRIMARY,
                 "attempts": attempts,
                 "fetched_at": res.fetched_at.isoformat(timespec="seconds"),
+                "identity": res.identity,
             }
     logger.error("every market-data vendor failed for %s: %s", symbol, attempts)
     return None, {"vendor": None, "is_primary": False, "attempts": attempts,

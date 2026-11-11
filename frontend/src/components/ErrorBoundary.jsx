@@ -13,6 +13,7 @@
  * helps nobody.
  */
 import React from 'react'
+import { appUrl } from '../core/appPath'
 
 const MONO = 'var(--mono)'
 
@@ -75,7 +76,7 @@ export default class ErrorBoundary extends React.Component {
             style={{ ...btn, borderColor: 'var(--orange)', color: 'var(--orange)' }}>
             TRY AGAIN
           </button>
-          <button onClick={() => { window.location.href = '/' }} style={btn}>GO TO COMMAND DECK</button>
+          <button onClick={() => { window.location.href = appUrl('/') }} style={btn}>GO TO COMMAND DECK</button>
           <button onClick={this.copy} style={btn}>{copied ? 'COPIED ✓' : 'COPY ERROR DETAIL'}</button>
         </div>
 

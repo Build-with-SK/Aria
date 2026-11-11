@@ -59,6 +59,16 @@ def main() -> int:
     sys.path.insert(0, str(ROOT))
     os.chdir(ROOT)
 
+    # The application's own rotating log (data/aria.log) is authoritative
+    # under the service. Echoing every record to stdout as well would land it
+    # in backend.log, which only rotates at startup — unbounded growth on a box
+    # that restarts once a quarter. What still reaches backend.log is what
+    # bypasses logging: tracebacks from C extensions, stray prints, a crash
+    # before logging is configured. Set in the environment rather than passed,
+    # so a launchd job can override it.
+    os.environ.setdefault("ARIA_LOG_CONSOLE", "0")
+    os.environ.setdefault("ARIA_LOG_FORMAT", "json")
+
     host = os.environ.get("ARIA_HOST", "127.0.0.1")
     port = int(os.environ.get("ARIA_PORT", "8000"))
 

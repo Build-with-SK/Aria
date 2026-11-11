@@ -186,3 +186,81 @@ def test_clear_inversion_is_named_when_intervals_separate():
 def test_semantics_declines_under_twenty_events():
     rows = [_pred(f"T{i}", "bull", 1.0, 2.0 + i, True) for i in range(10)]
     assert cal._semantics(rows)["measurable"] is False
+
+
+# ── the headline names its sample, and its interval knows calls share dates ──
+#
+# On 2026-10-10 the headline read "567 independent resolved events, 46.0%
+# correct (95% CI 42.0%-50.1%)". The sample was three sources pooled, neutral
+# calls included, 489 of them technical-composite calls made on 17 days with a
+# ten-day horizon. It was then quoted beside the V5 log's "42 resolved" as if
+# one described the other.
+
+def _call(i, *, source, day, correct, direction="bull"):
+    return {"subject": f"T{i}", "direction": direction, "price_at": 100.0 + i,
+            "price_end": 101.0 + i, "correct": correct, "source": source,
+            "created_at": f"2026-09-{day:02d}T10:00:00", "probability": None,
+            "rationale": ""}
+
+
+def _ledger(monkeypatch, rows):
+    from src.core import ledger
+    monkeypatch.setattr(ledger, "predictions", lambda **kw: rows)
+
+
+def test_the_directional_block_counts_each_source_and_leaves_neutral_out(monkeypatch):
+    rows = ([_call(i, source="technical", day=1 + i % 10, correct=i % 2 == 0)
+             for i in range(40)]
+            + [_call(100 + i, source="desk", day=1 + i % 6, correct=True)
+               for i in range(12)]
+            + [_call(200 + i, source="v5", day=3, correct=False, direction="neutral")
+               for i in range(25)])
+    _ledger(monkeypatch, rows)
+    d = cal.investigate()
+    x = d["directional"]
+    assert x["n"] == 52 and x["by_source"] == {
+        "technical": {"n": 40, "hits": 20}, "desk": {"n": 12, "hits": 12}}
+    assert "v5" not in x["by_source"], "neutral calls entered a directional rate"
+    assert d["overall"]["n"] == 77, "the existing `overall` block must not change"
+    assert x["status"] == "MEASURED" and x["n_dates"] == x["n_clusters"] == 10
+
+
+def test_calls_that_share_dates_get_a_wider_interval_than_their_row_count(monkeypatch):
+    """300 calls on 6 days, where each DAY is all-right or all-wrong: the rows
+    say 300, the evidence is six market moves."""
+    rows = [_call(i, source="technical", day=1 + i % 6, correct=(i % 6) < 3)
+            for i in range(300)]
+    _ledger(monkeypatch, rows)
+    x = cal.investigate()["directional"]
+    wlo, whi = x["ci95_wilson"]
+    clo, chi = x["ci95_cluster"]
+    assert (chi - clo) > 3 * (whi - wlo), "the clustered interval is not wider"
+    assert x["verdict"] == "indistinguishable from chance"
+
+
+def test_too_few_dates_is_reported_as_not_measurable(monkeypatch):
+    rows = [_call(i, source="technical", day=1 + i % 3, correct=True) for i in range(90)]
+    _ledger(monkeypatch, rows)
+    x = cal.investigate()["directional"]
+    assert x["status"] == "INSUFFICIENT_DATA" and "rate" not in x
+    line = cal.summary_line()
+    assert "not measurable" in line and "%" not in line.split("—")[1].split(".")[0]
+
+
+def test_the_headline_says_which_sample_it_is(monkeypatch):
+    rows = ([_call(i, source="technical", day=1 + i % 12, correct=i % 2 == 0)
+             for i in range(60)]
+            + [_call(100 + i, source="v5", day=1 + i % 5, correct=True)
+               for i in range(10)])
+    _ledger(monkeypatch, rows)
+    line = cal.summary_line()
+    assert line.startswith("Ledger, all sources pooled (technical 60, v5 10)")
+    assert "70 directional predictions graded on 12 distinct dates" in line
+    assert "clustered by date" in line and "interval" in line
+    assert "not the V5 prediction log" in line
+    assert "independent" not in line, "distinct rows are being called independent again"
+
+
+def test_an_empty_ledger_still_declines(monkeypatch):
+    _ledger(monkeypatch, [])
+    assert cal.summary_line() == "No resolved predictions yet, so accuracy is not measurable."

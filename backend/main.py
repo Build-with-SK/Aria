@@ -38,6 +38,7 @@ import logging
 import os
 import subprocess
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -58,7 +59,7 @@ except ImportError:
     pass
 
 from fastapi import (BackgroundTasks, Body, Depends, FastAPI, File,
-                     HTTPException, Request, UploadFile)
+                     HTTPException, Request, Response, UploadFile)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
@@ -66,7 +67,21 @@ from pydantic import BaseModel
 # Not lazy on purpose: this is the guard on every order-placing route, and a
 # guard that is imported inside the handler is a guard that can fail to import
 # at the worst possible moment.
-from src.auth.guard import require_owner
+from src.auth.guard import (require_owner, require_step_up,
+                            require_step_up_to_arm)
+
+class _JsonLogFormatter(logging.Formatter):
+    """One JSON object per line: ts, level, logger, msg, and the traceback if
+    there is one. Credentials are already scrubbed at record creation."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        out = {"ts": datetime.fromtimestamp(record.created).isoformat(timespec="milliseconds"),
+               "level": record.levelname, "logger": record.name,
+               "msg": record.getMessage(), "pid": record.process}
+        if record.exc_info:
+            out["exc"] = self.formatException(record.exc_info)
+        return json.dumps(out, ensure_ascii=False, default=str)
+
 
 def _configure_logging():
     """Give the application's own loggers somewhere to go.
@@ -86,21 +101,46 @@ def _configure_logging():
         return                                   # --reload runs this twice
     root.setLevel(logging.INFO)
 
+    # Scrub credential-shaped values from EVERY record, before any handler sees
+    # it. Uvicorn's access log writes the request line — query string included
+    # — before the app refuses a `?token=`, so without this a mistaken URL
+    # would put a credential on disk. See ownerauth.install_log_redaction.
+    try:
+        from src.auth import ownerauth
+        ownerauth.install_log_redaction()
+    except Exception as e:                       # never stop the app over this
+        print(f"log redaction unavailable: {e}", file=sys.stderr)
+
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
+    # ARIA_LOG_FORMAT=json writes the FILE log as JSON lines — one object per
+    # record, so the server's logs can be filtered by level, logger or time
+    # without regex archaeology. The console stays human-readable. The launchd
+    # job on the Mac mini sets it; a developer's laptop does not need it.
+    file_fmt = _JsonLogFormatter() if os.environ.get(
+        "ARIA_LOG_FORMAT", "").strip().lower() == "json" else fmt
 
+    # ARIA_LOG_CONSOLE=0 under the service launcher (scripts/serve.py): there
+    # stdout is a file that rotates only on restart, so echoing every record to
+    # it as well as to the rotating aria.log grew it without bound on a machine
+    # meant to run for months. The console copy is for a human at a terminal.
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(fmt)
     console._aria = True
-    root.addHandler(console)
+    if os.environ.get("ARIA_LOG_CONSOLE", "1").strip() != "0":
+        root.addHandler(console)
 
     try:
         from logging.handlers import RotatingFileHandler
-        (ROOT / "data").mkdir(parents=True, exist_ok=True)
-        fh = RotatingFileHandler(ROOT / "data" / "aria.log",
+        log_file = _log_file_path()
+        if log_file is None:
+            raise RuntimeError("refusing to write the production audit log "
+                               "from a test run — set ARIA_LOG_FILE")
+        log_file.parent.mkdir(parents=True, exist_ok=True)
+        fh = RotatingFileHandler(log_file,
                                  maxBytes=5_000_000, backupCount=3,
                                  encoding="utf-8")
-        fh.setFormatter(fmt)
+        fh.setFormatter(file_fmt)
         fh._aria = True
         root.addHandler(fh)
     except Exception as e:                       # read-only disk, permissions
@@ -112,6 +152,28 @@ def _configure_logging():
     for noisy in ("httpx", "httpcore", "urllib3", "yfinance", "peewee",
                   "watchfiles", "asyncio", "chromadb", "sentence_transformers"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def _log_file_path() -> Path | None:
+    """Where the rotating file log goes. ARIA_LOG_FILE overrides it.
+
+    data/aria.log is the audit trail — kill-switch engagements, mode changes,
+    strategy promotions. Test runs used to write into it, because test modules
+    import this file at collection time, before any isolation fixture runs:
+    the owner's log carried "KILL SWITCH ENGAGED by test" and promotions of
+    strategies that never existed. tests/conftest.py now sets ARIA_LOG_FILE at
+    import; this refusal is the backstop if anything ever bypasses it.
+
+    The production path is computed here rather than held in a module
+    constant on purpose: the test isolation sweep rewrites module-level data
+    paths, which would make the backstop compare against a temp directory.
+    """
+    production = Path(__file__).resolve().parent.parent / "data" / "aria.log"
+    raw = (os.environ.get("ARIA_LOG_FILE") or "").strip().strip('"').strip("'")
+    path = Path(raw) if raw else production
+    if "pytest" in sys.modules and path.resolve() == production:
+        return None
+    return path
 
 
 _configure_logging()
@@ -232,6 +294,32 @@ async def _startup():
     threading.Thread(target=_daily_report_loop, daemon=True).start()
 
 
+def _sleep_wallclock(seconds: float, *, step: float = 30.0,
+                     _now=None, _sleep=None) -> None:
+    """Sleep until `seconds` of WALL-CLOCK time have passed.
+
+    `time.sleep(n)` counts only the time the machine is awake: Windows does not
+    advance a relative wait across suspend. On a host that sleeps, a six-hour
+    refresh therefore needed six AWAKE hours — the macro snapshot went from
+    2026-10-08 23:27 to the process's death 35 hours later without one refresh,
+    because the laptop was awake for fewer than six of them.
+
+    Waiting in short steps against the wall clock means an overdue tick runs
+    within `step` seconds of the host waking, and changes nothing on a host
+    that never sleeps. It does not make a sleeping machine reliable: nothing
+    runs while it is asleep.
+    """
+    import time
+    now = _now or time.time
+    sleep = _sleep or time.sleep
+    deadline = now() + seconds
+    while True:
+        remaining = deadline - now()
+        if remaining <= 0:
+            return
+        sleep(min(step, remaining))
+
+
 def _register_workers():
     """Declare every continuous process to the registry, once, at boot."""
     try:
@@ -285,7 +373,7 @@ def _research_eye_loop():
         except Exception as e:
             # Non-fatal by construction: a throttled feed must not end the loop.
             logger.warning(f"research eye tick failed: {e}")
-        time.sleep(1200)
+        _sleep_wallclock(1200)
 
 
 def _macro_loop():
@@ -322,7 +410,7 @@ def _macro_loop():
                             f"score={snap.macro_score}")
         except Exception as e:
             logger.warning(f"macro loop tick failed: {e}")
-        time.sleep(21600)
+        _sleep_wallclock(21600)
 
 
 def _daily_report_loop():
@@ -366,7 +454,7 @@ def _daily_report_loop():
             pass                      # another tick won the race; both are right
         except Exception as e:
             logger.warning(f"daily report loop tick failed: {e}")
-        time.sleep(1800)
+        _sleep_wallclock(1800)
 
 
 def _world_loop():
@@ -385,7 +473,7 @@ def _world_loop():
                 world.save_snapshot()
         except Exception as e:
             logger.debug(f"world loop tick failed: {e}")
-        time.sleep(600)
+        _sleep_wallclock(600)
 
 
 def _ledger_loop():
@@ -410,12 +498,22 @@ def _ledger_loop():
                     bus.publish("CALIBRATION_UPDATED",
                                 f"{out['resolved']} predictions graded",
                                 source="ledger", payload=out)
+            # The evidence the order path reads (src/intelligence/evidence):
+            # rebuilt HERE, off the trade path, when grades moved or every six
+            # hours — never computed while an order is being sent.
+            try:
+                from src.intelligence import evidence
+                age = evidence.age_hours(evidence.load())
+                if out.get("resolved") or age is None or age > 6:
+                    evidence.refresh()
+            except Exception as e:
+                logger.debug(f"evidence snapshot refresh failed: {e}")
             from src.core import bus as _bus
             _bus.prune()
             workers.sweep()
         except Exception as e:
             logger.debug(f"ledger loop tick failed: {e}")
-        time.sleep(1800)
+        _sleep_wallclock(1800)
 
 
 def _outcome_resolver_loop():
@@ -453,7 +551,7 @@ def _outcome_resolver_loop():
             # A vendor outage must not kill the resolver thread — the calls it
             # could not grade today are still pending tomorrow.
             logger.warning(f"outcome resolver tick failed: {e}")
-        time.sleep(3600)
+        _sleep_wallclock(3600)
 
 
 def _fx_monitor_loop():
@@ -468,7 +566,7 @@ def _fx_monitor_loop():
                 check()
         except Exception as e:
             logger.debug(f"FX monitor tick failed: {e}")
-        time.sleep(1800)
+        _sleep_wallclock(1800)
 
 
 def _discover_models():
@@ -518,15 +616,67 @@ def _start_brain_if_ollama():
     if os.environ.get("ARIA_RUN_BRAIN", "true").lower() == "false":
         logger.info("ARIA_RUN_BRAIN=false — brain daemon disabled (desk only).")
         return
-    try:
-        if _ollama_available():
-            from src.brain.brain_daemon import get_brain
-            get_brain().start()
-            logger.info("ARIA cognitive brain daemon started.")
-        else:
-            logger.info("Ollama offline — brain daemon not started.")
-    except Exception as e:
-        logger.warning(f"Brain daemon startup failed: {e}")
+
+    def _start():
+        from src.brain.brain_daemon import get_brain
+        get_brain().start()
+
+    _wait_for_ollama_then_start_brain(_ollama_available, _start, _sleep_wallclock)
+
+
+#: Seconds between looks for Ollama while the brain has not started; the last
+#: value repeats. One localhost request every five minutes is the steady cost.
+_BRAIN_RETRY_S = (10, 20, 30, 60, 120, 300)
+#: The brain raising on start is a fault, not "not ready yet": stop after this many.
+_BRAIN_MAX_START_FAILURES = 3
+#: Set by POST /api/brain/stop, so a brain the owner stopped is not started by
+#: a boot-time wait that was still running.
+_brain_boot_cancelled = threading.Event()
+
+
+def _wait_for_ollama_then_start_brain(available, start, sleep,
+                                      max_checks: int | None = None) -> bool:
+    """Start the brain when Ollama answers, however long that takes.
+
+    This used to be one look, five seconds after boot. Ollama starts from the
+    same login as the backend and is often not answering yet, and a brain that
+    missed that single look never started for the life of the process — the
+    backend that came up on 2026-10-08 23:27 ran 35 hours without one cognitive
+    cycle. The brain is research-only (it proposes; nothing here executes), so
+    starting it late changes no trading authority.
+
+    Returns True once started; False if cancelled, out of checks, or the brain
+    itself failed to start `_BRAIN_MAX_START_FAILURES` times.
+    """
+    failures = checks = 0
+    told = False
+    while not _brain_boot_cancelled.is_set():
+        try:
+            up = bool(available())
+        except Exception:
+            up = False
+        if up:
+            try:
+                start()
+                logger.info("ARIA cognitive brain daemon started.")
+                return True
+            except Exception as e:
+                failures += 1
+                logger.warning(f"Brain daemon startup failed "
+                               f"({failures}/{_BRAIN_MAX_START_FAILURES}): {e}")
+                if failures >= _BRAIN_MAX_START_FAILURES:
+                    logger.error("Brain daemon not started: it failed to start "
+                                 "repeatedly with Ollama up.")
+                    return False
+        elif not told:
+            logger.info("Ollama offline — brain daemon not started yet; will "
+                        "keep checking.")
+            told = True
+        checks += 1
+        if max_checks is not None and checks >= max_checks:
+            return False
+        sleep(_BRAIN_RETRY_S[min(checks - 1, len(_BRAIN_RETRY_S) - 1)])
+    return False
 
 # CORS — allows the React frontend to call this API. Exact origins ONLY:
 # a "*" here lets any webpage in the same browser fire requests at the
@@ -536,7 +686,7 @@ _ALLOWED_ORIGINS = [
     "http://localhost:5173", "http://127.0.0.1:5173",
 ]
 
-# The model every non-owner gets. Small on purpose: the 24/7 host is a 2014
+# The model the SERVICE peer (SENTINEL) gets. Small on purpose: the 24/7 host is a 2014
 # Intel Mac mini with no usable GPU, where a 7B runs at 1-3 tok/s and two
 # concurrent requests do not fit in 8GB. 4B is the largest thing that answers
 # in roughly a minute there instead of three.
@@ -667,7 +817,7 @@ async def _role_guard(request, call_next):
             resp.headers.setdefault(k, v)
         return resp
 
-    if not policy.is_allowed(request.url.path, role):
+    if not policy.is_allowed(request.url.path, role, request.method):
         logger.info("role_guard: %s denied %s %s",
                     role, request.method, request.url.path)
         # 401 means "sign in and try again"; 403 means "signed in, still no".
@@ -676,7 +826,7 @@ async def _role_guard(request, call_next):
         if role == policy.ANON:
             return _harden(JSONResponse(status_code=401, content={
                 "detail": "Sign in to use ARIA.",
-                "login": "/api/auth/providers",
+                "login": "/api/auth/login",
                 "role": role,
             }))
         return _harden(JSONResponse(status_code=403, content={
@@ -702,6 +852,33 @@ def _load(filename: str) -> Any:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not parse {filename}: {e}")
+
+
+def _freshness(filename: str) -> dict:
+    """The world model's freshness verdict for one generated dataset."""
+    try:
+        from src.core.world import dataset_freshness
+        return dataset_freshness(filename)
+    except Exception as e:                       # unknown is never "fresh"
+        return {"dataset": filename, "status": "UNKNOWN", "stale": True,
+                "why": f"freshness unavailable: {e}"}
+
+
+def _mark_freshness(response: Response, filename: str) -> dict:
+    """Stamp a response with how old the file behind it is.
+
+    Headers, because several of these endpoints return the file verbatim as a
+    ticker-keyed map that the UI iterates — a body key would appear as a
+    ticker. Wrapper-shaped endpoints also carry it in the body.
+    """
+    f = _freshness(filename)
+    response.headers["X-ARIA-Data-Status"] = str(f.get("status"))
+    response.headers["X-ARIA-Data-As-Of"] = str(f.get("as_of") or "unknown")
+    if f.get("age_hours") is not None:
+        response.headers["X-ARIA-Data-Age-Hours"] = str(f["age_hours"])
+    if f.get("legacy"):
+        response.headers["X-ARIA-Data-Legacy"] = "true"
+    return f
 
 
 def _load_optional(filename: str) -> Any:
@@ -732,6 +909,57 @@ def _sanitize(obj: Any) -> Any:
 # ===========================================================================
 # Health
 # ===========================================================================
+
+@app.get("/api/trading/workspace", tags=["Trading research"],
+         dependencies=[Depends(require_owner)])
+def multiasset_workspace():
+    """Read-only extension state; never connects to a terminal or sends orders."""
+    from datetime import timezone
+    from src.research.multiasset import workspace_status
+    return workspace_status(now=datetime.now(timezone.utc))
+
+
+@app.post("/api/trading/research", tags=["Trading research"],
+          dependencies=[Depends(require_owner)])
+def multiasset_research(body: dict = Body(...)):
+    """Evaluate supplied research candles; returns a hypothesis, no order."""
+    from datetime import timezone
+    from pydantic import ValidationError
+    from src.research.multiasset import ResearchRequest, analyse, technical_evidence
+    try:
+        request = ResearchRequest.model_validate(body)
+        if request.as_of > datetime.now(timezone.utc):
+            raise ValueError("research as_of cannot be in the future")
+        hypothesis = analyse(request.instrument, request.bars, now=request.as_of,
+                             family=request.family, timeframe=request.timeframe,
+                             regime=request.regime, evidence=request.evidence)
+        technical = technical_evidence(request.instrument, request.bars, now=request.as_of)
+    except (ValidationError, ValueError):
+        # Raw validation details may echo private account/research input.
+        raise HTTPException(status_code=422, detail="Invalid research contract, chronology, identity or strategy") from None
+    return {"hypothesis": hypothesis.model_dump(mode="json"), "technical": technical,
+            "execution_mode": "DISABLED", "order_created": False}
+
+
+@app.get("/ready", tags=["System"])
+def readiness_check():
+    """READINESS, and public — but a boolean only.
+
+    `/health` says something is listening. This says the process is fit to
+    serve: an owner credential is configured, the data directory is writable,
+    the session store is readable and there is disk left. The watchdog and the
+    deploy script ask this, so a server nobody can sign in to is reported as
+    not ready rather than as healthy.
+
+    Reasons are logged and shown to signed-in callers at /api/system/health;
+    they are NOT in this body, because an anonymous caller learning which part
+    of the owner's machine is failing is learning its shape.
+    """
+    from fastapi.responses import JSONResponse
+    from src.core import readiness
+    ok = readiness.check()["ready"]
+    return JSONResponse({"ready": ok}, status_code=200 if ok else 503)
+
 
 @app.get("/health", tags=["System"])
 def health_check():
@@ -810,11 +1038,13 @@ def get_futures():
 
 
 @app.get("/api/options", tags=["Derivatives"])
-def get_options():
+def get_options(response: Response):
     """
     Get options chain analysis.
     Includes P/C ratios, IV skew, ATM greeks, sentiment scores.
+    Legacy output: see the X-ARIA-Data-* headers for its age.
     """
+    _mark_freshness(response, "options_data.json")
     return _load("options_data.json")
 
 
@@ -990,17 +1220,20 @@ def quant_option_strategies_list():
 # ===========================================================================
 
 @app.get("/api/ml", tags=["ML Predictions"])
-def get_ml_predictions():
+def get_ml_predictions(response: Response):
     """
     Get ML predictions for all assets.
     Includes 1d, 5d, 20d directional probabilities and ensemble signal.
+    The X-ARIA-Data-* headers say how old the run behind them is.
     """
+    _mark_freshness(response, "ml_predictions.json")
     return _load("ml_predictions.json")
 
 
 @app.get("/api/ml/{ticker}", tags=["ML Predictions"])
-def get_ml_prediction(ticker: str):
+def get_ml_prediction(ticker: str, response: Response):
     """Get ML predictions for a single asset."""
+    _mark_freshness(response, "ml_predictions.json")
     data = _load("ml_predictions.json")
     if ticker not in data:
         raise HTTPException(status_code=404, detail=f"No ML predictions for '{ticker}'")
@@ -1012,23 +1245,26 @@ def get_ml_prediction(ticker: str):
 # ===========================================================================
 
 @app.get("/api/backtest", tags=["Backtesting"])
-def get_backtest_results():
+def get_backtest_results(response: Response):
     """
     Get backtest results for all assets.
     Includes equity curves, trade logs, and performance metrics.
     """
+    freshness = _mark_freshness(response, "backtest_results.json")
     data = _sanitize(_load("backtest_results.json"))
     sharpes = [v.get("metrics", {}).get("sharpe_ratio") or 0 for v in data.values()]
     return {
         "count": len(data),
         "avg_sharpe": round(sum(sharpes) / len(sharpes), 3) if sharpes else 0,
         "results": data,
+        "freshness": freshness,
     }
 
 
 @app.get("/api/backtest/{ticker}", tags=["Backtesting"])
-def get_backtest(ticker: str):
+def get_backtest(ticker: str, response: Response):
     """Get backtest result for a single asset."""
+    _mark_freshness(response, "backtest_results.json")
     data = _load("backtest_results.json")
     if ticker not in data:
         raise HTTPException(status_code=404, detail=f"No backtest for '{ticker}'")
@@ -1040,16 +1276,18 @@ def get_backtest(ticker: str):
 # ===========================================================================
 
 @app.get("/api/portfolio", tags=["Portfolio"])
-def get_portfolio():
+def get_portfolio(response: Response):
     """
     Get portfolio analysis and all 3 optimised allocations.
     Includes exposure, correlation, diversification score, and risk contribution.
     """
+    freshness = _mark_freshness(response, "portfolio_analysis.json")
     analysis  = _load_optional("portfolio_analysis.json")
     optimised = _load_optional("optimised_portfolios.json")
     return {
         "analysis":   analysis,
         "optimised":  optimised,
+        "freshness":  freshness,
     }
 
 
@@ -1199,9 +1437,74 @@ def get_sentiment():
 # ===========================================================================
 
 @app.get("/api/report", tags=["Reports"])
-def get_daily_report():
-    """Get the full daily market intelligence report."""
+def get_daily_report(response: Response):
+    """Get the full daily market intelligence report (legacy single file;
+    the dated reports live under /api/daily-report)."""
+    _mark_freshness(response, "daily_report.json")
     return _load("daily_report.json")
+
+
+@app.get("/api/markets/session", tags=["Markets"])
+def markets_session(symbols: str = "", at: str = ""):
+    """The authoritative session for each symbol (comma-separated), from
+    src/markets/sessions — the same answer prediction scheduling, order
+    planning, execution and backtests use. `at` (ISO, with offset) asks about
+    another instant."""
+    from src.markets.sessions import session
+    when = None
+    if at:
+        try:
+            when = datetime.fromisoformat(at)
+            if when.tzinfo is None:
+                raise ValueError("`at` needs a UTC offset")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"bad `at`: {e}")
+    names = [s.strip() for s in symbols.split(",") if s.strip()][:50]
+    return {"sessions": [session(n, when).to_dict() for n in names]}
+
+
+@app.get("/api/markets/calendars", tags=["Markets"])
+def markets_calendars():
+    """Which venues have a verified holiday calendar for which years. A venue
+    without one reads UNKNOWN on weekdays inside its trading hours."""
+    from src.markets import calendars
+    from src.markets.venues import HOURS_AS_OF, VENUES
+    return {"hours_as_of": HOURS_AS_OF,
+            "venues": {c: {"name": v.name, "timezone": v.tz, "kind": v.kind,
+                           "holiday_rule": v.holiday_rule, "source": v.source}
+                       for c, v in VENUES.items()},
+            "calendars": calendars.coverage()}
+
+
+@app.post("/api/markets/plan", tags=["Markets"],
+          dependencies=[Depends(require_owner)])
+def markets_plan(body: dict = Body(...)):
+    """PREVIEW what a thesis would become given its instrument's session now
+    (src/trading/session_orders.plan_order). Executes nothing and stores
+    nothing — a plan is a decision about an order, not an order."""
+    from src.markets.sessions import session
+    from src.trading.session_orders import SessionPolicy, TradeIntent, plan_order
+    allowed = {f for f in TradeIntent.__dataclass_fields__}
+    try:
+        fields = {k: v for k, v in (body or {}).items() if k in allowed}
+        if fields.get("thesis_expires"):
+            fields["thesis_expires"] = datetime.fromisoformat(fields["thesis_expires"])
+        intent = TradeIntent(**fields)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"bad intent: {e}")
+    return plan_order(intent, session(intent.symbol), SessionPolicy()).to_dict()
+
+
+@app.get("/api/data/freshness", tags=["Data"])
+def data_freshness():
+    """Every generated dataset ARIA reads as if current: age, budget, status
+    (FRESH / STALE / UNKNOWN), its writer and whether anything still runs it."""
+    from src.core.world import all_dataset_freshness, pipeline_run
+    rows = all_dataset_freshness()
+    return {"datasets": rows,
+            "stale": [r["dataset"] for r in rows if r["status"] != "FRESH"],
+            "pipeline_run": pipeline_run(),
+            "as_of": datetime.now().isoformat(timespec="seconds")}
 
 
 # ===========================================================================
@@ -1209,45 +1512,66 @@ def get_daily_report():
 # ===========================================================================
 
 @app.get("/api/history/{ticker}", tags=["Database"])
-def get_signal_history(ticker: str, days: int = 30):
+def get_signal_history(ticker: str, response: Response, days: int = 30):
     """
     Get historical signals for one ticker from the database.
     Returns signal score, action, confidence, and price for last N days.
+
+    Legacy: nothing has written this database since 2026-05-31, so `days` is
+    counted back from today and usually finds nothing — see `freshness`.
     """
     try:
         sys.path.insert(0, str(ROOT))
         from src.database.database import get_signal_history as _get_hist
+        fresh = _mark_freshness(response, "trading_intelligence.db")
         df = _get_hist(ticker, days=days)
         if df.empty:
-            return {"ticker": ticker, "days": days, "records": []}
+            return {"ticker": ticker, "days": days, "records": [], "freshness": fresh}
         return {
             "ticker":  ticker,
             "days":    days,
             "records": df.to_dict(orient="records"),
+            "freshness": fresh,
         }
     except Exception as e:
+        if _legacy_table_missing(e):
+            return {"ticker": ticker, "days": days, "records": [], "freshness": fresh,
+                    "message": "The legacy signal database has no history table on this install."}
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _legacy_table_missing(exc: Exception) -> bool:
+    """A fresh install has no legacy trading_intelligence.db tables; that is an
+    empty history, not a server error."""
+    return "no such table" in str(exc).lower()
+
+
 @app.get("/api/stats", tags=["Database"])
-def get_database_stats():
-    """Get statistics about what's stored in the SQLite database."""
+def get_database_stats(response: Response):
+    """Get statistics about what's stored in the SQLite database (legacy —
+    frozen since 2026-05-31; see `freshness`)."""
     try:
         from src.database.database import get_database_stats as _stats
-        return _stats()
+        fresh = _mark_freshness(response, "trading_intelligence.db")
+        out = _stats()
+        return {**out, "freshness": fresh} if isinstance(out, dict) else out
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/performance/{ticker}", tags=["Database"])
-def get_signal_performance(ticker: str):
+def get_signal_performance(ticker: str, response: Response):
     """
     Get historical signal performance for one ticker.
     Shows whether past Buy/Sell signals were correct.
+
+    Legacy: the table was last written 2026-05-30 and nothing refreshes it;
+    graded calls live in the prediction ledger (/api/ledger/*).
     """
     try:
         from src.database.database import get_connection
         import pandas as pd
+        fresh = _mark_freshness(response, "trading_intelligence.db")
         with get_connection() as conn:
             df = pd.read_sql_query("""
                 SELECT signal_date, action, composite_score, entry_price,
@@ -1259,7 +1583,10 @@ def get_signal_performance(ticker: str):
                 LIMIT 50
             """, conn, params=(ticker,))
         if df.empty:
-            return {"ticker": ticker, "message": "No performance data yet. Run main.py daily for a week.", "records": []}
+            return {"ticker": ticker,
+                    "message": ("No performance data. Nothing writes this table any more "
+                                "(main.py does not); graded calls are in /api/ledger."),
+                    "records": [], "freshness": fresh}
         accuracy_1d  = df["signal_correct_1d"].mean()  if "signal_correct_1d"  in df else None
         accuracy_5d  = df["signal_correct_5d"].mean()  if "signal_correct_5d"  in df else None
         accuracy_20d = df["signal_correct_20d"].mean() if "signal_correct_20d" in df else None
@@ -1269,8 +1596,13 @@ def get_signal_performance(ticker: str):
             "accuracy_5d":  round(accuracy_5d,  3) if accuracy_5d  is not None else None,
             "accuracy_20d": round(accuracy_20d, 3) if accuracy_20d is not None else None,
             "records": df.to_dict(orient="records"),
+            "freshness": fresh,
         }
     except Exception as e:
+        if _legacy_table_missing(e):
+            return {"ticker": ticker, "records": [], "freshness": fresh,
+                    "message": ("No performance data: the legacy signal database has no "
+                                "performance table on this install; graded calls are in /api/ledger.")}
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1304,7 +1636,14 @@ def _get_order_manager():
             ibkr = IBKRBroker()
         except Exception as e:
             logger.info(f"IBKR init skipped (TWS not running): {e}")
-        _order_manager = OrderManager(alpaca=alpaca, ibkr=ibkr)
+        # The approval path used to hold the RAW brokers, so an approved trade
+        # on a live account executed in any configuration. Now the execution
+        # mode decides at call time: RESEARCH places nothing, PAPER only
+        # reaches a confirmed paper account, and a live account is reachable
+        # only in LIVE_AUTONOMOUS, under the hard limits (src/trading/access.py).
+        from src.trading.access import gate_for_approvals
+        _order_manager = OrderManager(alpaca=gate_for_approvals(alpaca),
+                                      ibkr=gate_for_approvals(ibkr))
         logger.info("Execution engine ready.")
     except Exception as e:
         logger.warning(f"Execution engine init failed: {e}")
@@ -1409,7 +1748,8 @@ def get_approval_queue(status: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/execute/approve/{trade_id}", tags=["Execution"], dependencies=[Depends(require_owner)])
+@app.post("/api/execute/approve/{trade_id}", tags=["Execution"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
 def approve_and_execute(trade_id: str):
     """Approve and immediately execute a pending trade via the broker."""
     mgr = _get_order_manager()
@@ -1518,7 +1858,7 @@ def kill_switch_engage(payload: dict = Body(default={})):
 
 
 @app.post("/api/execute/kill-switch/release", tags=["Execution"],
-          dependencies=[Depends(require_owner)])
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
 def kill_switch_release():
     """Permit orders again. Refused while ARIA_KILL_SWITCH is set in the
     environment — that one has to be cleared and the server restarted."""
@@ -1556,16 +1896,151 @@ def risk_profile_current():
 
 
 # ===========================================================================
-# Authentication — sign in with Google / GitHub / Apple
+# Authentication — the owner credential, and nothing else
 # ===========================================================================
+#
+# Google, GitHub and Apple sign-in used to live here. They were removed at the
+# owner's request, and what replaced them is the scheme SENTINEL already used,
+# sharing one implementation (src/auth/ownerauth.py):
+#
+#     owner credential  ->  POST /api/auth/login  ->  short-lived session
+#                                                     HttpOnly cookie
+#
+# The browser no longer holds a credential at all. It previously kept the raw
+# ARIA_OWNER_TOKEN in localStorage and attached it to every request, so one XSS
+# on this origin was a permanent key to the broker routes.
+#
+# `Authorization: Bearer` / `X-ARIA-Token` still work and are still PROVEN
+# ownership. That path is the deploy check, the watchdog and a terminal — and
+# the way back in if the session store is lost. It is gone from the browser, not
+# from the API.
 
-@app.get("/api/auth/providers", tags=["Auth"])
-def auth_providers():
-    """Which sign-in buttons the login page should show, and why any are absent."""
-    from src.auth import oauth
-    return {"providers": oauth.providers(),
-            "configured": oauth.any_configured(),
-            "base_url": oauth.base_url()}
+class OwnerLogin(BaseModel):
+    """The owner credential. A body, never a query string: a URL is recorded by
+    proxies, browser history and Referer headers."""
+    token: str
+
+
+@app.post("/api/auth/login", tags=["Auth"])
+def auth_login(body: OwnerLogin, request: Request):
+    """Exchange the owner credential for a session cookie.
+
+    Repeated failures from one caller get slower and then stop. That throttle
+    lives in ownerauth so ARIA and SENTINEL cannot drift into different answers
+    about how many guesses is too many; the per-IP limiter in _role_guard is a
+    second, coarser layer above it.
+    """
+    from fastapi.responses import JSONResponse
+    from src.auth import hardening, ownerauth
+    from src.auth import session as sess
+
+    client = hardening.client_ip(request)
+    outcome, cookie = sess.open_session(
+        body.token or "", client=client,
+        # Shown in the session list so the owner can tell their phone from
+        # their laptop. Never trusted for a decision; truncated in ownerauth
+        # because it is attacker-supplied text.
+        label=(request.headers.get("user-agent") or "")[:120])
+
+    if outcome == ownerauth.UNCONFIGURED:
+        return JSONResponse(status_code=503, content={
+            "detail": "SERVER NOT INITIALIZED — no owner credential is "
+                      "configured, so there is nothing to authenticate "
+                      "against. See docs/AUTH_SETUP.md.",
+            "error": "not_initialized"})
+    if outcome == ownerauth.LOCKED_OUT:
+        wait = int(sess.SESSIONS.retry_after(client)) + 1
+        return JSONResponse(status_code=429, content={
+            "detail": f"Too many failed sign-ins. Try again in {wait}s.",
+            "error": "locked_out", "retry_after": wait},
+            headers={"Retry-After": str(wait)})
+    if outcome != ownerauth.OK:
+        # Logged by shape, never by content. The presented value does not
+        # appear here and must never be added.
+        logger.warning("auth: credential rejected for %s", client)
+        return JSONResponse(status_code=401, content={
+            "detail": "Invalid owner token.",
+            "error": "bad_credential"})
+
+    resp = JSONResponse({"ok": True, "role": "owner"})
+    resp.set_cookie(sess.COOKIE, cookie,
+                    **sess.cookie_kwargs(https=hardening.is_https(request)))
+    logger.info("auth: owner session opened for %s", client)
+    return resp
+
+
+@app.post("/api/auth/confirm", tags=["Auth"],
+          dependencies=[Depends(require_owner)])
+def auth_confirm(body: OwnerLogin, request: Request):
+    """Re-present the credential for the CURRENT session — the step-up.
+
+    Needed before a trade is approved, the kill switch released, auto-execute
+    armed or the desk config changed, unless the credential was presented in
+    the last few minutes. Owner-guarded: there must already be a session to
+    confirm. Throttled against the same counters as sign-in, because a
+    confirmation prompt is a sign-in form by another name.
+    """
+    from fastapi.responses import JSONResponse
+    from src.auth import hardening, ownerauth
+    from src.auth import session as sess
+
+    client = hardening.client_ip(request)
+    outcome = sess.SESSIONS.confirm(request.cookies.get(sess.COOKIE),
+                                    body.token or "", client=client)
+    if outcome == ownerauth.LOCKED_OUT:
+        wait = int(sess.SESSIONS.retry_after(client)) + 1
+        return JSONResponse(status_code=429, content={
+            "detail": f"Too many failed attempts. Try again in {wait}s.",
+            "error": "locked_out", "retry_after": wait},
+            headers={"Retry-After": str(wait)})
+    if outcome != ownerauth.OK:
+        logger.warning("auth: step-up rejected for %s", client)
+        return JSONResponse(status_code=401, content={
+            "detail": "Invalid owner token.",
+            "error": "bad_credential"})
+    return {"ok": True, "confirmed_for_seconds": int(ownerauth.STEP_UP_SECONDS)}
+
+
+@app.get("/api/auth/status", tags=["Auth"])
+def auth_status():
+    """Whether a lock is installed — never what the key is.
+
+    Public, so the login page can tell "not configured yet" apart from "wrong
+    credential" and say the right thing. An anonymous caller learns only what a
+    503 from the login route would already have told them.
+    """
+    from src.auth import session as sess
+    return sess.status()
+
+
+@app.get("/api/auth/sessions", tags=["Auth"],
+         dependencies=[Depends(require_owner)])
+def auth_sessions(request: Request):
+    """Which devices are signed in, and recent failed attempts. Owner-only.
+
+    Carries truncated ids and no MACs, so the listing cannot be turned back
+    into a working cookie.
+    """
+    from src.auth import session as sess
+    here = sess.read(request.cookies.get(sess.COOKIE)) or {}
+    rows = sess.sessions()
+    for row in rows:
+        row["current"] = bool(here) and str(here.get("sid", "")).startswith(row["id"])
+    return {"sessions": rows,
+            "recent_failures": sess.SESSIONS.recent_failures()[:10]}
+
+
+@app.post("/api/auth/logout-everywhere", tags=["Auth"],
+          dependencies=[Depends(require_owner)])
+def auth_logout_everywhere():
+    """Sign out every device. The button for a lost phone.
+
+    Owner-only, deliberately: it is an owner action rather than part of the
+    sign-in flow, and an anonymous caller must not be able to sign the owner
+    out of his own machine.
+    """
+    from src.auth import session as sess
+    return {"ok": True, "revoked": sess.revoke_all()}
 
 
 @app.get("/api/auth/me", tags=["Auth"])
@@ -1590,94 +2065,28 @@ def auth_me(request: Request):
     is_owner = role == "owner"
     if not who:
         return {"authenticated": False, "role": role, "owner": is_owner}
+    # No email, no avatar, no provider: there is no third party in this flow any
+    # more, so there is no identity to report beyond "the owner is signed in".
+    # The device label is the session's own User-Agent hint and is echoed back
+    # so the interface can say which device it is looking at.
     return {"authenticated": True, "role": role,
-            "email": who.get("email"), "name": who.get("name"),
-            "avatar": who.get("avatar"), "provider": who.get("provider"),
-            "owner": is_owner or bool(who.get("owner"))}
-
-
-@app.get("/api/auth/login/{provider}", tags=["Auth"])
-def auth_login(provider: str, next: str = "/"):
-    """Send the browser to the provider's consent screen."""
-    from fastapi.responses import RedirectResponse
-    from src.auth import oauth
-    if provider not in oauth.PROVIDERS:
-        raise HTTPException(status_code=404, detail="unknown provider")
-    avail = {p["id"]: p for p in oauth.providers()}
-    if not avail[provider]["available"]:
-        raise HTTPException(status_code=503,
-                            detail=f"{provider} is not configured: {avail[provider]['reason']}")
-    return RedirectResponse(oauth.authorize_url(provider, oauth.safe_next(next)),
-                            status_code=302)
-
-
-@app.get("/api/auth/callback/{provider}", tags=["Auth"])
-def auth_callback(provider: str, request: Request,
-                  code: str = "", state: str = "", error: str = ""):
-    """Provider redirect lands here. Verifies state, exchanges the code, sets
-    the session cookie, and bounces back into the app."""
-    from fastapi.responses import RedirectResponse
-    from src.auth import oauth
-    from src.auth import session as sess
-
-    import urllib.parse
-    front = os.environ.get("ARIA_FRONTEND_URL", "http://localhost:3000").rstrip("/")
-
-    if error or not code:
-        return RedirectResponse(f"{front}/login?error={urllib.parse.quote(error or 'no_code')}",
-                                status_code=302)
-
-    st = oauth.read_state(state)
-    if not st or st.get("p") != provider:
-        # Rejected before any code is exchanged — a forged redirect cannot
-        # start a session.
-        return RedirectResponse(f"{front}/login?error=bad_state", status_code=302)
-
-    identity = oauth.exchange(provider, code)
-    if not identity:
-        return RedirectResponse(f"{front}/login?error=exchange_failed", status_code=302)
-
-    resp = RedirectResponse(f"{front}{oauth.safe_next(st.get('n'))}", status_code=302)
-    resp.set_cookie(sess.COOKIE, sess.issue(identity), **sess.cookie_kwargs())
-    is_owner = sess.is_owner_identity(identity)
-    # With OAuth there is no separate registration step: the first sign-in IS
-    # the sign-up, and this is where it happens. Recorded here rather than in a
-    # middleware so it captures the verified identity the provider returned,
-    # not a role derived from a cookie later.
-    from src.auth import users
-    users.record_sign_in(identity, owner=is_owner)
-    logger.info("auth: %s signed in via %s (owner=%s)",
-                identity.get("email") or identity.get("sub"), provider, is_owner)
-    return resp
-
-
-@app.get("/api/auth/users", tags=["Auth"],
-         dependencies=[Depends(require_owner)])
-def auth_users():
-    """Everyone who has ever signed in. Owner-only.
-
-    The moment real people use this, the file behind it holds personal data and
-    the owner is a controller under UK GDPR — which needs a lawful basis, a
-    privacy notice saying what is kept, and a way to erase someone. The record
-    is deliberately minimal so those obligations are cheap to honour; see
-    src/auth/users.py and the DELETE below."""
-    from src.auth import users
-    return _sanitize({"stats": users.stats(), "users": users.list_users()})
-
-
-@app.delete("/api/auth/users/{key:path}", tags=["Auth"],
-            dependencies=[Depends(require_owner)])
-def auth_delete_user(key: str):
-    """Erase one person's record — the deletion request path. Owner-only."""
-    from src.auth import users
-    return {"ok": users.delete(key), "key": key}
+            "owner": is_owner or bool(who.get("owner")),
+            "device": who.get("label") or "",
+            "since": who.get("issued_at")}
 
 
 @app.post("/api/auth/logout", tags=["Auth"])
-def auth_logout():
+def auth_logout(request: Request):
+    """End THIS session server-side, then clear the browser's copy.
+
+    The order matters, and the first half is what was missing. Deleting a cookie
+    is housekeeping: a copy captured beforehand kept working. Revoking the
+    record is what actually ends the session.
+    """
     from fastapi.responses import JSONResponse
     from src.auth import session as sess
-    resp = JSONResponse({"ok": True})
+    revoked = sess.revoke(request.cookies.get(sess.COOKIE))
+    resp = JSONResponse({"ok": True, "session_revoked": revoked})
     resp.delete_cookie(sess.COOKIE, path="/")
     return resp
 
@@ -1686,7 +2095,7 @@ def auth_logout():
 # Obsidian Vault (direct filesystem — no MCP server)
 # ===========================================================================
 
-def _vault_context(messages, role: str = "free") -> str:
+def _vault_context(messages, role: str = "anon") -> str:
     """Relevant vault knowledge for the latest user message. '' on any failure.
 
     The vault is the owner's Obsidian notes — 486 of them, including personal
@@ -1713,9 +2122,9 @@ def _vault_context(messages, role: str = "free") -> str:
 def _role_of(request) -> str:
     """Role attached by _role_guard; 'free' if anything is missing."""
     try:
-        return getattr(request.state, "role", "free") or "free"
+        return getattr(request.state, "role", "anon") or "anon"
     except Exception:
-        return "free"
+        return "anon"
 
 
 @app.get("/api/vault/status", tags=["Vault"])
@@ -1795,33 +2204,154 @@ _TICKER_STOPWORDS = {
 }
 
 
+#: Names of systems that share a symbol with a listed fund. "ARIA" is the ARIA
+#: Opportunities ETF and "S" is SentinelOne; a question about this system is
+#: not a question about either.
+_TICKER_STOPWORDS |= {"ARIA", "SENTINEL", "ATLAS", "CLAUDE", "API", "JSON",
+                      "CSV", "SQL", "LLM", "PDF", "URL", "ID", "VS", "FAQ"}
+
+#: Ordinary English words that are also the FIRST word of a listed company's
+#: name. A lowercase "match" is a cricket match, not Match Group. They resolve
+#: only when the message is plainly about a company (`_STOCK_CUE`).
+_COMMON_NAME_WORDS = frozenset("""
+    match gold target block square best general first international american
+    united global national energy health digital power home bank capital trust
+    life real smart open solar green west east north south central pacific
+    royal great new star sun rock river ocean union liberty summit peak alpha
+    beta delta gamma sigma world park city main simple live fast every
+    progressive principal community heritage pioneer frontier insight
+    """.split())
+_STOCK_CUE = None   # compiled on first use; `re` is imported inside
+
+
+def _caps_runs_to_skip(text: str, is_symbol) -> list:
+    """Spans of all-caps runs that read as a heading ("TRAINING LESSON 1:
+    EVIDENCE DISCIPLINE", "USE PROPORTIONATE CONCLUSIONS") rather than a list
+    of tickers ("AAPL MSFT NVDA"): three or more capitalised words, fewer than
+    two thirds of them symbols. Every capitalised word counts toward the run, however
+    long or common, so a short ticker-shaped word inside a heading is seen as
+    part of it."""
+    import re
+    spans, run = [], []
+
+    def close():
+        if len(run) >= 3:
+            words = [w for _, _, w in run]
+            known = sum(1 for w in words
+                        if len(w) <= 10 and w not in _TICKER_STOPWORDS
+                        and is_symbol(w) is True)
+            # A ticker list is mostly tickers. Two in four is a heading that
+            # happens to contain ALL (Allstate) and FIVE (Five Below).
+            if known * 3 < len(words) * 2:
+                spans.append((run[0][0], run[-1][1]))
+        run.clear()
+
+    prev_end = None
+    for m in re.finditer(r"\b[A-Z][A-Z0-9&]*[A-Z]\b|\b[A-Z]\b", text):
+        gap = text[prev_end:m.start()] if prev_end is not None else ""
+        if prev_end is not None and not re.fullmatch(r"[\s:,;.\-\u2013\u2014\d]*", gap):
+            close()
+        run.append((m.start(), m.end(), m.group(0)))
+        prev_end = m.end()
+    close()
+    return spans
+
+
 def _detect_query_ticker(message: str):
     """Best-effort (ticker, market_hint) from a chat message. Returns (None, None)
-    when nothing looks like a specific stock, so normal chat is untouched."""
+    when nothing looks like a specific stock, so normal chat is untouched.
+
+    2026-10-14, measured on one SENTINEL conversation: "match" resolved to MTCH,
+    "earn" to EARN (Ellington Credit), "step" to STEP, and the capitalised
+    headings TRAINING and FEEDBACK were taken as tickers. Each pulled a live
+    dossier for an unrelated company into the prompt, and the model talked about
+    it. So a word now has to BE a ticker, not merely look like one:
+
+    * an all-caps token counts when it carries an exchange suffix, or is a
+      symbol in the universe; failing both, only beside an NSE/BSE hint (long
+      Indian symbols are often missing from the index). When the universe
+      cannot be read, a short token is still accepted, as before;
+    * a run of capitalised words that are mostly not symbols is a heading;
+    * a company NAME matches on its first word ("tesla" -> Tesla), never on a
+      symbol that happens to contain the word, and a common English word does
+      so only when the message is about a company.
+    """
     import re
+    global _STOCK_CUE
+    if _STOCK_CUE is None:
+        _STOCK_CUE = re.compile(
+            r"\b(?:stocks?|shares?|ticker|share\s+price|company|companies|invest"
+            r"(?:ing|ment|ed)?|earnings|valuation|market\s+cap|listed)\b", re.I)
     text = message or ""
-    low = text.lower()
-    market = ("NSE" if any(w in low for w in ("nse", "nifty", " india", "indian", "sensex", "bse")) else
-              "LSE" if any(w in low for w in ("lse", "ftse", "london")) else None)
-    if "bse" in low:
+    # Whole words: "nse" is inside "response" and "license", which made every
+    # long English message look like an NSE question.
+    def said(*words):
+        return any(re.search(rf"\b{w}\b", text, re.I) for w in words)
+    market = ("NSE" if said("nse", "nifty", "india", "indian", "sensex", "bse") else
+              "LSE" if said("lse", "ftse", "london") else None)
+    if said("bse"):
         market = "BSE"
+
+    cache: dict = {}
+
+    def is_symbol(tok: str):
+        """True/False from the universe; None when it cannot be read."""
+        if tok not in cache:
+            try:
+                hits = _get_universe().search(tok, n=5)
+                cache[tok] = any(tok.upper() in {(h.get("symbol") or "").upper(),
+                                                 (h.get("yahoo") or "").upper()}
+                                 for h in hits)
+            except Exception:
+                cache[tok] = None
+        return cache[tok]
+
     # explicit yahoo-style tickers first (SAIL.NS, BRK.B, BTC-USD)
-    m = re.search(r"\b([A-Z][A-Z0-9&]{0,9}(?:\.(?:NS|BO|L))?(?:-USD)?)\b", text)
-    for tok in re.findall(r"\b([A-Z][A-Z0-9&]{0,9}(?:\.(?:NS|BO|L))?(?:-USD)?)\b", text):
-        base = tok.split(".")[0].replace("-USD", "")
-        if tok in _TICKER_STOPWORDS or base in _TICKER_STOPWORDS or len(base) < 2:
+    tokens = list(re.finditer(r"\b([A-Z][A-Z0-9&]{0,9}(?:\.(?:NS|BO|L))?(?:-USD)?)\b", text))
+    tokens = [m for m in tokens
+              if m.group(1) not in _TICKER_STOPWORDS
+              and m.group(1).split(".")[0].replace("-USD", "") not in _TICKER_STOPWORDS
+              and len(m.group(1).split(".")[0].replace("-USD", "")) >= 2]
+    heading = _caps_runs_to_skip(text, is_symbol) if tokens else []
+    for m in tokens:
+        if any(a <= m.start() < b for a, b in heading):
             continue
-        return tok, market
-    # company-name fallback: match individual proper-noun words against the
-    # known index by name (so "Tesla" → TSLA). Capitalised words first.
+        tok = m.group(1)
+        base = tok.split(".")[0].replace("-USD", "")
+        if tok != base:                       # carries its own exchange
+            return tok, market
+        known = is_symbol(tok)
+        if known is True:
+            return tok, market
+        if known is None and len(base) <= 5:
+            return tok, market
+        if known is False and market in ("NSE", "BSE"):
+            return tok, market
+
+    # company-name fallback: a word that is the first word of a company's name
+    # (so "tesla" -> TSLA). The universe holds tens of thousands of names, and
+    # almost any English word starts one — "tomorrow", "yes", "available",
+    # "work" and "ask" each did. So a match counts only for a company ARIA
+    # actually tracks (its signal book), or for a capitalised word in the
+    # middle of a sentence, where capitals mean a proper noun.
     try:
+        about_a_company = bool(_STOCK_CUE.search(text))
+        tracked = set((_load_optional("signals.json") or {}).keys())
+        mid_sentence = {m.group(0) for m in re.finditer(
+            r"(?<![.!?\n]\s)(?<!^)(?<=\s)[A-Z][a-z][A-Za-z&]+", text)}
         words = re.findall(r"[A-Za-z][A-Za-z&]{2,}", text)
         cands = [w for w in words if w[:1].isupper() and w.upper() not in _TICKER_STOPWORDS]
         cands += [w for w in words if w.upper() not in _TICKER_STOPWORDS and w not in cands]
-        for w in cands[:5]:
+        cands = [w for w in cands
+                 if about_a_company or w.lower() not in _COMMON_NAME_WORDS]
+        for w in cands[:8]:
             hits = _get_universe().search(w, n=1)
-            if hits and (w.upper() in hits[0]["symbol"].upper()
-                         or w.lower() in (hits[0].get("name") or "").lower()):
+            if not hits:
+                continue
+            first = re.split(r"[^A-Za-z&]+", (hits[0].get("name") or "").strip())[0]
+            if first.lower() != w.lower():
+                continue
+            if hits[0]["symbol"] in tracked or w in mid_sentence:
                 return hits[0]["symbol"], market
     except Exception:
         pass
@@ -1875,16 +2405,17 @@ def _ondemand_ticker_context(messages: List["ChatMsg"]) -> str:
         return ""
 
 
-@app.post("/api/chat", tags=["ARIA"], dependencies=[Depends(require_owner)])
-def aria_chat(body: ChatRequest, request: Request):
-    """Send a message to ARIA. Returns the assistant reply with market context baked in.
+def _prepare_aria_chat(body: "ChatRequest", request: Request, say=lambda _t: None):
+    """Everything /api/chat does before the model runs, shared with
+    /api/chat/stream so the two can never build different prompts.
 
-    Owner-only. Her reasoning runs on weights this machine holds — the router
-    refuses vendor providers in this path (`src/inference/policy.py`,
-    decision 1). The Anthropic key gate that used to stand here is gone with
-    it: a missing vendor key is no longer a reason she cannot think, and its
-    presence is no longer a reason she reaches for one."""
+    Returns (system, msgs, fitted). `say` receives a status line at the moment
+    each step actually begins — the streaming endpoint shows them; the blocking
+    one passes nothing and nothing changes. Side effects (recording a held
+    trade intent) happen here exactly once per request, whichever route called.
+    """
 
+    say("Reading the market state…")
     # Build live market context from latest data files
     signals  = _load_optional("signals.json")
     macro    = _load_optional("macro_data.json")
@@ -1923,7 +2454,9 @@ ML Bearish tickers: {', '.join(ml_bear) or 'none'}
 Daily report summary: {report.get('summary', 'Not available')}
 ──────────────────────────────────────────────────────"""
 
+    say("Checking your notes…")
     vault_ctx = _vault_context(body.messages, _role_of(request))
+    say("Looking up any tickers you mentioned…")
     ondemand_ctx = _ondemand_ticker_context(body.messages)
 
     # V5 identity: the Two Absolute Laws and the persona live in one place
@@ -2017,6 +2550,7 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
     # survive a full context window: an ARIA that quotes a three-month-old VIX
     # confidently is worse than one that says the macro feed is stale.
     world_ctx = ""
+    say("Loading ARIA's world model…")
     try:
         from src.core import world as _world
         _snap = _world.snapshot()
@@ -2042,6 +2576,19 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
 
     budget = _ctx.Budget(context_tokens=DEFAULT_NUM_CTX, reply_tokens=1024)
     system, msgs, fitted = _ctx.bound(system, msgs, blocks, budget)
+    return system, msgs, fitted
+
+
+@app.post("/api/chat", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_chat(body: ChatRequest, request: Request):
+    """Send a message to ARIA. Returns the assistant reply with market context baked in.
+
+    Owner-only. Her reasoning runs on weights this machine holds — the router
+    refuses vendor providers in this path (`src/inference/policy.py`,
+    decision 1). The Anthropic key gate that used to stand here is gone with
+    it: a missing vendor key is no longer a reason she cannot think, and its
+    presence is no longer a reason she reaches for one."""
+    system, msgs, fitted = _prepare_aria_chat(body, request)
 
     try:
         # DEEP tier, self-hosted. On failure she abstains rather than answering
@@ -2064,6 +2611,115 @@ You CANNOT: guarantee profits or give regulated/personalised financial advice (n
         raise HTTPException(status_code=503, detail=e.spoken())
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+#: One line per streamed chat reply: time to first status, first token, total.
+#: The measurement the streaming work exists to improve, kept where the owner
+#: dashboard and the performance report can read it.
+CHAT_STREAM_METRICS = ROOT / "data" / "chat_stream_metrics.jsonl"
+
+
+@app.post("/api/chat/stream", tags=["ARIA"], dependencies=[Depends(require_owner)])
+def aria_chat_stream(body: ChatRequest, request: Request):
+    """/api/chat, delivered as it happens — server-sent events.
+
+        ack     at once
+        status  the step actually running (market state, notes, world model,
+                ticker lookup, writing the answer) — never a script
+        token   the answer, a piece at a time
+        reset   a retry: discard the draft
+        done    the same body /api/chat returns, plus measured timings.
+                Authoritative: replace any draft with it
+        error   she abstained or failed; `detail` is what she would say
+
+    Only the answer streams. Her context-building and any model working stay
+    invisible — she shows what she is doing, not her chain of thought.
+    Owner-only, and shares the /api/chat rate-limit bucket.
+    """
+    import json as _json
+    import queue as _queue
+    import threading as _threading
+    import time as _time
+    from fastapi.responses import StreamingResponse
+
+    q: "_queue.Queue" = _queue.Queue()
+    started = _time.monotonic()
+    marks: dict = {}
+    counts = {"tokens": 0, "status": 0}
+
+    def put(kind, data):
+        q.put((kind, data))
+
+    def say(text):
+        marks.setdefault("first_status", _time.monotonic())
+        put("status", text)
+
+    def on_token(t):
+        marks.setdefault("first_token", _time.monotonic())
+        counts["tokens"] += 1
+        put("token", t)
+
+    def work():
+        try:
+            from src.inference.policy import BrainUnreachable
+            from src.inference.router import Tier, get_router
+            system, msgs, fitted = _prepare_aria_chat(body, request, say=say)
+            say("Writing the answer…")
+            try:
+                result = get_router().complete(
+                    Tier.DEEP, msgs, system=system, max_tokens=1024, timeout=90,
+                    on_token=on_token, on_reset=lambda: put("reset", "retrying"))
+            except BrainUnreachable as e:
+                logger.warning(f"chat abstained — {e}")
+                put("error", {"status": 503, "detail": e.spoken()})
+                return
+            put("done", {"content": result.text, "model": result.model,
+                         "provider": result.provider, "degraded": result.degraded,
+                         "degraded_from": result.primary,
+                         "context": fitted.to_dict(), "tokens": {}})
+        except Exception as e:
+            logger.exception("streamed chat failed")
+            put("error", {"status": 500, "detail": str(e)})
+
+    def sse(event, payload):
+        return f"event: {event}\ndata: {_json.dumps(_sanitize(payload), default=str)}\n\n"
+
+    def events():
+        yield sse("ack", {"t": 0.0})
+        _threading.Thread(target=work, daemon=True, name="aria-chat-stream").start()
+        last = _time.monotonic()
+        while True:
+            try:
+                kind, data = q.get(timeout=0.25)
+            except _queue.Empty:
+                if _time.monotonic() - last > 15:
+                    yield ": keep-alive\n\n"    # keep a tunnel from closing it
+                    last = _time.monotonic()
+                continue
+            now = _time.monotonic()
+            last = now
+            if kind in ("status", "token", "reset"):
+                if kind == "status":
+                    counts["status"] += 1
+                yield sse(kind, {"text": data, "t": round(now - started, 3)})
+                continue
+            rel = lambda k: round(marks[k] - started, 3) if k in marks else None
+            timing = {"first_status": rel("first_status"), "ttft": rel("first_token"),
+                      "total": round(now - started, 3), "tokens_streamed": counts["tokens"],
+                      "status_events": counts["status"]}
+            try:
+                CHAT_STREAM_METRICS.parent.mkdir(parents=True, exist_ok=True)
+                with CHAT_STREAM_METRICS.open("a", encoding="utf-8") as f:
+                    f.write(_json.dumps({"at": datetime.now().isoformat(timespec="seconds"),
+                                         "outcome": kind, **timing}) + "\n")
+            except OSError:
+                pass
+            yield sse(kind, {**data, "timing": timing})
+            return
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store",
+                                      "X-Accel-Buffering": "no"})
 
 
 # ===========================================================================
@@ -2108,6 +2764,33 @@ def _source_age(filename: str, kind: str) -> tuple:
     else:
         age = f"{age_h / 24:.0f} days old"
     return (f"{age}, STALE" if stale else age, stale)
+
+
+def _age_basis_note() -> str:
+    """One line saying what each section's age actually measures.
+
+    The ages above are computed from file modification times unless the file
+    states a date. That is not when the market was observed, and a model handed
+    "SIGNALS (2 days old)" will repeat it as the market's age. So the basis is
+    stated, and a bar date is quoted only when the rows record one.
+    """
+    parts = []
+    for label, filename in (("MACRO", "macro_data.json"), ("SIGNALS", "signals.json"),
+                            ("ML", "ml_predictions.json")):
+        f = _freshness(filename)
+        obs = f.get("observation") or {}
+        if f.get("basis") == "stated_date":
+            how = f"dated by the file's own data_date ({str(f.get('as_of'))[:10]})"
+        elif f.get("basis") == "file_mtime":
+            how = "age is the time the FILE was written"
+            if obs.get("recorded"):
+                how += f"; bars through {obs.get('latest_bar')}"
+            elif "recorded" in obs:
+                how += "; its rows record no bar date"
+        else:
+            how = "no file, so no age"
+        parts.append(f"{label}: {how}")
+    return "How each age is known — " + ". ".join(parts) + "."
 
 
 def _build_market_context() -> str:
@@ -2164,6 +2847,7 @@ def _build_market_context() -> str:
     return f"""── MARKET STATE ───────────────────────────────────────
 Each section is dated. Sources differ in age and in what they measure — never
 take a number from one section and attach it to a ticker from another.
+{_age_basis_note()}
 
 MACRO ({mac_age})
   Regime     : {macro.get('regime', 'Unknown')}
@@ -2247,6 +2931,203 @@ def aria_chat_local(body: LocalChatRequest, request: Request):
     except Exception as e:
         logger.warning("local chat failed for role=%s model=%s: %s", role, model, e)
         raise HTTPException(status_code=503, detail=str(e))
+
+
+class SpecialistQuestion(BaseModel):
+    question: str
+    context: str = ""
+
+
+#: The sources a specialist answer rests on, and the freshness budget each is
+#: judged against (the same budgets the world model uses — see _source_age).
+_SPECIALIST_SOURCES = (("signals.json", "signals"), ("macro_data.json", "macro"),
+                       ("ml_predictions.json", "ml"), ("daily_report.json", "report"))
+
+_SPECIALIST_FORMAT = """
+## HOW TO ANSWER THIS CONSULTATION
+Another system is asking you as the finance specialist. Reply in exactly three
+sections, each starting on its own line with the heading shown:
+
+ANALYSIS:
+<your answer, grounded in the dated data above; name the date of any number you use>
+
+ASSUMPTIONS:
+- <each thing you are taking as given>
+
+RISKS:
+- <each way this could be wrong or costly>
+
+Do not state a confidence percentage: none of your data supports one.
+
+Answer THE QUESTION ASKED. The market data above is there to use where the
+question needs it; do not recite it when the question does not. A question
+about a concept, or about numbers the asker supplied, is answered from those,
+and the market data stays out of it.
+
+If the question has numbered parts, ANALYSIS answers every one of them, each
+on its own line starting with its number. If you run short, say which parts
+you did not answer. Show any calculation as "a - b = c" so it can be checked.
+"""
+
+
+def _specialist_ticker(question: str, context: str):
+    """(ticker, the text it was found in). The question first; failing that
+    the asking system's context, newest line first — a follow-up such as
+    "about their presence in the market" names its company one turn earlier.
+    Context lines only, never a previous answer: SENTINEL sends the owner's own
+    words (sentinel/kernel.py `_aria_context`)."""
+    ticker, _ = _detect_query_ticker(question)
+    if ticker:
+        return ticker, question
+    lines = [ln.strip().lstrip("-").strip() for ln in (context or "").splitlines()]
+    for line in reversed([ln for ln in lines if ln]):
+        ticker, _ = _detect_query_ticker(line)
+        if ticker:
+            return ticker, line
+    return None, question
+
+
+def _specialist_sections(text: str) -> tuple[str, list, list, bool]:
+    """(analysis, assumptions, risks, followed_format). Tolerant of a small
+    model's formatting; reports honestly when it did not follow it."""
+    import re as _re
+    heads = {"analysis": None, "assumptions": None, "risks": None}
+    for m in _re.finditer(r"(?im)^\s*\**\s*(analysis|assumptions|risks)\s*\**\s*:\s*", text):
+        heads[m.group(1).lower()] = m
+    if heads["analysis"] is None:
+        return text.strip(), [], [], False
+    order = sorted((m.start(), m.end(), k) for k, m in heads.items() if m is not None)
+    parts = {}
+    for i, (_, end, key) in enumerate(order):
+        stop = order[i + 1][0] if i + 1 < len(order) else len(text)
+        parts[key] = text[end:stop].strip()
+
+    def bullets(block: str) -> list:
+        out = []
+        for line in (block or "").splitlines():
+            line = _re.sub(r"^\s*(?:[-*\u2022]|\d+[.)])\s*", "", line).strip()
+            if line and line.lower() not in ("none", "n/a"):
+                out.append(line[:400])
+        return out[:8]
+
+    return (parts.get("analysis", "").strip(), bullets(parts.get("assumptions")),
+            bullets(parts.get("risks")),
+            heads["assumptions"] is not None and heads["risks"] is not None)
+
+
+@app.post("/api/specialist/analysis", tags=["Consult"])
+def specialist_analysis(body: SpecialistQuestion, request: Request):
+    """ARIA as the finance specialist, answering another system — structured.
+
+    The contract SENTINEL consumes. Every field says where it came from:
+
+      analysis, assumptions, risks   STATED BY THE MODEL, and labelled so
+      data_timestamp, sources         MEASURED — file ages against freshness budgets
+      signal                          MEASURED — the signal engine's own output for
+                                      a ticker the question names, verbatim
+      confidence                      null unless a measured value exists. The
+                                      engine's confidence is a label ("High"), not
+                                      a probability, and is reported as a label; it
+                                      is never converted into a number
+      needs_verification              true, with reasons, when any source is stale,
+                                      a named ticker has no signal, or the model did
+                                      not answer in the requested structure
+
+    Reachable by the owner and by SENTINEL's scoped service credential only. No
+    vault (the role check in _vault_context refuses the service role), no trade
+    intent is ever recorded, and the model is pinned exactly as /api/chat/local
+    pins it.
+    """
+    question = (body.question or "").strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="a question is required")
+    role = _role_of(request)
+
+    sources, stale = [], []
+    for fname, kind in _SPECIALIST_SOURCES:
+        path = ROOT / "data" / fname
+        label, is_stale = _source_age(fname, kind)
+        sources.append({"name": fname, "kind": kind, "age": label, "stale": is_stale,
+                        "as_of": (datetime.fromtimestamp(path.stat().st_mtime)
+                                  .isoformat(timespec="seconds") if path.exists() else None)})
+        if is_stale:
+            stale.append(fname)
+    stamps = [s_["as_of"] for s_ in sources if s_["as_of"]]
+
+    reasons = [f"{f} is stale" for f in stale]
+    signal = None
+    ticker, ticker_text = _specialist_ticker(question, body.context)
+    if ticker:
+        row = (_load_optional("signals.json") or {}).get(ticker)
+        if row:
+            signal = {"ticker": ticker, "action": row.get("action"),
+                      "confidence_label": row.get("confidence"),
+                      "composite_score": row.get("composite_score"),
+                      "bullish_prob": row.get("bullish_prob"),
+                      "bearish_prob": row.get("bearish_prob"),
+                      "risk_level": row.get("risk_level"),
+                      "as_of": next((s_["as_of"] for s_ in sources
+                                     if s_["name"] == "signals.json"), None),
+                      "source": "signals.json (ARIA's composite signal engine)"}
+        else:
+            reasons.append(f"no signal exists for {ticker}")
+
+    base = {"question": question, "data_timestamp": {
+                "oldest": min(stamps) if stamps else None,
+                "newest": max(stamps) if stamps else None},
+            "sources": sources, "signal": signal,
+            "confidence": None,
+            "confidence_basis": ("the signal engine's confidence for "
+                                 f"{signal['ticker']} is the label "
+                                 f"'{signal['confidence_label']}', reported as-is"
+                                 if signal else
+                                 "none — this is a free-text model answer; "
+                                 "no calibrated confidence exists for it")}
+
+    if not _ollama_available():
+        return {**base, "status": "unavailable", "analysis": "",
+                "assumptions": [], "risks": [],
+                "needs_verification": True,
+                "verification_reasons": reasons + ["ARIA's local model is not reachable"],
+                "model": None}
+
+    model = FREE_MODEL
+    market_context = _build_market_context()
+    # The date, said outright: without it a 4B model dated a 2026 conversation
+    # "October 14, 2024" (SENTINEL, 2026-10-14).
+    today = datetime.now().strftime("%A %d %B %Y")
+    system = (f"{_ARIA_SYSTEM}\n\nTODAY IS {today}. Any date you write must be "
+              f"consistent with that.\n\n{market_context}"
+              f"{_ondemand_ticker_context([ChatMsg(role='user', content=ticker_text)])}"
+              f"\n{_SPECIALIST_FORMAT}")
+    if (body.context or "").strip():
+        system += f"\n\nCONTEXT FROM THE ASKING SYSTEM:\n{body.context[:2000]}"
+    try:
+        from src.inference.router import get_router
+        result = get_router().complete_with(
+            "ollama", model, [{"role": "user", "content": question}],
+            system=system, max_tokens=900, timeout=180)
+    except Exception as e:
+        logger.warning("specialist analysis failed for role=%s: %s", role, e)
+        return {**base, "status": "error", "analysis": "", "assumptions": [],
+                "risks": [], "needs_verification": True,
+                "verification_reasons": reasons + [f"the model call failed: {e}"],
+                "model": model}
+
+    analysis, assumptions, risks, followed = _specialist_sections(result.text)
+    if not followed:
+        reasons.append("the model did not answer in the requested structure; "
+                       "assumptions and risks may be missing")
+    # Re-done arithmetic, invented years, unanswered numbered parts. These add
+    # reasons to check; they never rewrite or certify the answer.
+    from src.intelligence.answer_checks import check_answer
+    reasons += check_answer(question, result.text, data=market_context,
+                            context=body.context or "")
+    return {**base, "status": "success", "analysis": analysis,
+            "assumptions": assumptions, "risks": risks,
+            "stated_by_model": ["analysis", "assumptions", "risks"],
+            "needs_verification": bool(reasons),
+            "verification_reasons": reasons, "model": model}
 
 
 @app.get("/api/brain/pulse", tags=["Local Brain"])
@@ -2381,6 +3262,7 @@ def brain_start(model: str = "qwen2.5-coder:7b"):
 @app.post("/api/brain/stop", tags=["Local Brain"], dependencies=[Depends(require_owner)])
 def brain_stop():
     """Pause the brain daemon."""
+    _brain_boot_cancelled.set()     # a stop also ends the boot-time wait for Ollama
     from src.brain.brain_daemon import peek_brain
     brain = peek_brain()
     if brain is None or not brain.running:
@@ -2921,11 +3803,17 @@ def desk_status():
     return _sanitize(get_desk().status())
 
 
-@app.post("/api/desk/auto-execute", tags=["Desk"], dependencies=[Depends(require_owner)])
+@app.post("/api/desk/auto-execute", tags=["Desk"],
+          dependencies=[Depends(require_owner), Depends(require_step_up_to_arm)])
 def desk_auto_execute(enabled: bool):
     """Arm/disarm autonomous paper execution.
     REFUSES (409) to arm when the connected account is live — auto-exec can
-    only ever touch the paper account. Disarming is always allowed."""
+    only ever touch the paper account. Disarming is always allowed.
+
+    Arming also needs a recent step-up — enforced by the route's
+    `require_step_up_to_arm` dependency, not here, so this function's signature
+    is unchanged for the tests that call it directly. Disarming never asks: a
+    control that makes the desk SAFER must not stop for a password."""
     from src.desk.auto_executor import account_snapshot
     from src.desk.config import load_config, paper_mode_confirmed, save_config
     if enabled:
@@ -2961,7 +3849,8 @@ def desk_run_now():
             "message": "Desk cycle started. Poll /api/desk/status."}
 
 
-@app.patch("/api/desk/config", tags=["Desk"], dependencies=[Depends(require_owner)])
+@app.patch("/api/desk/config", tags=["Desk"],
+           dependencies=[Depends(require_owner), Depends(require_step_up)])
 def desk_config(updates: Dict[str, Any]):
     """Update desk config (interval, budgets, caps, notification topics).
     auto_execute is NOT settable here — use /api/desk/auto-execute."""
@@ -3021,6 +3910,9 @@ def desk_executions(n: int = 100):
     return _sanitize({
         "count": len(records),
         "auto_fills": sum(1 for r in records if r.get("mode") == "auto"),
+        # "auto" = the broker accepted the order; only these confirmed a fill.
+        "auto_fills_confirmed": sum(1 for r in records
+                                    if r.get("mode") == "auto" and r.get("fill_confirmed")),
         "queued": sum(1 for r in records if r.get("mode") == "queued"),
         "executions": records,
     })
@@ -3178,6 +4070,53 @@ def desk_performance():
     })
 
 
+#: A step this large between two consecutive equity snapshots is a change of
+#: account capital, not trading: the desk runs unlevered (gross <= 100%), caps a
+#: name at 5% and halts the day at a 2% drawdown, so no sequence of fills moves
+#: equity by a quarter between snapshots. The one in the record is the paper
+#: account being reset from 103,006.92 to 10,000.00 on 2026-07-20.
+EQUITY_RESET_STEP = 0.25
+
+
+def _account_basis(rows: list) -> dict:
+    """Where the CURRENT account's history starts in an equity curve.
+
+    "Total P&L" was `equity - curve[0]` over the last 500 snapshots: a rolling
+    window labelled total, which while the file was shorter also spanned the
+    account reset and reported it as a 90% loss. Total is measured from the
+    first snapshot after the most recent reset, over the whole file.
+
+    What this cannot see is said, not hidden: a deposit or withdrawal smaller
+    than EQUITY_RESET_STEP looks like P&L, because the curve records equity and
+    nothing else. Rows without a usable equity are skipped, never guessed.
+    """
+    points = []
+    for r in rows or []:
+        try:
+            eq = float(r.get("equity"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if eq > 0:
+            points.append((r.get("at"), eq))
+    out = {"method": "equity now minus the first snapshot of the current "
+                     "account basis (the snapshot after the last capital reset)",
+           "snapshots": len(points), "resets_detected": [],
+           "since": None, "start_equity": None,
+           "blind_to": f"deposits or withdrawals under {EQUITY_RESET_STEP:.0%} of "
+                       f"equity, which the curve cannot tell from trading"}
+    if not points:
+        return out
+    start = 0
+    for i in range(1, len(points)):
+        prev, cur = points[i - 1][1], points[i][1]
+        if abs(cur - prev) / prev >= EQUITY_RESET_STEP:
+            out["resets_detected"].append({"at": points[i][0], "from": round(prev, 2),
+                                           "to": round(cur, 2)})
+            start = i
+    out["since"], out["start_equity"] = points[start][0], round(points[start][1], 2)
+    return out
+
+
 @app.get("/api/desk/pnl", tags=["Desk"], dependencies=[Depends(require_owner)])
 def desk_pnl():
     """Paper equity curve + open positions + day/total P&L."""
@@ -3186,18 +4125,24 @@ def desk_pnl():
     account = account_snapshot()
     day = load_day_state(current_equity=account.get("equity"))
 
-    curve = []
+    history = []
     curve_path = ROOT / "data" / "desk" / "equity_curve.jsonl"
     if curve_path.exists():
-        for line in curve_path.read_text(encoding="utf-8").splitlines()[-500:]:
+        for line in curve_path.read_text(encoding="utf-8").splitlines():
             try:
-                curve.append(json.loads(line))
+                history.append(json.loads(line))
             except Exception:
                 continue
+    curve = history[-500:]          # the chart's window; NOT the P&L's
 
     equity = account.get("equity") or 0.0
     start_eq = day.get("start_equity") or 0.0
-    first_eq = curve[0]["equity"] if curve else start_eq
+    basis = _account_basis(history)
+    if basis["start_equity"] is None:
+        # No equity history at all: the only start there is, is today's.
+        basis.update({"start_equity": start_eq or None, "since": day.get("date"),
+                      "method": "equity now minus today's start (no equity history)"})
+    first_eq = basis["start_equity"] or 0.0
     positions = account.get("positions") or []
     winners = sum(1 for p in positions if (p.get("unrealized_pl") or 0) > 0)
 
@@ -3211,6 +4156,7 @@ def desk_pnl():
         "day_pnl_pct": round((equity - start_eq) / start_eq * 100, 3) if start_eq else 0.0,
         "total_pnl": round(equity - first_eq, 2) if first_eq else 0.0,
         "total_pnl_pct": round((equity - first_eq) / first_eq * 100, 3) if first_eq else 0.0,
+        "total_pnl_basis": basis,
         "open_positions": positions,
         "open_win_rate": round(winners / len(positions), 3) if positions else None,
         "equity_curve": curve,
@@ -3919,6 +4865,12 @@ def aria_system_health():
         out["activity_24h"] = bus.counts_since(24).get("total", 0)
     except Exception:
         out["activity_24h"] = None
+    # The reasons behind /ready's boolean, for signed-in callers only.
+    try:
+        from src.core import readiness
+        out["readiness"] = readiness.check()
+    except Exception as e:
+        out["readiness"] = {"ready": False, "reasons": [f"check failed: {e}"]}
     return _sanitize(out)
 
 
@@ -4012,6 +4964,247 @@ def ledger_resolve(limit: int = 80):
     every half hour; this is the manual nudge."""
     from src.core import ledger
     return _sanitize(ledger.resolve_due(limit=max(1, min(limit, 400))))
+
+
+# ===========================================================================
+# MODEL INTELLIGENCE (src/intelligence)
+#
+# Which prediction to trust, how much, from which model — and what the record
+# cannot yet support. Every number below carries its sample; below its floor
+# the answer is a status (INSUFFICIENT_DATA, CALIBRATION_INSUFFICIENT_DATA,
+# ROUTING_INSUFFICIENT_EVIDENCE), never a number. Read from the last evidence
+# snapshot (data/intelligence/evidence_snapshot.json); POST .../refresh
+# rebuilds it from the ledger. Nothing here can place or size an order.
+# ===========================================================================
+
+class ModelStatusChange(BaseModel):
+    status: str
+    reason: str = ""
+
+
+def _intel_snapshot(max_age_hours: float = 6.0) -> dict:
+    """The saved evidence snapshot, rebuilt when missing or older than
+    `max_age_hours`. Rebuilding reads the ledger read-only."""
+    from src.intelligence import evidence
+    snap = evidence.load()
+    age = evidence.age_hours(snap)
+    if snap is None or age is None or age > max_age_hours:
+        snap = evidence.refresh()
+        age = evidence.age_hours(snap)
+    return {**snap, "snapshot_age_hours": age}
+
+
+@app.get("/api/intelligence/semantics", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_semantics():
+    """What ARIA calls a probability, a calibrated probability, a score and a
+    confidence — and which of them a Brier score may read."""
+    from src.intelligence import semantics
+    return semantics.describe()
+
+
+@app.get("/api/intelligence/baseline", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_baseline():
+    """The data-integrity audit of the prediction ledger: counts by model,
+    horizon, asset class, venue and regime; probability validity; graded /
+    pending; field-by-field provenance. Counts only, no claims."""
+    from src.intelligence import baseline, dataset
+    return _sanitize(baseline.audit(dataset.ledger_rows()))
+
+
+@app.get("/api/intelligence/models", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_models():
+    """Per-model evaluation, calibration status and registry card, with the
+    canonical dataset's inclusion / exclusion counts."""
+    snap = _intel_snapshot()
+    return _sanitize({k: snap.get(k) for k in
+                      ("built_at", "snapshot_age_hours", "as_of", "dataset",
+                       "evaluations", "calibration", "registry", "routing_table")})
+
+
+@app.get("/api/intelligence/registry", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_registry():
+    """Model cards: version, code hash, probability type, calibration, sample,
+    evidence status, owner status and the promotion gate, criterion by
+    criterion."""
+    from src.intelligence import registry
+    snap = _intel_snapshot()
+    return _sanitize({"registry": snap.get("registry"),
+                      "status_log": registry.status_log()[-50:],
+                      "built_at": snap.get("built_at")})
+
+
+@app.post("/api/intelligence/registry/{model_id}/status", tags=["Model Intelligence"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def intelligence_set_status(model_id: str, body: ModelStatusChange):
+    """Record an owner decision about a model. VALIDATED / PRODUCTION are
+    refused unless the promotion gate passes on a FRESH evaluation; RETIRED
+    and EXPERIMENTAL never need evidence. Nothing is promoted automatically."""
+    from src.intelligence import dataset, evidence, registry
+    rows = dataset.ledger_rows()
+    snap = evidence.build(rows=rows)
+    check = None
+    if model_id in registry.CATALOGUE and registry.CATALOGUE[model_id].ledger_source:
+        check = registry.promotion_check(model_id, snap["_dataset"], ledger_rows=rows)
+    try:
+        entry = registry.set_status(model_id, body.status, by="owner",
+                                    reason=body.reason, check=check)
+    except registry.PromotionRefused as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    evidence.save(snap)
+    return _sanitize({"recorded": entry, "promotion_check": check})
+
+
+@app.post("/api/intelligence/refresh", tags=["Model Intelligence"],
+          dependencies=[Depends(require_owner)])
+def intelligence_refresh():
+    """Rebuild the evidence snapshot from the ledger (read-only) and save it."""
+    from src.intelligence import evidence
+    snap = evidence.refresh()
+    return _sanitize({"built_at": snap.get("built_at"), "dataset": snap.get("dataset")})
+
+
+@app.get("/api/intelligence/routing", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_routing(symbol: str = "", horizon_days: int = 1,
+                         asset_class: str = "", data_quality: str = ""):
+    """The routing decision for an asset / horizon, with the evidence behind
+    it — or ROUTING_INSUFFICIENT_EVIDENCE and the conservative default."""
+    from src.intelligence import routing
+    from src.intelligence.dataset import instrument_of
+    snap = _intel_snapshot()
+    ac = asset_class or (instrument_of(symbol.upper())[0] if symbol else None)
+    if (data_quality or "").upper() == "POOR":
+        return {"reason_code": routing.ABSTAIN, "route": routing.DEFAULT,
+                "routed": False, "default_route": routing.DEFAULT_ROUTE,
+                "request": {"symbol": symbol, "horizon_days": horizon_days,
+                            "asset_class": ac, "data_quality": "POOR"}}
+    d = routing.lookup(snap.get("routing_table"), ac, horizon_days)
+    return _sanitize({**d, "request": {"symbol": symbol, "horizon_days": horizon_days,
+                                       "asset_class": ac},
+                      "snapshot_built_at": snap.get("built_at")})
+
+
+@app.get("/api/intelligence/conviction", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_conviction(symbol: str):
+    """The latest recorded call from each model on `symbol`, decomposed:
+    direction, probability AND its type, calibration, reliability, data
+    quality, regime fit, routing — and whether the models agree. Labels say
+    what must not be assumed (UNCALIBRATED, RELIABILITY INSUFFICIENT DATA …)."""
+    from src.core import ledger
+    from src.intelligence import conviction
+    snap = _intel_snapshot()
+    rows = ledger.predictions(limit=200, subject=symbol.upper())
+    latest = {}
+    for r in rows:                                   # newest first
+        latest.setdefault(r.get("source"), r)
+    convs = [conviction.from_ledger_row(r, snapshot=snap) for r in latest.values()]
+    return _sanitize({"symbol": symbol.upper(),
+                      "per_model": [c.to_dict() for c in convs],
+                      "cross_model_disagreement": conviction.cross_model(convs).to_dict(),
+                      "snapshot_built_at": snap.get("built_at")})
+
+
+@app.get("/api/intelligence/ensemble", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_ensemble():
+    """Do the models add independent information? Agreement, prediction and
+    error correlation, conditional accuracy, incremental likelihood ratio."""
+    from src.intelligence import dataset, ensemble, regrade
+    rows = dataset.ledger_rows()
+    ds = dataset.build(rows, regrades=regrade.load(), v5_bases=dataset.v5_return_bases())
+    return _sanitize(ensemble.independence(rows, ds))
+
+
+@app.get("/api/intelligence/debate", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_debate():
+    """What the debate desk measurably adds: operations (LLM failure rate,
+    latency, cost) always; graded value from the last baseline run."""
+    from src.intelligence import debate_eval
+    cached = debate_eval.cached()
+    live = debate_eval.run(None)
+    return _sanitize({"operations": live["operations"],
+                      "evaluation": (cached or {}).get("evaluation") or live["evaluation"],
+                      "evaluation_computed_at": (cached or {}).get("computed_at")})
+
+
+@app.get("/api/intelligence/exclusions", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_exclusions(model: str = "", reason: str = "", limit: int = 200):
+    """Every prediction kept out of the evaluation, and why — auditable row
+    by row."""
+    from src.intelligence import dataset, regrade
+    ds = dataset.build(dataset.ledger_rows(), regrades=regrade.load(),
+                       v5_bases=dataset.v5_return_bases())
+    rows = [e for e in ds.excluded
+            if (not model or e["model"] == model) and (not reason or reason in e["reasons"])]
+    return {"count": len(rows), "excluded": rows[:max(1, min(limit, 2000))],
+            "reasons": dataset.EXCLUSION_REASONS}
+
+
+# ── research engine (src/intelligence/research) ─────────────────────────────
+# Owner-only. Research explains a view and reports what supports it, what
+# contradicts it and how far each piece can be trusted; it cannot authorise,
+# size or send anything. Network happens here (vendors), never on the order
+# path, which only ever reads the compact thesis saved by a live request.
+
+import re as _re  # noqa: E402
+
+_RESEARCH_SYMBOL = _re.compile(r"^[A-Za-z0-9.\-=^]{1,20}$")
+
+
+def _research_at(at: str):
+    if not at:
+        return None
+    from src.intelligence.research.pit_data import aware
+    from datetime import datetime as _dt
+    try:
+        parsed = _dt.fromisoformat(at.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="`at` must be an ISO instant")
+    if parsed.tzinfo is None:
+        raise HTTPException(status_code=400, detail="`at` must carry a timezone: a "
+                                                    "point-in-time query needs an instant")
+    return aware(parsed)
+
+
+@app.get("/api/intelligence/research/sources", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_research_sources():
+    """The audited catalogue of every evidence source: input, timestamp
+    semantics, point-in-time status, evidence group, and what it duplicates."""
+    from src.intelligence.research import sources
+    return {"sources": sources.table(), "duplicates": sources.duplicates(),
+            "groups": sources.GROUP_MEANING}
+
+
+@app.get("/api/intelligence/research/{symbol}", tags=["Model Intelligence"],
+         dependencies=[Depends(require_owner)])
+def intelligence_research(symbol: str, horizon_days: int = 21, at: str = "",
+                          analogues: bool = True, dispersion: bool = False):
+    """The research report for `symbol`: the point-in-time snapshot, every
+    evidence item with its group and root, independent-group agreement, factor
+    attribution (UNEXPLAINED_RESIDUAL, never alpha), cross-asset states, events,
+    news stories, historical analogues, recorded model predictions and their
+    routing, and the thesis with its quality scorecard. No confidence number.
+
+    `at` (ISO, with a timezone) asks for the view as it could have been formed
+    then; without it, now."""
+    if not _RESEARCH_SYMBOL.match(symbol or ""):
+        raise HTTPException(status_code=400, detail="not an instrument symbol")
+    from src.intelligence.research import engine
+    when = _research_at(at)
+    report = engine.research(symbol.upper(), at=when,
+                             horizon_days=max(1, min(int(horizon_days), 126)),
+                             analogues=analogues, dispersion=dispersion)
+    if when is None:
+        engine.save_latest(report)
+    return _sanitize(report)
 
 
 # ===========================================================================
@@ -4258,6 +5451,402 @@ def consult_outcome(request_id: str, accepted: bool, what_happened: str = ""):
 
 
 # ===========================================================================
+# Autonomous trading (src/trading) — the layered execution path.
+#
+# Every route here is owner-only. The ones that could widen what the system may
+# do — changing the execution mode, loosening a hard limit, changing what a halt
+# does to open positions — additionally require a recent step-up, and the mode
+# change also requires its typed confirmation phrase.
+#
+# Reducing capability never requires step-up: /halt is deliberately reachable
+# with nothing but the owner session, because the moment you need it is not the
+# moment to re-authenticate.
+# ===========================================================================
+
+def _jsonl_source(path: Path) -> dict:
+    """What one append-only record file actually holds: whether it exists, how
+    many readable records, and when the last one was written by its own `at`
+    field — never the file's modification time. Unreadable lines are counted,
+    not dropped silently."""
+    info = {"exists": path.exists(), "records": 0, "unreadable_lines": 0,
+            "last_record_at": None, "age_hours": None}
+    if not info["exists"]:
+        return info
+    last = None
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                info["unreadable_lines"] += 1
+                continue
+            info["records"] += 1
+            at = row.get("at") if isinstance(row, dict) else None
+            if at:
+                last = str(at)
+    except OSError as e:
+        info["error"] = f"{type(e).__name__}: {e}"
+        return info
+    info["last_record_at"] = last
+    if last:
+        try:
+            from datetime import timezone as _tz
+            when = datetime.fromisoformat(last)
+            now = datetime.now(_tz.utc) if when.tzinfo else datetime.now()
+            info["age_hours"] = round((now - when).total_seconds() / 3600, 1)
+        except ValueError:
+            pass
+    return info
+
+
+def _order_record_sources() -> dict:
+    """Where ARIA's order records really are, side by side.
+
+    The pipeline journal (src/trading) is empty on this deployment because no
+    production caller runs the pipeline; the orders ARIA sends are in the desk's
+    execution log. Showing only the first read as "no orders were ever sent".
+    Read-only, and each source reports missing / empty / stale for itself.
+    """
+    from src.desk import auto_executor as _ae
+    from src.trading import orders as _orders
+    return {
+        "pipeline_journal": {**_jsonl_source(_orders.JOURNAL),
+                             "what": "orders sent through src/trading TradingPipeline",
+                             "production_path": False},
+        "desk_executions": {**_jsonl_source(_ae.EXEC_LOG),
+                            "what": "entries and exits sent through "
+                                    "src/execution/order_manager (desk, reflex, approvals)",
+                            "production_path": True,
+                            "served_by": "/api/desk/executions"},
+    }
+
+
+@app.get("/api/trading/status", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_status():
+    """Everything about what this system may currently do, in one answer."""
+    from src.trading import killswitch, lifecycle, limits, modes
+    from src.trading.orders import JOURNAL_SCOPE, OrderEngine
+    engine = OrderEngine()
+    return _sanitize({
+        "mode": modes.status(),
+        "limits": limits.describe(),
+        "strategies": lifecycle.summary(),
+        "order_engine": {"halted": engine.halted(),
+                         "orders": len(engine.latest()),
+                         "scope": JOURNAL_SCOPE,
+                         "record_sources": _order_record_sources()},
+        "kill_policy": killswitch.policy(),
+        "live_readiness": modes.live_readiness(),
+        "disabled_in_this_deployment": [
+            "live autonomous execution (ARIA_LIVE_TRADING_ENABLED is not set)",
+            "real-money orders",
+            "self-modifying production strategies",
+            "model-driven orders — the pipeline takes signals, not prose",
+        ],
+    })
+
+
+@app.post("/api/trading/mode", tags=["Trading"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def trading_set_mode(payload: dict = Body(default={})):
+    """Change the execution mode. Up needs the exact confirmation phrase; down
+    needs only a reason."""
+    from src.trading import modes
+    target = str((payload or {}).get("mode", "")).strip().upper()
+    reason = str((payload or {}).get("reason", "")).strip()
+    confirmation = str((payload or {}).get("confirmation", ""))
+    try:
+        result = modes.transition(target, actor="owner", reason=reason,
+                                  confirmation=confirmation)
+    except modes.ModeTransitionRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError:
+        raise HTTPException(status_code=400,
+                            detail=f"unknown mode {target!r}; one of "
+                                   f"{[m.value for m in modes.ExecutionMode]}")
+    return _sanitize({**result, "status": modes.status()})
+
+
+@app.get("/api/trading/mode/history", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_mode_history(limit: int = 50):
+    from src.trading import modes
+    return _sanitize({"history": modes.history(min(max(limit, 1), 500))})
+
+
+@app.get("/api/trading/limits", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_limits():
+    from src.trading import limits
+    return _sanitize(limits.describe())
+
+
+@app.post("/api/trading/limits", tags=["Trading"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def trading_set_limits(payload: dict = Body(default={})):
+    """Tighten a limit (immediate) or loosen one (after the cooling-off period).
+    Nothing here can exceed the ceilings compiled into src/trading/limits.py."""
+    from src.trading import limits
+    changes = (payload or {}).get("changes")
+    if not isinstance(changes, dict) or not changes:
+        raise HTTPException(status_code=400,
+                            detail="send {\"changes\": {\"limit_name\": value}}")
+    try:
+        return _sanitize(limits.set_limits(changes, actor="owner"))
+    except limits.LimitChangeRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/api/trading/halt", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_halt(payload: dict = Body(default={})):
+    """STOP. Engages the kill switch, drops the mode to RESEARCH, disables the
+    desk's auto-execute and cancels resting orders. Positions are preserved
+    unless the kill policy says otherwise. No step-up: an emergency stop that
+    asks you to prove yourself first is not an emergency stop."""
+    from src.trading import access, killswitch, modes
+    reason = str((payload or {}).get("reason") or "halted from the UI")[:500]
+    broker = None
+    try:
+        if modes.effective_mode() is not modes.ExecutionMode.RESEARCH:
+            broker = access.paper_adapter()
+    except Exception as exc:                     # a broker we cannot build is
+        logger.warning("halt: no broker adapter (%s)", exc)   # not a reason to
+    return _sanitize(killswitch.halt(reason, actor="owner", broker=broker))
+
+
+@app.get("/api/trading/kill-policy", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_kill_policy():
+    from src.trading import killswitch
+    return _sanitize({**killswitch.policy(),
+                      "options": [killswitch.PRESERVE, killswitch.FLATTEN]})
+
+
+@app.post("/api/trading/kill-policy", tags=["Trading"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def trading_set_kill_policy(payload: dict = Body(default={})):
+    """What a halt does to open positions. FLATTEN sells them (reduce-only);
+    PRESERVE, the default, leaves them alone."""
+    from src.trading import killswitch
+    try:
+        return _sanitize(killswitch.set_policy(
+            str((payload or {}).get("positions", "")).strip().upper(),
+            bool((payload or {}).get("cancel_protective", False)), actor="owner"))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/trading/strategies", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_strategies():
+    from src.trading import lifecycle
+    return _sanitize(lifecycle.summary())
+
+
+@app.post("/api/trading/strategies", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_register_strategy(payload: dict = Body(default={})):
+    from src.trading import lifecycle
+    sid = str((payload or {}).get("strategy_id", "")).strip()
+    if not sid:
+        raise HTTPException(status_code=400, detail="strategy_id is required")
+    return _sanitize(lifecycle.register(
+        sid, name=str((payload or {}).get("name", "")),
+        hypothesis=str((payload or {}).get("hypothesis", "")),
+        asset_classes=(payload or {}).get("asset_classes") or [], actor="owner"))
+
+
+@app.post("/api/trading/strategies/{strategy_id}/evidence", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_record_evidence(strategy_id: str, payload: dict = Body(default={})):
+    """File a research result against a strategy. Evidence is data the gates
+    read; it is never an argument for promotion."""
+    from src.trading import lifecycle
+    key = str((payload or {}).get("key", "")).strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="key is required")
+    try:
+        return _sanitize(lifecycle.record_evidence(
+            strategy_id, key, (payload or {}).get("value"), actor="owner"))
+    except lifecycle.LifecycleRefused as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.post("/api/trading/strategies/{strategy_id}/stage", tags=["Trading"],
+          dependencies=[Depends(require_owner), Depends(require_step_up)])
+def trading_change_stage(strategy_id: str, payload: dict = Body(default={})):
+    """Promote (evidence gates apply), demote or suspend a strategy."""
+    from src.trading import lifecycle
+    action = str((payload or {}).get("action", "promote")).lower()
+    target = str((payload or {}).get("stage", "")).strip().upper()
+    reason = str((payload or {}).get("reason", ""))
+    try:
+        if action == "promote":
+            return _sanitize(lifecycle.promote(strategy_id, target, actor="owner",
+                                               note=reason))
+        if action == "demote":
+            return _sanitize(lifecycle.demote(strategy_id, target, reason=reason,
+                                              actor="owner"))
+        if action == "suspend":
+            return _sanitize(lifecycle.suspend(strategy_id, reason=reason or "owner",
+                                               actor="owner"))
+        if action == "reinstate":
+            return _sanitize(lifecycle.reinstate(strategy_id, actor="owner",
+                                                 note=reason))
+    except lifecycle.LifecycleRefused as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    raise HTTPException(status_code=400,
+                        detail="action must be promote, demote, suspend or reinstate")
+
+
+@app.get("/api/trading/scorecard", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_scorecard(strategy_id: str = ""):
+    """Risk- and cost-adjusted performance. Never ranked on raw return."""
+    from src.trading import lifecycle, outcomes, scorecard
+    cards = []
+    for sid in ([strategy_id] if strategy_id else list(lifecycle.all_strategies())):
+        cards.append(scorecard.score(outcomes.outcomes(sid), strategy_id=sid))
+    return _sanitize({"scorecards": cards, "ranking": scorecard.rank(cards),
+                      "expected_vs_realised": outcomes.expected_vs_realised(strategy_id)})
+
+
+@app.get("/api/trading/latency", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_latency(broker: str = ""):
+    """Measured stage latencies. The classification is derived from the
+    numbers, and 'HFT' is not one of the values it can take."""
+    from src.trading import latency
+    return _sanitize(latency.summary(broker or None))
+
+
+@app.post("/api/trading/arbitrage/evaluate", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_evaluate_arbitrage(payload: dict = Body(default={})):
+    """Evaluate a two-leg opportunity: gross spread, every cost, net edge,
+    liquidity and execution probability. Research only — this endpoint cannot
+    place an order, and nothing downstream reads its result."""
+    from datetime import datetime, timezone
+
+    from src.trading import arbitrage, costs as _c
+    from src.trading.market import Quote
+    body = payload or {}
+    try:
+        legs = []
+        for raw in body.get("legs", []):
+            ts = raw.get("timestamp")
+            legs.append(arbitrage.Leg(
+                venue=str(raw["venue"]), symbol=str(raw["symbol"]),
+                side=str(raw["side"]).lower(),
+                quote=Quote(symbol=str(raw["symbol"]), bid=float(raw["bid"]),
+                            ask=float(raw["ask"]),
+                            timestamp=(datetime.fromisoformat(ts) if ts else None),
+                            bid_size=float(raw.get("bid_size") or 0),
+                            ask_size=float(raw.get("ask_size") or 0),
+                            venue=str(raw["venue"]),
+                            asset_class=str(raw.get("asset_class", "equity"))),
+                fees=_c.SCHEDULES.get(raw.get("fee_schedule", "simulated"),
+                                      _c.SCHEDULES["simulated"]),
+                ratio=float(raw.get("ratio", 1.0)),
+                held_qty=float(raw.get("held_qty", 0.0)),
+                borrow_bps_per_day=float(raw.get("borrow_bps_per_day", 0.0)),
+                funding_bps=float(raw.get("funding_bps", 0.0)),
+                transfer_cost=float(raw.get("transfer_cost", 0.0)),
+                transfer_s=float(raw.get("transfer_s", 0.0)),
+                settles_in_s=float(raw.get("settles_in_s", 0.0))))
+        result = arbitrage.evaluate(
+            str(body.get("kind", arbitrage.CROSS_VENUE)), legs,
+            float(body.get("qty", 0)),
+            now=datetime.now(timezone.utc),
+            max_quote_age_s=float(body.get("max_quote_age_s", 5.0)),
+            latency_ms=float(body.get("latency_ms", 250.0)),
+            min_net_edge_bps=float(body.get("min_net_edge_bps", 10.0)),
+            participation_pct=float(body.get("participation_pct", 10.0)),
+            holding_days=float(body.get("holding_days", 0.0)))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"malformed opportunity: {exc}")
+    return _sanitize(result.to_dict())
+
+
+@app.get("/api/trading/capital", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_capital():
+    from src.trading import account
+    return _sanitize({
+        "contributions": account.contributions(),
+        "net_contributions_account_ccy": account.net_contributions_account_ccy(),
+        "planned_monthly_contribution": account.PLANNED_MONTHLY_CONTRIBUTION,
+        "note": ("performance is measured on equity minus net contributions, so "
+                 "a deposit never looks like a profit")})
+
+
+@app.post("/api/trading/capital", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_record_contribution(payload: dict = Body(default={})):
+    """Record money paid in or taken out. Nothing infers this from a balance
+    change — an unexplained jump should look wrong."""
+    from src.trading import account
+    body = payload or {}
+    try:
+        return _sanitize(account.record_contribution(
+            float(body.get("amount")), str(body.get("currency", "GBP")),
+            amount_in_account_ccy=(float(body["amount_in_account_ccy"])
+                                   if body.get("amount_in_account_ccy") is not None
+                                   else None),
+            note=str(body.get("note", "")), actor="owner"))
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/trading/risk-decisions", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_risk_decisions(symbol: Optional[str] = None, verdict: Optional[str] = None,
+                           path: Optional[str] = None, decision_id: Optional[str] = None,
+                           limit: int = 50):
+    """Portfolio-risk decisions, most recent first (src/risk/decisions): why a
+    trade was accepted, reduced, deferred or rejected — the binding limit,
+    the exposures before and after, the factor and session context, and the
+    timestamp of every piece of data it used. Read-only."""
+    from src.risk import decisions
+    return _sanitize({"decisions": decisions.query(
+        symbol=symbol, verdict=verdict, path=path, decision_id=decision_id,
+        limit=max(1, min(int(limit), 500)))})
+
+
+@app.get("/api/trading/orders", tags=["Trading"],
+         dependencies=[Depends(require_owner)])
+def trading_orders():
+    """The order journal's current view, and whether the engine is halted.
+    Covers the src/trading pipeline only — see `scope`."""
+    from src.trading.orders import JOURNAL_SCOPE, OrderEngine
+    engine = OrderEngine()
+    return _sanitize({"halted": engine.halted(), "orders": engine.latest(),
+                      "scope": JOURNAL_SCOPE,
+                      "record_sources": _order_record_sources()})
+
+
+@app.post("/api/trading/orders/reconcile", tags=["Trading"],
+          dependencies=[Depends(require_owner)])
+def trading_reconcile(payload: dict = Body(default={})):
+    """Ask the broker about every unsettled order by client id. The only way
+    to lift a halt caused by an unknown order state."""
+    from src.trading import access
+    from src.trading.orders import OrderEngine
+    try:
+        broker = access.paper_adapter()
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=f"no broker to reconcile "
+                                                    f"against: {exc}")
+    return _sanitize(OrderEngine().reconcile(broker))
+
+
+# ===========================================================================
 # The guard on the guard.
 #
 # Every route that can reach a broker carries Depends(require_owner). A
@@ -4337,6 +5926,34 @@ logger.info("guarded state-changing routes: %d", len(_GUARDED_EXECUTION_ROUTES))
 
 
 @on_startup
+def _warm_the_vault_in_the_background():
+    """Load the vault's embedding model now, off the request path.
+
+    Measured on the dev box: the first chat after a restart spent 24–28 s in
+    `_vault_context` alone — the sentence-transformers model and ChromaDB
+    loading — and every later chat spent 0.01–0.06 s there. The cost is paid
+    once per process either way; paying it at startup, in a background thread,
+    means the owner's first question does not. Skipped under ARIA_TESTING, and
+    a failure only means the first chat is slow, never that the API is down.
+    """
+    if os.environ.get("ARIA_TESTING") == "1":
+        return
+
+    def warm():
+        import time as _t
+        started = _t.monotonic()
+        try:
+            from src.brain.vault import get_vault
+            get_vault().context_for("warm up", n=1, max_chars=100)
+            logger.info("vault warmed in %.1fs", _t.monotonic() - started)
+        except Exception as e:
+            logger.info("vault warm-up skipped: %s", e)
+
+    import threading as _threading
+    _threading.Thread(target=warm, daemon=True, name="vault-warm").start()
+
+
+@on_startup
 async def _warn_about_auth_configuration():
     from src.auth import policy
     policy.warn_if_unprotected()
@@ -4382,15 +5999,25 @@ try:
         """
 
         async def get_response(self, path, scope):
+            shell_page = path in ("", ".", "index.html")
             try:
-                return await super().get_response(path, scope)
+                response = await super().get_response(path, scope)
             except _StarletteHTTPException as exc:
                 if exc.status_code != 404:
                     raise
                 # Never mask a missing asset as the app shell.
                 if "." in path.rsplit("/", 1)[-1]:
                     raise
-                return await super().get_response("index.html", scope)
+                response = await super().get_response("index.html", scope)
+                shell_page = True
+            # The shell names the hashed bundles of the CURRENT build. Sent with
+            # no Cache-Control, a browser reuses it heuristically (about a tenth
+            # of its age), so a deploy reached open browsers minutes — for an
+            # old build, a day — late (seen 2026-10-16). Revalidate it every
+            # time; the etag keeps that a 304. Hashed assets stay cacheable.
+            if shell_page:
+                response.headers["Cache-Control"] = "no-cache"
+            return response
 
     _dist = ROOT / "frontend" / "dist"
     if _dist.exists():

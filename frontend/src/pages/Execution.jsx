@@ -63,7 +63,7 @@ function BrokerPanel() {
         </div>
       ) : (
         <div style={{ color: 'var(--text-dim)', fontSize: 12, fontFamily: 'var(--mono)' }}>
-          {info?.connected ? 'Loading account...' : 'Not connected. Check API keys in .env'}
+          {info?.connected ? 'Loading account…' : 'Broker not connected — no brokerage credentials are configured on the server.'}
         </div>
       )}
     </div>
