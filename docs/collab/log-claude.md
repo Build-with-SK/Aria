@@ -772,3 +772,18 @@ target; zero positions with equity != balance is refused; after a sampled close 
 shown flat, no target for the rest of the path. 3 existing target tests now state their
 evidence. Full suite 3,717 passed, 21 skipped, exit 0; reviewer suite unchanged at 23/24.
 A3 (sparse observations hide dips) documented, not addressed. Not pushed.
+
+## 2026-11-11 — START: frontend redesign (ARIA + SENTINEL), assigned by the owner
+
+`frontend/` is Codex's area (`WORK_PLAN.md` §3). The owner assigned this redesign to
+Claude directly on 2026-11-11: the crimson theme is rejected, both apps are to look
+"apple professional clean sharp". Branch `claude/frontend-redesign-8e6144`, cut from
+`feature/aria-multiasset-trading` @ `c806605` (the live build). Codex's folder and
+branches are not touched.
+- Stage 1 done: three design directions as static mockups for both apps, desktop and
+  phone, light and dark: `docs/design/redesign-2026-11/directions.html` (sample data,
+  talks to no server).
+- Waiting for the owner's pick. No file under `frontend/` has changed yet.
+- Measured before starting: 402 hard-coded colours and 189 `var(--mono)` uses across
+  `frontend/src` (12,808 lines), so a token swap alone cannot deliver a light theme.
+- Not pushed, not deployed. Nothing backend was started on the laptop.

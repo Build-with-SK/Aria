@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ARIA + SENTINEL: design directions</title>
+<!--
+  Static mockups for the 2026-11 frontend redesign. Sample data only: nothing
+  here talks to a server. Three directions, one shared language, both apps,
+  desktop and phone, light and dark. Open the file and use the controls, or
+  address a view directly:  #dir=a|b|c & theme=light|dark & shot=1
+-->
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{min-height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI Variable Text","Segoe UI",system-ui,Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;background:#ececf0;color:#1d1d1f;transition:background .3s}
+body.dark{background:#0c0c0e;color:#f5f5f7}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+a{color:inherit;text-decoration:none}
+
+/* ── the review page's own chrome ─────────────────────────────────────── */
+#bar{position:sticky;top:0;z-index:50;display:flex;gap:18px;align-items:center;flex-wrap:wrap;
+  padding:12px 24px;background:rgba(236,236,240,.8);backdrop-filter:saturate(180%) blur(20px);
+  border-bottom:1px solid rgba(0,0,0,.08)}
+body.dark #bar{background:rgba(12,12,14,.8);border-color:rgba(255,255,255,.1)}
+#bar h1{font-size:15px;font-weight:650;letter-spacing:-.01em;margin-right:auto}
+#bar h1 span{font-weight:400;opacity:.55;margin-left:8px}
+.seg{display:inline-flex;padding:3px;border-radius:10px;background:rgba(0,0,0,.07)}
+body.dark .seg{background:rgba(255,255,255,.1)}
+.seg button{padding:6px 14px;border-radius:8px;font-size:13px;font-weight:550}
+.seg button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.14)}
+body.dark .seg button.on{background:#3a3a3d;box-shadow:none}
+#lede{padding:26px 40px 6px;max-width:1100px}
+#lede h2{font-size:30px;font-weight:700;letter-spacing:-.025em}
+#lede p{margin-top:8px;font-size:15px;line-height:1.5;opacity:.72;max-width:80ch}
+body.shot #bar{display:none}
+#board{padding:22px 40px 48px;display:grid;grid-template-columns:1280px 390px;gap:14px 40px;width:max-content;transform-origin:0 0}
+.lab{font-size:12px;font-weight:600;letter-spacing:.02em;opacity:.55;align-self:end;padding-top:10px}
+.frame{position:relative;overflow:hidden;background:#000}
+.frame.desktop{width:1280px;height:920px;border-radius:14px;box-shadow:0 30px 80px -30px rgba(0,0,0,.45),0 0 0 1px rgba(0,0,0,.12)}
+.frame.phone{width:390px;height:820px;border-radius:46px;box-shadow:0 30px 80px -30px rgba(0,0,0,.5),0 0 0 9px #17171a,0 0 0 10px #3a3a3e}
+body.dark .frame.desktop{box-shadow:0 30px 80px -30px #000,0 0 0 1px rgba(255,255,255,.14)}
+
+/* ══════════════ THE SHARED LANGUAGE ══════════════ */
+.app{position:absolute;inset:0;overflow:hidden;font-size:14px;line-height:1.45;color:var(--ink);background:var(--bg);
+  --mono:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace}
+.app .num{font-variant-numeric:tabular-nums}
+.app .mono{font-family:var(--mono)}
+.ic{flex:none;display:block}
+
+/* semantic colour, light then dark: text-safe on their own backgrounds */
+.app[data-theme=light]{--up:#1e8540;--down:#d1242f;--warn:#b25000;--up-bg:rgba(30,133,64,.1);--down-bg:rgba(209,36,47,.09);--warn-bg:rgba(178,80,0,.1)}
+.app[data-theme=dark]{--up:#30d158;--down:#ff5a52;--warn:#ffa31a;--up-bg:rgba(48,209,88,.14);--down-bg:rgba(255,90,82,.14);--warn-bg:rgba(255,163,26,.14)}
+
+/* each app keeps one accent of its own */
+.app[data-app=aria][data-theme=light]{--accent:#0068d6;--accent-fill:#0071e3;--on-accent:#fff}
+.app[data-app=aria][data-theme=dark]{--accent:#4aa3ff;--accent-fill:#0a84ff;--on-accent:#fff}
+.app[data-app=sentinel][data-theme=light]{--accent:#a15c00;--accent-fill:#f2a51c;--on-accent:#221600}
+.app[data-app=sentinel][data-theme=dark]{--accent:#ffbf5c;--accent-fill:#ffb340;--on-accent:#221600}
+
+/* A — STUDIO */
+.app[data-dir=a][data-theme=light]{--bg:#fff;--side:#f5f5f7;--card:#fff;--line:rgba(0,0,0,.1);--line2:rgba(0,0,0,.06);--ink:#1d1d1f;--ink2:#6e6e73;--ink3:#a1a1a6;--fill:rgba(0,0,0,.05);--r:12px}
+.app[data-dir=a][data-theme=dark]{--bg:#161618;--side:#1d1d20;--card:#1f1f22;--line:rgba(255,255,255,.11);--line2:rgba(255,255,255,.07);--ink:#f5f5f7;--ink2:#a1a1a6;--ink3:#6e6e73;--fill:rgba(255,255,255,.07);--r:12px}
+/* B — INK */
+.app[data-dir=b][data-theme=light]{--bg:#fff;--side:#fff;--card:#f5f5f7;--line:transparent;--line2:rgba(0,0,0,.08);--ink:#000;--ink2:#6e6e73;--ink3:#a1a1a6;--fill:rgba(0,0,0,.06);--r:20px}
+.app[data-dir=b][data-theme=dark]{--bg:#000;--side:#000;--card:#161617;--line:transparent;--line2:rgba(255,255,255,.1);--ink:#f5f5f7;--ink2:#a1a1a6;--ink3:#6e6e73;--fill:rgba(255,255,255,.09);--r:20px}
+.app[data-dir=b][data-app][data-theme]{--accent-fill:var(--ink);--on-accent:var(--bg)}
+/* C — GLASS */
+.app[data-dir=c][data-theme=light]{--card:rgba(255,255,255,.62);--line:rgba(255,255,255,.9);--line2:rgba(20,30,60,.08);--ink:#0c1424;--ink2:#515c70;--ink3:#8c96a8;--fill:rgba(20,30,60,.06);--r:22px}
+.app[data-dir=c][data-theme=dark]{--card:rgba(255,255,255,.07);--line:rgba(255,255,255,.13);--line2:rgba(255,255,255,.08);--ink:#f2f5fa;--ink2:#a4adbd;--ink3:#6b7486;--fill:rgba(255,255,255,.08);--r:22px}
+.app[data-dir=c][data-app=aria][data-theme=light]{--bg:radial-gradient(900px 600px at 12% 0%,#cfe3ff 0%,transparent 60%),radial-gradient(800px 600px at 100% 20%,#d6f5ee 0%,transparent 60%),radial-gradient(900px 700px at 60% 110%,#e4dcff 0%,transparent 60%),#f3f6fb;--accent-fill:linear-gradient(135deg,#1f6fff,#11b5d6)}
+.app[data-dir=c][data-app=aria][data-theme=dark]{--bg:radial-gradient(900px 600px at 10% 0%,#12336e 0%,transparent 60%),radial-gradient(800px 600px at 100% 15%,#0d4a4a 0%,transparent 60%),radial-gradient(900px 700px at 60% 115%,#2b2264 0%,transparent 60%),#070a12;--accent-fill:linear-gradient(135deg,#2f7dff,#19c2e0)}
+.app[data-dir=c][data-app=sentinel][data-theme=light]{--bg:radial-gradient(900px 600px at 50% 0%,#ffe6b8 0%,transparent 62%),radial-gradient(800px 600px at 100% 100%,#ffdcd2 0%,transparent 60%),radial-gradient(800px 600px at 0% 100%,#f0e6ff 0%,transparent 60%),#fbf7f1;--accent-fill:linear-gradient(135deg,#ffb52e,#ff8a3d)}
+.app[data-dir=c][data-app=sentinel][data-theme=dark]{--bg:radial-gradient(900px 600px at 50% 0%,#5a3a08 0%,transparent 62%),radial-gradient(800px 600px at 100% 100%,#4a1d1a 0%,transparent 60%),radial-gradient(800px 600px at 0% 100%,#261a45 0%,transparent 60%),#0a0806;--accent-fill:linear-gradient(135deg,#ffbe45,#ff8f47)}
+.app[data-dir=c] .card,.app[data-dir=c] .glass{backdrop-filter:blur(28px) saturate(170%);-webkit-backdrop-filter:blur(28px) saturate(170%);box-shadow:0 10px 40px -18px rgba(10,20,50,.28)}
+
+/* ── components ───────────────────────────────────────────────────────── */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;min-width:0}
+.card-h{display:flex;align-items:baseline;gap:10px;margin-bottom:12px}
+.card-h h3{font-size:15px;font-weight:650;letter-spacing:-.01em}
+.card-h .sub{font-size:12.5px;color:var(--ink2);margin-left:auto}
+.pill{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:600;
+  background:var(--fill);color:var(--ink2);white-space:nowrap;flex:none}
+.pill .d{width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.info{color:var(--accent);background:color-mix(in srgb,var(--accent) 13%,transparent)}
+.pill.ok{color:var(--up);background:var(--up-bg)}
+.pill.warn{color:var(--warn);background:var(--warn-bg)}
+.pill.bad{color:var(--down);background:var(--down-bg)}
+.safety{display:flex;gap:8px;align-items:center}
+.stats{display:grid;grid-template-columns:1.7fr 1fr 1fr 1fr;gap:12px}
+.stat .k{font-size:12.5px;color:var(--ink2);font-weight:500}
+.stat .v{font-size:26px;font-weight:650;letter-spacing:-.025em;margin-top:4px;white-space:nowrap}
+.stat .v .soft{color:var(--ink2);font-weight:500}
+.stat .s{font-size:12.5px;color:var(--ink2);margin-top:2px}
+.msgs{display:flex;flex-direction:column;gap:14px}
+.msg{display:flex;gap:10px;max-width:92%}
+.msg.me{align-self:flex-end}
+.msg.me .b{background:var(--accent-fill);color:var(--on-accent);padding:9px 14px;border-radius:18px 18px 5px 18px}
+.msg.it .b{font-size:14.5px;line-height:1.55}
+.msg .av{width:26px;height:26px;flex:none;color:var(--accent);margin-top:1px}
+.src{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.src span{font-size:11.5px;color:var(--ink2);background:var(--fill);border-radius:6px;padding:3px 8px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.chip{border:1px solid var(--line2);border-radius:999px;padding:7px 13px;font-size:13px;color:var(--ink);white-space:nowrap}
+.composer{display:flex;align-items:center;gap:8px;margin-top:14px;border:1px solid var(--line2);border-radius:999px;padding:5px 5px 5px 16px;background:var(--bg-input,transparent)}
+.composer .ph{flex:1;color:var(--ink3);font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rbtn{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:var(--ink2);flex:none}
+.rbtn.go{background:var(--accent-fill);color:var(--on-accent)}
+.steps{display:flex;flex-direction:column}
+.step{display:grid;grid-template-columns:22px 1fr;gap:10px;padding:9px 0;border-top:1px solid var(--line2)}
+.step:first-child{border-top:0;padding-top:0}
+.step .m{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;margin-top:2px;background:var(--up-bg);color:var(--up)}
+.step.now .m{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.step.now .m i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.step b{font-size:13.5px;font-weight:600}
+.step p{font-size:13px;color:var(--ink2)}
+.rows{display:flex;flex-direction:column}
+.row{display:flex;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line2)}
+.row:first-child{border-top:0}
+.row .tn{flex:1;min-width:0}
+.row .t{display:block;font-size:13.5px;font-weight:650;letter-spacing:.01em}
+.row .n{display:block;font-size:12px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sc{font-weight:650;font-size:13px;padding:2px 8px;border-radius:7px}
+.sc.up{color:var(--up);background:var(--up-bg)} .sc.dn{color:var(--down);background:var(--down-bg)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+.colh{font-size:12.5px;font-weight:600;color:var(--ink2);margin-bottom:4px}
+.mark{display:block}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;padding:0 14px;border-radius:999px;font-size:13.5px;font-weight:600;white-space:nowrap}
+.btn.pri{background:var(--accent-fill);color:var(--on-accent)}
+.btn.sec{background:var(--fill);color:var(--ink)}
+.btn.sm{height:30px;padding:0 12px;font-size:13px}
+
+/* phone furniture */
+.sbar{height:50px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 30px 6px;font-size:15px;font-weight:650}
+.sbar .isl{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:112px;height:32px;border-radius:20px;background:#000}
+.sbar .r{display:flex;gap:5px;align-items:center}
+.sbar .bat{width:24px;height:11px;border-radius:3.5px;border:1.2px solid currentColor;opacity:.9;position:relative}
+.sbar .bat::after{content:"";position:absolute;inset:1.5px;right:5px;background:currentColor;border-radius:1.5px}
+.tabbar{position:absolute;left:0;right:0;bottom:0;height:82px;padding:8px 10px 26px;display:grid;grid-template-columns:repeat(5,1fr);
+  background:color-mix(in srgb,var(--side,var(--bg)) 86%,transparent);backdrop-filter:blur(24px) saturate(180%);border-top:1px solid var(--line2)}
+.tab{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10.5px;font-weight:550;color:var(--ink3)}
+.tab.on{color:var(--accent)}
+.pscroll{position:absolute;inset:50px 0 82px 0;overflow:hidden;padding:4px 18px 0}
+.ptitle{font-size:32px;font-weight:750;letter-spacing:-.03em;margin:6px 0 2px}
+.psub{font-size:14px;color:var(--ink2);display:flex;align-items:center;gap:7px}
+.live{width:8px;height:8px;border-radius:50%;background:var(--up);box-shadow:0 0 0 4px var(--up-bg)}
+
+/* ══════════════ ARIA shells ══════════════ */
+/* A: sidebar */
+.shA{display:grid;grid-template-columns:228px 1fr;height:100%}
+.shA .side{background:var(--side);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:2px}
+.brand{display:flex;align-items:center;gap:9px;padding:4px 8px 14px;font-size:17px;font-weight:700;letter-spacing:.01em}
+.brand .mark{color:var(--accent)}
+.find{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;margin-bottom:10px;border-radius:8px;background:var(--fill);color:var(--ink2);font-size:13px}
+.find kbd{margin-left:auto;font:inherit;font-size:11.5px;color:var(--ink3)}
+.nav a{display:flex;gap:10px;align-items:center;height:34px;padding:0 10px;border-radius:8px;font-size:13.5px;font-weight:500;color:var(--ink)}
+.nav a .ic{color:var(--ink2)}
+.nav a.on{background:color-mix(in srgb,var(--accent) 14%,transparent);color:var(--accent);font-weight:600}
+.nav a.on .ic{color:var(--accent)}
+.nav .bdg{margin-left:auto;font-size:11px;font-weight:650;background:var(--warn-bg);color:var(--warn);border-radius:999px;padding:1px 7px}
+.sfoot{margin-top:auto;padding:10px 8px 2px;border-top:1px solid var(--line2);font-size:12.5px;color:var(--ink2);display:flex;align-items:center;gap:8px}
+.shA main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.shA .top{height:56px;flex:none;display:flex;align-items:center;gap:14px;padding:0 24px;border-bottom:1px solid var(--line2)}
+.shA .top h2{font-size:17px;font-weight:650;letter-spacing:-.01em}
+.shA .top .safety{margin-left:auto}
+.shA .body{flex:1;min-height:0;padding:22px 24px 0;display:flex;flex-direction:column;gap:16px;overflow:hidden}
+.grid2{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;min-height:0;flex:1;padding-bottom:22px}
+.chat{display:flex;flex-direction:column}
+.chat .msgs{flex:1}
+.stack>.card:last-child{flex:1}
+.stack{display:flex;flex-direction:column;gap:16px;min-width:0}
+/* B: top text tabs, large title */
+.shB{height:100%;display:flex;flex-direction:column}
+.shB .top{height:52px;flex:none;display:flex;align-items:center;gap:6px;padding:0 32px;border-bottom:1px solid var(--line2)}
+.shB .brand{padding:0 18px 0 0;font-size:16px}
+.shB .brand .mark{color:var(--ink)}
+.shB .tnav{display:flex;gap:2px}
+.shB .tnav a{height:30px;padding:0 12px;border-radius:999px;display:flex;align-items:center;font-size:13px;font-weight:500;color:var(--ink2)}
+.shB .tnav a.on{background:var(--ink);color:var(--bg);font-weight:600}
+.shB .tools{margin-left:auto;display:flex;gap:4px;color:var(--ink2)}
+.shB .body{flex:1;min-height:0;padding:26px 48px 0;display:flex;flex-direction:column;gap:18px;overflow:hidden}
+.shB .hero{display:flex;align-items:flex-end;gap:20px}
+.shB .hero h2{font-size:42px;font-weight:750;letter-spacing:-.035em;line-height:1}
+.shB .hero p{font-size:15px;color:var(--ink2);margin-top:8px;display:flex;align-items:center;gap:8px}
+.shB .hero .safety{margin-left:auto;padding-bottom:4px}
+.shB .card{padding:20px 24px}
+.shB .stat .v{font-size:32px}
+.shB .card-h h3{font-size:19px;font-weight:700;letter-spacing:-.02em}
+.app[data-dir=b] .pill.info{color:var(--ink);background:var(--fill)}
+.app[data-dir=b] .msg .av,.app[data-dir=b] .tab.on{color:var(--ink)}
+.app[data-dir=b] .step.now .m{background:var(--fill);color:var(--ink)}
+/* C: floating glass capsule */
+.shC{height:100%;display:flex;flex-direction:column;padding:16px 22px 0}
+.shC .top{display:flex;align-items:center;gap:14px;flex:none}
+.shC .brand{padding:0;font-size:17px}
+.shC .cap{margin:0 auto;display:flex;gap:2px;padding:5px;border-radius:999px;background:var(--card);border:1px solid var(--line)}
+.shC .cap a{height:34px;padding:0 13px;border-radius:999px;display:flex;align-items:center;gap:7px;font-size:13px;font-weight:550;color:var(--ink2)}
+.shC .cap a.on{background:var(--accent-fill);color:#fff;font-weight:600}
+.app[data-dir=c][data-app=sentinel] .shC .cap a.on,.app[data-dir=c][data-app=sentinel] .btn.pri,.app[data-dir=c][data-app=sentinel] .rbtn.go{color:#221600}
+.shC .body{flex:1;min-height:0;padding:20px 4px 0;display:flex;flex-direction:column;gap:16px;overflow:hidden}
+.shC .hero{display:flex;align-items:center;gap:16px}
+.shC .hero h2{font-size:30px;font-weight:700;letter-spacing:-.03em}
+.shC .hero p{font-size:14px;color:var(--ink2);display:flex;align-items:center;gap:8px}
+.shC .hero .safety{margin-left:auto}
+.app[data-dir=c] .tabbar{left:14px;right:14px;bottom:18px;height:64px;padding:9px 8px;border-radius:999px;border:1px solid var(--line);background:var(--card);
+  box-shadow:0 14px 40px -14px rgba(10,20,50,.4)}
+.app[data-dir=c][data-theme=light] .tabbar{background:rgba(255,255,255,.8)}
+.app[data-dir=c][data-theme=dark] .tabbar{background:rgba(24,28,40,.78)}
+.app[data-dir=c] .pscroll{bottom:0}
+.app[data-dir=c] .composer{background:var(--card);border-color:var(--line)}
+
+/* ══════════════ SENTINEL ══════════════ */
+.sen{height:100%;display:grid;grid-template-columns:1fr 344px}
+.sen.solo{grid-template-columns:1fr}
+.sen .stage{display:flex;flex-direction:column;min-width:0;position:relative}
+.sen .top{height:56px;flex:none;display:flex;align-items:center;gap:12px;padding:0 22px}
+.app[data-dir=a] .sen .top{border-bottom:1px solid var(--line2)}
+.wm{font-size:15px;font-weight:700;letter-spacing:.14em}
+.acts{margin-left:auto;display:flex;gap:2px}
+.acts a{height:32px;padding:0 11px;border-radius:8px;display:flex;align-items:center;gap:7px;font-size:13px;font-weight:500;color:var(--ink2)}
+.acts a.on{background:var(--fill);color:var(--ink)}
+.app[data-dir=b] .acts a,.app[data-dir=c] .acts a{border-radius:999px}
+.app[data-dir=c] .acts{padding:4px;border-radius:999px;background:var(--card);border:1px solid var(--line)}
+.orbwrap{flex:none;display:grid;place-items:center;padding:22px 0 10px}
+.orb{position:relative;width:176px;height:176px}
+.orb .core{position:absolute;inset:26px;border-radius:50%}
+.app[data-theme=light] .orb .core{background:radial-gradient(circle at 40% 34%,#fffaf0 0%,#ffe3a1 20%,#f8b632 52%,#d98a0c 82%,#bd7204 100%);
+  box-shadow:0 26px 50px -18px rgba(205,128,8,.6),0 0 0 14px rgba(246,178,44,.1),0 0 0 30px rgba(246,178,44,.05)}
+.app[data-theme=dark] .orb .core{background:radial-gradient(circle at 45% 42%,#fff7dc 0%,#ffd36e 26%,#f0a01e 58%,#a86408 100%);
+  box-shadow:0 0 60px 8px rgba(240,160,30,.5),0 0 140px 40px rgba(240,160,30,.2)}
+.orb .ring{position:absolute;inset:0;border-radius:50%;border:1.2px solid color-mix(in srgb,var(--accent) 55%,transparent);transform:rotateX(68deg) rotateZ(-12deg)}
+.orb .ring.r2{inset:10px;transform:rotateY(62deg) rotateZ(20deg);opacity:.55}
+.orb.sm{width:104px;height:104px}.orb.sm .core{inset:16px}
+.state{display:flex;align-items:center;gap:8px;justify-content:center;font-size:13px;color:var(--ink2);padding-bottom:6px}
+.state b{color:var(--ink);font-weight:600}
+.talk{flex:1;min-height:0;overflow:hidden;width:min(640px,calc(100% - 44px));margin:0 auto;display:flex;flex-direction:column;justify-content:flex-end;gap:16px;padding-bottom:6px}
+.turn .who{font-size:12px;font-weight:600;color:var(--ink3);margin-bottom:3px}
+.turn.you{align-self:flex-end;max-width:80%}
+.turn.you .b{background:var(--fill);padding:9px 14px;border-radius:18px 18px 5px 18px;font-size:14.5px}
+.turn.it .b{font-size:15.5px;line-height:1.55}
+.rate{display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap}
+.rate .rb{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:999px;font-size:13px;font-weight:600;background:var(--fill);color:var(--ink)}
+.rate .rb.good.on{background:var(--up-bg);color:var(--up)}
+.rate .rb.bad.on{background:var(--down-bg);color:var(--down)}
+.rate .meta{font-size:12px;color:var(--ink3);margin-left:4px}
+.fix{margin-top:10px;border:1px solid var(--line2);border-radius:16px;padding:12px 14px;background:var(--card)}
+.fix label{font-size:13px;font-weight:600;display:block;margin-bottom:6px}
+.fix .ta{min-height:54px;border-radius:10px;background:var(--fill);padding:9px 11px;font-size:14px;color:var(--ink)}
+.fix .ta .car{display:inline-block;width:1.5px;height:16px;background:var(--accent);vertical-align:-3px;margin-left:1px}
+.fix .fa{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}
+.fix small{display:block;font-size:12px;color:var(--ink2);margin-top:8px}
+.dock{flex:none;width:min(640px,calc(100% - 44px));margin:0 auto;padding:8px 0 22px}
+.dock .composer{margin-top:0;padding:6px 6px 6px 18px}
+.app[data-dir=a] .dock .composer,.app[data-dir=b] .dock .composer{background:var(--card)}
+.app[data-dir=b] .dock .composer{border-color:transparent}
+.hint{font-size:12px;color:var(--ink3);text-align:center;margin-top:8px}
+.insp{border-left:1px solid var(--line2);background:var(--side,transparent);padding:16px 18px;display:flex;flex-direction:column;gap:18px;overflow:hidden}
+.app[data-dir=c] .insp{border:1px solid var(--line);border-radius:var(--r);margin:16px 16px 16px 0;background:var(--card);backdrop-filter:blur(28px) saturate(170%)}
+.app[data-dir=b] .insp{border-left:0;background:var(--card);margin:14px 14px 14px 0;border-radius:var(--r)}
+.insp h4{font-size:15px;font-weight:650;display:flex;align-items:center;gap:8px}
+.insp h4 .x{margin-left:auto;color:var(--ink3)}
+.grp h5{font-size:12.5px;font-weight:600;color:var(--ink2);margin-bottom:8px;display:flex;gap:6px;align-items:center}
+.grp h5 em{font-style:normal;color:var(--ink3);font-weight:500}
+.appr{border-radius:14px;padding:12px 14px;background:var(--warn-bg)}
+.appr b{font-size:14px;font-weight:600;display:block}
+.appr p{font-size:12.5px;color:var(--ink2);margin:3px 0 10px}
+.appr .fa{display:flex;gap:8px}
+.li{padding:8px 0;border-top:1px solid var(--line2);font-size:13.5px}
+.li:first-of-type{border-top:0;padding-top:0}
+.li p{font-size:12.5px;color:var(--ink2)}
+.capg{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px}
+.capi{display:flex;align-items:center;gap:7px;font-size:13px}
+.capi i{width:7px;height:7px;border-radius:50%;background:var(--up)}
+.capi.deg i{background:var(--warn)}
+.capi span{margin-left:auto;color:var(--ink2);font-size:12.5px}
+.capi.deg span{color:var(--warn)}
+</style>
+</head>
+<body>
+<div id="bar">
+  <h1>ARIA + SENTINEL<span>design directions · sample data</span></h1>
+  <div class="seg" id="segDir">
+    <button data-v="a">A · Studio</button><button data-v="b">B · Ink</button><button data-v="c">C · Glass</button>
+  </div>
+  <div class="seg" id="segTheme"><button data-v="light">Light</button><button data-v="dark">Dark</button></div>
+</div>
+<div id="lede"></div>
+<div id="board"></div>
+
+<script>
+"use strict";
+const I = {
+  brain:'<path d="M12 3.5l1.9 5.1 5.1 1.9-5.1 1.9L12 17.5l-1.9-5.1L5 10.5l5.1-1.9L12 3.5z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z"/>',
+  research:'<circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>',
+  market:'<path d="M3 17l5.5-6.5 4 3L20 5"/><path d="M15 5h5v5"/>',
+  portfolio:'<path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5H12V3.5z"/><path d="M15.5 3.6A8.6 8.6 0 0 1 20.4 8.5h-4.9V3.6z"/>',
+  strategies:'<path d="M9 3h6M10 3v6.2L5.2 18a2 2 0 0 0 1.8 3h10a2 2 0 0 0 1.8-3L14 9.2V3"/><path d="M7.6 15h8.8"/>',
+  report:'<path d="M7 3h7l4 4v14H7V3z"/><path d="M14 3v4h4M10 12h5M10 16h5"/>',
+  record:'<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r=".8" fill="currentColor"/>',
+  system:'<path d="M4 7h9M18 7h2M4 17h2M11 17h9"/><circle cx="15.5" cy="7" r="2.2"/><circle cx="8.5" cy="17" r="2.2"/>',
+  more:'<circle cx="5.5" cy="12" r="1.2" fill="currentColor"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/><circle cx="18.5" cy="12" r="1.2" fill="currentColor"/>',
+  up:'<path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/>',
+  down:'<path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/>',
+  mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/>',
+  send:'<path d="M12 19V5.5M6 11l6-6 6 6"/>',
+  shield:'<path d="M12 3l7.5 2.8v5.7c0 4.7-3.2 7.9-7.5 9.5-4.3-1.6-7.5-4.8-7.5-9.5V5.8L12 3z"/>',
+  check:'<path d="M5 12.5l4.5 4.5L19 7"/>',
+  brief:'<path d="M5 6h14M5 12h14M5 18h9"/>',
+  browser:'<circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c3.2 3.3 3.2 13.700 0 17M12 3.5c-3.200 3.300-3.200 13.700 0 17"/>',
+  command:'<path d="M12 3l7.800 4.400v9.200L12 21l-7.800-4.400V7.400L12 3z"/><path d="M4.200 7.400L12 11.800l7.800-4.400M12 11.800V21"/>',
+  history:'<circle cx="12" cy="12" r="8.5"/><path d="M12 7.500V12l3 2"/>',
+  home:'<path d="M4 11l8-7 8 7v9H4v-9z"/><path d="M10 20v-6h4v6"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M12 3v2.500M12 18.500V21M3 12h2.500M18.500 12H21M5.600 5.600l1.800 1.800M16.600 16.600l1.800 1.800M5.600 18.400l1.800-1.800M16.600 7.400l1.800-1.800"/>',
+  x:'<path d="M6 6l12 12M18 6L6 18"/>',
+};
+const ic = (n, s = 18, w = 1.7) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round">${I[n]}</svg>`;
+const mark = (s = 24) => `<svg class="mark" width="${s}" height="${s}" viewBox="0 0 32 32" fill="none" stroke="currentColor"><circle cx="16" cy="16" r="13" stroke-width="2.2"/><circle cx="16" cy="16" r="7.200" stroke-width="1.800" opacity=".55"/><circle cx="16" cy="16" r="3" fill="currentColor" stroke="none"/></svg>`;
+const NAV = [["brain","Brain"],["research","Research"],["market","Market"],["portfolio","Portfolio"],["strategies","Strategies"],["report","Daily report"],["record","Track record"],["system","System"]];
+
+/* ── ARIA content ───────────────────────────────────────────────────── */
+const safety = (short) => `<div class="safety">
+  <span class="pill info">${ic("shield",14,2)}Paper account</span>
+  <span class="pill ok"><i class="d"></i>${short ? "Kill switch off" : "Kill switch released"}</span>
+  ${short ? "" : `<span class="pill">Auto-execute off</span><span class="pill warn">1 awaiting approval</span>`}
+</div>`;
+const stats = `<div class="stats">
+  <div class="stat"><div class="k">Market regime</div><div class="v">Expansion <span class="soft">Goldilocks</span></div><div class="s">70% of evidence, not yet confirmed</div></div>
+  <div class="stat"><div class="k">VIX</div><div class="v num">18.59</div><div class="s">as of 14 min ago</div></div>
+  <div class="stat"><div class="k">Last cycle</div><div class="v num">15 min</div><div class="s">ago</div></div>
+  <div class="stat"><div class="k">Memories</div><div class="v num">7,578</div><div class="s">3 recalled this cycle</div></div>
+</div>`;
+const chat = (compact) => `<section class="card chat">
+  <div class="card-h"><h3>Ask ARIA</h3><span class="sub">Local model · on your server</span></div>
+  <div class="msgs">
+    <div class="msg me"><div class="b">What changed since yesterday's report?</div></div>
+    <div class="msg it"><div class="av">${mark(26)}</div><div class="b">Two things moved. Travel and leisure now lead the bullish book, with RCL at +57.2 and CCL at +52.2. The crypto basket weakened across the board: XLM, EGLD and DOT are all below −60.${compact ? "" : " The regime call is unchanged: expansion, still unconfirmed."}
+      <div class="src"><span>Signal book · 14 min old</span><span>Macro regime · 2 h old</span></div></div></div>
+  </div>
+  ${compact ? "" : `<div class="chips"><span class="chip">Top 5 buy signals right now</span><span class="chip">Summarise the macro picture</span><span class="chip">Strongest ML consensus</span></div>`}
+  <div class="composer"><span class="ph">Ask about the market, a ticker or a trade idea</span><span class="rbtn">${ic("mic",18)}</span><span class="rbtn go">${ic("send",17,2.2)}</span></div>
+</section>`;
+const cognition = `<section class="card">
+  <div class="card-h"><h3>Live reasoning</h3><span class="sub">Cycle 1,206</span></div>
+  <div class="steps">
+    <div class="step"><span class="m">${ic("check",11,2.600)}</span><div><b>Orient</b><p>Reviewed the macro regime and market state</p></div></div>
+    <div class="step"><span class="m">${ic("check",11,2.600)}</span><div><b>Focus</b><p>Chose PSA, XEL and SPG to look at</p></div></div>
+    <div class="step"><span class="m">${ic("check",11,2.600)}</span><div><b>Recall</b><p>Found 3 similar past cycles</p></div></div>
+    <div class="step now"><span class="m"><i></i></span><div><b>Analyse</b><p>Comparing technical, fundamental and ML evidence for PSA</p></div></div>
+  </div>
+</section>`;
+const R = (t, n, s) => `<div class="row"><span class="tn"><span class="t">${t}</span><span class="n">${n}</span></span><span class="sc num ${s > 0 ? "up" : "dn"}">${s > 0 ? "+" : "−"}${Math.abs(s).toFixed(1)}</span></div>`;
+const signals = `<section class="card">
+  <div class="card-h"><h3>Signals</h3><span class="sub">487 scored · 14 min old</span></div>
+  <div class="two">
+    <div><div class="colh">Strongest</div><div class="rows">${R("RCL","Royal Caribbean",57.2)}${R("PSA","Public Storage",56.1)}${R("CCL","Carnival",52.2)}</div></div>
+    <div><div class="colh">Weakest</div><div class="rows">${R("XLM-USD","Stellar",-62.8)}${R("EGLD-USD","MultiversX",-62)}${R("DOT-USD","Polkadot",-60.5)}</div></div>
+  </div>
+</section>`;
+const statusLine = `<span class="live"></span>Thinking · started a reasoning cycle`;
+
+function ariaDesktop(dir) {
+  const body = `${stats.replace('class="stats"', 'class="stats card"')}
+    <div class="grid2">${chat()}<div class="stack">${cognition}${signals}</div></div>`;
+  if (dir === "a") return `<div class="shA">
+    <aside class="side">
+      <div class="brand">${mark(24)}ARIA</div>
+      <div class="find">${ic("research",15)}Search<kbd>Ctrl K</kbd></div>
+      <nav class="nav">${NAV.map(([i, l], k) => `<a class="${k ? "" : "on"}">${ic(i)}${l}${i === "portfolio" ? '<span class="bdg">1</span>' : ""}</a>`).join("")}</nav>
+      <div class="sfoot"><span class="live"></span>All systems running<span style="margin-left:auto">${ic("gear",16)}</span></div>
+    </aside>
+    <main><div class="top"><h2>Brain</h2><span class="psub">${statusLine}</span>${safety()}</div><div class="body">${body}</div></main></div>`;
+  if (dir === "b") return `<div class="shB">
+    <div class="top"><div class="brand">${mark(22)}ARIA</div>
+      <nav class="tnav">${NAV.map(([i, l], k) => `<a class="${k ? "" : "on"}">${l}</a>`).join("")}</nav>
+      <div class="tools"><span class="rbtn">${ic("research",17)}</span><span class="rbtn">${ic("gear",17)}</span></div></div>
+    <div class="body"><div class="hero"><div><h2>Brain</h2><p>${statusLine}</p></div>${safety()}</div>${body}</div></div>`;
+  return `<div class="shC">
+    <div class="top"><div class="brand">${mark(24)}ARIA</div>
+      <nav class="cap glass">${NAV.map(([i, l], k) => `<a class="${k ? "" : "on"}">${ic(i,16)}${l}</a>`).join("")}</nav>
+      <span class="rbtn">${ic("gear",18)}</span></div>
+    <div class="body"><div class="hero"><div><h2>Brain</h2><p>${statusLine}</p></div>${safety()}</div>${body}</div></div>`;
+}
+const sbar = `<div class="sbar"><span>9:41</span><i class="isl"></i><span class="r"><svg width="17" height="11" viewBox="0 0 17 11" fill="currentColor"><rect x="0" y="7" width="3" height="4" rx=".7"/><rect x="4.600" y="5" width="3" height="6" rx=".7"/><rect x="9.200" y="2.500" width="3" height="8.500" rx=".7"/><rect x="13.800" y="0" width="3" height="11" rx=".7"/></svg><i class="bat"></i></span></div>`;
+function ariaPhone(dir) {
+  const tabs = [["brain","Brain"],["research","Research"],["market","Market"],["portfolio","Portfolio"],["more","More"]];
+  return `${sbar}<div class="pscroll">
+    <div style="display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:13px;font-weight:600">
+      <span style="color:${dir === "b" ? "var(--ink)" : "var(--accent)"}">${mark(20)}</span>ARIA<span style="margin-left:auto">${safety(true)}</span></div>
+    <div class="ptitle">Brain</div><div class="psub">${statusLine}</div>
+    <div class="card" style="margin-top:14px;padding:16px">
+      <div class="stat"><div class="k">Market regime</div><div class="v" style="font-size:24px">Expansion <span class="soft">Goldilocks</span></div><div class="s">70% of evidence, not yet confirmed</div></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line2)">
+        <div class="stat"><div class="k">VIX</div><div class="v num" style="font-size:19px">18.59</div></div>
+        <div class="stat"><div class="k">Last cycle</div><div class="v num" style="font-size:19px">15 min</div></div>
+        <div class="stat"><div class="k">Memories</div><div class="v num" style="font-size:19px">7,578</div></div>
+      </div></div>
+    <div style="margin-top:12px">${chat(true)}</div>
+    <div style="margin-top:12px">${cognition}</div>
+  </div>
+  <nav class="tabbar glass">${tabs.map(([i, l], k) => `<a class="tab ${k ? "" : "on"}">${ic(i,23,1.800)}${l}</a>`).join("")}</nav>`;
+}
+
+/* ── SENTINEL content ───────────────────────────────────────────────── */
+const orb = (sm) => `<div class="orb ${sm ? "sm" : ""}"><i class="ring"></i><i class="ring r2"></i><i class="core"></i></div>`;
+const SACTS = [["brief","Brief"],["browser","Browser"],["command","Command"],["history","History"],["home","Environment"],["system","System"]];
+const rateRow = (state) => `<div class="rate">
+  <span class="rb good ${state === "good" ? "on" : ""}">${ic("up",16,1.800)}${state === "good" ? "Rated good" : "Good"}</span>
+  <span class="rb bad ${state === "bad" ? "on" : ""}">${ic("down",16,1.800)}Wrong</span>
+  <span class="meta">${state === "good" ? "4.2 s" : "1.1 s · device call failed"}</span></div>`;
+const fix = `<div class="fix"><label>What should it have said?</label>
+  <div class="ta">Check the plug first. That light has dropped off the network twice this week<i class="car"></i></div>
+  <small>Your correction is saved with this answer and used to teach the local model.</small>
+  <div class="fa"><span class="btn sec sm">Just mark wrong</span><span class="btn pri sm">Save correction</span></div></div>`;
+const turns = (withFix) => `
+  <div class="turn you"><div class="b">What needs my attention this morning?</div></div>
+  <div class="turn it"><div class="who">SENTINEL</div><div class="b">Three things. ARIA has an open disagreement on the semiconductor thesis that needs your call. Last night's backup finished at 03:10 and verified. And the office desk light has not answered since yesterday evening, so I am showing it as offline.</div>${rateRow("good")}</div>
+  <div class="turn you"><div class="b">Turn the office light back on.</div></div>
+  <div class="turn it"><div class="who">SENTINEL</div><div class="b">I could not reach it. The light did not answer, so nothing has changed and it still shows as offline.</div>${rateRow(withFix ? "bad" : "")}${withFix ? fix : ""}</div>`;
+const dock = `<div class="dock"><div class="composer"><span class="ph">Ask SENTINEL, or tell it to do something</span><span class="rbtn">${ic("mic",19)}</span><span class="rbtn go">${ic("send",17,2.200)}</span></div>
+  <div class="hint">Voice: George, British, generated on your server</div></div>`;
+const insp = `<aside class="insp glass">
+  <h4>System<span class="x">${ic("x",16)}</span></h4>
+  <div class="grp"><h5>Awaiting you <em>1</em></h5>
+    <div class="appr"><b>Restart the nightly backup job</b><p>Shell command · nothing has run yet</p>
+      <div class="fa"><span class="btn sec sm">Reject</span><span class="btn pri sm">Approve</span></div></div></div>
+  <div class="grp"><h5>Open disagreements <em>6</em></h5>
+    <div class="li">Is the semiconductor thesis still valid after the new export rules?<p>2 objections · from ARIA</p></div>
+    <div class="li">Should the weekly review move to Sunday evening?<p>1 objection</p></div></div>
+  <div class="grp"><h5>Capabilities</h5><div class="capg">
+    ${["Brain","Eyes","Ears","Thinking","Mouth","Legs"].map(n => `<div class="capi"><i></i>${n}<span>Ready</span></div>`).join("")}
+    <div class="capi deg"><i></i>Hands<span>Degraded</span></div></div></div>
+</aside>`;
+function senDesktop(dir) {
+  return `<div class="sen"><div class="stage">
+    <div class="top"><span class="wm">SENTINEL</span>
+      <nav class="acts glass">${SACTS.map(([i, l]) => `<a class="${i === "system" ? "on" : ""}">${ic(i,16)}${l}</a>`).join("")}</nav></div>
+    <div class="orbwrap">${orb()}</div>
+    <div class="state"><span class="live"></span><b>Idle</b>· all capabilities ready but one</div>
+    <div class="talk">${turns(false)}</div>${dock}</div>${insp}</div>`;
+}
+function senPhone(dir) {
+  return `${sbar}<div class="sen solo" style="position:absolute;inset:50px 0 0 0;height:auto"><div class="stage">
+    <div class="top" style="height:44px;padding:0 18px;border:0"><span class="wm">SENTINEL</span>
+      <span class="acts" style="background:none;border:0;padding:0"><span class="rbtn">${ic("history",20)}</span><span class="rbtn" style="position:relative">${ic("system",20)}<i style="position:absolute;top:5px;right:4px;width:8px;height:8px;border-radius:50%;background:var(--warn)"></i></span></span></div>
+    <div class="orbwrap" style="padding:2px 0 4px">${orb(true)}</div>
+    <div class="state"><span class="live"></span><b>Idle</b></div>
+    <div class="talk" style="width:calc(100% - 36px)">
+      <div class="turn you"><div class="b">Turn the office light back on.</div></div>
+      <div class="turn it"><div class="who">SENTINEL</div><div class="b">I could not reach it. The light did not answer, so nothing has changed and it still shows as offline.</div>${rateRow("bad")}${fix}</div>
+    </div>
+    <div class="dock" style="width:calc(100% - 36px);padding-bottom:30px"><div class="composer"><span class="ph">Ask SENTINEL</span><span class="rbtn">${ic("mic",19)}</span><span class="rbtn go">${ic("send",17,2.200)}</span></div></div>
+  </div></div>`;
+}
+
+/* ── the board ──────────────────────────────────────────────────────── */
+const DIRS = {
+  a: ["A · Studio", "The feel of a Mac pro app. A quiet grey sidebar, white surfaces, hairline borders, and one accent per app: blue for ARIA, warm gold for SENTINEL. Dense enough for real work, calm enough to leave open all day."],
+  b: ["B · Ink", "The feel of apple.com. Pure black and white, very large titles and numbers, no borders at all. Colour appears only where it means something: green, red, amber, and SENTINEL's gold core. The sharpest and most minimal of the three."],
+  c: ["C · Glass", "The feel of visionOS. Frosted panels floating over a soft colour wash: cool blue for ARIA, warm amber for SENTINEL. The most expressive of the three, and the least dense."],
+};
+const q = new URLSearchParams(location.hash.slice(1));
+let dir = q.get("dir") || "a", theme = q.get("theme") || "light";
+if (q.get("shot")) document.body.classList.add("shot");
+const app = (name, html) => `<div class="app" data-app="${name}" data-dir="${dir}" data-theme="${theme}">${html}</div>`;
+function render() {
+  document.body.classList.toggle("dark", theme === "dark");
+  for (const b of document.querySelectorAll("#segDir button")) b.classList.toggle("on", b.dataset.v === dir);
+  for (const b of document.querySelectorAll("#segTheme button")) b.classList.toggle("on", b.dataset.v === theme);
+  document.getElementById("lede").innerHTML = `<h2>${DIRS[dir][0]}<span style="opacity:.4;font-weight:500"> · ${theme}</span></h2><p>${DIRS[dir][1]}</p>`;
+  document.getElementById("board").innerHTML = `
+    <div class="lab">ARIA · desktop</div><div class="lab">ARIA · phone</div>
+    <div class="frame desktop">${app("aria", ariaDesktop(dir))}</div><div class="frame phone">${app("aria", ariaPhone(dir))}</div>
+    <div class="lab">SENTINEL · desktop</div><div class="lab">SENTINEL · phone</div>
+    <div class="frame desktop">${app("sentinel", senDesktop(dir))}</div><div class="frame phone">${app("sentinel", senPhone(dir))}</div>`;
+  fit();
+  history.replaceState(null, "", `#dir=${dir}&theme=${theme}${q.get("shot") ? "&shot=1" : ""}`);
+}
+function fit() {
+  const b = document.getElementById("board");
+  const z = Math.min(1, (innerWidth - 4) / 1790);
+  b.style.zoom = z;
+}
+document.getElementById("segDir").onclick = e => { const v = e.target.dataset.v; if (v) { dir = v; render(); } };
+document.getElementById("segTheme").onclick = e => { const v = e.target.dataset.v; if (v) { theme = v; render(); } };
+addEventListener("resize", fit);
+render();
+</script>
+</body>
+</html>
