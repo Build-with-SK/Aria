@@ -1,24 +1,27 @@
 /**
- * UI.jsx — Bloomberg Terminal component library
+ * UI.jsx — the small shared pieces every page is built from.
+ * Colours, radii and type come from the tokens in index.css.
  */
 import React from 'react'
 
 export function Spinner() {
+  const dot = delay => ({
+    width: 7, height: 7, background: 'var(--accent)', borderRadius: '50%',
+    animation: `blink 1.2s ${delay}s ease-in-out infinite`,
+  })
   return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', padding: 40, gap: 8, fontFamily:'var(--mono)', color:'var(--orange)', fontSize:12 }}>
-      <div style={{ width:10, height:10, background:'var(--orange)', borderRadius:'50%', animation:'blink 0.6s infinite' }} />
-      <div style={{ width:10, height:10, background:'var(--orange)', borderRadius:'50%', animation:'blink 0.6s 0.2s infinite' }} />
-      <div style={{ width:10, height:10, background:'var(--orange)', borderRadius:'50%', animation:'blink 0.6s 0.4s infinite' }} />
-      <span style={{ marginLeft:8 }}>LOADING DATA</span>
+    <div role="status" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40, gap: 6, color: 'var(--ink-3)', fontSize: 14 }}>
+      <div style={dot(0)} /><div style={dot(0.2)} /><div style={dot(0.4)} />
+      <span style={{ marginLeft: 8 }}>Loading data</span>
     </div>
   )
 }
 
 export function ErrorBox({ message }) {
   return (
-    <div className="bb-card" style={{ borderColor:'var(--red)', color:'var(--red)', fontFamily:'var(--mono)', fontSize:12 }}>
-      <div style={{ marginBottom:6 }}>⚠ ERROR: {message || 'API unreachable'}</div>
-      <div style={{ color:'var(--muted)', fontSize:11 }}>If this persists, the System page shows which service is failing.</div>
+    <div className="bb-card" role="alert" style={{ background: 'var(--red-bg)', borderColor: 'transparent', boxShadow: 'none', fontSize: 14 }}>
+      <div style={{ color: 'var(--red)', fontWeight: 600, marginBottom: 4 }}>Error: {message || 'API unreachable'}</div>
+      <div style={{ color: 'var(--ink-2)', fontSize: 13 }}>If this persists, the System page shows which service is failing.</div>
     </div>
   )
 }
@@ -46,26 +49,26 @@ export function ActionBadge({ action }) {
   const map = {
     'Strong Buy':   ['var(--green)', '▲▲'],
     'Buy':          ['var(--green)', '▲'],
-    'Mild Bullish': ['#44aa66',      '△'],
-    'Neutral':      ['var(--yellow)','─'],
-    'Mild Bearish': ['#cc7733',      '▽'],
+    'Mild Bullish': ['var(--green)', '△'],
+    'Neutral':      ['var(--yellow)', '–'],
+    'Mild Bearish': ['var(--yellow)', '▽'],
     'Sell':         ['var(--red)',   '▼'],
     'Strong Sell':  ['var(--red)',   '▼▼'],
   }
-  const [color, icon] = map[action] || ['var(--muted)', '?']
+  const [color, icon] = map[action] || ['var(--ink-3)', '?']
   return (
-    <span style={{ color, fontFamily:'var(--mono)', fontWeight:700, fontSize:12, letterSpacing:'0.05em' }}>
-      {icon} {action?.toUpperCase()}
+    <span style={{ color, fontWeight: 600, fontSize: 13.5, whiteSpace: 'nowrap' }}>
+      <span aria-hidden="true" style={{ fontSize: 10, marginRight: 5 }}>{icon}</span>{action}
     </span>
   )
 }
 
 export function MetricCard({ label, value, sub, color, size = 'md' }) {
   return (
-    <div className="bb-card" style={{ padding:'10px 12px' }}>
-      <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.1em', color:'var(--muted)', marginBottom:4, fontFamily:'var(--mono)' }}>{label}</div>
-      <div style={{ fontSize: size === 'lg' ? 22 : 16, fontWeight:700, fontFamily:'var(--mono)', color: color || 'var(--white)' }}>{value ?? '—'}</div>
-      {sub && <div style={{ fontSize:10, color:'var(--muted)', marginTop:2, fontFamily:'var(--mono)' }}>{sub}</div>}
+    <div className="bb-card" style={{ padding: '14px 16px' }}>
+      <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink-3)', marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: size === 'lg' ? 28 : 22, fontWeight: 650, letterSpacing: '-.02em', color: color || 'var(--ink)' }}>{value ?? '—'}</div>
+      {sub && <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 2 }}>{sub}</div>}
     </div>
   )
 }
@@ -75,19 +78,19 @@ export function ScoreBar({ score, label }) {
   const pct = Math.abs(s) / 2
   const color = s > 0 ? 'var(--green)' : s < 0 ? 'var(--red)' : 'var(--yellow)'
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ marginBottom: 10 }}>
       {label && (
-        <div style={{ display:'flex', justifyContent:'space-between', marginBottom:3 }}>
-          <span style={{ fontSize:10, color:'var(--muted)', fontFamily:'var(--mono)', textTransform:'uppercase', letterSpacing:'0.06em' }}>{label}</span>
-          <span style={{ fontSize:11, fontFamily:'var(--mono)', fontWeight:700, color }}>{s > 0 ? '+' : ''}{s.toFixed(1)}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 12.5, color: 'var(--ink-3)' }}>{label}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color }}>{s > 0 ? '+' : ''}{s.toFixed(1)}</span>
         </div>
       )}
       <div className="bar-track">
-        <div style={{ position:'absolute', left:'50%', top:0, width:1, height:'100%', background:'#333' }} />
+        <div style={{ position: 'absolute', left: '50%', top: 0, width: 1, height: '100%', background: 'var(--line-2)' }} />
         <div style={{
-          width:`${pct}%`, height:'100%', borderRadius:1,
+          width: `${pct}%`, height: '100%', borderRadius: 4,
           background: color,
-          position:'absolute',
+          position: 'absolute',
           [s >= 0 ? 'left' : 'right']: '50%',
           transition: 'width 0.5s ease',
         }} />
@@ -99,53 +102,50 @@ export function ScoreBar({ score, label }) {
 export function SectionHeader({ children, color }) {
   return (
     <div style={{
-      fontSize:9, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.12em',
-      color: color || 'var(--orange)',
-      borderBottom:'1px solid var(--border-2)',
-      paddingBottom:5, marginBottom:10,
-      fontFamily:'var(--mono)',
+      fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 650, letterSpacing: '-.01em',
+      color: color || 'var(--ink)', marginBottom: 10,
     }}>{children}</div>
   )
 }
 
 export function SeverityBadge({ severity }) {
-  const map = { CRITICAL:['var(--red)','▲'], WARNING:['var(--yellow)','!'], INFO:['var(--blue)','i'] }
-  const [color, icon] = map[severity] || ['var(--muted)','?']
-  return <span style={{ color, fontFamily:'var(--mono)', fontWeight:700, fontSize:11 }}>[{icon}] {severity}</span>
+  const tone = { CRITICAL: 'bad', WARNING: 'warn', INFO: 'info' }[severity] || ''
+  return <span className={`aria-pill ${tone}`} style={{ height: 24, fontSize: 12 }}>{severity}</span>
 }
 
 export function Empty({ message }) {
   return (
-    <div style={{ color:'var(--muted)', textAlign:'center', padding:32, fontFamily:'var(--mono)', fontSize:12 }}>
-      {message || 'NO DATA'}
+    <div style={{ color: 'var(--ink-3)', textAlign: 'center', padding: 32, fontSize: 14 }}>
+      {message || 'No data'}
     </div>
   )
 }
 
 export function TabBar({ tabs, active, onChange }) {
   return (
-    /* The restructure put merged pages behind these tabs, so a tab you cannot
-       reach is a page you cannot reach. Four tabs do not fit across a phone,
-       and the row neither wrapped nor scrolled — everything past the third was
-       simply gone. It scrolls now, and the buttons refuse to be squashed. */
-    <div style={{
-      display:'flex', borderBottom:'1px solid var(--border-2)', marginBottom:16, gap:0,
-      overflowX:'auto', overflowY:'hidden', scrollbarWidth:'thin', WebkitOverflowScrolling:'touch',
+    /* Merged pages live behind these tabs, so a tab you cannot reach is a page
+       you cannot reach. The row scrolls sideways on a phone and the buttons
+       refuse to be squashed. */
+    <div role="tablist" style={{
+      display: 'flex', gap: 4, marginBottom: 18, padding: 4, width: 'fit-content', maxWidth: '100%',
+      background: 'var(--inset)', borderRadius: 999,
+      overflowX: 'auto', overflowY: 'hidden', scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch',
     }}>
-      {tabs.map(t => (
-        <button key={t.id} onClick={() => onChange(t.id)}
-          style={{
-            padding:'7px 16px', background:'none', border:'none', cursor:'pointer',
-            flexShrink:0, whiteSpace:'nowrap',
-            fontFamily:'var(--mono)', fontSize:11, fontWeight:600, letterSpacing:'0.06em',
-            textTransform:'uppercase',
-            color: active === t.id ? 'var(--orange)' : 'var(--muted)',
-            borderBottom: active === t.id ? '2px solid var(--orange)' : '2px solid transparent',
-            transition: 'color 0.15s',
-          }}>
-          {t.icon} {t.label}
-        </button>
-      ))}
+      {tabs.map(t => {
+        const on = active === t.id
+        return (
+          <button key={t.id} role="tab" aria-selected={on} onClick={() => onChange(t.id)}
+            style={{
+              height: 34, padding: '0 15px', border: 'none', borderRadius: 999,
+              flexShrink: 0, whiteSpace: 'nowrap', fontSize: 13.5, fontWeight: on ? 600 : 550,
+              color: on ? 'var(--ink)' : 'var(--ink-2)',
+              background: on ? 'var(--sheet)' : 'transparent',
+              boxShadow: on ? '0 1px 4px rgba(10,20,50,.14)' : 'none',
+            }}>
+            {t.icon} {t.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -165,7 +165,7 @@ export function ScoreGauge({ score, size = 140 }) {
   const x2 = cx + R * Math.cos(toRad(arcEnd))
   const y2 = cy + R * Math.sin(toRad(arcEnd))
   const largeArc = sweepAngle * norm > 180 ? 1 : 0
-  const color = s >= 40 ? '#00cc44' : s >= 10 ? '#44aa44' : s <= -40 ? '#ff3333' : s <= -10 ? '#cc3333' : '#ffcc00'
+  const color = s >= 10 ? 'var(--green)' : s <= -10 ? 'var(--red)' : 'var(--yellow)'
   const trackX2 = cx + R * Math.cos(toRad(startAngle + sweepAngle))
   const trackY2 = cy + R * Math.sin(toRad(startAngle + sweepAngle))
 
@@ -174,21 +174,20 @@ export function ScoreGauge({ score, size = 140 }) {
       {/* Track */}
       <path
         d={`M${x1} ${y1} A${R} ${R} 0 1 1 ${trackX2} ${trackY2}`}
-        fill="none" stroke="#1a1a1a" strokeWidth={10} strokeLinecap="round"
+        fill="none" stroke="var(--inset)" strokeWidth={10} strokeLinecap="round"
       />
       {/* Arc */}
       {norm > 0.01 && (
         <path
           d={`M${x1} ${y1} A${R} ${R} 0 ${largeArc} 1 ${x2} ${y2}`}
           fill="none" stroke={color} strokeWidth={10} strokeLinecap="round"
-          style={{ filter:`drop-shadow(0 0 6px ${color})` }}
         />
       )}
       {/* Score */}
-      <text x={cx} y={cy - 4} textAnchor="middle" fill={color} fontSize={size * 0.2} fontWeight="700" fontFamily="var(--mono)">
+      <text x={cx} y={cy - 4} textAnchor="middle" fill={color} fontSize={size * 0.2} fontWeight="650">
         {s > 0 ? '+' : ''}{s.toFixed(0)}
       </text>
-      <text x={cx} y={cy + 14} textAnchor="middle" fill="var(--muted)" fontSize={10} fontFamily="var(--mono)">
+      <text x={cx} y={cy + 14} textAnchor="middle" fill="var(--ink-3)" fontSize={12}>
         /100
       </text>
     </svg>
@@ -197,13 +196,13 @@ export function ScoreGauge({ score, size = 140 }) {
 
 /* ── Conflict flag row ─────────────────────────────────── */
 export function ConflictRow({ conflict }) {
-  const color = conflict.severity === 'HIGH' ? 'var(--red)' : conflict.severity === 'MEDIUM' ? 'var(--yellow)' : 'var(--muted)'
+  const color = conflict.severity === 'HIGH' ? 'var(--red)' : conflict.severity === 'MEDIUM' ? 'var(--yellow)' : 'var(--ink-3)'
   return (
-    <div style={{ borderLeft:`2px solid ${color}`, paddingLeft:10, marginBottom:10 }}>
-      <div style={{ fontSize:10, fontFamily:'var(--mono)', color, fontWeight:700, marginBottom:2 }}>
-        [{conflict.severity}] {conflict.description?.slice(0, 80)}
+    <div style={{ borderLeft: `3px solid ${color}`, paddingLeft: 12, marginBottom: 12 }}>
+      <div style={{ fontSize: 13.5, color, fontWeight: 600, marginBottom: 2 }}>
+        {conflict.severity} · {conflict.description?.slice(0, 80)}
       </div>
-      <div style={{ fontSize:10, color:'var(--muted)', fontFamily:'var(--mono)' }}>{conflict.impact?.slice(0, 100)}</div>
+      <div style={{ fontSize: 13, color: 'var(--ink-2)' }}>{conflict.impact?.slice(0, 100)}</div>
     </div>
   )
 }

@@ -25,15 +25,15 @@ import TechnicalDashboard from './TechnicalDashboard'
 import { isExactGoldContract } from './technicalEvidence'
 import { analysisRequestPlan } from './researchSelection'
 
-const MONO = 'var(--mono)'
+const MONO = 'var(--font)'
 const LABEL_COLOR = {
-  'Strong Buy': 'var(--green)', Buy: '#7fd18b', Neutral: 'var(--muted)',
-  Sell: '#e88', 'Strong Sell': 'var(--red)',
+  'Strong Buy': 'var(--green)', Buy: 'var(--green)', Neutral: 'var(--ink-3)',
+  Sell: 'var(--red)', 'Strong Sell': 'var(--red)',
 }
-const VIEW_COLOR = { bull: 'var(--green)', bear: 'var(--red)', neutral: 'var(--muted)', abstain: '#4a4a55' }
+const VIEW_COLOR = { bull: 'var(--green)', bear: 'var(--red)', neutral: 'var(--ink-3)', abstain: 'var(--line)' }
 const pct = (x, d = 0) => (x == null ? '—' : `${(x * 100).toFixed(d)}%`)
 
-function Mono({ children, size = 11, color = 'var(--muted)', weight = 400, style }) {
+function Mono({ children, size = 11, color = 'var(--ink-3)', weight = 400, style }) {
   return <span style={{ fontFamily: MONO, fontSize: size, color, fontWeight: weight, ...style }}>{children}</span>
 }
 
@@ -43,8 +43,8 @@ function Meter({ counts, width = 96 }) {
   const total = buy + sell + neutral || 1
   const seg = (n, c) => (n ? <div style={{ width: `${(n / total) * 100}%`, background: c, height: 6 }} /> : null)
   return (
-    <div style={{ display: 'flex', width, height: 6, borderRadius: 3, overflow: 'hidden', border: '1px solid var(--border)' }}>
-      {seg(buy, 'var(--green)')}{seg(neutral, '#2a2a34')}{seg(sell, 'var(--red)')}
+    <div style={{ display: 'flex', width, height: 6, borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)' }}>
+      {seg(buy, 'var(--green)')}{seg(neutral, 'var(--line)')}{seg(sell, 'var(--red)')}
     </div>
   )
 }
@@ -52,15 +52,15 @@ function Meter({ counts, width = 96 }) {
 /* one module: verdict, interval, and the evidence behind it */
 function ModuleCard({ m }) {
   const [open, setOpen] = useState(false)
-  const col = VIEW_COLOR[m.view] || 'var(--muted)'
+  const col = VIEW_COLOR[m.view] || 'var(--ink-3)'
   const abstained = m.insufficient_data
   return (
     <div style={{
-      border: '1px solid var(--border)', borderRadius: 5, padding: '9px 11px',
-      marginBottom: 7, background: 'rgba(255,255,255,.012)', opacity: abstained ? 0.62 : 1,
+      border: '1px solid var(--line)', borderRadius: 12, padding: '9px 11px',
+      marginBottom: 7, background: 'var(--inset)', opacity: abstained ? 0.62 : 1,
     }}>
       <div onClick={() => setOpen(o => !o)} style={{ cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'baseline', flexWrap: 'wrap' }}>
-        <Mono size={11} color="var(--text)" weight={700} style={{ minWidth: 150 }}>{m.module}</Mono>
+        <Mono size={11} color="var(--ink)" weight={700} style={{ minWidth: 150 }}>{m.module}</Mono>
         <Mono size={10} color={col} weight={800} style={{ minWidth: 58 }}>{(m.view || '').toUpperCase()}</Mono>
         {!abstained && (
           <>
@@ -75,23 +75,23 @@ function ModuleCard({ m }) {
         )}
         <Mono size={9} style={{ marginLeft: 'auto' }}>{open ? '▲ hide' : '▼ evidence'}</Mono>
       </div>
-      <div style={{ color: abstained ? 'var(--muted)' : 'var(--text)', fontSize: 11, lineHeight: 1.55, marginTop: 5 }}>
+      <div style={{ color: abstained ? 'var(--ink-3)' : 'var(--ink)', fontSize: 13, lineHeight: 1.55, marginTop: 5 }}>
         {abstained ? m.reason : m.thesis}
       </div>
 
       {open && !abstained && (
         <div style={{ marginTop: 8 }}>
           {(m.evidence || []).map((e, i) => (
-            <div key={i} style={{ borderLeft: `2px solid ${VIEW_COLOR[e.lean] || '#2a2a34'}`, paddingLeft: 8, marginBottom: 6 }}>
-              <div style={{ color: 'var(--text)', fontSize: 11 }}>{e.claim}</div>
+            <div key={i} style={{ borderLeft: `2px solid ${VIEW_COLOR[e.lean] || 'var(--line)'}`, paddingLeft: 8, marginBottom: 6 }}>
+              <div style={{ color: 'var(--ink)', fontSize: 13 }}>{e.claim}</div>
               <Mono size={8.5}>source: {e.source}</Mono>
             </div>
           ))}
           {!!(m.weaknesses || []).filter(Boolean).length && (
             <div style={{ marginTop: 7 }}>
-              <Mono size={9} color="var(--red)" weight={800}>WHAT THIS MODULE GETS WRONG</Mono>
+              <Mono size={9} color="var(--red)" weight={800}>What this module gets wrong</Mono>
               {m.weaknesses.filter(Boolean).map((w, i) => (
-                <div key={i} style={{ color: 'var(--muted)', fontSize: 10.5, marginTop: 3 }}>— {w}</div>
+                <div key={i} style={{ color: 'var(--ink-3)', fontSize: 12.5, marginTop: 3 }}>— {w}</div>
               ))}
             </div>
           )}
@@ -109,21 +109,21 @@ function FamilyVerdict({ modules, title }) {
   const net = voting.reduce((s, m) => s + Number(m.net || 0), 0) / voting.length
   const bulls = voting.filter(m => m.view === 'bull').length
   const bears = voting.filter(m => m.view === 'bear').length
-  const col = net > 5 ? 'var(--green)' : net < -5 ? 'var(--red)' : 'var(--muted)'
+  const col = net > 5 ? 'var(--green)' : net < -5 ? 'var(--red)' : 'var(--ink-3)'
   const word = net > 5 ? 'BULLISH' : net < -5 ? 'BEARISH' : 'MIXED / NEUTRAL'
   return (
     <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
       <div>
-        <Mono size={9}>{title.toUpperCase()} VERDICT</Mono>
-        <div style={{ fontFamily: MONO, fontSize: 17, fontWeight: 800, color: col }}>{word}</div>
+        <Mono size={9}>{title.toUpperCase()} verdict</Mono>
+        <div style={{ fontFamily: MONO, fontSize: 18, fontWeight: 600, color: col }}>{word}</div>
       </div>
       <div>
-        <Mono size={9}>AVERAGE NET</Mono>
-        <div style={{ fontFamily: MONO, fontSize: 15, color: col }}>{net > 0 ? '+' : ''}{net.toFixed(1)}</div>
+        <Mono size={9}>Average net</Mono>
+        <div style={{ fontFamily: MONO, fontSize: 16, color: col }}>{net > 0 ? '+' : ''}{net.toFixed(1)}</div>
       </div>
       <div>
-        <Mono size={9}>AGREEMENT</Mono>
-        <div style={{ fontFamily: MONO, fontSize: 13, color: 'var(--text)' }}>
+        <Mono size={9}>Agreement</Mono>
+        <div style={{ fontFamily: MONO, fontSize: 14, color: 'var(--ink)' }}>
           {bulls} bull · {bears} bear · {voting.length - bulls - bears} neutral
         </div>
       </div>
@@ -142,16 +142,16 @@ function TradeLevels({ v5, symbol }) {
   const cell = (label, value, color) => (
     <div key={typeof label === 'string' ? label : undefined}>
       <Mono size={9}>{label}</Mono>
-      <div style={{ fontFamily: MONO, fontSize: 14, color: color || 'var(--text)', fontWeight: 700 }}>{value}</div>
+      <div style={{ fontFamily: MONO, fontSize: 15, color: color || 'var(--ink)', fontWeight: 600 }}>{value}</div>
     </div>
   )
   const sized = Number(rec.position_size_pct || 0) > 0
-  const verdictColor = { APPROVE: 'var(--green)', REDUCE: 'var(--orange)' }[risk.verdict] || 'var(--muted)'
+  const verdictColor = { APPROVE: 'var(--green)', REDUCE: 'var(--accent)' }[risk.verdict] || 'var(--ink-3)'
 
   return (
-    <div style={{ border: '1px solid var(--border-2)', borderRadius: 5, padding: 11, marginBottom: 12 }}>
+    <div style={{ border: '1px solid var(--line-2)', borderRadius: 12, padding: 11, marginBottom: 12 }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'baseline', marginBottom: 9, flexWrap: 'wrap' }}>
-        <Mono size={9}><Term k="risk gate">RISK GATE</Term></Mono>
+        <Mono size={9}><Term k="risk gate">Risk gate</Term></Mono>
         <Mono size={12} color={verdictColor} weight={800}>{risk.verdict}</Mono>
         <Mono size={10}>
           confidence {rec.confidence_band} · direction {rec.direction}
@@ -159,25 +159,25 @@ function TradeLevels({ v5, symbol }) {
       </div>
       <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'baseline' }}>
         {cell('ENTRY', p(rec.entry))}
-        {cell(<Term k="stop loss">STOP LOSS</Term>, p(rec.stop), 'var(--red)')}
-        {cell(<Term k="target">TARGET</Term>, p(rec.target), 'var(--green)')}
-        {cell(<Term k="reward : risk">REWARD : RISK</Term>, risk.reward_risk ? `${Number(risk.reward_risk).toFixed(1)} : 1` : '—')}
+        {cell(<Term k="stop loss">Stop loss</Term>, p(rec.stop), 'var(--red)')}
+        {cell(<Term k="target">Target</Term>, p(rec.target), 'var(--green)')}
+        {cell(<Term k="reward : risk">Reward : risk</Term>, risk.reward_risk ? `${Number(risk.reward_risk).toFixed(1)} : 1` : '—')}
         {cell('SUGGESTED SIZE', sized ? `${Number(rec.position_size_pct).toFixed(2)}% of equity` : 'ZERO',
-              sized ? undefined : 'var(--muted)')}
+              sized ? undefined : 'var(--ink-3)')}
         {sized && cell('IF STOPPED', `−${Number(rec.max_loss_pct_of_equity || 0).toFixed(2)}% of equity`, 'var(--red)')}
       </div>
       {/* A zero size next to a stop and target reads like a bug unless the
           reason is on screen. It is the risk gate refusing, not a missing number. */}
       {!sized && (
-        <div style={{ color: 'var(--orange)', fontSize: 11, marginTop: 8, lineHeight: 1.55 }}>
+        <div style={{ color: 'var(--accent)', fontSize: 13, marginTop: 8, lineHeight: 1.55 }}>
           Size is zero: the risk gate returned {risk.verdict} at {rec.confidence_band} confidence.
           The levels above are what a trade WOULD use if the setup earned one — they are reference
           geometry, not a recommendation to enter.
         </div>
       )}
-      <div style={{ marginTop: 9, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-        <Mono size={9} color="var(--orange)" weight={800}>INVALIDATION — WHAT WOULD PROVE THIS WRONG</Mono>
-        <div style={{ color: 'var(--text)', fontSize: 11, marginTop: 3, lineHeight: 1.55 }}>{rec.invalidation}</div>
+      <div style={{ marginTop: 9, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+        <Mono size={9} color="var(--accent)" weight={800}>Invalidation — what would prove this wrong</Mono>
+        <div style={{ color: 'var(--ink)', fontSize: 13, marginTop: 3, lineHeight: 1.55 }}>{rec.invalidation}</div>
       </div>
       <div style={{ marginTop: 7 }}>
         <Mono size={9}>
@@ -209,12 +209,12 @@ function RatioGrid({ dossier, currencyOf }) {
   ]
   return (
     <div style={{ marginTop: 12 }}>
-      <Mono size={9} color="var(--orange)" weight={800}>REPORTED FIGURES</Mono>
+      <Mono size={9} color="var(--accent)" weight={800}>Reported figures</Mono>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: '7px 16px', marginTop: 6 }}>
         {rows.map(([k, v]) => (
           <div key={k}>
             <Mono size={8.5}>{k.toUpperCase()}</Mono>
-            <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--text)' }}>{v}</div>
+            <div style={{ fontFamily: MONO, fontSize: 14, color: 'var(--ink)' }}>{v}</div>
           </div>
         ))}
       </div>
@@ -255,19 +255,19 @@ function AnalysisProgress() {
             opacity: done ? 0.55 : active ? 1 : 0.28, transition: 'opacity .3s ease',
           }}>
             <span style={{
-              fontFamily: MONO, fontSize: 10, width: 13, textAlign: 'center',
-              color: done ? 'var(--green)' : active ? 'var(--orange)' : 'var(--muted)',
+              fontFamily: MONO, fontSize: 12, width: 13, textAlign: 'center',
+              color: done ? 'var(--green)' : active ? 'var(--accent)' : 'var(--ink-3)',
             }}>{done ? '✓' : active ? '▸' : '·'}</span>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: active ? 'var(--text)' : 'var(--muted)' }}>
+            <span style={{ fontFamily: MONO, fontSize: 13, color: active ? 'var(--ink)' : 'var(--ink-3)' }}>
               {label}
             </span>
           </div>
         )
       })}
-      <div style={{ marginTop: 10, height: 3, background: 'var(--border)', borderRadius: 2, overflow: 'hidden' }}>
+      <div style={{ marginTop: 10, height: 3, background: 'var(--line)', borderRadius: 8, overflow: 'hidden' }}>
         <div style={{
           height: '100%', width: `${((i + 1) / STEPS.length) * 100}%`,
-          background: 'var(--orange)', transition: 'width .5s cubic-bezier(.22,.7,.3,1)',
+          background: 'var(--accent)', transition: 'width .5s cubic-bezier(.22,.7,.3,1)',
         }} />
       </div>
       <div style={{ marginTop: 6 }}>
@@ -319,13 +319,13 @@ export default function ResearchAnalysis({ symbol, dossier, currency, technicalO
     <>
       {/* ── TECHNICAL ── */}
       <div className="bb-card">
-        <div className="bb-card-header">{includeTechnical || technicalOnly ? 'TECHNICAL ANALYSIS' : 'ARIA ENGINE ANALYSIS'}</div>
+        <div className="bb-card-header">{includeTechnical || technicalOnly ? 'Technical analysis' : 'ARIA engine analysis'}</div>
         {state === 'idle' && (
           <div style={{ padding: '10px 2px' }}>
             <button onClick={run} style={{
-              fontFamily: MONO, fontSize: 11, fontWeight: 700, padding: '7px 16px', cursor: 'pointer',
-              background: 'none', border: '1px solid var(--orange)', color: 'var(--orange)', borderRadius: 4,
-            }}>{standalone ? 'RUN TECHNICAL ANALYSIS ON' : includeTechnical ? 'RUN FULL ANALYSIS ON' : 'RUN ENGINE ANALYSIS ON'} {symbol}</button>
+              fontFamily: MONO, fontSize: 13, fontWeight: 600, padding: '7px 16px', cursor: 'pointer',
+              background: 'none', border: '1px solid var(--accent)', color: 'var(--accent)', borderRadius: 10,
+            }}>{standalone ? 'Run technical analysis on' : includeTechnical ? 'Run full analysis on' : 'Run engine analysis on'} {symbol}</button>
             <div style={{ marginTop: 7 }}>
               <Mono size={10}>
                 {standalone
@@ -338,7 +338,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency, technicalO
           </div>
         )}
         {state === 'loading' && (standalone ? <Mono>Checking nine timeframes for {symbol}… Provider coverage and history vary by listing.</Mono> : <AnalysisProgress />)}
-        {state === 'error' && <div style={{ color: 'var(--red)', fontFamily: MONO, fontSize: 11 }}>{err}</div>}
+        {state === 'error' && <div style={{ color: 'var(--red)', fontFamily: MONO, fontSize: 13 }}>{err}</div>}
 
         {tech && <TechnicalDashboard symbol={symbol} tech={tech} onRefresh={run} />}
         {state === 'ready' && !standalone && <>
@@ -346,7 +346,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency, technicalO
           <TradeLevels v5={v5} symbol={symbol} />
 
           <div style={{ marginTop: 14 }}>
-            <Mono size={9} color="var(--orange)" weight={800}>ENGINE-BY-ENGINE — CLICK ANY FOR ITS EVIDENCE</Mono>
+            <Mono size={9} color="var(--accent)" weight={800}>Engine-by-engine — click any for its evidence</Mono>
             <div style={{ marginTop: 7 }}>
               {technical.map(m => <ModuleCard key={m.module} m={m} />)}
             </div>
@@ -357,7 +357,7 @@ export default function ResearchAnalysis({ symbol, dossier, currency, technicalO
       {/* ── FUNDAMENTAL ── */}
       {state === 'ready' && !standalone && (
         <div className="bb-card">
-          <div className="bb-card-header">FUNDAMENTAL ANALYSIS</div>
+          <div className="bb-card-header">Fundamental analysis</div>
           <FamilyVerdict modules={fundamental} title="Fundamental" />
           <div style={{ marginTop: 4 }}>
             {fundamental.map(m => <ModuleCard key={m.module} m={m} />)}

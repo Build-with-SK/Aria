@@ -1,6 +1,6 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react'
+import React, { lazy, Suspense } from 'react'
 import { Link, Navigate, Routes, Route, useLocation } from 'react-router-dom'
-import Sidebar   from './components/Sidebar'
+import Navigation, { Mark } from './components/Navigation'
 import ErrorBoundary from './components/ErrorBoundary'
 import ConnectionBanner from './components/ConnectionBanner'
 import CommandPalette from './components/CommandPalette'
@@ -14,7 +14,7 @@ import { useSummary } from './hooks/useApi'
 
 /* Route-level code splitting. The whole app used to ship as one 864 KB bundle,
    so a phone on mobile data downloaded the desk, the quant lab and every chart
-   library before it could render the landing page. Chat and the command deck
+   library before it could render the landing page. Chat and the Brain
    stay eager (they are where people land); the rest arrive when opened. */
 const Research = lazy(() => import('./pages/Research'))
 const Market = lazy(() => import('./pages/Market'))
@@ -34,25 +34,7 @@ const DailyReport = lazy(() => import('./pages/DailyReport'))
    it, never a second one. */
 const BrainPulse = lazy(() => import('./pages/BrainPublic'))
 
-/* ── cinematic boot splash — plays once per browser session ── */
-function Boot() {
-  const [gone, setGone] = useState(() => sessionStorage.getItem('aria-booted') === '1')
-  useEffect(() => {
-    if (gone) return
-    const t = setTimeout(() => { sessionStorage.setItem('aria-booted', '1'); setGone(true) }, 2750)
-    return () => clearTimeout(t)
-  }, [gone])
-  if (gone) return null
-  return (
-    <div id="aria-boot">
-      <div className="word">ARIA</div>
-      <div className="bar"><i /></div>
-      <div className="sub">OPEN&nbsp;FINANCE&nbsp;INTELLIGENCE</div>
-    </div>
-  )
-}
-
-/* ── live signal tape across the top ── */
+/* ── signal tape: the strongest and weakest scores, each a link ── */
 function TickerTape() {
   const { data } = useSummary()
   if (!data?.top_bullish?.length) return null
@@ -61,28 +43,26 @@ function TickerTape() {
     ...(data.top_bullish || []).map(s => ({ ticker: s.ticker, score: s.score, dir: 1 })),
     ...(data.top_bearish || []).map(s => ({ ticker: s.ticker, score: s.score, dir: -1 })),
   ]
-  const tape = [...items, ...items] // double for seamless loop
+  const tape = [...items, ...items] // doubled so the loop has no seam
 
   return (
-    <div className="aria-tape" style={{
-      background: 'linear-gradient(180deg, rgba(255,36,71,0.04), transparent), #060308',
-      borderBottom: '1px solid var(--border)',
-    }}>
-      <div className="ticker-inner" style={{ gap: 0 }}>
-        {/* Every ticker on the tape opens its research dossier. The tape keeps
-            scrolling; the CSS animation pauses on hover so a moving target can
-            actually be clicked. */}
+    <div className="aria-tape" aria-label="Strongest and weakest signals">
+      <div className="ticker-inner">
+        {/* Every ticker opens its research dossier. The strip pauses on hover
+            so a moving target can actually be clicked. */}
         {tape.map((t, i) => (
           <Link key={i} to={`/research?symbol=${encodeURIComponent(t.ticker)}`}
-            title={`Open ${t.ticker} research`}
+            title={`Open ${t.ticker} research`} aria-hidden={i >= items.length ? 'true' : undefined}
+            tabIndex={i >= items.length ? -1 : undefined}
             style={{
-              fontFamily: 'var(--mono)', fontSize: 11, padding: '0 18px',
-              color: t.dir > 0 ? 'var(--green)' : 'var(--red)',
-              borderRight: '1px solid var(--border)',
-              whiteSpace: 'nowrap', textDecoration: 'none',
-              textShadow: t.dir > 0 ? '0 0 8px rgba(43,227,139,.35)' : '0 0 8px rgba(255,85,96,.35)',
+              display: 'inline-flex', alignItems: 'center', gap: 7, height: 28, padding: '0 11px',
+              borderRadius: 999, background: 'var(--surface)', border: '1px solid var(--edge)',
+              fontSize: 12.5, fontWeight: 600, color: 'var(--ink-2)', textDecoration: 'none',
             }}>
-            {t.ticker} <strong>{t.score > 0 ? '+' : ''}{parseFloat(t.score).toFixed(1)}</strong>
+            {t.ticker}
+            <span style={{ color: t.dir > 0 ? 'var(--green)' : 'var(--red)' }}>
+              {t.score > 0 ? '+' : ''}{parseFloat(t.score).toFixed(1)}
+            </span>
           </Link>
         ))}
       </div>
@@ -93,7 +73,7 @@ function TickerTape() {
 /* Shown while a route chunk downloads — a calm skeleton, not a spinner. */
 function PageLoading() {
   const bar = (w, h = 12, delay = 0) => (
-    <div className="aria-skeleton" style={{ width: w, height: h, borderRadius: 4, marginBottom: 10,
+    <div className="aria-skeleton" style={{ width: w, height: h, borderRadius: 10, marginBottom: 10,
       animationDelay: `${delay}s` }} />
   )
   return (
@@ -103,7 +83,7 @@ function PageLoading() {
       {bar('58%', 10, .06)}
       <div style={{ display: 'flex', gap: 12, margin: '18px 0' }}>
         {[0, 1, 2, 3].map(i => (
-          <div key={i} className="aria-skeleton" style={{ flex: 1, height: 68, borderRadius: 6,
+          <div key={i} className="aria-skeleton" style={{ flex: 1, height: 68, borderRadius: 12,
             animationDelay: `${i * .05}s` }} />
         ))}
       </div>
@@ -129,12 +109,12 @@ export default function App() {
   // slow link, briefly imply access that is not there.
   if (!ready) {
     return (
-      <div style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#050206', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)',
-        letterSpacing: '0.18em',
+      <div role="status" style={{
+        minHeight: '100vh', display: 'flex', flexDirection: 'column', gap: 14,
+        alignItems: 'center', justifyContent: 'center', color: 'var(--ink-3)', fontSize: 14,
       }}>
-        <div className="aria-boot-pulse">AUTHENTICATING…</div>
+        <span style={{ color: 'var(--accent)', animation: 'blink 1.6s ease-in-out infinite' }}><Mark size={40} /></span>
+        Checking your session…
       </div>
     )
   }
@@ -152,18 +132,14 @@ export default function App() {
   if (loc.pathname === '/login') return <Navigate to="/" replace />
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
+    <div className="aria-app">
       <StepUpPrompt />
-      <Boot />
-      {/* CRT scanlines + sweep + drifting grid */}
-      <div className="scanline" />
-
       <ConnectionBanner />
-      <Sidebar />
+      <Navigation />
       <CommandPalette />
       <TickerTape />
 
-      <main className="aria-main" style={{ flex: 1, minHeight: '100vh', maxWidth: '100%' }}>
+      <main className="aria-main">
         {/* key on pathname → every page mounts with the rise-in transition */}
         <div key={loc.pathname} className="page-enter">
           <ErrorBoundary resetKey={loc.pathname}>
@@ -237,6 +213,10 @@ export default function App() {
           </Suspense>
           </ErrorBoundary>
         </div>
+        <footer style={{ marginTop: 40, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.7, textAlign: 'center' }}>
+          Research and education only · Not financial advice<br />
+          ARIA · by Soundariyan Karunakaran
+        </footer>
       </main>
     </div>
   )

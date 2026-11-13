@@ -2,10 +2,9 @@
  * components/Settings.jsx
  * One place for everything that changes how ARIA looks and behaves.
  *
- * The currency picker and the accessibility controls used to sit loose in the
- * sidebar, competing with navigation for attention. Settings are not
- * navigation — you set them once and forget them — so they live behind a
- * single button and open in a dialog that keeps your place on the page.
+ * Settings are not navigation — you set them once and forget them — so they
+ * live behind a single button and open in a sheet that keeps your place on
+ * the page.
  *
  * Accessible dialog: focus moves in on open, Escape closes, the backdrop
  * closes, and focus returns to the button that opened it.
@@ -15,7 +14,6 @@ import { CURRENCY_META, useCurrency } from '../currency/CurrencyContext'
 import { applyA11y, loadA11y } from './Accessibility'
 import { useAuth } from '../auth/AuthContext'
 
-const MONO = 'var(--mono)'
 const A11Y_KEY = 'aria-a11y'
 
 const SIZES = [
@@ -24,36 +22,44 @@ const SIZES = [
   { id: 'larger', label: 'Larger' },
   { id: 'largest', label: 'Largest' },
 ]
+const THEMES = [
+  { id: 'system', label: 'Match device' },
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+]
 
 function Section({ title, hint, children }) {
   return (
-    <div style={{ marginBottom: 22 }}>
-      <div style={{ fontFamily: MONO, fontSize: 10, fontWeight: 800, letterSpacing: '.18em', color: 'var(--orange)' }}>
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 650, color: 'var(--ink)' }}>
         {title}
       </div>
       {hint && (
-        <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)', marginTop: 3, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.55 }}>
           {hint}
         </div>
       )}
-      <div style={{ marginTop: 9 }}>{children}</div>
+      <div style={{ marginTop: 10 }}>{children}</div>
     </div>
   )
 }
 
+/* A segmented control: one choice of a few. */
 function Choice({ options, value, onChange, ariaLabel }) {
   return (
-    <div role="group" aria-label={ariaLabel} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    <div role="group" aria-label={ariaLabel} style={{
+      display: 'inline-flex', gap: 4, flexWrap: 'wrap', padding: 4, borderRadius: 999, background: 'var(--inset)',
+    }}>
       {options.map(o => {
         const active = value === o.id
         return (
           <button key={o.id} onClick={() => onChange(o.id)} aria-pressed={active}
             style={{
-              fontFamily: MONO, fontSize: 11, fontWeight: 700, padding: '7px 14px',
-              cursor: 'pointer', borderRadius: 4, minHeight: 30,
-              background: active ? 'var(--orange)' : 'transparent',
-              color: active ? '#000' : 'var(--text-dim)',
-              border: `1px solid ${active ? 'var(--orange)' : 'var(--border-2)'}`,
+              fontSize: 13.5, fontWeight: active ? 600 : 550, padding: '0 15px', minHeight: 34,
+              borderRadius: 999, border: 'none',
+              background: active ? 'var(--sheet)' : 'transparent',
+              color: active ? 'var(--ink)' : 'var(--ink-2)',
+              boxShadow: active ? '0 1px 4px rgba(10,20,50,.14)' : 'none',
             }}>
             {o.label}
           </button>
@@ -66,9 +72,8 @@ function Choice({ options, value, onChange, ariaLabel }) {
 /**
  * The account block.
  *
- * ARIA has one account — the owner's — and no sign-up. The "create an account"
- * prompt that used to sit here described the OAuth providers, which are gone;
- * offering registration on a single-owner system is a door to nowhere.
+ * ARIA has one account — the owner's — and no sign-up. Offering registration
+ * on a single-owner system is a door to nowhere.
  */
 function Account() {
   const { ready, authenticated, owner, role, user, logout } = useAuth()
@@ -89,36 +94,23 @@ function Account() {
     : 'Not signed in'
 
   return (
-    <div>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: 12, padding: '10px 12px', borderRadius: 4,
-        border: '1px solid var(--border-2)', background: 'rgba(255,255,255,.02)',
-      }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--text)' }}>
-            {user?.email || user?.name || label}
-          </div>
-          <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
-            {label}{role ? ` · ${role}` : ''}
-          </div>
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      gap: 12, padding: '12px 14px', borderRadius: 16, background: 'var(--inset)',
+    }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>
+          {user?.email || user?.name || label}
         </div>
-        {authenticated ? (
-          <button onClick={signOut} disabled={busy}
-            style={{
-              fontFamily: MONO, fontSize: 11, padding: '7px 14px', minHeight: 30,
-              cursor: busy ? 'default' : 'pointer', borderRadius: 4,
-              background: 'none', border: '1px solid var(--border-2)', color: 'var(--muted)',
-            }}>{busy ? 'SIGNING OUT…' : 'SIGN OUT'}</button>
-        ) : (
-          <button onClick={go}
-            style={{
-              fontFamily: MONO, fontSize: 11, fontWeight: 700, padding: '7px 14px',
-              minHeight: 30, cursor: 'pointer', borderRadius: 4, border: 'none',
-              background: 'var(--orange)', color: '#140407',
-            }}>SIGN IN</button>
-        )}
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 1 }}>
+          {label}{role ? ` · ${role}` : ''}
+        </div>
       </div>
+      {authenticated ? (
+        <button onClick={signOut} disabled={busy} className="aria-btn">{busy ? 'Signing out…' : 'Sign out'}</button>
+      ) : (
+        <button onClick={go} className="aria-btn primary">Sign in</button>
+      )}
     </div>
   )
 }
@@ -167,62 +159,60 @@ export default function Settings({ open, onClose }) {
     <div
       onClick={onClose}
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,.74)', zIndex: 300,
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 20px',
+        position: 'fixed', inset: 0, background: 'var(--scrim)', zIndex: 320,
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '6vh 16px',
+        animation: 'fadeIn .18s ease both',
       }}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Settings"
+        className="sheet"
         onClick={e => e.stopPropagation()}
-        style={{
-          background: '#0b0609', border: '1px solid var(--border-2)', borderRadius: 8,
-          width: '100%', maxWidth: 560, maxHeight: '84vh', overflowY: 'auto', padding: 22,
-        }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 18 }}>
+        style={{ width: '100%', maxWidth: 580, maxHeight: '86vh', overflowY: 'auto', padding: '22px 24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 22 }}>
           <div>
-            <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 800, color: 'var(--text)', letterSpacing: '.1em' }}>
-              SETTINGS
-            </div>
-            <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+            <h2 style={{ fontSize: 24, fontWeight: 700 }}>Settings</h2>
+            <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 2 }}>
               Display preferences are saved on this device only.
             </div>
           </div>
-          <button ref={firstRef} onClick={onClose} aria-label="Close settings"
-            style={{
-              fontFamily: MONO, fontSize: 11, padding: '6px 14px', cursor: 'pointer', minHeight: 30,
-              background: 'none', border: '1px solid var(--border-2)', color: 'var(--muted)', borderRadius: 4,
-            }}>CLOSE</button>
+          <button ref={firstRef} onClick={onClose} aria-label="Close settings" className="aria-btn">Done</button>
         </div>
 
         <Section
-          title="ACCOUNT"
+          title="Account"
           hint="Signing out ends this session on the server immediately. This browser
                 never stores the owner token.">
           <Account />
         </Section>
 
+        <Section title="Appearance" hint="Light, dark, or whatever this device is set to.">
+          <Choice ariaLabel="Appearance" options={THEMES} value={a11y.theme || 'system'}
+            onChange={v => set({ theme: v })} />
+        </Section>
+
         <Section
-          title="DISPLAY CURRENCY"
+          title="Display currency"
           hint={`Every price is converted into this currency. ${detected.source}. Conversion is for
                  display only — daily rates, no spread${meta?.as_of ? `, as of ${String(meta.as_of).slice(0, 16)}` : ''}.`}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(132px, 1fr))', gap: 6 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8 }}>
             {currencies.map(c => {
               const active = c === display
               return (
                 <button key={c} onClick={() => setDisplay(c)} aria-pressed={active}
                   style={{
-                    display: 'flex', alignItems: 'baseline', gap: 7, padding: '7px 10px',
-                    cursor: 'pointer', borderRadius: 4, minHeight: 32, textAlign: 'left',
-                    background: active ? 'var(--orange-bg)' : 'transparent',
-                    border: `1px solid ${active ? 'var(--orange)' : 'var(--border)'}`,
+                    display: 'flex', alignItems: 'baseline', gap: 8, padding: '9px 12px',
+                    borderRadius: 12, minHeight: 40, textAlign: 'left',
+                    background: active ? 'var(--accent-bg)' : 'var(--inset)',
+                    border: `1px solid ${active ? 'var(--accent)' : 'transparent'}`,
                   }}>
-                  <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--orange)', fontWeight: 800, minWidth: 22 }}>
+                  <span style={{ fontSize: 14, color: 'var(--accent)', fontWeight: 650, minWidth: 22 }}>
                     {CURRENCY_META[c].symbol}
                   </span>
-                  <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text)', fontWeight: 700 }}>{c}</span>
-                  <span style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>{c}</span>
+                  <span style={{ fontSize: 12.5, color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {CURRENCY_META[c].name}
                   </span>
                 </button>
@@ -232,42 +222,34 @@ export default function Settings({ open, onClose }) {
         </Section>
 
         <Section
-          title="TEXT SIZE"
-          hint="Scales the whole interface. The default terminal type is small — if you are reading
-                this at arm's length, try Large or Larger.">
+          title="Text size"
+          hint="Scales the whole interface. If you are reading this at arm's length,
+                try Large or Larger.">
           <Choice ariaLabel="Text size" options={SIZES} value={a11y.textSize}
             onChange={v => set({ textSize: v })} />
         </Section>
 
         <Section
-          title="CONTRAST"
-          hint="High contrast brightens text and borders to clear the WCAG AA readability
-                threshold. The default grey sits below it.">
+          title="Contrast"
+          hint="High contrast darkens secondary text and outlines and makes panels solid.">
           <Choice ariaLabel="Contrast" value={a11y.contrast} onChange={v => set({ contrast: v })}
             options={[{ id: 'normal', label: 'Normal' }, { id: 'high', label: 'High contrast' }]} />
         </Section>
 
         <Section
-          title="MOTION"
-          hint="Stops the scrolling ticker, pulsing indicators and transitions. Nothing in ARIA
+          title="Motion"
+          hint="Stops the scrolling signal strip, pulsing indicators and transitions. Nothing in ARIA
                 needs motion to be understood.">
           <Choice ariaLabel="Motion" value={a11y.motion} onChange={v => set({ motion: v })}
             options={[{ id: 'normal', label: 'Animations on' }, { id: 'reduced', label: 'Reduce motion' }]} />
         </Section>
 
-        <Section title="RESET">
-          <button onClick={resetAll}
-            style={{
-              fontFamily: MONO, fontSize: 11, fontWeight: 700, padding: '7px 14px', minHeight: 30,
-              cursor: 'pointer', background: 'none', border: '1px solid var(--border-2)',
-              color: 'var(--text-dim)', borderRadius: 4,
-            }}>
-            RESET TO DETECTED DEFAULTS
-          </button>
+        <Section title="Reset">
+          <button onClick={resetAll} className="aria-btn">Reset to detected defaults</button>
         </Section>
 
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-          <div style={{ fontFamily: MONO, fontSize: 9.5, color: 'var(--muted)', lineHeight: 1.7 }}>
+        <div style={{ borderTop: '1px solid var(--line)', paddingTop: 14 }}>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.65 }}>
             ARIA · research and education only · not financial advice · not a licensed adviser.
             Market data from Yahoo Finance, delayed on many venues. Nothing in this app places an
             order without your explicit approval.

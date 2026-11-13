@@ -8,8 +8,8 @@ export const displayValue = value => value == null ? 'unavailable'
 
 /** Missing observations are not zero observations. Keep that distinction visible. */
 export function DataUnavailable({ name, error }) {
-  return <div role="status" className="bb-card" style={{ fontFamily: 'var(--mono)',
-    color: 'var(--yellow)', padding: 18, marginBottom: 14, lineHeight: 1.7 }}>
+  return <div role="status" className="bb-card" style={{ background: 'var(--yellow-bg)', borderColor: 'transparent',
+    boxShadow: 'none', color: 'var(--yellow)', fontSize: 14, fontWeight: 550, padding: 18, marginBottom: 14, lineHeight: 1.6 }}>
     {name} unavailable / withheld. {error || 'No usable response was received.'}
   </div>
 }

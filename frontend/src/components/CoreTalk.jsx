@@ -11,7 +11,7 @@ import PressToTalk from './PressToTalk'
 // only the briefing (BRIEF) or the clean prose (FULL) — never the markup.
 // Fully decoupled — it only talks to the coreBus.
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 
 export default function CoreTalk() {
   const [input, setInput] = useState('')
@@ -64,8 +64,8 @@ export default function CoreTalk() {
           that all refuse to shrink came to more than a phone is wide, and SEND
           was the one pushed off the edge — the row was unusable on mobile. */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <span style={{ ...mono, fontSize: 11, fontWeight: 800, color: 'var(--orange)', letterSpacing: 1, flexShrink: 0 }}>
-          ▸ TALK
+        <span style={{ ...mono, fontSize: 13, fontWeight: 600, color: 'var(--accent)', flexShrink: 0 }}>
+          ▸ Talk
         </span>
         <input
           value={input}
@@ -77,8 +77,8 @@ export default function CoreTalk() {
             // minWidth: 0 — an input's intrinsic minimum ignores `flex: 1` and
             // is what stops the row collapsing to fit.
             ...mono, flex: '1 1 180px', minWidth: 0,
-            background: '#0d060a', border: '1px solid var(--border)',
-            color: '#ddd', fontSize: 12, padding: '9px 12px', borderRadius: 4, outline: 'none',
+            background: 'var(--inset)', border: '1px solid var(--line)',
+            color: 'var(--ink)', fontSize: 14, padding: '9px 12px', borderRadius: 10, outline: 'none',
           }}
         />
         <PressToTalk
@@ -90,14 +90,14 @@ export default function CoreTalk() {
           onClick={() => setVoice(v => !v)}
           title="Speak replies aloud — Kokoro, running on this machine. The core beats to her actual amplitude."
           style={{
-            ...mono, background: voice ? 'var(--orange)' : 'transparent',
-            color: voice ? '#000' : 'var(--text-dim)',
-            border: `1px solid ${voice ? 'var(--orange)' : 'var(--border)'}`,
-            borderRadius: 4, padding: '8px 12px', fontSize: 11, fontWeight: 800,
-            letterSpacing: 1, cursor: 'pointer', flexShrink: 0,
+            ...mono, background: voice ? 'var(--accent)' : 'transparent',
+            color: voice ? 'var(--inset)' : 'var(--ink-2)',
+            border: `1px solid ${voice ? 'var(--accent)' : 'var(--line)'}`,
+            borderRadius: 10, padding: '8px 12px', fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', flexShrink: 0,
           }}
         >
-          {voice ? '🔊 VOICE' : '🔇 VOICE'}
+          {voice ? '🔊 Voice' : '🔇 Voice'}
         </button>
         <button
           onClick={() => setBrief(b => !b)}
@@ -106,34 +106,34 @@ export default function CoreTalk() {
             : 'FULL — she reads the whole reply (markup still stripped)'}
           style={{
             ...mono, background: 'transparent',
-            color: brief ? 'var(--green)' : 'var(--text-dim)',
-            border: `1px solid ${brief ? 'var(--green)' : 'var(--border)'}`,
-            borderRadius: 4, padding: '8px 10px', fontSize: 11, fontWeight: 800,
-            letterSpacing: 1, cursor: 'pointer', flexShrink: 0,
+            color: brief ? 'var(--green)' : 'var(--ink-2)',
+            border: `1px solid ${brief ? 'var(--green)' : 'var(--line)'}`,
+            borderRadius: 10, padding: '8px 10px', fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', flexShrink: 0,
           }}
-        >{brief ? 'BRIEF' : 'FULL'}</button>
+        >{brief ? 'Brief' : 'Full'}</button>
         <button
           onClick={send}
           disabled={busy || !input.trim()}
           style={{
-            ...mono, background: busy || !input.trim() ? '#1a0a10' : 'var(--orange)',
-            color: busy || !input.trim() ? '#553' : '#000',
-            border: 'none', borderRadius: 4, padding: '8px 16px', fontSize: 12,
-            fontWeight: 800, letterSpacing: 1, cursor: busy || !input.trim() ? 'not-allowed' : 'pointer',
+            ...mono, background: busy || !input.trim() ? 'var(--inset)' : 'var(--accent)',
+            color: busy || !input.trim() ? 'var(--line)' : 'var(--inset)',
+            border: 'none', borderRadius: 10, padding: '8px 16px', fontSize: 14,
+            fontWeight: 600, cursor: busy || !input.trim() ? 'not-allowed' : 'pointer',
             flexShrink: 0,
           }}
-        >{busy ? '···' : 'SEND ▶'}</button>
+        >{busy ? '···' : 'Send ▶'}</button>
       </div>
 
       {voice && voices.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-          <span style={{ ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: 1 }}>HER VOICE</span>
+          <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', }}>Her voice</span>
           <select
             value={voiceName}
             onChange={e => pickVoice(e.target.value)}
             style={{
-              ...mono, background: '#0d060a', color: 'var(--text-dim)',
-              border: '1px solid var(--border)', borderRadius: 4, fontSize: 10,
+              ...mono, background: 'var(--inset)', color: 'var(--ink-2)',
+              border: '1px solid var(--line)', borderRadius: 10, fontSize: 12,
               padding: '4px 8px', outline: 'none', maxWidth: 340, cursor: 'pointer',
             }}
           >
@@ -141,15 +141,15 @@ export default function CoreTalk() {
               <option key={v.name} value={v.name}>{v.name}</option>
             ))}
           </select>
-          <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+          <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
             kokoro · local · female voices first · pick to hear her
           </span>
         </div>
       )}
       {(reply || err) && (
         <div style={{
-          ...mono, fontSize: 12, lineHeight: 1.7, color: err ? 'var(--red)' : '#cbb',
-          background: '#060306', border: '1px solid var(--border)', borderRadius: 4,
+          ...mono, fontSize: 14, lineHeight: 1.7, color: err ? 'var(--red)' : 'var(--ink)',
+          background: 'var(--inset)', border: '1px solid var(--line)', borderRadius: 10,
           padding: '10px 14px', marginTop: 8, whiteSpace: 'pre-wrap', maxHeight: 220, overflowY: 'auto',
         }}>
           {err ? `⚠ ${err}` : reply}

@@ -17,7 +17,7 @@ import { Empty, SectionHeader, Spinner } from '../components/UI'
 import { DataUnavailable, hasRecord } from '../components/DataState'
 import DataFreshness from '../components/DataFreshness'
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 
 /* SENTINEL is a SEPARATE general intelligence in its own process — not an ARIA
  * subsystem, and deliberately not drawn like one. Every state below is either
@@ -26,13 +26,13 @@ const mono = { fontFamily: 'var(--mono)' }
  * the same lie the backend is built to refuse. */
 const CONSULT_STATE = {
   AVAILABLE:     ['var(--green)',  'AVAILABLE'],
-  UNAVAILABLE:   ['var(--muted)',  'UNAVAILABLE'],
+  UNAVAILABLE:   ['var(--ink-3)',  'UNAVAILABLE'],
   TIMEOUT:       ['var(--yellow)', 'TIMEOUT'],
   MALFORMED:     ['var(--yellow)', 'MALFORMED'],
   UNAUTHORISED:  ['var(--red)',    'UNAUTHORISED'],
-  NO_TOKEN:      ['var(--muted)',  'NO TOKEN'],
+  NO_TOKEN:      ['var(--ink-3)',  'NO TOKEN'],
   ERROR:         ['var(--red)',    'ERROR'],
-  NOT_CONSULTED: ['var(--muted)',  'NOT CONSULTED'],
+  NOT_CONSULTED: ['var(--ink-3)',  'NOT CONSULTED'],
 }
 
 function SentinelPanel() {
@@ -52,24 +52,24 @@ export function SentinelPanelView({ data }) {
   return (
     <div className="bb-card" style={{ marginBottom: 14 }}>
       <div style={{ display: 'flex', gap: 14, alignItems: 'baseline', flexWrap: 'wrap' }}>
-        <div style={{ ...mono, fontSize: 12, fontWeight: 800, letterSpacing: '.1em',
-                      color: 'var(--orange)' }}>
+        <div style={{ ...mono, fontSize: 14, fontWeight: 600, 
+                      color: 'var(--accent)' }}>
           ◇ SENTINEL
         </div>
-        <div style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
           external advisory intelligence · separate system
         </div>
-        <div style={{ ...mono, fontSize: 12, fontWeight: 800, color, marginLeft: 'auto',
-                      letterSpacing: '.1em' }}>
+        <div style={{ ...mono, fontSize: 14, fontWeight: 600, color, marginLeft: 'auto',
+                      }}>
           {label}
         </div>
       </div>
 
-      <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 6 }}>
+      <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 6 }}>
         {data.url}
         {' · '}auto-consult on the trading path is{' '}
-        <span style={{ color: data.auto_consult_enabled ? 'var(--green)' : 'var(--muted)' }}>
-          {data.auto_consult_enabled ? 'ON' : 'OFF'}
+        <span style={{ color: data.auto_consult_enabled ? 'var(--green)' : 'var(--ink-3)' }}>
+          {data.auto_consult_enabled ? 'On' : 'Off'}
         </span>
         {' '}({data.auto_consult_flag})
       </div>
@@ -77,13 +77,13 @@ export function SentinelPanelView({ data }) {
       {/* The whole point of the panel. When there is no consultant, say so in
         * the words that stop a reader filling in the blank themselves. */}
       {!live && (
-        <div style={{ marginTop: 9, borderTop: '1px solid #141414', paddingTop: 8 }}>
-          <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
+        <div style={{ marginTop: 9, borderTop: '1px solid var(--inset)', paddingTop: 8 }}>
+          <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
             ARIA is operating independently.{' '}
             <span style={{ color: 'var(--yellow)' }}>Silence is not agreement.</span>
           </div>
           {data.blocked_by && (
-            <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 3 }}>
+            <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 3 }}>
               {data.blocked_by}
             </div>
           )}
@@ -93,8 +93,8 @@ export function SentinelPanelView({ data }) {
       {live && <ConsultBox />}
 
       {live && (
-        <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 8,
-                      borderTop: '1px solid #141414', paddingTop: 8 }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 8,
+                      borderTop: '1px solid var(--inset)', paddingTop: 8 }}>
           SENTINEL advises. ARIA decides. A consultation cannot approve, block,
           or execute a trade — objections are attached to the proposal for the
           human approving it to read.
@@ -115,13 +115,13 @@ const POSITION_STYLE = {
   ALTERNATIVE_HYPOTHESIS: ['var(--yellow)', 'OFFERS AN ALTERNATIVE'],
   UNCERTAIN:              ['var(--yellow)', 'UNCERTAIN'],
   INSUFFICIENT_EVIDENCE:  ['var(--yellow)', 'NOT ENOUGH EVIDENCE'],
-  NONE:                   ['var(--muted)',  'NO POSITION TAKEN'],
+  NONE:                   ['var(--ink-3)',  'NO POSITION TAKEN'],
 }
 
 const btn = (on) => ({
-  ...mono, fontSize: 10, fontWeight: 700, letterSpacing: '.08em',
-  background: 'transparent', color: on ? 'var(--orange)' : 'var(--muted)',
-  border: `1px solid ${on ? 'var(--orange)' : '#262626'}`,
+  ...mono, fontSize: 12, fontWeight: 600, 
+  background: 'transparent', color: on ? 'var(--accent)' : 'var(--ink-3)',
+  border: `1px solid ${on ? 'var(--accent)' : 'var(--line)'}`,
   padding: '5px 11px', cursor: on ? 'pointer' : 'not-allowed',
 })
 
@@ -186,23 +186,23 @@ function ConsultBox() {
   const answered = out?.consulted && out?.sentinel_status === 'AVAILABLE'
 
   return (
-    <div style={{ marginTop: 10, borderTop: '1px solid #141414', paddingTop: 10 }}>
+    <div style={{ marginTop: 10, borderTop: '1px solid var(--inset)', paddingTop: 10 }}>
       <textarea
         value={text}
         onChange={e => setText(e.target.value.slice(0, LIMIT))}
         placeholder="Ask for an independent read, or paste a thesis to have it attacked…"
         rows={3}
-        style={{ ...mono, fontSize: 10, width: '100%', boxSizing: 'border-box',
-                 background: '#0a0a0a', color: 'var(--text)', border: '1px solid #262626',
+        style={{ ...mono, fontSize: 12, width: '100%', boxSizing: 'border-box',
+                 background: 'var(--inset)', color: 'var(--ink)', border: '1px solid var(--line)',
                  padding: 8, resize: 'vertical', lineHeight: 1.6 }} />
 
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 7,
                     flexWrap: 'wrap' }}>
         <button style={btn(!!text.trim() && !busy)} disabled={!text.trim() || !!busy}
-                onClick={() => consult('ask')}>◇ ASK</button>
+                onClick={() => consult('ask')}>◇ Ask</button>
         <button style={btn(!!text.trim() && !busy)} disabled={!text.trim() || !!busy}
-                onClick={() => consult('red-team')}>◆ RED-TEAM</button>
-        <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+                onClick={() => consult('red-team')}>◆ Red-team</button>
+        <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
           {busy
             ? `SENTINEL is working — this usually takes 20–45s`
             : `${text.length}/${LIMIT} · a consultation runs on the local model and is not instant`}
@@ -210,36 +210,36 @@ function ConsultBox() {
       </div>
 
       {err && (
-        <div style={{ ...mono, fontSize: 10, color: 'var(--red)', marginTop: 9 }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--red)', marginTop: 9 }}>
           {err} — no second opinion was obtained. This is not agreement.
         </div>
       )}
 
       {out && (
-        <div style={{ marginTop: 11, borderTop: '1px solid #141414', paddingTop: 9 }}>
+        <div style={{ marginTop: 11, borderTop: '1px solid var(--inset)', paddingTop: 9 }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap' }}>
-            <span style={{ ...mono, fontSize: 11, fontWeight: 800, letterSpacing: '.08em',
+            <span style={{ ...mono, fontSize: 13, fontWeight: 600, 
                            color: answered ? pcolor : 'var(--yellow)' }}>
-              {answered ? plabel : (out.sentinel_status || 'NO ANSWER')}
+              {answered ? plabel : (out.sentinel_status || 'No answer')}
             </span>
             {out.confidence != null && (
-              <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+              <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
                 its own confidence {Number(out.confidence).toFixed(2)}
               </span>
             )}
             {out.latency_ms != null && (
-              <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+              <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
                 {(out.latency_ms / 1000).toFixed(1)}s
               </span>
             )}
             {out.request_id && (
-              <span style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginLeft: 'auto' }}>
+              <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginLeft: 'auto' }}>
                 {out.request_id}
               </span>
             )}
           </div>
 
-          <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)', lineHeight: 1.7,
+          <div style={{ ...mono, fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.7,
                         whiteSpace: 'pre-wrap', marginTop: 8, maxHeight: 460,
                         overflowY: 'auto' }}>
             {out.summary || out.guidance || out.why || 'SENTINEL returned nothing readable.'}
@@ -252,14 +252,14 @@ function ConsultBox() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
               {took == null ? (
                 <>
-                  <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+                  <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
                     did you take this?
                   </span>
-                  <button style={btn(true)} onClick={() => record(true)}>TOOK IT</button>
-                  <button style={btn(true)} onClick={() => record(false)}>REJECTED IT</button>
+                  <button style={btn(true)} onClick={() => record(true)}>Took it</button>
+                  <button style={btn(true)} onClick={() => record(false)}>Rejected it</button>
                 </>
               ) : (
-                <span style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>
+                <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
                   recorded — {took ? 'accepted' : 'rejected'}. A disagreement is
                   as useful a record as an agreement.
                 </span>
@@ -277,8 +277,8 @@ const STATE_STYLE = {
   late: ['var(--yellow)', '◐', 'overdue, not yet alarming'],
   stalled: ['var(--red)', '○', 'has not reported in over 3× its interval'],
   failing: ['var(--red)', '✕', 'last run raised'],
-  unknown: ['var(--muted)', '?', 'registered but has never reported'],
-  disabled: ['var(--muted)', '—', 'switched off deliberately'],
+  unknown: ['var(--ink-3)', '?', 'registered but has never reported'],
+  disabled: ['var(--ink-3)', '—', 'switched off deliberately'],
 }
 
 function age(sec) {
@@ -299,27 +299,27 @@ function WorkerRow({ w }) {
   const [color, glyph, meaning] = STATE_STYLE[w.state] || STATE_STYLE.unknown
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 11, padding: '8px 0',
-                  borderBottom: '1px solid #141414' }}>
-      <span style={{ color, fontSize: 12, width: 12, textAlign: 'center', marginTop: 1 }}>{glyph}</span>
+                  borderBottom: '1px solid var(--inset)' }}>
+      <span style={{ color, fontSize: 14, width: 12, textAlign: 'center', marginTop: 1 }}>{glyph}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ ...mono, fontSize: 11, fontWeight: 700, color: '#fff' }}>
+        <div style={{ ...mono, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
           {w.label}
-          <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>{w.name}</span>
+          <span style={{ color: 'var(--ink-3)', fontWeight: 400, marginLeft: 8 }}>{w.name}</span>
         </div>
-        <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 2 }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
           {meaning} · ran {age(w.age_seconds)} · {w.ticks} ticks
           {w.failures > 0 && <span style={{ color: 'var(--yellow)' }}> · {w.failures} failures</span>}
           {w.next_expected && <span> · next ~{new Date(w.next_expected).toLocaleTimeString()}</span>}
         </div>
         {w.last_error && (w.state === 'failing' || w.state === 'disabled') && (
-          <div style={{ ...mono, fontSize: 9, color: 'var(--red)', marginTop: 3,
+          <div style={{ ...mono, fontSize: 12, color: 'var(--red)', marginTop: 3,
                         wordBreak: 'break-word' }}>
             {w.last_error}
           </div>
         )}
       </div>
-      <span style={{ ...mono, fontSize: 9, letterSpacing: '.1em', color,
-                     textTransform: 'uppercase' }}>{w.state}</span>
+      <span style={{ ...mono, fontSize: 12, color,
+                     }}>{w.state}</span>
     </div>
   )
 }
@@ -339,10 +339,10 @@ export default function System() {
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
       <div style={{ marginBottom: 12 }}>
-        <div style={{ ...mono, fontSize: 16, fontWeight: 800, color: 'var(--orange)', letterSpacing: '.12em' }}>
-          ⚙ SYSTEM
+        <div style={{ ...mono, fontSize: 17, fontWeight: 600, color: 'var(--accent)', }}>
+          ⚙ System
         </div>
-        <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
           What is running, when it last ran, and what broke.
         </div>
       </div>
@@ -352,26 +352,26 @@ export default function System() {
       {/* The headline is allowed to be bad news. */}
       <div className="bb-card" style={{
         marginBottom: 14,
-        borderColor: data?.healthy === false ? 'var(--red)' : 'var(--border)',
+        borderColor: data?.healthy === false ? 'var(--red)' : 'var(--line)',
       }}>
         <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ ...mono, fontSize: 15, fontWeight: 800,
-                        color: data?.healthy === false ? 'var(--red)' : data?.healthy === true ? 'var(--green)' : 'var(--muted)' }}>
-            {data?.healthy === false ? '✕ DEGRADED' : data?.healthy === true ? '● ALL WORKERS REPORTING' : 'WORKER HEALTH UNAVAILABLE'}
+          <div style={{ ...mono, fontSize: 16, fontWeight: 600,
+                        color: data?.healthy === false ? 'var(--red)' : data?.healthy === true ? 'var(--green)' : 'var(--ink-3)' }}>
+            {data?.healthy === false ? '✕ Degraded' : data?.healthy === true ? '● All workers reporting' : 'Worker health unavailable'}
           </div>
           {Object.entries(counts).filter(([, n]) => n > 0).map(([k, n]) => (
-            <div key={k} style={{ ...mono, fontSize: 10, color: (STATE_STYLE[k] || [])[0] || 'var(--muted)' }}>
+            <div key={k} style={{ ...mono, fontSize: 12, color: (STATE_STYLE[k] || [])[0] || 'var(--ink-3)' }}>
               {n} {k}
             </div>
           ))}
-          <div style={{ ...mono, fontSize: 10, color: 'var(--muted)', marginLeft: 'auto' }}>
+          <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginLeft: 'auto' }}>
             {world?.system?.activity_24h?.total ?? '—'} events in 24h
           </div>
         </div>
         {!!(data?.degraded || []).length && (
-          <div style={{ marginTop: 10, borderTop: '1px solid #141414', paddingTop: 8 }}>
+          <div style={{ marginTop: 10, borderTop: '1px solid var(--inset)', paddingTop: 8 }}>
             {data.degraded.map(d => (
-              <div key={d.name} style={{ ...mono, fontSize: 10, color: 'var(--red)', padding: '2px 0' }}>
+              <div key={d.name} style={{ ...mono, fontSize: 12, color: 'var(--red)', padding: '2px 0' }}>
                 {d.label} is {d.state}
                 {d.last_error ? ` — ${d.last_error}` : ''}
                 {' '}· anything downstream of it is not updating.
@@ -384,8 +384,8 @@ export default function System() {
       {/* ── the three cadences (§19) ── */}
       {byLoop.map(([loop, rows]) => (
         <div key={loop} style={{ marginBottom: 14 }}>
-          <SectionHeader>{loop.toUpperCase()} LOOP</SectionHeader>
-          <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginBottom: 6 }}>
+          <SectionHeader>{loop.toUpperCase()} loop</SectionHeader>
+          <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginBottom: 6 }}>
             {LOOP_NOTE[loop]}
           </div>
           <div className="bb-card">
@@ -397,15 +397,15 @@ export default function System() {
 
       {/* ── data freshness ── */}
       <DataFreshness />
-      <SectionHeader>WORLD SNAPSHOT WARNINGS</SectionHeader>
+      <SectionHeader>World snapshot warnings</SectionHeader>
       <div className="bb-card" style={{ marginBottom: 14 }}>
         {!world?.unknowns?.length && (
-          <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
+          <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
             {Array.isArray(world?.unknowns) ? 'No freshness warnings in the world snapshot. Per-dataset freshness is a separate measurement.' : 'Freshness unavailable: no world snapshot was received.'}
           </div>
         )}
         {(world?.unknowns || []).map((u, i) => (
-          <div key={i} style={{ ...mono, fontSize: 10, color: 'var(--text-dim)',
+          <div key={i} style={{ ...mono, fontSize: 12, color: 'var(--ink-2)',
                                 lineHeight: 1.65, padding: '4px 0' }}>
             <span style={{ color: 'var(--yellow)', marginRight: 7 }}>△</span>{u}
           </div>
@@ -415,17 +415,17 @@ export default function System() {
       {/* ── the four senses (src/brain/self_state.py, kept and surfaced) ── */}
       {!!senses.length && (
         <>
-          <SectionHeader>SELF-CHECKS</SectionHeader>
+          <SectionHeader>Self-checks</SectionHeader>
           <div className="bb-card">
             {senses.map(s => (
               <div key={s.name} style={{ display: 'flex', gap: 11, padding: '5px 0',
-                                         borderBottom: '1px solid #141414' }}>
-                <span style={{ ...mono, fontSize: 10, fontWeight: 700, minWidth: 62,
+                                         borderBottom: '1px solid var(--inset)' }}>
+                <span style={{ ...mono, fontSize: 12, fontWeight: 600, minWidth: 62,
                                color: s.state === 'ok' ? 'var(--green)'
-                                    : s.state === 'unknown' ? 'var(--muted)' : 'var(--yellow)' }}>
+                                    : s.state === 'unknown' ? 'var(--ink-3)' : 'var(--yellow)' }}>
                   {(s.name || 'unnamed').toUpperCase()}
                 </span>
-                <span style={{ ...mono, fontSize: 10, color: 'var(--text-dim)', flex: 1 }}>
+                <span style={{ ...mono, fontSize: 12, color: 'var(--ink-2)', flex: 1 }}>
                   {s.detail}
                 </span>
               </div>

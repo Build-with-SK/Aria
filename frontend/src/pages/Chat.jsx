@@ -1,21 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react'
 import axios from 'axios'
+import { ArrowUp } from 'lucide-react'
 import { streamChat } from '../hooks/streamChat'
 import { startThinking, speakReply } from '../core/ariaVoice'
 import { setCoreState } from '../core/coreBus'
 import { useSystemHealth } from '../hooks/useApi'
+import { Mark } from '../components/Navigation'
 
 // ─── Markdown-lite renderer (bold, code, bullets) ────────────────────────────
 function RenderText({ text }) {
   const lines = text.split('\n')
   return (
-    <div style={{ lineHeight: 1.65 }}>
+    <div style={{ lineHeight: 1.6 }}>
       {lines.map((line, i) => {
         // Bullet points
         if (line.startsWith('- ') || line.startsWith('• ')) {
           return (
-            <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 2 }}>
-              <span style={{ color: 'var(--orange)', flexShrink: 0 }}>▸</span>
+            <div key={i} style={{ display: 'flex', gap: 9, marginBottom: 3 }}>
+              <span aria-hidden="true" style={{ color: 'var(--ink-3)', flexShrink: 0 }}>•</span>
               <span>{renderInline(line.slice(2))}</span>
             </div>
           )
@@ -24,17 +26,16 @@ function RenderText({ text }) {
         if (line.startsWith('## ')) {
           return (
             <div key={i} style={{
-              fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 800,
-              color: 'var(--orange)', letterSpacing: 2,
-              marginTop: 12, marginBottom: 4, textTransform: 'uppercase',
+              fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 650,
+              color: 'var(--ink)', marginTop: 14, marginBottom: 4,
             }}>{line.slice(3)}</div>
           )
         }
-        // Code block lines (──)
+        // Rule lines (──)
         if (line.startsWith('──')) {
-          return <div key={i} style={{ color: '#333', fontFamily: 'var(--mono)', fontSize: 11, margin: '2px 0' }}>{line}</div>
+          return <div key={i} style={{ height: 1, background: 'var(--line)', margin: '8px 0' }} />
         }
-        if (line.trim() === '') return <div key={i} style={{ height: 6 }} />
+        if (line.trim() === '') return <div key={i} style={{ height: 8 }} />
         return <div key={i}>{renderInline(line)}</div>
       })}
     </div>
@@ -46,13 +47,13 @@ function renderInline(text) {
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)
   return parts.map((part, i) => {
     if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={i} style={{ color: '#fff', fontWeight: 700 }}>{part.slice(2, -2)}</strong>
+      return <strong key={i} style={{ color: 'var(--ink)', fontWeight: 650 }}>{part.slice(2, -2)}</strong>
     }
     if (part.startsWith('`') && part.endsWith('`')) {
       return (
         <code key={i} style={{
-          fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--orange)',
-          background: 'rgba(255,140,0,0.12)', padding: '1px 5px', borderRadius: 3,
+          fontSize: 13, color: 'var(--ink)',
+          background: 'var(--inset)', padding: '1px 6px', borderRadius: 6,
         }}>{part.slice(1, -1)}</code>
       )
     }
@@ -60,71 +61,56 @@ function renderInline(text) {
   })
 }
 
-// ─── Single message bubble ────────────────────────────────────────────────────
+// ─── Single message ───────────────────────────────────────────────────────────
 function Bubble({ msg }) {
   const isUser = msg.role === 'user'
   const isSystem = msg.role === 'system'
 
   if (isSystem) {
     return (
-      <div style={{
-        textAlign: 'center', padding: '8px 0',
-        fontFamily: 'var(--mono)', fontSize: 10, color: '#444',
-        letterSpacing: 1,
-      }}>{msg.content}</div>
+      <div style={{ textAlign: 'center', padding: '4px 0 14px', fontSize: 12.5, color: 'var(--ink-3)' }}>
+        {msg.content}
+      </div>
+    )
+  }
+
+  const meta = (
+    <div style={{ marginTop: 6, fontSize: 12, color: isUser ? 'inherit' : 'var(--ink-3)', opacity: isUser ? .78 : 1 }}>
+      {msg.time}
+      {/* Both chat routes return `tokens: {}`, which is truthy — the old
+          check rendered a bare "↓ tokens" under every reply. */}
+      {msg.tokens?.out != null && (
+        <span style={{ marginLeft: 8 }}>{msg.tokens.in ? `${msg.tokens.in}↑ ` : ''}{msg.tokens.out}↓ tokens</span>
+      )}
+      {msg.source && (
+        <span style={{ marginLeft: 8, color: msg.degraded ? 'var(--yellow)' : undefined }}>
+          {msg.source === 'cloud' ? 'ARIA' : 'Direct'}{msg.model ? ` · ${msg.model}` : ''}{msg.degraded ? ' · Degraded' : ''}
+        </span>
+      )}
+    </div>
+  )
+
+  if (isUser) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+        <div style={{
+          maxWidth: '80%', background: 'var(--accent-solid)', color: 'var(--on-accent-solid)',
+          borderRadius: '20px 20px 6px 20px', padding: '10px 15px',
+          fontSize: 15, lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+        }}>
+          {msg.content}
+          {meta}
+        </div>
+      </div>
     )
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: isUser ? 'row-reverse' : 'row',
-      gap: 10, marginBottom: 16, alignItems: 'flex-start',
-    }}>
-      {/* Avatar */}
-      <div style={{
-        width: 28, height: 28, borderRadius: 4, flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: isUser ? '#1a1a1a' : 'rgba(255,140,0,0.15)',
-        border: `1px solid ${isUser ? '#333' : 'rgba(255,140,0,0.4)'}`,
-        fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 800,
-        color: isUser ? 'var(--text-dim)' : 'var(--orange)',
-      }}>
-        {isUser ? 'YOU' : 'AR'}
-      </div>
-
-      {/* Bubble */}
-      <div style={{
-        maxWidth: '78%',
-        background: isUser ? '#0d0d0d' : '#090909',
-        border: `1px solid ${isUser ? '#222' : 'rgba(255,140,0,0.2)'}`,
-        borderRadius: isUser ? '8px 2px 8px 8px' : '2px 8px 8px 8px',
-        padding: '12px 16px',
-        fontFamily: isUser ? 'var(--mono)' : 'inherit',
-        fontSize: 13, color: isUser ? '#bbb' : '#ccc',
-        lineHeight: 1.6,
-      }}>
-        {isUser ? msg.content : <RenderText text={msg.content} />}
-
-        <div style={{
-          marginTop: 8, fontFamily: 'var(--mono)', fontSize: 9,
-          color: '#333', textAlign: isUser ? 'left' : 'right',
-        }}>
-          {msg.time}
-          {/* Both chat routes return `tokens: {}`, which is truthy — the old
-              check rendered a bare "↓ tokens" under every reply. */}
-          {msg.tokens?.out != null && (
-            <span style={{ marginLeft: 8 }}>{msg.tokens.in ? `${msg.tokens.in}↑ ` : ''}{msg.tokens.out}↓ tokens</span>
-          )}
-          {msg.source && (
-            <span style={{
-              marginLeft: 8,
-              color: msg.degraded ? 'var(--yellow)' : msg.source === 'cloud' ? 'var(--orange)' : '#00aa44',
-            }}>
-              [{msg.source === 'cloud' ? 'ARIA' : 'DIRECT'}{msg.model ? ` · ${msg.model}` : ''}{msg.degraded ? ' · DEGRADED' : ''}]
-            </span>
-          )}
-        </div>
+    <div style={{ display: 'flex', gap: 11, marginBottom: 18, alignItems: 'flex-start' }}>
+      <span aria-hidden="true" style={{ color: 'var(--accent)', marginTop: 1 }}><Mark size={26} /></span>
+      <div style={{ minWidth: 0, flex: 1, fontSize: 15, color: 'var(--ink)', overflowWrap: 'anywhere' }}>
+        <RenderText text={msg.content} />
+        {meta}
       </div>
     </div>
   )
@@ -133,29 +119,19 @@ function Bubble({ msg }) {
 // ─── Typing indicator ─────────────────────────────────────────────────────────
 function Typing({ status }) {
   return (
-    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 16 }}>
-      <div style={{
-        width: 28, height: 28, borderRadius: 4, flexShrink: 0,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(255,140,0,0.15)', border: '1px solid rgba(255,140,0,0.4)',
-        fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 800, color: 'var(--orange)',
-      }}>AR</div>
-      <div style={{
-        background: '#090909', border: '1px solid rgba(255,140,0,0.2)',
-        borderRadius: '2px 8px 8px 8px', padding: '12px 16px',
-        display: 'flex', alignItems: 'center', gap: 5,
-      }}>
+    <div role="status" style={{ display: 'flex', gap: 11, alignItems: 'center', marginBottom: 18 }}>
+      <span aria-hidden="true" style={{ color: 'var(--accent)' }}><Mark size={26} /></span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         {[0, 1, 2].map(i => (
           <div key={i} style={{
             width: 6, height: 6, borderRadius: '50%',
-            background: 'var(--orange)',
+            background: 'var(--ink-3)',
             animation: `dot-bounce 1.2s ${i * 0.2}s ease-in-out infinite`,
           }} />
         ))}
         {/* What she is actually doing, from the server — never a script. */}
         {status && (
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--text-dim)',
-                         marginLeft: 8, letterSpacing: '.04em' }}>{status}</span>
+          <span style={{ fontSize: 13.5, color: 'var(--ink-2)', marginLeft: 8 }}>{status}</span>
         )}
       </div>
     </div>
@@ -174,8 +150,8 @@ const QUICK = [
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 /** `embedded` drops the standalone header and full-height sizing so the same
- *  component can live inside the Intelligence workspace without two ARIA
- *  titles stacked on one screen. */
+ *  component can live inside the Brain workspace without two ARIA titles
+ *  stacked on one screen. */
 export default function Chat({ embedded = false }) {
   const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   const { data: sysHealth } = useSystemHealth()
@@ -183,7 +159,7 @@ export default function Chat({ embedded = false }) {
   const [messages, setMessages] = useState([
     {
       role: 'system',
-      content: `── ARIA INTELLIGENCE INTERFACE  ${new Date().toLocaleDateString()} ──`,
+      content: new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }),
     },
     {
       role: 'assistant',
@@ -199,11 +175,15 @@ export default function Chat({ embedded = false }) {
   const [mode, setMode]     = useState('cloud')          // 'cloud' | 'local'
   const [localModel, setLocalModel] = useState('')
   const [ollamaUp, setOllamaUp]     = useState(true)
-  const bottomRef = useRef(null)
+  const listRef   = useRef(null)
   const inputRef  = useRef(null)
 
+  // Keep the newest message in view by scrolling the LIST, never the page.
+  // scrollIntoView moved the whole document, so opening the Brain landed you
+  // halfway down it with the header scrolled away.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = listRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }, [messages, loading])
 
   useEffect(() => {
@@ -313,71 +293,59 @@ export default function Chat({ embedded = false }) {
   // behind the conversation has stalled.
   const health = sysHealth
   const wState = health?.workers
-  const dot = !health ? { c: 'var(--muted)', t: 'CONNECTING' }
-    : wState?.healthy === false ? { c: 'var(--yellow)', t: 'DEGRADED' }
-    : { c: 'var(--green)', t: 'ONLINE' }
+  const dot = !health ? { c: 'var(--ink-3)', t: 'Connecting' }
+    : wState?.healthy === false ? { c: 'var(--yellow)', t: 'Degraded' }
+    : { c: 'var(--green)', t: 'Online' }
+
+  const canSend = input.trim() && !loading
+  const modeBtn = on => ({
+    height: 30, padding: '0 13px', borderRadius: 999, border: 'none', flexShrink: 0,
+    fontSize: 13, fontWeight: on ? 600 : 550, whiteSpace: 'nowrap',
+    background: on ? 'var(--sheet)' : 'transparent',
+    color: on ? 'var(--ink)' : 'var(--ink-2)',
+    boxShadow: on ? '0 1px 4px rgba(10,20,50,.14)' : 'none',
+  })
 
   return (
-    <div style={{
+    <div className="bb-card" style={{
       maxWidth: embedded ? '100%' : 900, margin: '0 auto',
       display: 'flex', flexDirection: 'column',
-      height: embedded ? 'calc(100vh - 210px)' : 'calc(100vh - 68px)',
-      minHeight: embedded ? 460 : undefined,
+      height: embedded ? 'min(680px, calc(100vh - 230px))' : 'calc(100vh - 140px)',
+      minHeight: 480,
     }}>
-      {/* Header — suppressed when embedded in the Intelligence workspace,
-          which already carries ARIA's name and state above this component. */}
-      {!embedded && (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexShrink: 0 }}>
-        <div style={{
-          width: 36, height: 36, borderRadius: 6,
-          background: 'rgba(255,140,0,0.15)', border: '1px solid rgba(255,140,0,0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontFamily: 'var(--mono)', fontSize: 14, fontWeight: 800, color: 'var(--orange)',
-        }}>AR</div>
-        <div>
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 15, fontWeight: 800, color: 'var(--orange)' }}>
-            ARIA INTELLIGENCE
-          </div>
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)' }}>
+      {/* Header. Embedded in the Brain it is one line; standalone it also
+          names what ARIA is. */}
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12, flexShrink: 0 }}>
+        <div className="bb-card-header" style={{ margin: 0 }}>Ask ARIA</div>
+        {!embedded && (
+          <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>
             Autonomous Research &amp; Investment Architect · self-hosted
           </div>
-        </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{
-            width: 7, height: 7, borderRadius: '50%',
-            background: dot.c, boxShadow: `0 0 8px ${dot.c}`,
-            animation: dot.t === 'ONLINE' ? 'pulse-glow 2s ease-in-out infinite' : 'none',
-          }} />
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: dot.c }}>{dot.t}</span>
+        )}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: dot.c }}>
+          <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: dot.c }} />
+          {dot.t}
         </div>
       </div>
-      )}
 
       {/* Message list */}
-      <div style={{
-        flex: 1, overflowY: 'auto', padding: '4px 0',
-        scrollbarWidth: 'thin', scrollbarColor: '#222 transparent',
-      }}>
+      <div ref={listRef} aria-live="polite" style={{ flex: 1, overflowY: 'auto', padding: '4px 2px', minHeight: 0 }}>
         {messages.map((msg, i) => <Bubble key={i} msg={msg} />)}
         {loading && !messages[messages.length - 1]?.draft && <Typing status={status} />}
-        <div ref={bottomRef} />
       </div>
 
       {/* Quick prompts (only when no real conversation yet) */}
       {messages.filter(m => m.role === 'user').length === 0 && !loading && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12, flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '10px 0 4px', flexShrink: 0 }}>
           {QUICK.map(q => (
             <button
               key={q}
               onClick={() => send(q)}
               style={{
-                background: 'transparent', border: '1px solid #222',
-                borderRadius: 4, padding: '5px 10px',
-                fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)',
-                cursor: 'pointer', transition: 'all 0.15s',
+                background: 'transparent', border: '1px solid var(--line-2)',
+                borderRadius: 999, padding: '7px 13px',
+                fontSize: 13, color: 'var(--ink)',
               }}
-              onMouseEnter={e => { e.target.style.borderColor = 'var(--orange)'; e.target.style.color = 'var(--orange)' }}
-              onMouseLeave={e => { e.target.style.borderColor = '#222'; e.target.style.color = 'var(--text-dim)' }}
             >{q}</button>
           ))}
         </div>
@@ -388,57 +356,43 @@ export default function Chat({ embedded = false }) {
           the label said "Claude API" long after /api/chat stopped calling one:
           the router filters vendor providers out of this path unless the owner
           sets ARIA_ALLOW_VENDOR_BRAIN (src/inference/policy.py). */}
-      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexShrink: 0, alignItems: 'center' }}>
-        <button
-          onClick={() => setMode('cloud')}
-          title="ARIA's own brain, self-hosted. Streams the reply, and can queue a trade idea for your approval."
-          style={{
-            background: mode === 'cloud' ? 'var(--orange)' : 'transparent',
-            color: mode === 'cloud' ? '#000' : 'var(--text-dim)',
-            border: `1px solid ${mode === 'cloud' ? 'var(--orange)' : '#222'}`,
-            borderRadius: 4, padding: '4px 12px', cursor: 'pointer',
-            fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 800, letterSpacing: 1,
-          }}
-        >◆ ARIA BRAIN</button>
-        <button
-          onClick={() => setMode('local')}
-          title="Ask one local model directly. Same market context; never queues a trade."
-          style={{
-            background: mode === 'local' ? '#00aa44' : 'transparent',
-            color: mode === 'local' ? '#000' : 'var(--text-dim)',
-            border: `1px solid ${mode === 'local' ? '#00aa44' : '#222'}`,
-            borderRadius: 4, padding: '4px 12px', cursor: 'pointer',
-            fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 800, letterSpacing: 1,
-          }}
-        >⚡ DIRECT — {localModel || 'no model'}</button>
+      <div style={{ display: 'flex', gap: 10, marginTop: 10, flexShrink: 0, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div role="group" aria-label="Who answers" style={{ display: 'inline-flex', gap: 3, padding: 3, borderRadius: 999, background: 'var(--inset)', maxWidth: '100%', overflowX: 'auto' }}>
+          <button
+            onClick={() => setMode('cloud')} aria-pressed={mode === 'cloud'}
+            title="ARIA's own brain, self-hosted. Streams the reply, and can queue a trade idea for your approval."
+            style={modeBtn(mode === 'cloud')}
+          >ARIA brain</button>
+          <button
+            onClick={() => setMode('local')} aria-pressed={mode === 'local'}
+            title="Ask one local model directly. Same market context; never queues a trade."
+            style={modeBtn(mode === 'local')}
+          >Direct · {localModel || 'no model'}</button>
+        </div>
         {mode === 'local' && !ollamaUp && (
-          <span style={{
-            fontFamily: 'var(--mono)', fontSize: 10, color: '#000',
-            background: 'var(--orange)', borderRadius: 3, padding: '3px 10px', fontWeight: 800,
-          }}>
-            ⚠ LOCAL MODEL OFFLINE — direct mode unavailable
-          </span>
+          <span className="aria-pill warn">Local model offline · direct mode unavailable</span>
         )}
       </div>
 
       {/* Input bar */}
       <div style={{
-        flexShrink: 0, display: 'flex', gap: 10, alignItems: 'flex-end',
-        background: '#070707', border: '1px solid var(--border)',
-        borderRadius: 8, padding: '10px 14px',
-        marginTop: 8,
+        flexShrink: 0, display: 'flex', gap: 8, alignItems: 'flex-end',
+        background: 'var(--inset)', border: '1px solid var(--line)',
+        borderRadius: 24, padding: '6px 6px 6px 18px',
+        marginTop: 10,
       }}>
         <textarea
           ref={inputRef}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={handleKey}
-          placeholder="Ask ARIA anything about the market…   (Enter to send · Shift+Enter for newline)"
+          placeholder="Ask about the market, a ticker or a trade idea"
+          aria-label="Message ARIA. Enter sends, Shift+Enter adds a line."
           rows={1}
           style={{
-            flex: 1, background: 'transparent', border: 'none', outline: 'none',
-            color: '#ddd', fontFamily: 'var(--mono)', fontSize: 13,
-            resize: 'none', lineHeight: 1.5,
+            flex: 1, background: 'transparent', border: 'none', outline: 'none', boxShadow: 'none',
+            color: 'var(--ink)', fontSize: 15, padding: '8px 0',
+            resize: 'none', lineHeight: 1.45,
             maxHeight: 120, overflowY: 'auto',
           }}
           onInput={e => {
@@ -448,22 +402,20 @@ export default function Chat({ embedded = false }) {
         />
         <button
           onClick={() => send()}
-          disabled={!input.trim() || loading}
+          disabled={!canSend}
+          aria-label={loading ? 'ARIA is replying' : 'Send'}
           style={{
-            background: input.trim() && !loading ? 'var(--orange)' : '#1a1a1a',
-            color: input.trim() && !loading ? '#000' : '#444',
-            border: 'none', borderRadius: 5,
-            padding: '8px 16px', fontFamily: 'var(--mono)',
-            fontSize: 12, fontWeight: 800, cursor: input.trim() && !loading ? 'pointer' : 'not-allowed',
-            transition: 'all 0.15s', letterSpacing: 1,
-            flexShrink: 0,
+            width: 38, height: 38, borderRadius: '50%', border: 'none', flexShrink: 0,
+            display: 'grid', placeItems: 'center',
+            background: canSend ? 'var(--accent-solid)' : 'var(--inset)',
+            color: canSend ? 'var(--on-accent-solid)' : 'var(--ink-3)',
           }}
         >
-          {loading ? '...' : 'SEND ▶'}
+          <ArrowUp size={19} strokeWidth={2.4} aria-hidden="true" />
         </button>
       </div>
 
-      <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: '#2a2a2a', textAlign: 'center', marginTop: 6, flexShrink: 0 }}>
+      <div style={{ fontSize: 12, color: 'var(--ink-3)', textAlign: 'center', marginTop: 8, flexShrink: 0 }}>
         ARIA is not a licensed financial advisor. All outputs are for research purposes only.
       </div>
 
@@ -471,10 +423,6 @@ export default function Chat({ embedded = false }) {
         @keyframes dot-bounce {
           0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
           40% { transform: translateY(-5px); opacity: 1; }
-        }
-        @keyframes pulse-glow {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
         }
       `}</style>
     </div>

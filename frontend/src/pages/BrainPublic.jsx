@@ -16,7 +16,7 @@ import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import LivingCore from '../components/LivingCore'
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 
 /* The six phases of one reasoning cycle, in order — the real names the
    reasoner records against each thought (src/brain/cognitive/reasoner.py).
@@ -38,16 +38,15 @@ const STEPS = [
 function Stat({ label, value, live }) {
   return (
     <div style={{
-      background: '#0b080c', border: '1px solid var(--border)', borderRadius: 4,
+      background: 'var(--inset)', border: '1px solid var(--line)', borderRadius: 10,
       padding: '10px 12px', minWidth: 0,
     }}>
-      <div style={{ ...mono, fontSize: 8.5, color: 'var(--muted)', letterSpacing: '0.16em' }}>
+      <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', }}>
         {label}
       </div>
       <div style={{
-        ...mono, fontSize: 17, fontWeight: 700, marginTop: 4,
-        color: live ? 'var(--green)' : '#e0e0e0',
-        textShadow: live ? '0 0 10px rgba(43,227,139,.4)' : 'none',
+        ...mono, fontSize: 18, fontWeight: 600, marginTop: 4,
+        color: live ? 'var(--green)' : 'var(--ink)',
       }}>
         {value}
       </div>
@@ -78,11 +77,11 @@ export default function BrainPublic() {
   return (
     <div>
       <div style={{ marginBottom: 14 }}>
-        <h1 style={{ ...mono, fontSize: 16, fontWeight: 700, color: 'var(--orange)',
-                     letterSpacing: '0.14em', margin: 0 }}>
-          ◈ THE COGNITIVE ENGINE
+        <h1 style={{ ...mono, fontSize: 17, fontWeight: 600, color: 'var(--accent)',
+                     margin: 0 }}>
+          ◈ The cognitive engine
         </h1>
-        <p style={{ ...mono, fontSize: 11, color: 'var(--muted)', lineHeight: 1.7, margin: '8px 0 0', maxWidth: 720 }}>
+        <p style={{ ...mono, fontSize: 13, color: 'var(--ink-3)', lineHeight: 1.7, margin: '8px 0 0', maxWidth: 720 }}>
           ARIA runs a continuous reasoning loop on a local model — orient, focus,
           recall, analyse, decide, reflect — and writes what she learns to a
           long-term memory she can search later. This is her heartbeat, live.
@@ -94,40 +93,39 @@ export default function BrainPublic() {
         display: 'grid', gap: 10, marginBottom: 16,
         gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
       }}>
-        <Stat label="STATE" value={err ? 'OFFLINE' : running ? 'ALIVE' : 'IDLE'} live={running && !err} />
-        <Stat label="CYCLES" value={d.cycle_count ?? '—'} />
-        <Stat label="MEMORIES" value={d.memory_count ?? '—'} />
-        <Stat label="MODEL" value={d.model || '—'} />
+        <Stat label="State" value={err ? 'OFFLINE' : running ? 'ALIVE' : 'IDLE'} live={running && !err} />
+        <Stat label="Cycles" value={d.cycle_count ?? '—'} />
+        <Stat label="Memories" value={d.memory_count ?? '—'} />
+        <Stat label="Model" value={d.model || '—'} />
       </div>
 
       {/* One cycle, as a progress track. Read-only: these report, they do not
           control. `aria-current` marks the live phase for screen readers. */}
       <div role="list" aria-label="Reasoning cycle" style={{ marginBottom: 20 }}>
-        <div style={{ ...mono, fontSize: 8.5, color: 'var(--muted)',
-                      letterSpacing: '0.16em', marginBottom: 8 }}>
-          ONE CYCLE OF THOUGHT{d.thinking ? ' · RUNNING NOW' :
-            step ? ' · LAST COMPLETED' : ''}
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)',
+                      marginBottom: 8 }}>
+          One cycle of thought{d.thinking ? ' · Running now' :
+            step ? ' · Last completed' : ''}
         </div>
         <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
           {STEPS.map(([name, what], i) => {
             const at = STEPS.findIndex(([n]) => n === step)
             const live = step === name && d.thinking
             const done = at >= 0 && i <= at
-            const colour = live ? 'var(--orange)' : done ? 'var(--green)' : 'var(--muted)'
+            const colour = live ? 'var(--accent)' : done ? 'var(--green)' : 'var(--ink-3)'
             return (
               <div key={name} role="listitem" title={`${name} — ${what}`}
                 aria-current={live ? 'step' : undefined}
                 style={{ flex: '1 1 120px', minWidth: 0 }}>
                 <div style={{
-                  height: 2, borderRadius: 2, marginBottom: 6,
-                  background: live || done ? colour : '#221e26',
-                  boxShadow: live ? '0 0 8px var(--orange)' : 'none',
+                  height: 2, borderRadius: 8, marginBottom: 6,
+                  background: live || done ? colour : 'var(--inset)',
                   animation: live ? 'corePulse 1.6s ease-in-out infinite' : 'none',
                 }} />
-                <div style={{ ...mono, fontSize: 9, letterSpacing: '0.12em', color: colour }}>
+                <div style={{ ...mono, fontSize: 12, color: colour }}>
                   {name}
                 </div>
-                <div style={{ ...mono, fontSize: 8.5, color: 'var(--muted)',
+                <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)',
                               lineHeight: 1.5, marginTop: 2 }}>
                   {what}
                 </div>
@@ -139,7 +137,7 @@ export default function BrainPublic() {
 
       <LivingCore height={520} />
 
-      <p style={{ ...mono, fontSize: 9.5, color: 'var(--muted)', lineHeight: 1.7, marginTop: 14 }}>
+      <p style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.7, marginTop: 14 }}>
         Every body in the field is a real instrument from the tracked universe,
         placed by region and lit by conviction. Research and education only —
         ARIA is not a licensed adviser.

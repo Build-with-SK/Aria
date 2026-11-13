@@ -14,22 +14,21 @@ import React, { useState, useRef, useEffect } from 'react'
 // MediaRecorder is native; nothing new was installed for this. Chrome records
 // webm/opus, which PyAV decodes on the server without ffmpeg.
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 
 const btn = (active, disabled) => ({
   ...mono,
-  fontSize: 11,
-  fontWeight: 800,
-  letterSpacing: 1,
+  fontSize: 13,
+  fontWeight: 600,
   padding: '6px 12px',
-  borderRadius: 3,
+  borderRadius: 8,
   cursor: disabled ? 'not-allowed' : 'pointer',
   userSelect: 'none',
   touchAction: 'none',
   flexShrink: 0,
-  border: `1px solid ${active ? 'var(--orange)' : '#333'}`,
-  background: active ? 'rgba(255,138,0,0.14)' : 'transparent',
-  color: disabled ? '#555' : (active ? 'var(--orange)' : '#aaa'),
+  border: `1px solid ${active ? 'var(--accent)' : 'var(--line)'}`,
+  background: active ? 'color-mix(in srgb, var(--yellow) 14%, transparent)' : 'transparent',
+  color: disabled ? 'var(--ink-3)' : (active ? 'var(--accent)' : 'var(--ink-3)'),
   transition: 'background 120ms, border-color 120ms, color 120ms',
 })
 
@@ -144,7 +143,7 @@ export default function PressToTalk({ onTranscript, remember = true, context = '
         {label}
       </button>
       {err && (
-        <span style={{ ...mono, fontSize: 10, color: 'var(--orange)', opacity: 0.85 }}>
+        <span style={{ ...mono, fontSize: 12, color: 'var(--accent)', opacity: 0.85 }}>
           {err}
         </span>
       )}

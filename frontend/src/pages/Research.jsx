@@ -23,7 +23,7 @@ import V5 from './V5'
 import ResearchAnalysis from '../components/ResearchAnalysis'
 import { isExactGoldContract } from '../components/technicalEvidence'
 
-const MONO = 'var(--mono)'
+const MONO = 'var(--font)'
 const CCY_SYMBOL = { INR: '₹', GBP: '£', USD: '$', EUR: '€', JPY: '¥' }
 
 export default function Research() {
@@ -78,10 +78,10 @@ export default function Research() {
   return (
     <div>
       <div style={{ marginBottom: 10 }}>
-        <div style={{ fontFamily: MONO, fontSize: 16, fontWeight: 800, color: 'var(--orange)', letterSpacing: '.12em' }}>
-          ◬ RESEARCH
+        <div style={{ fontFamily: MONO, fontSize: 17, fontWeight: 600, color: 'var(--accent)', }}>
+          ◬ Research
         </div>
-        <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)' }}>
+        <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)' }}>
           Global coverage — {indexed ? `${indexed.toLocaleString()} symbols` : 'equities, ETFs, crypto and FX'} across
           40+ exchanges, from NSE and LSE to NYSE and Tokyo. Any other listing resolves on demand.
         </div>
@@ -97,30 +97,30 @@ export default function Research() {
             : 'Search ticker or company — RELIANCE, HSBA, AAPL, BP, TCS, BTC…'}
           spellCheck={false}
           style={{
-            width: '100%', boxSizing: 'border-box', background: '#0d0d0d',
-            border: '1px solid var(--border-2)', color: 'var(--text)', fontFamily: MONO,
-            fontSize: 13, padding: '10px 14px', outline: 'none', borderRadius: 4,
+            width: '100%', boxSizing: 'border-box', background: 'var(--inset)',
+            border: '1px solid var(--line-2)', color: 'var(--ink)', fontFamily: MONO,
+            fontSize: 14, padding: '10px 14px', outline: 'none', borderRadius: 10,
           }} />
         {results.length > 0 && (
           <div style={{
             position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
-            background: '#0a0a0a', border: '1px solid var(--border-2)', borderTop: 'none',
+            background: 'var(--inset)', border: '1px solid var(--line-2)', borderTop: 'none',
             maxHeight: 340, overflowY: 'auto', borderRadius: '0 0 4px 4px',
           }}>
             {results.map((r, i) => (
               <div key={`${r.symbol}-${i}`} onClick={() => choose(r.symbol)}
                 style={{
                   display: 'flex', gap: 10, alignItems: 'baseline', padding: '8px 12px',
-                  cursor: 'pointer', borderBottom: '1px solid #141414',
+                  cursor: 'pointer', borderBottom: '1px solid var(--inset)',
                 }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#141414')}
+                onMouseEnter={e => (e.currentTarget.style.background = 'var(--inset)')}
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: 'var(--orange)', minWidth: 96 }}>{r.symbol}</span>
-                <span style={{ fontFamily: MONO, fontSize: 9, color: 'var(--muted)', minWidth: 42 }}>{r.exchange}</span>
-                <span style={{ fontFamily: MONO, fontSize: 10, color: 'var(--green)', minWidth: 20 }}>{CCY_SYMBOL[r.currency] || ''}</span>
-                <span style={{ fontSize: 11, color: 'var(--text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 600, color: 'var(--accent)', minWidth: 96 }}>{r.symbol}</span>
+                <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)', minWidth: 42 }}>{r.exchange}</span>
+                <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--green)', minWidth: 20 }}>{CCY_SYMBOL[r.currency] || ''}</span>
+                <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
                 {r.has_fno ? (
-                  <span style={{ fontFamily: MONO, fontSize: 9, color: 'var(--yellow)', border: '1px solid rgba(255,204,0,.3)', borderRadius: 2, padding: '0 4px' }}>
+                  <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--yellow)', border: '1px solid color-mix(in srgb, var(--yellow) 30%, transparent)', borderRadius: 8, padding: '0 4px' }}>
                     F&O·{r.lot_size}
                   </span>
                 ) : null}
@@ -132,8 +132,8 @@ export default function Research() {
 
       {!symbol && (
         <div style={{
-          fontFamily: MONO, fontSize: 12, color: '#555', textAlign: 'center', padding: 54,
-          border: '1px dashed #1a1a1a', borderRadius: 8,
+          fontFamily: MONO, fontSize: 14, color: 'var(--ink-3)', textAlign: 'center', padding: 54,
+          border: '1px dashed var(--inset)', borderRadius: 14,
         }}>
           Search a symbol above — or click any ticker anywhere in ARIA to land here.
         </div>
@@ -155,7 +155,7 @@ export default function Research() {
       {symbol && <ResearchAnalysis key={symbol} symbol={symbol} technicalOnly />}
       {symbol && !isExactGoldContract(symbol) && (
         <>
-          <SectionHeader>OVERVIEW · {symbol}</SectionHeader>
+          <SectionHeader>Overview · {symbol}</SectionHeader>
           <Explorer key={symbol} symbol={symbol} embedded />
 
           <div style={{ marginTop: 22 }}>
@@ -164,8 +164,8 @@ export default function Research() {
           </div>
 
           <div style={{ marginTop: 22 }}>
-            <SectionHeader>FULL ENSEMBLE · 40 MODULES</SectionHeader>
-            <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)', marginBottom: 10 }}>
+            <SectionHeader>Full ensemble · 40 modules</SectionHeader>
+            <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)', marginBottom: 10 }}>
               No single model speaks alone here, and confidence falls when the
               modules disagree. Abstentions are reported rather than hidden.
             </div>
@@ -173,11 +173,11 @@ export default function Research() {
               <V5 symbol={symbol} embedded />
             ) : (
               <button onClick={() => switchTab('deep')} style={{
-                fontFamily: MONO, fontSize: 11, fontWeight: 700, padding: '9px 20px',
-                cursor: 'pointer', background: 'none', border: '1px solid var(--orange)',
-                color: 'var(--orange)', borderRadius: 4,
+                fontFamily: MONO, fontSize: 13, fontWeight: 600, padding: '9px 20px',
+                cursor: 'pointer', background: 'none', border: '1px solid var(--accent)',
+                color: 'var(--accent)', borderRadius: 10,
               }}>
-                RUN THE FULL ENSEMBLE ON {symbol}
+                Run the full ensemble on {symbol}
               </button>
             )}
           </div>

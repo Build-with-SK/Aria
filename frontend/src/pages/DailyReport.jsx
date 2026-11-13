@@ -20,33 +20,33 @@ import { useDailyReport, useReportHistory, generateDailyReport } from '../hooks/
 import { Spinner } from '../components/UI'
 import { DataUnavailable, hasRecord } from '../components/DataState'
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 
 const Section = ({ title, children, note }) => (
   <div style={{ marginBottom: 26 }}>
     <div style={{
-      ...mono, fontSize: 10, fontWeight: 800, letterSpacing: '.28em',
-      color: 'var(--orange)', paddingBottom: 6, marginBottom: 12,
-      borderBottom: '1px solid var(--border)',
+      ...mono, fontSize: 12, fontWeight: 600, 
+      color: 'var(--accent)', paddingBottom: 6, marginBottom: 12,
+      borderBottom: '1px solid var(--line)',
     }}>
       {title}
     </div>
     {children}
     {note && (
-      <div style={{ ...mono, fontSize: 8, color: 'var(--muted)', marginTop: 8, lineHeight: 1.6 }}>
+      <div style={{ ...mono, fontSize: 11, color: 'var(--ink-3)', marginTop: 8, lineHeight: 1.6 }}>
         {note}
       </div>
     )}
   </div>
 )
 
-const Stat = ({ label, value, sub, color = '#fff' }) => (
+const Stat = ({ label, value, sub, color = 'var(--ink)' }) => (
   <div style={{ minWidth: 96 }}>
-    <div style={{ ...mono, fontSize: 8, letterSpacing: '.2em', color: 'var(--muted)' }}>{label}</div>
-    <div style={{ ...mono, fontSize: 16, fontWeight: 800, color, marginTop: 2 }}>
+    <div style={{ ...mono, fontSize: 11, color: 'var(--ink-3)' }}>{label}</div>
+    <div style={{ ...mono, fontSize: 17, fontWeight: 600, color, marginTop: 2 }}>
       {value ?? '—'}
     </div>
-    {sub && <div style={{ ...mono, fontSize: 8, color: 'var(--muted)' }}>{sub}</div>}
+    {sub && <div style={{ ...mono, fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
   </div>
 )
 
@@ -56,59 +56,59 @@ const Reading = ({ row }) => {
   const assumed = row.status === 'ASSUMED'
   return (
     <div style={{ minWidth: 110 }}>
-      <div style={{ ...mono, fontSize: 8, letterSpacing: '.18em', color: 'var(--muted)' }}>
+      <div style={{ ...mono, fontSize: 11, color: 'var(--ink-3)' }}>
         {row.label}
       </div>
       <div style={{
-        ...mono, fontSize: 16, fontWeight: 800, marginTop: 2,
-        color: assumed ? 'var(--muted)' : '#fff',
+        ...mono, fontSize: 17, fontWeight: 600, marginTop: 2,
+        color: assumed ? 'var(--ink-3)' : 'var(--ink)',
       }}>
         {row.value ?? '—'}
       </div>
-      <div style={{ ...mono, fontSize: 8, color: assumed ? 'var(--yellow)' : 'var(--green)' }}>
+      <div style={{ ...mono, fontSize: 11, color: assumed ? 'var(--yellow)' : 'var(--green)' }}>
         {assumed ? 'ASSUMED — not observed' : 'observed'}
       </div>
     </div>
   )
 }
 
-function Bullets({ items, colour = 'var(--text-dim)', marker = '·' }) {
+function Bullets({ items, colour = 'var(--ink-2)', marker = '·' }) {
   if (!items?.length) return (
-    <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>Nothing recorded.</div>
+    <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>Nothing recorded.</div>
   )
   return items.map((t, i) => (
-    <div key={i} style={{ ...mono, fontSize: 11, color: colour, lineHeight: 1.75, padding: '2px 0' }}>
-      <span style={{ color: 'var(--orange)', marginRight: 8 }}>{marker}</span>{t}
+    <div key={i} style={{ ...mono, fontSize: 13, color: colour, lineHeight: 1.75, padding: '2px 0' }}>
+      <span style={{ color: 'var(--accent)', marginRight: 8 }}>{marker}</span>{t}
     </div>
   ))
 }
 
 function MoversTable({ rows, positive }) {
   if (!rows?.length) return (
-    <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>No signals available.</div>
+    <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>No signals available.</div>
   )
   return (
     <div>
       {rows.map((r, i) => (
         <div key={i} style={{
           display: 'flex', gap: 10, alignItems: 'baseline',
-          padding: '4px 0', borderBottom: '1px solid #121212',
+          padding: '4px 0', borderBottom: '1px solid var(--inset)',
         }}>
-          <span style={{ ...mono, fontSize: 11, fontWeight: 700, color: '#fff', minWidth: 62 }}>
+          <span style={{ ...mono, fontSize: 13, fontWeight: 600, color: 'var(--ink)', minWidth: 62 }}>
             {r.ticker}
           </span>
           {/* Identity travels with the price — a bare ticker is a label, and
               this is the report where that distinction was worth $214 vs $2.92. */}
-          <span style={{ ...mono, fontSize: 8, color: 'var(--muted)', minWidth: 84 }}>
+          <span style={{ ...mono, fontSize: 11, color: 'var(--ink-3)', minWidth: 84 }}>
             {r.provider_symbol}{r.price_unit ? ` · ${r.price_unit}` : ''}
           </span>
-          <span style={{ ...mono, fontSize: 10, color: 'var(--text-dim)', flex: 1,
+          <span style={{ ...mono, fontSize: 12, color: 'var(--ink-2)', flex: 1,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {r.name}
           </span>
-          <span style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>{r.action}</span>
+          <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>{r.action}</span>
           <span style={{
-            ...mono, fontSize: 11, fontWeight: 700, minWidth: 52, textAlign: 'right',
+            ...mono, fontSize: 13, fontWeight: 600, minWidth: 52, textAlign: 'right',
             color: positive ? 'var(--green)' : 'var(--red)',
           }}>
             {r.score != null && Number.isFinite(Number(r.score)) ? `${r.score > 0 ? '+' : ''}${Number(r.score).toFixed(1)}` : 'withheld'}
@@ -151,13 +151,13 @@ export default function DailyReport() {
       <div style={{ minWidth: 0 }}>
         {/* ── masthead ── */}
         <div style={{ marginBottom: 22 }}>
-          <div style={{ ...mono, fontSize: 10, letterSpacing: '.32em', color: 'var(--orange)' }}>
-            ARIA · DAILY INTELLIGENCE
+          <div style={{ ...mono, fontSize: 12, color: 'var(--accent)' }}>
+            ARIA · daily intelligence
           </div>
-          <div style={{ ...mono, fontSize: 30, fontWeight: 800, color: '#fff', marginTop: 4 }}>
+          <div style={{ ...mono, fontSize: 34, fontWeight: 600, color: 'var(--ink)', marginTop: 4 }}>
             {report?.date || '—'}
           </div>
-          <div style={{ ...mono, fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>
+          <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 3 }}>
             {report?.generated_at
               ? `Generated ${new Date(report.generated_at).toLocaleString()}`
               : 'Not generated'}
@@ -170,50 +170,50 @@ export default function DailyReport() {
         {!loading && (error || !hasRecord(report)) && <DataUnavailable name="Daily report" error={error} />}
 
         {missing && (
-          <div className="bb-card" style={{ borderColor: 'rgba(255,179,36,.4)' }}>
+          <div className="bb-card" style={{ borderColor: 'color-mix(in srgb, var(--yellow) 40%, transparent)' }}>
             <div className="bb-card-header" style={{ color: 'var(--yellow)' }}>
-              REPORT NOT GENERATED
+              Report not generated
             </div>
-            <div style={{ ...mono, fontSize: 11, color: 'var(--text-dim)', lineHeight: 1.8 }}>
+            <div style={{ ...mono, fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.8 }}>
               {report.message}
-              <div style={{ color: 'var(--muted)', marginTop: 8 }}>{report.note}</div>
+              <div style={{ color: 'var(--ink-3)', marginTop: 8 }}>{report.note}</div>
               {report.most_recent_available && (
                 <div style={{ marginTop: 8 }}>
                   Most recent available:{' '}
                   <button onClick={() => setDate(report.most_recent_available)} style={{
-                    ...mono, background: 'none', border: 'none', color: 'var(--orange)',
-                    cursor: 'pointer', padding: 0, fontSize: 11, textDecoration: 'underline',
+                    ...mono, background: 'none', border: 'none', color: 'var(--accent)',
+                    cursor: 'pointer', padding: 0, fontSize: 13, textDecoration: 'underline',
                   }}>{report.most_recent_available}</button>
                 </div>
               )}
             </div>
             <button onClick={generate} disabled={busy} style={{
-              ...mono, marginTop: 14, fontSize: 10, fontWeight: 800, letterSpacing: '.12em',
-              padding: '8px 16px', borderRadius: 3, cursor: busy ? 'wait' : 'pointer',
-              background: 'var(--orange)', border: 'none', color: '#000',
-            }}>{busy ? 'GENERATING…' : 'GENERATE THIS REPORT'}</button>
-            {err && <div style={{ ...mono, fontSize: 10, color: 'var(--red)', marginTop: 8 }}>{err}</div>}
+              ...mono, marginTop: 14, fontSize: 12, fontWeight: 600, 
+              padding: '8px 16px', borderRadius: 8, cursor: busy ? 'wait' : 'pointer',
+              background: 'var(--accent)', border: 'none', color: 'var(--on-solid)',
+            }}>{busy ? 'Generating…' : 'Generate this report'}</button>
+            {err && <div style={{ ...mono, fontSize: 12, color: 'var(--red)', marginTop: 8 }}>{err}</div>}
           </div>
         )}
 
         {!missing && hasRecord(report) && !error && (
           <>
-            <Section title="EXECUTIVE SUMMARY">
-              <div style={{ ...mono, fontSize: 13, color: 'var(--text)', lineHeight: 1.85 }}>
+            <Section title="Executive summary">
+              <div style={{ ...mono, fontSize: 14, color: 'var(--ink)', lineHeight: 1.85 }}>
                 {report.executive_summary || 'Executive summary unavailable / withheld.'}
               </div>
             </Section>
 
-            <Section title="MACRO"
+            <Section title="Macro"
               note={(macro.regime_caveats || []).join(' ')}>
               <div style={{ marginBottom: 14 }}>
-                <div style={{ ...mono, fontSize: 18, fontWeight: 800, color: 'var(--orange)' }}>
+                <div style={{ ...mono, fontSize: 20, fontWeight: 600, color: 'var(--accent)' }}>
                   {macro.regime}
                 </div>
-                <div style={{ ...mono, fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
                   {macro.regime_meaning}
                 </div>
-                <div style={{ ...mono, fontSize: 9, color: 'var(--text-dim)', marginTop: 4 }}>
+                <div style={{ ...mono, fontSize: 12, color: 'var(--ink-2)', marginTop: 4 }}>
                   {macro.regime_confidence != null &&
                     `${(macro.regime_confidence * 100).toFixed(0)}% of the classifier's weight came from an observed value`}
                 </div>
@@ -226,48 +226,48 @@ export default function DailyReport() {
                 <Stat label="DXY" value={macro.dxy} />
                 <Stat label="2Y" value={macro.treasury_2y} />
                 <Stat label="10Y" value={macro.treasury_10y} />
-                <Stat label="MACRO SCORE" value={macro.macro_score} />
+                <Stat label="Macro score" value={macro.macro_score} />
               </div>
               <Bullets items={macro.regime_evidence} marker="→" />
             </Section>
 
-            <Section title="MARKET">
+            <Section title="Market">
               <div style={{ display: 'flex', gap: 26, marginBottom: 16, flexWrap: 'wrap' }}>
-                <Stat label="BULLISH" value={market.breadth?.bullish} color="var(--green)"
+                <Stat label="Bullish" value={market.breadth?.bullish} color="var(--green)"
                   sub={`${market.breadth?.advancing_pct ?? '—'}% advancing`} />
-                <Stat label="BEARISH" value={market.breadth?.bearish} color="var(--red)"
+                <Stat label="Bearish" value={market.breadth?.bearish} color="var(--red)"
                   sub={`of ${market.breadth?.tracked ?? '—'} tracked`} />
                 <Stat label="VIX" value={market.volatility?.vix} color="var(--blue)" />
               </div>
-              <div style={{ ...mono, fontSize: 9, letterSpacing: '.2em', color: 'var(--green)',
-                marginBottom: 6 }}>TOP BULLISH</div>
+              <div style={{ ...mono, fontSize: 12, color: 'var(--green)',
+                marginBottom: 6 }}>Top bullish</div>
               <MoversTable rows={market.top_bullish} positive />
-              <div style={{ ...mono, fontSize: 9, letterSpacing: '.2em', color: 'var(--red)',
-                margin: '16px 0 6px' }}>TOP BEARISH</div>
+              <div style={{ ...mono, fontSize: 12, color: 'var(--red)',
+                margin: '16px 0 6px' }}>Top bearish</div>
               <MoversTable rows={market.top_bearish} />
             </Section>
 
-            <Section title="NEWS" note={news.quality_note || news.note}>
+            <Section title="News" note={news.quality_note || news.note}>
               {!(news.items || []).length && (
-                <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
+                <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
                   No developments were captured in the window. That is an absence
                   of observation, not an absence of news.
                 </div>
               )}
               {(news.items || []).map((n, i) => (
-                <div key={i} style={{ padding: '5px 0', borderBottom: '1px solid #121212' }}>
+                <div key={i} style={{ padding: '5px 0', borderBottom: '1px solid var(--inset)' }}>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
                     <span style={{
-                      ...mono, fontSize: 8, fontWeight: 700, letterSpacing: '.08em',
-                      padding: '0 4px', borderRadius: 2,
-                      color: n.evidence_state === 'VERIFIED' ? 'var(--green)' : 'var(--muted)',
-                      border: `1px solid ${n.evidence_state === 'VERIFIED' ? 'var(--green)' : '#2a2a2a'}`,
+                      ...mono, fontSize: 11, fontWeight: 600, 
+                      padding: '0 4px', borderRadius: 8,
+                      color: n.evidence_state === 'VERIFIED' ? 'var(--green)' : 'var(--ink-3)',
+                      border: `1px solid ${n.evidence_state === 'VERIFIED' ? 'var(--green)' : 'var(--line)'}`,
                     }}>{n.evidence_state}</span>
                     <a href={n.url} target="_blank" rel="noreferrer" style={{
-                      ...mono, fontSize: 11, color: 'var(--text)', textDecoration: 'none', flex: 1,
+                      ...mono, fontSize: 13, color: 'var(--ink)', textDecoration: 'none', flex: 1,
                     }}>{n.headline}</a>
                   </div>
-                  <div style={{ ...mono, fontSize: 8, color: 'var(--muted)', marginTop: 1 }}>
+                  <div style={{ ...mono, fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
                     {String(n.source_tier || 'source tier unavailable').replace(/_/g, ' ')} · {n.source}
                     {n.corroboration > 1 && ` · corroborated ×${n.corroboration}`}
                   </div>
@@ -275,22 +275,22 @@ export default function DailyReport() {
               ))}
             </Section>
 
-            <Section title="ARIA'S ASSESSMENT">
-              <div style={{ ...mono, fontSize: 9, letterSpacing: '.2em', color: 'var(--muted)',
-                marginBottom: 5 }}>WHAT MATTERS</div>
+            <Section title="ARIA's assessment">
+              <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)',
+                marginBottom: 5 }}>What matters</div>
               <Bullets items={assess.what_matters} />
-              <div style={{ ...mono, fontSize: 9, letterSpacing: '.2em', color: 'var(--muted)',
-                margin: '14px 0 5px' }}>WHAT CHANGED</div>
+              <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)',
+                margin: '14px 0 5px' }}>What changed</div>
               <Bullets items={assess.what_changed} />
-              <div style={{ ...mono, fontSize: 9, letterSpacing: '.2em', color: 'var(--muted)',
-                margin: '14px 0 5px' }}>WHAT ARIA IS WATCHING</div>
+              <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)',
+                margin: '14px 0 5px' }}>What ARIA is watching</div>
               <Bullets items={assess.watching} />
-              <div style={{ ...mono, fontSize: 9, letterSpacing: '.2em', color: 'var(--muted)',
-                margin: '14px 0 5px' }}>WHAT WOULD INVALIDATE THIS VIEW</div>
+              <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)',
+                margin: '14px 0 5px' }}>What would invalidate this view</div>
               <Bullets items={assess.what_would_invalidate} marker="⚠" />
             </Section>
 
-            <Section title="TRACK RECORD" note={record.limitation}>
+            <Section title="Track record" note={record.limitation}>
               {/* The headline carries the sample size AND the interval, so a
                   hit rate can never be read as a measured edge. On this data
                   it says "indistinguishable from chance", which is the honest
@@ -298,49 +298,49 @@ export default function DailyReport() {
                   percentage. */}
               {record.calibration?.headline && (
                 <div style={{
-                  ...mono, fontSize: 11, color: 'var(--yellow)', lineHeight: 1.7,
+                  ...mono, fontSize: 13, color: 'var(--yellow)', lineHeight: 1.7,
                   marginBottom: 12, padding: '8px 10px',
-                  border: '1px solid rgba(255,179,36,.25)', borderRadius: 3,
+                  border: '1px solid color-mix(in srgb, var(--yellow) 25%, transparent)', borderRadius: 8,
                 }}>
                   {record.calibration.headline}
                 </div>
               )}
               {record.calibration?.error && (
-                <div style={{ ...mono, fontSize: 10, color: 'var(--red)', marginBottom: 10 }}>
+                <div style={{ ...mono, fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>
                   Calibration unavailable: {record.calibration.error}
                 </div>
               )}
               <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap', marginBottom: 14 }}>
-                <Stat label="RESOLVED" value={record.stats?.resolved} />
-                <Stat label="PENDING" value={record.stats?.pending} />
-                <Stat label="HIT RATE"
+                <Stat label="Resolved" value={record.stats?.resolved} />
+                <Stat label="Pending" value={record.stats?.pending} />
+                <Stat label="Hit rate"
                   value={record.stats?.hit_rate != null
                     ? `${(record.stats.hit_rate * 100).toFixed(1)}%` : '—'} />
               </div>
               {(record.recent_resolved || []).map((r, i) => (
                 <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'baseline',
-                  padding: '3px 0', borderBottom: '1px solid #121212' }}>
-                  <span style={{ ...mono, fontSize: 10, fontWeight: 700, color: '#fff', minWidth: 56 }}>
+                  padding: '3px 0', borderBottom: '1px solid var(--inset)' }}>
+                  <span style={{ ...mono, fontSize: 12, fontWeight: 600, color: 'var(--ink)', minWidth: 56 }}>
                     {r.subject}
                   </span>
-                  <span style={{ ...mono, fontSize: 8, color: 'var(--muted)', minWidth: 70 }}>
+                  <span style={{ ...mono, fontSize: 11, color: 'var(--ink-3)', minWidth: 70 }}>
                     {r.provider_symbol}
                   </span>
-                  <span style={{ ...mono, fontSize: 10, color: 'var(--text-dim)', flex: 1 }}>
+                  <span style={{ ...mono, fontSize: 12, color: 'var(--ink-2)', flex: 1 }}>
                     {r.claim}
                   </span>
                   <span style={{
-                    ...mono, fontSize: 10, fontWeight: 700,
+                    ...mono, fontSize: 12, fontWeight: 600,
                     color: r.correct === 1 ? 'var(--green)'
-                      : r.correct === 0 ? 'var(--red)' : 'var(--muted)',
+                      : r.correct === 0 ? 'var(--red)' : 'var(--ink-3)',
                   }}>
-                    {r.correct === 1 ? 'RIGHT' : r.correct === 0 ? 'WRONG' : '—'}
+                    {r.correct === 1 ? 'Right' : r.correct === 0 ? 'Wrong' : '—'}
                   </span>
                 </div>
               ))}
             </Section>
 
-            <Section title="RISKS / BLIND SPOTS">
+            <Section title="Risks / blind spots">
               <Bullets items={report.blind_spots} colour="var(--yellow)" marker="△" />
             </Section>
           </>
@@ -349,38 +349,38 @@ export default function DailyReport() {
 
       {/* ── the archive rail ── */}
       <div>
-        <div style={{ ...mono, fontSize: 9, fontWeight: 800, letterSpacing: '.24em',
-          color: 'var(--muted)', marginBottom: 9 }}>
-          REPORT HISTORY
+        <div style={{ ...mono, fontSize: 12, fontWeight: 600, 
+          color: 'var(--ink-3)', marginBottom: 9 }}>
+          Report history
         </div>
         <button onClick={() => setDate(null)} style={{
-          ...mono, fontSize: 9, width: '100%', textAlign: 'left', padding: '6px 8px',
-          marginBottom: 4, borderRadius: 3, cursor: 'pointer',
-          background: date === null ? 'rgba(255,36,71,.1)' : 'transparent',
-          border: `1px solid ${date === null ? 'var(--orange)' : 'var(--border)'}`,
-          color: date === null ? '#fff' : 'var(--text-dim)',
-        }}>TODAY</button>
+          ...mono, fontSize: 12, width: '100%', textAlign: 'left', padding: '6px 8px',
+          marginBottom: 4, borderRadius: 8, cursor: 'pointer',
+          background: date === null ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'transparent',
+          border: `1px solid ${date === null ? 'var(--accent)' : 'var(--line)'}`,
+          color: date === null ? 'var(--ink)' : 'var(--ink-2)',
+        }}>Today</button>
         {reports.map(r => (
           <button key={r.date} onClick={() => setDate(r.date)} style={{
-            ...mono, fontSize: 9, width: '100%', textAlign: 'left', padding: '6px 8px',
-            marginBottom: 4, borderRadius: 3, cursor: 'pointer',
-            background: date === r.date ? 'rgba(255,36,71,.1)' : 'transparent',
-            border: `1px solid ${date === r.date ? 'var(--orange)' : 'var(--border)'}`,
-            color: date === r.date ? '#fff' : 'var(--text-dim)',
+            ...mono, fontSize: 12, width: '100%', textAlign: 'left', padding: '6px 8px',
+            marginBottom: 4, borderRadius: 8, cursor: 'pointer',
+            background: date === r.date ? 'color-mix(in srgb, var(--accent) 10%, transparent)' : 'transparent',
+            border: `1px solid ${date === r.date ? 'var(--accent)' : 'var(--line)'}`,
+            color: date === r.date ? 'var(--ink)' : 'var(--ink-2)',
           }}>
-            <div style={{ fontWeight: 700 }}>{r.date}</div>
-            <div style={{ fontSize: 8, color: 'var(--muted)', marginTop: 1 }}>
+            <div style={{ fontWeight: 600 }}>{r.date}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
               {r.market_regime || '—'}
               {r.superseded && ' · superseded'}
             </div>
           </button>
         ))}
         {!reports.length && (
-          <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', lineHeight: 1.6 }}>
+          <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.6 }}>
             No reports stored yet.
           </div>
         )}
-        <div style={{ ...mono, fontSize: 8, color: 'var(--muted)', marginTop: 12,
+        <div style={{ ...mono, fontSize: 11, color: 'var(--ink-3)', marginTop: 12,
           lineHeight: 1.6 }}>
           One report per day, kept forever. A report is never overwritten — a
           regenerated day archives the previous version beside it.

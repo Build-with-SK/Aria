@@ -15,7 +15,6 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 
-const MONO = 'var(--mono)'
 const RESTART = [
   ['Mac mini', 'scripts/serverctl restart'],
   ['Windows', 'START_ARIA.bat'],
@@ -48,33 +47,28 @@ export default function ConnectionBanner() {
   if (!down) return null
 
   return (
-    <div role="alert" style={{
-      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 400,
-      background: '#2a0a10', borderBottom: '1px solid var(--red)',
-      padding: '9px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+    <div role="alert" className="sheet" style={{
+      position: 'fixed', top: 'calc(10px + env(safe-area-inset-top))', left: 12, right: 12, zIndex: 400,
+      maxWidth: 860, margin: '0 auto', padding: '12px 16px', borderRadius: 18,
+      display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
     }}>
-      <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 800, color: 'var(--red)', letterSpacing: '.1em' }}>
-        ⚠ SERVER UNREACHABLE
-      </span>
-      <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text)', flex: 1, minWidth: 240 }}>
+      <span className="aria-pill bad"><i aria-hidden="true" />Server unreachable</span>
+      <span style={{ fontSize: 13.5, color: 'var(--ink-2)', flex: 1, minWidth: 240, lineHeight: 1.5 }}>
         ARIA is not responding. Pages show the last data they loaded, and your settings
         and records are unaffected. Checking again every 15 seconds.
       </span>
-      <details style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)' }}>
+      <details style={{ fontSize: 13, color: 'var(--ink-3)' }}>
         <summary style={{ cursor: 'pointer' }}>How to restart</summary>
         {RESTART.map(([host, cmd]) => (
-          <div key={host} style={{ marginTop: 4 }}>
+          <div key={host} style={{ marginTop: 6 }}>
             {host}:{' '}
-            <code style={{ color: 'var(--yellow)', background: 'rgba(0,0,0,.4)', padding: '2px 6px', borderRadius: 3 }}>
+            <code style={{ color: 'var(--ink)', background: 'var(--inset)', padding: '2px 7px', borderRadius: 6, fontSize: 12.5 }}>
               {cmd}
             </code>
           </div>
         ))}
       </details>
-      <button onClick={retry} disabled={checking} style={{
-        fontFamily: MONO, fontSize: 10, fontWeight: 700, padding: '5px 12px', cursor: 'pointer', minHeight: 26,
-        background: 'none', border: '1px solid var(--red)', color: 'var(--red)', borderRadius: 3,
-      }}>{checking ? 'CHECKING…' : 'RETRY'}</button>
+      <button onClick={retry} disabled={checking} className="aria-btn">{checking ? 'Checking…' : 'Retry'}</button>
     </div>
   )
 }

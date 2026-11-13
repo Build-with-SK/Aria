@@ -15,14 +15,14 @@ import { SectionHeader } from './UI'
 // ARIA does not trade options. The banner is driven by the payload's own
 // `tradeable` flag, so it cannot drift out of sync with the backend.
 
-const mono = { fontFamily: 'var(--mono)' }
-const dim = { color: 'var(--text-dim)' }
+const mono = { fontFamily: 'var(--font)' }
+const dim = { color: 'var(--ink-2)' }
 
 const VERDICT = {
   tradeable: { colour: 'var(--green)', label: 'tradeable' },
-  thin: { colour: 'var(--orange)', label: 'thin' },
-  dead: { colour: '#f85149', label: 'no market' },
-  'market closed': { colour: 'var(--text-dim)', label: 'market shut' },
+  thin: { colour: 'var(--accent)', label: 'thin' },
+  dead: { colour: 'var(--red)', label: 'no market' },
+  'market closed': { colour: 'var(--ink-2)', label: 'market shut' },
 }
 
 const num = (v, digits = 2) =>
@@ -45,17 +45,17 @@ function Row({ c }) {
       <td style={{ ...mono, ...(c.mid === null ? dim : {}) }}>
         {num(c.last)}
         {c.mid === null && c.last > 0 && (
-          <span style={{ fontSize: 9, marginLeft: 4 }}>stale</span>
+          <span style={{ fontSize: 12, marginLeft: 4 }}>stale</span>
         )}
       </td>
       <td style={mono}>{c.open_interest?.toLocaleString() ?? '—'}</td>
       <td style={mono}>{c.implied_vol === null ? '—' : `${(c.implied_vol * 100).toFixed(1)}%`}</td>
       <td style={mono}>{g.delta === undefined ? '—' : num(g.delta, 3)}</td>
       <td style={mono}>{g.theta === undefined ? '—' : num(g.theta, 3)}</td>
-      <td style={{ ...mono, fontSize: 10, color: v.colour }}>
+      <td style={{ ...mono, fontSize: 12, color: v.colour }}>
         {v.label}
         {(c.liquidity?.why || []).length > 0 && (
-          <div style={{ ...dim, fontSize: 9 }}>{c.liquidity.why[0]}</div>
+          <div style={{ ...dim, fontSize: 12 }}>{c.liquidity.why[0]}</div>
         )}
       </td>
     </tr>
@@ -66,7 +66,7 @@ function Side({ title, rows }) {
   if (!rows?.length) return null
   return (
     <div style={{ marginBottom: 18 }}>
-      <div style={{ ...mono, fontSize: 11, color: 'var(--orange)', letterSpacing: 1, marginBottom: 6 }}>
+      <div style={{ ...mono, fontSize: 13, color: 'var(--accent)', marginBottom: 6 }}>
         {title}
       </div>
       <div style={{ overflowX: 'auto' }}>
@@ -126,25 +126,25 @@ export default function OptionsChain() {
           value={input}
           onChange={e => setInput(e.target.value)}
           placeholder="symbol"
-          style={{ ...mono, background: '#0d060a', border: '1px solid var(--border)', color: '#ddd',
-                   fontSize: 12, padding: '7px 10px', borderRadius: 4, width: 110, outline: 'none' }}
+          style={{ ...mono, background: 'var(--inset)', border: '1px solid var(--line)', color: 'var(--ink)',
+                   fontSize: 14, padding: '7px 10px', borderRadius: 10, width: 110, outline: 'none' }}
         />
-        <button type="submit" style={{ ...mono, background: 'var(--orange)', color: '#000', border: 'none',
-                 borderRadius: 4, padding: '7px 14px', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
-          LOAD
+        <button type="submit" style={{ ...mono, background: 'var(--accent)', color: 'var(--on-solid)', border: 'none',
+                 borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          Load
         </button>
         {(data?.expiries || []).length > 0 && (
           <select
             value={data.expiry || ''}
             onChange={e => setExpiry(e.target.value)}
-            style={{ ...mono, background: '#0d060a', color: 'var(--text-dim)', border: '1px solid var(--border)',
-                     borderRadius: 4, fontSize: 11, padding: '6px 8px', outline: 'none', cursor: 'pointer' }}
+            style={{ ...mono, background: 'var(--inset)', color: 'var(--ink-2)', border: '1px solid var(--line)',
+                     borderRadius: 10, fontSize: 13, padding: '6px 8px', outline: 'none', cursor: 'pointer' }}
           >
             {data.expiries.map(x => <option key={x} value={x}>{x}</option>)}
           </select>
         )}
         {data?.spot && (
-          <span style={{ ...mono, fontSize: 11, ...dim }}>
+          <span style={{ ...mono, fontSize: 13, ...dim }}>
             spot {num(data.spot)} · {data.days_to_expiry}d to expiry
           </span>
         )}
@@ -152,26 +152,26 @@ export default function OptionsChain() {
 
       {/* Driven by the payload, so it cannot drift from what the backend allows. */}
       {data?.tradeable === false && (
-        <div style={{ ...mono, fontSize: 11, color: 'var(--orange)', border: '1px solid var(--orange)',
-                      borderRadius: 4, padding: '8px 10px', marginBottom: 12, lineHeight: 1.5 }}>
+        <div style={{ ...mono, fontSize: 13, color: 'var(--accent)', border: '1px solid var(--accent)',
+                      borderRadius: 10, padding: '8px 10px', marginBottom: 12, lineHeight: 1.5 }}>
           {data.refusal}
         </div>
       )}
 
-      {loading && <div style={{ ...mono, fontSize: 12, ...dim }}>loading…</div>}
-      {err && <div style={{ ...mono, fontSize: 11, color: '#f85149', marginBottom: 10 }}>{err}</div>}
+      {loading && <div style={{ ...mono, fontSize: 14, ...dim }}>loading…</div>}
+      {err && <div style={{ ...mono, fontSize: 13, color: 'var(--red)', marginBottom: 10 }}>{err}</div>}
 
       {data?.note && (
-        <div style={{ ...mono, fontSize: 11, ...dim, marginBottom: 12, lineHeight: 1.55 }}>
+        <div style={{ ...mono, fontSize: 13, ...dim, marginBottom: 12, lineHeight: 1.55 }}>
           {data.note}
         </div>
       )}
 
-      <Side title={`CALLS · ${data?.expiry || ''}`} rows={data?.calls} />
-      <Side title={`PUTS · ${data?.expiry || ''}`} rows={data?.puts} />
+      <Side title={`Calls · ${data?.expiry || ''}`} rows={data?.calls} />
+      <Side title={`Puts · ${data?.expiry || ''}`} rows={data?.puts} />
 
       {data?.assumptions && (
-        <div style={{ ...mono, fontSize: 10, ...dim, borderTop: '1px solid var(--border)', paddingTop: 10, lineHeight: 1.6 }}>
+        <div style={{ ...mono, fontSize: 12, ...dim, borderTop: '1px solid var(--line)', paddingTop: 10, lineHeight: 1.6 }}>
           {data.assumptions.greeks}
           <br />
           Risk-free {(data.assumptions.risk_free_rate * 100).toFixed(2)}% — {data.assumptions.risk_free_source}.

@@ -2,8 +2,8 @@
  * components/CommandPalette.jsx
  * Ctrl/⌘+K — type a destination or a ticker, press Enter.
  *
- * Twelve destinations plus per-symbol research is exactly the shape that wants a
- * palette: the rail can only ever show the twelve, but the thing you actually
+ * Eight destinations plus per-symbol research is exactly the shape that wants a
+ * palette: the bar can only ever show the eight, but the thing you actually
  * want most of the time is one specific stock's dossier, and there is no rail
  * long enough for every ticker on earth.
  *
@@ -18,10 +18,11 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { groupsFor } from './Sidebar'
+import { Search } from 'lucide-react'
+import { groupsFor } from './Navigation'
 import { useAuth } from '../auth/AuthContext'
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 
 /* Aliases matter more than they look. The restructure renamed nine things, and
    muscle memory outlives it — someone who wants Nexus should not have to know
@@ -141,9 +142,9 @@ export default function CommandPalette() {
       const ticker = {
         kind: 'ticker',
         path: `/research?symbol=${encodeURIComponent(sym)}`,
-        icon: '◬',
+        icon: Search,
         label: `Research ${sym}`,
-        group: 'SYMBOL',
+        group: 'Symbol',
       }
       // Lead with the ticker only when nothing in the app is named after the
       // query. Most aliases — nexus, desk, macro, signals — are short enough to
@@ -182,7 +183,7 @@ export default function CommandPalette() {
       onMouseDown={e => { if (e.target === e.currentTarget) close() }}
       style={{
         position: 'fixed', inset: 0, zIndex: 9000,
-        background: 'rgba(0,0,0,0.72)',
+        background: 'var(--scrim)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
         padding: '10vh 16px 16px',
       }}>
@@ -190,13 +191,10 @@ export default function CommandPalette() {
         role="dialog"
         aria-modal="true"
         aria-label="Command palette"
-        style={{
-          ...mono, width: '100%', maxWidth: 560,
-          background: '#0b0b0b', border: '1px solid #262626', borderRadius: 4,
-          boxShadow: '0 24px 64px rgba(0,0,0,0.65)', overflow: 'hidden',
-        }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid #1c1c1c' }}>
-          <span aria-hidden="true" style={{ color: 'var(--orange)', fontSize: 13 }}>❯</span>
+        className="sheet"
+        style={{ ...mono, width: '100%', maxWidth: 580, overflow: 'hidden', animation: 'sheetUp .2s cubic-bezier(.22,.7,.3,1) both' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid var(--line)' }}>
+          <Search size={18} strokeWidth={2} aria-hidden="true" style={{ color: 'var(--ink-3)', flex: 'none' }} />
           <input
             ref={inputRef}
             value={q}
@@ -206,16 +204,16 @@ export default function CommandPalette() {
             aria-label="Search destinations or enter a ticker"
             aria-controls="aria-palette-list"
             style={{
-              ...mono, flex: 1, background: 'transparent', border: 'none', outline: 'none',
-              color: '#e8e8e8', fontSize: 13, padding: '2px 0',
+              ...mono, flex: 1, background: 'transparent', border: 'none', outline: 'none', boxShadow: 'none',
+              color: 'var(--ink)', fontSize: 17, padding: '2px 0',
             }} />
-          <kbd style={{ ...mono, fontSize: 9, color: 'var(--muted)', border: '1px solid #262626', borderRadius: 3, padding: '2px 5px' }}>ESC</kbd>
+          <kbd style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', background: 'var(--inset)', borderRadius: 6, padding: '3px 7px' }}>Esc</kbd>
         </div>
 
         <div id="aria-palette-list" ref={listRef} role="listbox" aria-label="Results"
-          style={{ maxHeight: '46vh', overflowY: 'auto' }}>
+          style={{ maxHeight: '46vh', overflowY: 'auto', padding: 6 }}>
           {results.length === 0 && (
-            <div style={{ ...mono, fontSize: 11, color: 'var(--muted)', padding: '14px 12px' }}>
+            <div style={{ ...mono, fontSize: 14, color: 'var(--ink-3)', padding: '14px 12px' }}>
               Nothing matches “{q}”.
             </div>
           )}
@@ -228,19 +226,19 @@ export default function CommandPalette() {
               onMouseEnter={() => setSel(i)}
               onMouseDown={e => { e.preventDefault(); run(r) }}
               style={{
-                display: 'flex', alignItems: 'center', gap: 10,
-                padding: '8px 12px', cursor: 'pointer',
-                background: i === sel ? '#161616' : 'transparent',
-                borderLeft: `2px solid ${i === sel ? 'var(--orange)' : 'transparent'}`,
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '10px 12px', cursor: 'pointer', borderRadius: 12,
+                background: i === sel ? 'var(--accent-bg)' : 'transparent',
+                color: i === sel ? 'var(--accent)' : 'var(--ink-2)',
               }}>
-              <span aria-hidden="true" style={{ width: 16, textAlign: 'center', color: r.kind === 'ticker' ? 'var(--green)' : 'var(--orange)', fontSize: 12 }}>{r.icon}</span>
-              <span style={{ ...mono, fontSize: 12, color: '#e0e0e0', flex: 1 }}>{r.label}</span>
-              <span style={{ ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: 0.5 }}>{r.group}</span>
+              <r.icon size={18} strokeWidth={2} aria-hidden="true" style={{ flex: 'none' }} />
+              <span style={{ ...mono, fontSize: 15, fontWeight: 550, color: 'var(--ink)', flex: 1 }}>{r.label}</span>
+              <span style={{ ...mono, fontSize: 12.5, color: 'var(--ink-3)' }}>{r.group}</span>
             </div>
           ))}
         </div>
 
-        <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', padding: '7px 12px', borderTop: '1px solid #1c1c1c', display: 'flex', gap: 14 }}>
+        <div style={{ ...mono, fontSize: 12.5, color: 'var(--ink-3)', padding: '10px 16px', borderTop: '1px solid var(--line)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
           <span>↑↓ move</span><span>⏎ open</span><span>a ticker goes straight to research</span>
         </div>
       </div>

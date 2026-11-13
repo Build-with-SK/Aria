@@ -2,7 +2,7 @@
  * pages/Login.jsx
  * Owner access. The only way into ARIA.
  *
- *   ARIA · Owner Access · [ Owner Token ] · [ LOGIN ]
+ *   ARIA · Owner access · [ Owner token ] · [ Sign in ]
  *
  * Deliberately nothing else: no registration, no email, no social login, no
  * recovery flow, no animation. SENTINEL's page is the same form in its own
@@ -18,8 +18,7 @@
 import React, { useEffect, useState } from 'react'
 import axios from 'axios'
 import { nextAfterLogin } from '../core/appPath'
-
-const mono = { fontFamily: 'var(--mono)' }
+import { Mark } from '../components/Navigation'
 
 export default function Login() {
   const [token, setToken] = useState('')
@@ -59,43 +58,34 @@ export default function Login() {
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center',
-      justifyContent: 'center', padding: '24px 16px', background: '#050206',
+      justifyContent: 'center', padding: '24px 16px',
     }}>
-      <form onSubmit={submit} style={{ width: '100%', maxWidth: 320, textAlign: 'center' }}>
-        <div style={{ ...mono, fontSize: 22, fontWeight: 800, color: 'var(--orange)',
-                      letterSpacing: '0.3em' }}>ARIA</div>
-        <div style={{ ...mono, fontSize: 11, color: 'var(--muted)', letterSpacing: '0.14em',
-                      margin: '8px 0 22px' }}>Owner Access</div>
+      <form onSubmit={submit} className="sheet" style={{ width: '100%', maxWidth: 380, padding: '34px 28px 26px', textAlign: 'center' }}>
+        <div style={{ color: 'var(--accent)', display: 'grid', placeItems: 'center' }}><Mark size={52} /></div>
+        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '16px 0 0' }}>ARIA</h1>
+        <div style={{ fontSize: 15, color: 'var(--ink-2)', margin: '4px 0 24px' }}>Owner access</div>
 
         {uninitialised && (
-          <div role="alert" style={{ ...mono, fontSize: 11, color: 'var(--red)', marginBottom: 14 }}>
+          <div role="alert" style={{ fontSize: 13.5, color: 'var(--red)', background: 'var(--red-bg)', borderRadius: 12, padding: '10px 12px', marginBottom: 14 }}>
             Server not initialized: no owner token is configured.
           </div>
         )}
 
         <input
           type="password" autoComplete="current-password" autoFocus
-          aria-label="Owner Token" placeholder="Owner Token"
+          aria-label="Owner token" placeholder="Owner token"
           value={token} onChange={e => setToken(e.target.value)} disabled={busy}
-          style={{
-            ...mono, width: '100%', boxSizing: 'border-box', padding: '11px 12px',
-            fontSize: 13, color: '#e8e8e8', background: '#121016',
-            border: '1px solid #2a2630', borderRadius: 4, textAlign: 'center',
-          }}
+          className="aria-input" style={{ textAlign: 'center', minHeight: 48 }}
         />
-        <button type="submit" disabled={busy || !token}
-          style={{
-            ...mono, width: '100%', marginTop: 10, padding: '11px 12px',
-            background: busy || !token ? '#1a1620' : 'var(--orange)',
-            color: busy || !token ? 'var(--muted)' : '#140407',
-            border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 700,
-            letterSpacing: '0.2em', cursor: busy || !token ? 'default' : 'pointer',
-          }}>
-          {busy ? '…' : 'LOGIN'}
+        <button type="submit" disabled={busy || !token} className="aria-btn primary"
+          style={{ width: '100%', marginTop: 12, minHeight: 48, fontSize: 16 }}>
+          {busy ? 'Signing in…' : 'Sign in'}
         </button>
 
-        <div role="alert" style={{ ...mono, fontSize: 11, color: 'var(--red)',
-                                   minHeight: 16, marginTop: 12 }}>{err}</div>
+        <div role="alert" style={{ fontSize: 13.5, color: 'var(--red)', minHeight: 20, marginTop: 12 }}>{err}</div>
+        <div style={{ fontSize: 12.5, color: 'var(--ink-3)', marginTop: 6, lineHeight: 1.6 }}>
+          The token is sent once and is never stored in this browser.
+        </div>
       </form>
     </div>
   )

@@ -16,16 +16,16 @@ import React from 'react'
 import { useDebateValue, useModelIntelligence } from '../hooks/useApi'
 import { SectionHeader } from './UI'
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 
 const STATUS_COLOR = {
-  PRODUCTION: 'var(--green)', VALIDATED: 'var(--green)', EXPERIMENTAL: 'var(--orange)',
-  INSUFFICIENT_DATA: 'var(--yellow)', NOT_RECORDED: 'var(--muted)', RETIRED: 'var(--muted)',
+  PRODUCTION: 'var(--green)', VALIDATED: 'var(--green)', EXPERIMENTAL: 'var(--accent)',
+  INSUFFICIENT_DATA: 'var(--yellow)', NOT_RECORDED: 'var(--ink-3)', RETIRED: 'var(--ink-3)',
 }
 
-const Chip = ({ text, color = 'var(--muted)' }) => (
-  <span style={{ ...mono, fontSize: 9, letterSpacing: '.08em', color, border: `1px solid ${color}`,
-                 borderRadius: 3, padding: '1px 5px', marginRight: 5, whiteSpace: 'nowrap' }}>
+const Chip = ({ text, color = 'var(--ink-3)' }) => (
+  <span style={{ ...mono, fontSize: 12, color, border: `1px solid ${color}`,
+                 borderRadius: 8, padding: '1px 5px', marginRight: 5, whiteSpace: 'nowrap' }}>
     {text}
   </span>
 )
@@ -33,23 +33,23 @@ const Chip = ({ text, color = 'var(--muted)' }) => (
 const pct = x => (x == null ? '—' : `${(x * 100).toFixed(1)}%`)
 
 function Rate({ block }) {
-  if (!block) return <span style={{ color: 'var(--muted)' }}>—</span>
+  if (!block) return <span style={{ color: 'var(--ink-3)' }}>—</span>
   if (block.status !== 'MEASURED') {
     return (
       <span style={{ color: 'var(--yellow)' }}>
-        INSUFFICIENT DATA <span style={{ color: 'var(--muted)' }}>(n={block.n ?? 0})</span>
+        Insufficient data <span style={{ color: 'var(--ink-3)' }}>(n={block.n ?? 0})</span>
       </span>
     )
   }
   const ci = block.ci95_cluster || block.ci95_wilson
   return (
     <span>
-      <span style={{ color: '#fff', fontWeight: 700 }}>{pct(block.rate)}</span>
-      <span style={{ color: 'var(--muted)' }}>
+      <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{pct(block.rate)}</span>
+      <span style={{ color: 'var(--ink-3)' }}>
         {' '}n={block.n} · {block.n_clusters} dates
         {ci ? ` · CI ${(ci[0] * 100).toFixed(0)}–${(ci[1] * 100).toFixed(0)}%` : ''}
       </span>
-      <div style={{ fontSize: 9, color: 'var(--text-dim)' }}>{block.verdict}</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{block.verdict}</div>
     </span>
   )
 }
@@ -67,13 +67,13 @@ export default function ModelIntelligence() {
 
   return (
     <>
-      <SectionHeader>MODEL INTELLIGENCE</SectionHeader>
+      <SectionHeader>Model intelligence</SectionHeader>
       <div className="bb-card" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '120px 130px 150px 1fr 1fr',
-                      gap: 8, ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: '.12em',
-                      borderBottom: '1px solid #141414', paddingBottom: 6 }}>
-          <span>MODEL</span><span>STATUS</span><span>NUMBER IT STATES</span>
-          <span>DIRECTIONAL RECORD</span><span>VS ALWAYS-LONG · ROUTING</span>
+                      gap: 8, ...mono, fontSize: 12, color: 'var(--ink-3)', 
+                      borderBottom: '1px solid var(--inset)', paddingBottom: 6 }}>
+          <span>Model</span><span>Status</span><span>Number it states</span>
+          <span>Directional record</span><span>Vs always-long · routing</span>
         </div>
         {Object.values(cards).map(c => {
           const ev = evals[c.ledger_source] || {}
@@ -82,42 +82,42 @@ export default function ModelIntelligence() {
           return (
             <div key={c.model_id} style={{ display: 'grid',
                                            gridTemplateColumns: '120px 130px 150px 1fr 1fr',
-                                           gap: 8, padding: '7px 0', borderBottom: '1px solid #101010',
-                                           ...mono, fontSize: 10, alignItems: 'start' }}>
+                                           gap: 8, padding: '7px 0', borderBottom: '1px solid var(--inset)',
+                                           ...mono, fontSize: 12, alignItems: 'start' }}>
               <span>
-                <span style={{ color: 'var(--orange)', fontWeight: 700 }}>{c.model_id.toUpperCase()}</span>
-                <div style={{ fontSize: 9, color: 'var(--muted)' }}>
+                <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{c.model_id.toUpperCase()}</span>
+                <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                   {c.code_hash_now ? `code ${c.code_hash_now}` : 'code hash —'}
                 </div>
               </span>
               <span>
                 <Chip text={(c.status || '').replace('_', ' ')} color={STATUS_COLOR[c.status]} />
-                {c.owner_status_lapsed && <Chip text="EVIDENCE LAPSED" color="var(--red)" />}
+                {c.owner_status_lapsed && <Chip text="Evidence lapsed" color="var(--red)" />}
               </span>
               <span>
                 <Chip text={c.probability_type} />
                 <div style={{ marginTop: 3 }}>
                   <Chip text={c.calibration?.calibration_version === 'none' || !c.calibration
-                    ? 'UNCALIBRATED' : `CAL ${c.calibration.calibration_version}`}
+                    ? 'Uncalibrated' : `Cal ${c.calibration.calibration_version}`}
                         color="var(--yellow)" />
                 </div>
               </span>
               <span>
                 <Rate block={ev.directional_accuracy} />
                 {d.excluded > 0 && (
-                  <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
                     {d.excluded} excluded · {d.included_via_regrade || 0} re-measured on one series
                   </div>
                 )}
                 {!c.ledger_source && (
-                  <div style={{ fontSize: 9, color: 'var(--muted)' }}>never written to the ledger</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>never written to the ledger</div>
                 )}
               </span>
-              <span style={{ color: 'var(--text-dim)' }}>
+              <span style={{ color: 'var(--ink-2)' }}>
                 {long?.status === 'MEASURED'
-                  ? <span>{long.verdict} <span style={{ color: 'var(--muted)' }}>(p={long.p_value})</span></span>
-                  : <span style={{ color: 'var(--muted)' }}>not testable yet</span>}
-                <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 2 }}>
+                  ? <span>{long.verdict} <span style={{ color: 'var(--ink-3)' }}>(p={long.p_value})</span></span>
+                  : <span style={{ color: 'var(--ink-3)' }}>not testable yet</span>}
+                <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
                   {c.promotion_check?.eligible ? 'promotion gate passes'
                     : 'promotion gate: not met'}
                   {' · '}
@@ -130,11 +130,11 @@ export default function ModelIntelligence() {
           )
         })}
         {debate?.evaluation?.conclusion && (
-          <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)', marginTop: 10, lineHeight: 1.6 }}>
-            <span style={{ color: 'var(--orange)' }}>DEBATE DESK · </span>
+          <div style={{ ...mono, fontSize: 12, color: 'var(--ink-2)', marginTop: 10, lineHeight: 1.6 }}>
+            <span style={{ color: 'var(--accent)' }}>Debate desk · </span>
             {debate.evaluation.conclusion}
             {debate.evaluation.judge_vs_technical_analyst?.status === 'MEASURED' && (
-              <span style={{ color: 'var(--muted)' }}>
+              <span style={{ color: 'var(--ink-3)' }}>
                 {' '}({debate.evaluation.events} graded events; judge vs its technical input on
                 {' '}{debate.evaluation.judge_vs_technical_analyst.disagreements} disagreements,
                 {' '}p={debate.evaluation.judge_vs_technical_analyst.p_value})
@@ -142,7 +142,7 @@ export default function ModelIntelligence() {
             )}
           </div>
         )}
-        <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 9, lineHeight: 1.65 }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 9, lineHeight: 1.65 }}>
           A rate is shown only above its sample floor, with an interval clustered by
           information date. Confidence and score values are not probabilities and are
           never scored as one. No model is promoted by its numbers: VALIDATED and

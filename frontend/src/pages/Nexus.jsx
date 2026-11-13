@@ -7,12 +7,12 @@ import { searchUniverse, fetchNexusResearch } from '../hooks/useApi'
    /10 score come from configs/nexus_rules.yaml, not from an LLM.
    ───────────────────────────────────────────────────────────────────────── */
 
-const SERIES_COLORS = ['#ffffff', 'var(--orange)', 'var(--blue)', 'var(--yellow)', 'var(--red)']
+const SERIES_COLORS = ['var(--ink)', 'var(--accent)', 'var(--blue)', 'var(--yellow)', 'var(--red)']
 
 function SrcLine({ children }) {
   return (
-    <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--muted)', marginTop: 8, letterSpacing: '0.05em' }}>
-      SRC ▸ {children}
+    <div style={{ fontFamily: 'var(--font)', fontSize: 12, color: 'var(--ink-3)', marginTop: 8, }}>
+      Src ▸ {children}
     </div>
   )
 }
@@ -20,24 +20,24 @@ function SrcLine({ children }) {
 function SourceChip({ label }) {
   return (
     <span style={{
-      fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--green)',
-      background: 'var(--green-bg)', border: '1px solid rgba(0,204,68,0.25)',
-      borderRadius: 2, padding: '0px 5px', marginLeft: 6, whiteSpace: 'nowrap',
+      fontFamily: 'var(--font)', fontSize: 12, color: 'var(--green)',
+      background: 'var(--green-bg)', border: '1px solid color-mix(in srgb, var(--green) 25%, transparent)',
+      borderRadius: 8, padding: '0px 5px', marginLeft: 6, whiteSpace: 'nowrap',
     }}>{label}</span>
   )
 }
 
 function StatusChip({ status }) {
   const map = {
-    PASS: { c: 'var(--green)', bg: 'var(--green-bg)', b: 'rgba(0,204,68,0.3)' },
-    FAIL: { c: 'var(--red)', bg: 'var(--red-bg)', b: 'rgba(255,51,51,0.3)' },
-    NA:   { c: 'var(--muted)', bg: 'transparent', b: 'var(--border-2)' },
+    PASS: { c: 'var(--green)', bg: 'var(--green-bg)', b: 'color-mix(in srgb, var(--green) 30%, transparent)' },
+    FAIL: { c: 'var(--red)', bg: 'var(--red-bg)', b: 'color-mix(in srgb, var(--red) 30%, transparent)' },
+    NA:   { c: 'var(--ink-3)', bg: 'transparent', b: 'var(--line-2)' },
   }
   const s = map[status] || map.NA
   return (
     <span style={{
-      fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, color: s.c,
-      background: s.bg, border: `1px solid ${s.b}`, borderRadius: 2,
+      fontFamily: 'var(--font)', fontSize: 12, fontWeight: 600, color: s.c,
+      background: s.bg, border: `1px solid ${s.b}`, borderRadius: 8,
       padding: '1px 8px', minWidth: 44, textAlign: 'center', display: 'inline-block',
     }}>{status}</span>
   )
@@ -47,7 +47,7 @@ function StatusChip({ status }) {
 function CompareChart({ series, window: win }) {
   const W = 640, H = 220, PAD = 8
   const drawn = series.filter(s => s.points && Object.keys(s.points).length > 2)
-  if (!drawn.length) return <div className="muted mono" style={{ fontSize: 11, padding: 20 }}>NO SERIES CACHED YET</div>
+  if (!drawn.length) return <div className="muted mono" style={{ fontSize: 13, padding: 20 }}>No series cached yet</div>
 
   const sliced = drawn.map(s => {
     const entries = Object.entries(s.points)
@@ -63,9 +63,9 @@ function CompareChart({ series, window: win }) {
     <div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
         {[0.25, 0.5, 0.75].map(f => (
-          <line key={f} x1={0} x2={W} y1={H * f} y2={H * f} stroke="var(--border)" strokeWidth="1" />
+          <line key={f} x1={0} x2={W} y1={H * f} y2={H * f} stroke="var(--line)" strokeWidth="1" />
         ))}
-        <line x1={0} x2={W} y1={y(100)} y2={y(100)} stroke="var(--border-2)" strokeDasharray="4 4" />
+        <line x1={0} x2={W} y1={y(100)} y2={y(100)} stroke="var(--line-2)" strokeDasharray="4 4" />
         {sliced.map((s, i) => (
           <polyline
             key={s.label} fill="none" stroke={s.color} strokeWidth={i === 0 ? 1.8 : 1.2}
@@ -76,7 +76,7 @@ function CompareChart({ series, window: win }) {
       </svg>
       <div style={{ display: 'flex', gap: 14, marginTop: 6, flexWrap: 'wrap' }}>
         {sliced.map(s => (
-          <span key={s.label} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: s.color }}>
+          <span key={s.label} style={{ fontFamily: 'var(--font)', fontSize: 12, color: s.color }}>
             ── {s.label} <span className="muted">{s.vals[s.vals.length - 1].toFixed(0)}</span>
           </span>
         ))}
@@ -115,7 +115,7 @@ function TVChart({ symbol }) {
     script.innerHTML = JSON.stringify({
       symbol, interval: 'D', theme: 'dark', style: '1', locale: 'en',
       width: '100%', height: 430, allow_symbol_change: true,
-      hide_side_toolbar: false, backgroundColor: '#0a0a0a',
+      hide_side_toolbar: false, backgroundColor: 'var(--inset)',
     })
     container.appendChild(script)
     ref.current.appendChild(container)
@@ -177,8 +177,8 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
 
   const f = report?.fundamentals || {}
   const ret = report?.returns || {}
-  const retColor = v => v === null || v === undefined ? 'var(--muted)' : v >= 0 ? 'var(--green)' : 'var(--red)'
-  const scoreColor = report ? (report.score.total >= 7 ? 'var(--green)' : report.score.total >= 4 ? 'var(--yellow)' : 'var(--red)') : 'var(--muted)'
+  const retColor = v => v === null || v === undefined ? 'var(--ink-3)' : v >= 0 ? 'var(--green)' : 'var(--red)'
+  const scoreColor = report ? (report.score.total >= 7 ? 'var(--green)' : report.score.total >= 4 ? 'var(--yellow)' : 'var(--red)') : 'var(--ink-3)'
 
   const chartSeries = report ? [
     { label: report.symbol, points: report.weekly_closes_5y, color: SERIES_COLORS[0] },
@@ -192,45 +192,45 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
       {/* Header + search — suppressed when the Research page owns the search */}
       {!embedded && <>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, marginBottom: 4 }}>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 700, color: 'var(--orange)', letterSpacing: '0.15em' }}>
+        <div style={{ fontFamily: 'var(--font)', fontSize: 17, fontWeight: 600, color: 'var(--accent)', }}>
           ◬ NEXUS
         </div>
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--muted)', letterSpacing: '0.1em' }}>
-          // DEEP RESEARCH — DETERMINISTIC · EVIDENCE-LINKED
+        <div style={{ fontFamily: 'var(--font)', fontSize: 12, color: 'var(--ink-3)', }}>
+          // Deep research — deterministic · evidence-linked
         </div>
       </div>
       <div style={{ position: 'relative', maxWidth: 520, marginBottom: 18 }}>
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="SEARCH ANY SYMBOL — NSE · LSE · US · CRYPTO · FX…"
+          placeholder="Search any symbol — NSE · LSE · US · crypto · FX…"
           spellCheck={false}
           style={{
-            width: '100%', background: 'var(--bg-1)', border: '1px solid var(--border-2)',
-            color: 'var(--white)', fontFamily: 'var(--mono)', fontSize: 13,
-            padding: '9px 12px', outline: 'none', borderRadius: 2, letterSpacing: '0.05em',
+            width: '100%', background: 'var(--inset)', border: '1px solid var(--line-2)',
+            color: 'var(--ink)', fontFamily: 'var(--font)', fontSize: 14,
+            padding: '9px 12px', outline: 'none', borderRadius: 8, 
           }}
         />
         {results.length > 0 && (
           <div style={{
             position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50,
-            background: 'var(--bg-2)', border: '1px solid var(--border-2)', borderTop: 'none',
+            background: 'var(--surface)', border: '1px solid var(--line-2)', borderTop: 'none',
           }}>
             {results.map(r => (
               <div key={r.symbol} onClick={() => select(r.symbol)} style={{
                 display: 'flex', gap: 10, padding: '7px 12px', cursor: 'pointer',
-                borderBottom: '1px solid var(--border)', alignItems: 'baseline',
+                borderBottom: '1px solid var(--line)', alignItems: 'baseline',
               }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--orange-bg)'}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-bg)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color: 'var(--orange)', minWidth: 90 }}>{r.symbol}</span>
-                <span style={{ fontSize: 11, color: 'var(--text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+                <span style={{ fontFamily: 'var(--font)', fontSize: 14, fontWeight: 600, color: 'var(--accent)', minWidth: 90 }}>{r.symbol}</span>
+                <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
                 {r.has_fno ? (
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--yellow)', border: '1px solid rgba(255,204,0,0.3)', borderRadius: 2, padding: '0 4px' }}>
+                  <span style={{ fontFamily: 'var(--font)', fontSize: 12, color: 'var(--yellow)', border: '1px solid color-mix(in srgb, var(--yellow) 30%, transparent)', borderRadius: 8, padding: '0 4px' }}>
                     F&O·{r.lot_size}
                   </span>
                 ) : null}
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--muted)' }}>{r.exchange}</span>
+                <span style={{ fontFamily: 'var(--font)', fontSize: 12, color: 'var(--ink-3)' }}>{r.exchange}</span>
               </div>
             ))}
           </div>
@@ -239,12 +239,12 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
       </>}
 
       {loading && (
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--orange)', padding: 30 }}>
-          ▸ STREAMING DOSSIER<span className="blink">█</span>
-          <div className="muted" style={{ fontSize: 10, marginTop: 6 }}>Five years of prices and fundamentals — usually a few seconds</div>
+        <div style={{ fontFamily: 'var(--font)', fontSize: 14, color: 'var(--accent)', padding: 30 }}>
+          ▸ Streaming dossier<span className="blink">█</span>
+          <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Five years of prices and fundamentals — usually a few seconds</div>
         </div>
       )}
-      {error && <div className="mono" style={{ color: 'var(--red)', fontSize: 12, padding: 20 }}>ERROR ▸ {error}</div>}
+      {error && <div className="mono" style={{ color: 'var(--red)', fontSize: 14, padding: 20 }}>Error ▸ {error}</div>}
 
       {report && !loading && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -252,15 +252,15 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
           {/* Row 1 — snapshot + score */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 14 }}>
             <div className="bb-card">
-              <div className="bb-card-header">{report.symbol} — {report.name} <span style={{ color: 'var(--muted)' }}>· {report.exchange}</span></div>
+              <div className="bb-card-header">{report.symbol} — {report.name} <span style={{ color: 'var(--ink-3)' }}>· {report.exchange}</span></div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, marginBottom: 12 }}>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 30, fontWeight: 700, color: 'var(--white)' }}>
-                  {num(report.price)} <span style={{ fontSize: 12, color: 'var(--muted)' }}>{report.currency}</span>
+                <span style={{ fontFamily: 'var(--font)', fontSize: 34, fontWeight: 600, color: 'var(--ink)' }}>
+                  {num(report.price)} <span style={{ fontSize: 14, color: 'var(--ink-3)' }}>{report.currency}</span>
                 </span>
                 {['1M', '6M', '1Y', '5Y'].map(k => (
-                  <span key={k} style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>
-                    <span className="muted" style={{ fontSize: 9 }}>{k} </span>
-                    <span style={{ color: retColor(ret[k]), fontWeight: 700 }}>
+                  <span key={k} style={{ fontFamily: 'var(--font)', fontSize: 14 }}>
+                    <span className="muted" style={{ fontSize: 12 }}>{k} </span>
+                    <span style={{ color: retColor(ret[k]), fontWeight: 600 }}>
                       {ret[k] === null || ret[k] === undefined ? 'N/A' : `${ret[k] > 0 ? '+' : ''}${ret[k]}%`}
                     </span>
                   </span>
@@ -277,8 +277,8 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
                   ['BETA', num(f.beta)], ['INSIDERS', f.heldPercentInsiders != null ? (f.heldPercentInsiders * 100).toFixed(1) + '%' : 'N/A'],
                 ].map(([k, v]) => (
                   <div key={k}>
-                    <div className="muted mono" style={{ fontSize: 9, letterSpacing: '0.08em' }}>{k}</div>
-                    <div className="mono white" style={{ fontSize: 13, fontWeight: 600 }}>{v}</div>
+                    <div className="muted mono" style={{ fontSize: 12, }}>{k}</div>
+                    <div className="mono white" style={{ fontSize: 14, fontWeight: 600 }}>{v}</div>
                   </div>
                 ))}
               </div>
@@ -286,22 +286,22 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
             </div>
 
             <div className="bb-card">
-              <div className="bb-card-header">SCORE — HOW IT GOT THERE</div>
+              <div className="bb-card-header">Score — how it got there</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 38, fontWeight: 700, color: scoreColor }}>
-                  {report.score.total}<span style={{ fontSize: 15, color: 'var(--muted)' }}>/{report.score.out_of}</span>
+                <span style={{ fontFamily: 'var(--font)', fontSize: 42, fontWeight: 600, color: scoreColor }}>
+                  {report.score.total}<span style={{ fontSize: 16, color: 'var(--ink-3)' }}>/{report.score.out_of}</span>
                 </span>
               </div>
               {report.score.components.map(c => (
                 <div key={c.name} style={{ marginBottom: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--mono)', fontSize: 10 }}>
-                    <span style={{ color: 'var(--text)' }}>{c.name.toUpperCase()}</span>
-                    <span style={{ color: c.points === 2 ? 'var(--green)' : c.points === 1 ? 'var(--yellow)' : 'var(--red)', fontWeight: 700 }}>{c.points}/{c.max}</span>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'var(--font)', fontSize: 12 }}>
+                    <span style={{ color: 'var(--ink)' }}>{c.name.toUpperCase()}</span>
+                    <span style={{ color: c.points === 2 ? 'var(--green)' : c.points === 1 ? 'var(--yellow)' : 'var(--red)', fontWeight: 600 }}>{c.points}/{c.max}</span>
                   </div>
                   <div className="bar-track" style={{ margin: '3px 0' }}>
                     <div className={c.points === 2 ? 'bar-fill-bull' : c.points === 1 ? 'bar-fill-neut' : 'bar-fill-bear'} style={{ width: `${(c.points / c.max) * 100}%` }} />
                   </div>
-                  <div className="muted" style={{ fontSize: 9, fontFamily: 'var(--mono)', lineHeight: 1.5 }}>{c.evidence}</div>
+                  <div className="muted" style={{ fontSize: 12, fontFamily: 'var(--font)', lineHeight: 1.5 }}>{c.evidence}</div>
                 </div>
               ))}
               <SrcLine>{report.score.method}</SrcLine>
@@ -312,13 +312,13 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: 14 }}>
             <div className="bb-card">
               <div className="bb-card-header" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>PRICE — {report.symbol} VS PEERS (BASE 100)</span>
+                <span>Price — {report.symbol} vs peers (base 100)</span>
                 <span>
                   {['1Y', '5Y'].map(k => (
                     <span key={k} onClick={() => setWin(k)} style={{
-                      cursor: 'pointer', marginLeft: 10, fontSize: 10,
-                      color: win === k ? 'var(--orange)' : 'var(--muted)',
-                      borderBottom: win === k ? '1px solid var(--orange)' : 'none',
+                      cursor: 'pointer', marginLeft: 10, fontSize: 12,
+                      color: win === k ? 'var(--accent)' : 'var(--ink-3)',
+                      borderBottom: win === k ? '1px solid var(--accent)' : 'none',
                     }}>{k}</span>
                   ))}
                 </span>
@@ -329,16 +329,16 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
 
             <div className="bb-card">
               <div className="bb-card-header">
-                RED FLAGS <span style={{ color: report.red_flags.failed ? 'var(--red)' : 'var(--green)' }}>
-                  — {report.red_flags.failed} FAIL / {report.red_flags.items.length}
+                Red flags <span style={{ color: report.red_flags.failed ? 'var(--red)' : 'var(--green)' }}>
+                  — {report.red_flags.failed} fail / {report.red_flags.items.length}
                 </span>
               </div>
               {report.red_flags.items.map(x => (
-                <div key={x.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '6px 0', borderBottom: '1px solid var(--border)' }}>
+                <div key={x.id} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
                   <StatusChip status={x.status} />
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 11, color: 'var(--text)' }}>{x.label}</div>
-                    <div className="muted mono" style={{ fontSize: 10 }}>{x.evidence}</div>
+                    <div style={{ fontSize: 13, color: 'var(--ink)' }}>{x.label}</div>
+                    <div className="muted mono" style={{ fontSize: 12 }}>{x.evidence}</div>
                   </div>
                 </div>
               ))}
@@ -348,14 +348,14 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
 
           {/* Row 2.5 — TradingView global chart */}
           <div className="bb-card">
-            <div className="bb-card-header">GLOBAL CHART — TRADINGVIEW · {tvSymbol(report)}</div>
+            <div className="bb-card-header">Global chart — TradingView · {tvSymbol(report)}</div>
             <TVChart symbol={tvSymbol(report)} />
             <SrcLine>Chart and data by TradingView · not stored by ARIA</SrcLine>
           </div>
 
           {/* Row 3 — SWOT */}
           <div className="bb-card">
-            <div className="bb-card-header">SWOT — EVIDENCE-LINKED</div>
+            <div className="bb-card-header">SWOT — evidence-linked</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 24px' }}>
               {[
                 ['STRENGTHS', 'strengths', 'var(--green)'],
@@ -364,10 +364,10 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
                 ['THREATS', 'threats', 'var(--yellow)'],
               ].map(([title, key, color]) => (
                 <div key={key}>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, fontWeight: 700, color, letterSpacing: '0.12em', marginBottom: 6 }}>{title}</div>
-                  {(report.swot[key] || []).length === 0 && <div className="muted mono" style={{ fontSize: 10 }}>— none detected from available data</div>}
+                  <div style={{ fontFamily: 'var(--font)', fontSize: 12, fontWeight: 600, color, marginBottom: 6 }}>{title}</div>
+                  {(report.swot[key] || []).length === 0 && <div className="muted mono" style={{ fontSize: 12 }}>— none detected from available data</div>}
                   {(report.swot[key] || []).map((b, i) => (
-                    <div key={i} style={{ fontSize: 11, color: 'var(--text)', padding: '3px 0', lineHeight: 1.5 }}>
+                    <div key={i} style={{ fontSize: 13, color: 'var(--ink)', padding: '3px 0', lineHeight: 1.5 }}>
                       <span style={{ color, marginRight: 6 }}>▪</span>
                       {b.text}
                       <SourceChip label={b.source} />
@@ -381,17 +381,17 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
 
           {/* Row 4 — peers */}
           <div className="bb-card">
-            <div className="bb-card-header">PEERS — SAME SECTOR · TOP BY MCAP</div>
+            <div className="bb-card-header">Peers — same sector · top by mcap</div>
             {(report.peers || []).length === 0
-              ? <div className="muted mono" style={{ fontSize: 11 }}>
+              ? <div className="muted mono" style={{ fontSize: 13 }}>
                   NO PEERS MAPPED YET — sector peers appear as more symbols in this sector are researched
                 </div>
               : <table>
-                  <thead><tr><th>SYMBOL</th><th>NAME</th><th>MKT CAP</th><th>P/E</th><th>ROE</th><th>1Y</th><th>CHART</th></tr></thead>
+                  <thead><tr><th>Symbol</th><th>Name</th><th>Mkt cap</th><th>P/E</th><th>ROE</th><th>1Y</th><th>Chart</th></tr></thead>
                   <tbody>
                     {report.peers.map(p => (
                       <tr key={p.symbol} style={{ cursor: 'pointer' }} onClick={() => select(p.symbol)}>
-                        <td className="acc" style={{ fontWeight: 700 }}>{p.symbol}</td>
+                        <td className="acc" style={{ fontWeight: 600 }}>{p.symbol}</td>
                         <td>{p.name}</td>
                         <td>{num(p.mcap)}</td>
                         <td>{num(p.trailingPE)}</td>
@@ -405,14 +405,14 @@ export default function Nexus({ symbol: externalSymbol = null, embedded = false 
             <SrcLine>Select a peer to open its research</SrcLine>
           </div>
 
-          <div className="muted mono" style={{ fontSize: 9, textAlign: 'center', padding: '4px 0 12px' }}>
+          <div className="muted mono" style={{ fontSize: 12, textAlign: 'center', padding: '4px 0 12px' }}>
             {report.disclaimer} · generated {report.generated_at?.slice(0, 19).replace('T', ' ')}
           </div>
         </div>
       )}
 
       {!report && !loading && !error && (
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)', padding: '40px 0', lineHeight: 2 }}>
+        <div style={{ fontFamily: 'var(--font)', fontSize: 13, color: 'var(--ink-3)', padding: '40px 0', lineHeight: 2 }}>
           ▸ type a symbol or company name — RELIANCE, TCS, AAPL, BTC-USD…<br />
           ▸ tier-0 index answers instantly · tier-2 dossier streams in only for the symbol you open<br />
           ▸ verdicts are deterministic (configs/nexus_rules.yaml) · every bullet carries its source

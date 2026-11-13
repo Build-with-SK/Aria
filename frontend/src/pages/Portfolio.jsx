@@ -15,8 +15,8 @@ import { DataUnavailable, hasRecord } from '../components/DataState'
 // So the account leads, the model universe follows, and the model universe is
 // labelled as what it is rather than left to look like a statement.
 
-const mono = { fontFamily: 'var(--mono)' }
-const dim = { color: 'var(--text-dim)' }
+const mono = { fontFamily: 'var(--font)' }
+const dim = { color: 'var(--ink-2)' }
 
 const money = (n, ccy = 'USD') =>
   n === null || n === undefined
@@ -25,8 +25,8 @@ const money = (n, ccy = 'USD') =>
         minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
 const pnlColour = n =>
-  n === null || n === undefined ? 'var(--text-dim)'
-    : n > 0 ? 'var(--green)' : n < 0 ? '#f85149' : 'var(--text-dim)'
+  n === null || n === undefined ? 'var(--ink-2)'
+    : n > 0 ? 'var(--green)' : n < 0 ? 'var(--red)' : 'var(--ink-2)'
 
 function Holdings({ data }) {
   const holdings = data?.holdings || []
@@ -37,7 +37,7 @@ function Holdings({ data }) {
     return (
       <div className="card" style={{ marginBottom: 20 }}>
         <SectionHeader>Holdings</SectionHeader>
-        <div style={{ ...mono, fontSize: 12, ...dim, padding: '8px 0' }}>
+        <div style={{ ...mono, fontSize: 14, ...dim, padding: '8px 0' }}>
           {data?.note || 'No open positions.'}
         </div>
       </div>
@@ -49,8 +49,8 @@ function Holdings({ data }) {
       <SectionHeader>
         Holdings — {totals.positions} position{totals.positions === 1 ? '' : 's'}
         {account.paper && (
-          <span style={{ ...mono, fontSize: 10, marginLeft: 8, color: 'var(--orange)' }}>
-            PAPER
+          <span style={{ ...mono, fontSize: 12, marginLeft: 8, color: 'var(--accent)' }}>
+            Paper
           </span>
         )}
       </SectionHeader>
@@ -74,7 +74,7 @@ function Holdings({ data }) {
               <tr key={h.ticker}>
                 <td>
                   <div style={{ fontWeight: 600 }}>{h.ticker}</div>
-                  <div style={{ ...mono, fontSize: 10, ...dim }}>
+                  <div style={{ ...mono, fontSize: 12, ...dim }}>
                     {h.name || '—'}
                     {h.asset_class ? ` · ${h.asset_class}` : ''}
                   </div>
@@ -86,7 +86,7 @@ function Holdings({ data }) {
                 <td style={{ ...mono, color: pnlColour(h.unrealised_pl), fontWeight: 600 }}>
                   {h.unrealised_pl > 0 ? '+' : ''}{money(h.unrealised_pl, h.currency)}
                   {h.unrealised_pl_pct !== null && h.unrealised_pl_pct !== undefined && (
-                    <span style={{ fontSize: 10, marginLeft: 4 }}>
+                    <span style={{ fontSize: 12, marginLeft: 4 }}>
                       ({h.unrealised_pl_pct > 0 ? '+' : ''}{h.unrealised_pl_pct}%)
                     </span>
                   )}
@@ -95,12 +95,12 @@ function Holdings({ data }) {
                 <td style={{ ...mono, ...dim }}>
                   {h.days_held === null || h.days_held === undefined ? '—' : `${h.days_held}d`}
                 </td>
-                <td style={{ ...mono, fontSize: 11 }}>
+                <td style={{ ...mono, fontSize: 13 }}>
                   {h.stop ? money(h.stop, h.currency) : '—'}
                   {' / '}
                   {h.target ? money(h.target, h.currency) : '—'}
                   {h.distance_to_stop_pct !== undefined && (
-                    <div style={{ fontSize: 10, ...dim }}>
+                    <div style={{ fontSize: 12, ...dim }}>
                       {h.distance_to_stop_pct}% above stop
                     </div>
                   )}
@@ -112,13 +112,13 @@ function Holdings({ data }) {
       </div>
 
       {holdings.some(h => h.thesis) && (
-        <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+        <div style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
           {holdings.filter(h => h.thesis).map(h => (
             <div key={h.ticker} style={{ marginBottom: 10 }}>
-              <span style={{ ...mono, fontSize: 10, color: 'var(--orange)', letterSpacing: 1 }}>
-                WHY {h.ticker}
+              <span style={{ ...mono, fontSize: 12, color: 'var(--accent)', }}>
+                Why {h.ticker}
               </span>
-              <div style={{ ...mono, fontSize: 11, ...dim, marginTop: 3, lineHeight: 1.55 }}>
+              <div style={{ ...mono, fontSize: 13, ...dim, marginTop: 3, lineHeight: 1.55 }}>
                 {h.thesis}
               </div>
             </div>
@@ -127,7 +127,7 @@ function Holdings({ data }) {
       )}
 
       {/* An honest line about where the numbers came from, on every render. */}
-      <div style={{ ...mono, fontSize: 10, ...dim, marginTop: 10 }}>
+      <div style={{ ...mono, fontSize: 12, ...dim, marginTop: 10 }}>
         {data.note} {holdings[0]?.price_source ? `· prices: ${holdings[0].price_source}` : ''}
       </div>
     </div>
@@ -143,8 +143,8 @@ function Related({ data }) {
       <SectionHeader>Related to what he holds</SectionHeader>
       {groups.map(g => (
         <div key={g.holding} style={{ marginBottom: 16 }}>
-          <div style={{ ...mono, fontSize: 11, marginBottom: 6 }}>
-            <span style={{ color: 'var(--orange)', fontWeight: 700 }}>{g.holding}</span>
+          <div style={{ ...mono, fontSize: 13, marginBottom: 6 }}>
+            <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{g.holding}</span>
             <span style={dim}> — {g.holding_name} · {g.weight_pct}% of book</span>
           </div>
           <table>
@@ -156,18 +156,18 @@ function Related({ data }) {
                 <tr key={r.ticker}>
                   <td>
                     <div style={{ fontWeight: 600 }}>{r.ticker}</div>
-                    <div style={{ ...mono, fontSize: 10, ...dim }}>{r.name}</div>
+                    <div style={{ ...mono, fontSize: 12, ...dim }}>{r.name}</div>
                   </td>
-                  <td style={{ ...mono, fontSize: 11, ...dim }}>{r.relationship}</td>
-                  <td style={{ ...mono, fontSize: 11 }}>
+                  <td style={{ ...mono, fontSize: 13, ...dim }}>{r.relationship}</td>
+                  <td style={{ ...mono, fontSize: 13 }}>
                     {r.already_held && (
                       <span style={{ color: 'var(--green)' }}>already held</span>
                     )}
                     {r.concentration_warning && (
-                      <div style={{ color: 'var(--orange)' }}>{r.concentration_warning}</div>
+                      <div style={{ color: 'var(--accent)' }}>{r.concentration_warning}</div>
                     )}
                     {r.scored && r.direction && (
-                      <span style={{ color: 'var(--text-dim)' }}>{r.direction}</span>
+                      <span style={{ color: 'var(--ink-2)' }}>{r.direction}</span>
                     )}
                   </td>
                 </tr>
@@ -176,7 +176,7 @@ function Related({ data }) {
           </table>
         </div>
       ))}
-      <div style={{ ...mono, fontSize: 10, ...dim, marginTop: 4 }}>{data.note}</div>
+      <div style={{ ...mono, fontSize: 12, ...dim, marginTop: 4 }}>{data.note}</div>
     </div>
   )
 }
@@ -197,7 +197,7 @@ export default function Portfolio() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 20 }}>Portfolio</h1>
+      <h1 style={{ fontSize: 26, fontWeight: 600, marginBottom: 20 }}>Portfolio</h1>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
         <MetricCard label="Equity" value={money(account.equity)} />
@@ -218,10 +218,10 @@ export default function Portfolio() {
           <SectionHeader>Exposure by asset class</SectionHeader>
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={byClass.map(([k, v]) => ({ name: k, value: v }))}>
-              <XAxis dataKey="name" tick={{ fill: '#8b949e', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#8b949e', fontSize: 11 }} />
-              <Tooltip contentStyle={{ background: '#161b22', border: '1px solid #30363d', color: '#e6edf3' }} />
-              <Bar dataKey="value" fill="#58a6ff" radius={[4, 4, 0, 0]} />
+              <XAxis dataKey="name" tick={{ fill: 'var(--ink-3)', fontSize: 13 }} />
+              <YAxis tick={{ fill: 'var(--ink-3)', fontSize: 13 }} />
+              <Tooltip contentStyle={{ background: 'var(--inset)', border: '1px solid var(--line)', color: 'var(--ink)' }} />
+              <Bar dataKey="value" fill="var(--blue)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -233,7 +233,7 @@ export default function Portfolio() {
       {analysis.diversification_score != null && (
         <div className="card">
           <SectionHeader>Model universe — not your holdings</SectionHeader>
-          <div style={{ ...mono, fontSize: 11, ...dim, marginBottom: 12, lineHeight: 1.6 }}>
+          <div style={{ ...mono, fontSize: 13, ...dim, marginBottom: 12, lineHeight: 1.6 }}>
             Risk maths over a fixed analysis universe of {analysis.n_assets_active || '—'} assets,
             last computed {String(analysis.generated_at || '').slice(0, 10) || 'some time ago'}.
             None of it is owned. It is here for the correlation and

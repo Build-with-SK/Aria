@@ -27,7 +27,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 
-const mono = { fontFamily: 'var(--mono)' }
 
 // The open prompt, if any. Concurrent refusals share one prompt rather than
 // stacking three dialogs over each other.
@@ -99,40 +98,21 @@ export default function StepUpPrompt() {
     <div role="dialog" aria-modal="true" aria-labelledby="stepup-title" style={{
       position: 'fixed', inset: 0, zIndex: 10000, display: 'flex',
       alignItems: 'center', justifyContent: 'center',
-      background: 'rgba(5,2,6,0.86)', padding: 16,
+      background: 'var(--scrim)', padding: 16, animation: 'fadeIn .18s ease both',
     }}>
-      <form onSubmit={submit} style={{
-        width: '100%', maxWidth: 380, background: '#0b080c',
-        border: '1px solid var(--orange)', borderRadius: 5, padding: '20px 18px',
-        boxShadow: '0 0 24px rgba(255,36,71,.18)',
-      }}>
-        <div id="stepup-title" style={{ ...mono, fontSize: 12, fontWeight: 700,
-          color: 'var(--orange)', letterSpacing: '0.12em' }}>
-          CONFIRM IT'S YOU
-        </div>
-        <p style={{ ...mono, fontSize: 11, color: 'var(--muted)', lineHeight: 1.6, margin: '10px 0 14px' }}>
+      <form onSubmit={submit} className="sheet" style={{ width: '100%', maxWidth: 400, padding: '24px 22px 20px' }}>
+        <h2 id="stepup-title" style={{ fontSize: 20, fontWeight: 700 }}>Confirm it's you</h2>
+        <p style={{ fontSize: 14, color: 'var(--ink-2)', lineHeight: 1.55, margin: '8px 0 16px' }}>
           This moves money or loosens a safety control, so it needs your owner
           credential again. You won't be asked again for a few minutes.
         </p>
         <input ref={input} type="password" autoComplete="current-password"
           value={value} onChange={e => setValue(e.target.value)} disabled={busy}
-          aria-label="Owner credential"
-          style={{ ...mono, width: '100%', boxSizing: 'border-box', padding: '10px 11px',
-            fontSize: 12, color: '#e8e8e8', background: '#121016',
-            border: '1px solid #2a2630', borderRadius: 4 }} />
-        {err && <div role="alert" style={{ ...mono, fontSize: 10.5, color: 'var(--red)', marginTop: 8 }}>{err}</div>}
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button type="submit" disabled={busy || !value} style={{
-            ...mono, flex: 1, padding: '10px 12px', border: 'none', borderRadius: 4,
-            fontSize: 11.5, fontWeight: 700, letterSpacing: '0.06em',
-            cursor: busy ? 'default' : 'pointer',
-            background: busy ? '#1a1620' : 'var(--orange)', color: busy ? 'var(--muted)' : '#140407',
-          }}>{busy ? 'CHECKING…' : 'CONFIRM'}</button>
-          <button type="button" onClick={() => finish(false)} disabled={busy} style={{
-            ...mono, padding: '10px 12px', borderRadius: 4, fontSize: 11.5,
-            background: 'transparent', color: 'var(--muted)', border: '1px solid #2a2630',
-            cursor: 'pointer',
-          }}>CANCEL</button>
+          aria-label="Owner credential" placeholder="Owner credential" className="aria-input" />
+        {err && <div role="alert" style={{ fontSize: 13.5, color: 'var(--red)', marginTop: 10 }}>{err}</div>}
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+          <button type="button" onClick={() => finish(false)} disabled={busy} className="aria-btn">Cancel</button>
+          <button type="submit" disabled={busy || !value} className="aria-btn primary">{busy ? 'Checking…' : 'Confirm'}</button>
         </div>
       </form>
     </div>

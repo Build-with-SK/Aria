@@ -9,7 +9,7 @@ import Term from '../components/Term'
   Fills feed · paper P&L. Crimson command-deck aesthetic, inline styles only.
 */
 
-const MONO = 'var(--mono)'
+const MONO = 'var(--font)'
 
 function usePoll(url, ms) {
   const [data, setData] = useState(null)
@@ -53,17 +53,17 @@ function ConvictionGauge({ conviction = 0, bar = 65, verdict = 'NO_TRADE' }) {
   }
   return (
     <svg viewBox="0 0 180 100" style={{ width: '100%', maxWidth: 220 }} className="gauge-svg">
-      {arc(-90, 90, 70, 9, '#1c0c12')}
+      {arc(-90, 90, 70, 9, 'var(--inset)')}
       {arc(-90, angle, 70, 9, color, 0.9)}
       {/* the bar the judge must clear */}
       <line x1={90 + 58 * Math.sin(barAngle * Math.PI / 180)} y1={90 - 58 * Math.cos(barAngle * Math.PI / 180)}
         x2={90 + 80 * Math.sin(barAngle * Math.PI / 180)} y2={90 - 80 * Math.cos(barAngle * Math.PI / 180)}
-        stroke="var(--orange)" strokeWidth="2" strokeDasharray="3 2" />
+        stroke="var(--accent)" strokeWidth="2" strokeDasharray="3 2" />
       <line x1="90" y1="90" x2={90 + 52 * Math.sin(angle * Math.PI / 180)} y2={90 - 52 * Math.cos(angle * Math.PI / 180)}
         stroke={color} strokeWidth="2.5" style={{ transition: 'all .8s cubic-bezier(.2,.8,.25,1)' }} />
       <circle cx="90" cy="90" r="5" fill={color} />
       <text x="90" y="72" textAnchor="middle" fontSize="20" fontWeight="800" fill={color}>{conviction}</text>
-      <text x="90" y="84" textAnchor="middle" fontSize="7" fill="var(--muted)">BAR {bar}</text>
+      <text x="90" y="84" textAnchor="middle" fontSize="7" fill="var(--ink-3)">Bar {bar}</text>
     </svg>
   )
 }
@@ -101,37 +101,36 @@ function AutoExecToggle({ status, onChanged }) {
 
   return (
     <div className="bb-card glow-frame" style={{ padding: 16 }}>
-      <div className="bb-card-header">AUTONOMOUS EXECUTION</div>
+      <div className="bb-card-header">Autonomous execution</div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <button onClick={toggle} disabled={busy || live || !known} style={{
-          fontFamily: MONO, fontSize: 13, fontWeight: 800, letterSpacing: '.14em',
-          padding: '14px 26px', borderRadius: 6, cursor: live || !known ? 'not-allowed' : 'pointer',
-          background: armed ? 'var(--green-bg)' : 'var(--bg-3)',
-          color: armed ? 'var(--green)' : live ? 'var(--muted)' : 'var(--text-dim)',
-          border: `1px solid ${armed ? 'var(--green-dim)' : 'var(--border-2)'}`,
-          boxShadow: armed ? '0 0 18px rgba(43,227,139,.3)' : 'none',
+          fontFamily: MONO, fontSize: 14, fontWeight: 600, 
+          padding: '14px 26px', borderRadius: 12, cursor: live || !known ? 'not-allowed' : 'pointer',
+          background: armed ? 'var(--green-bg)' : 'var(--inset)',
+          color: armed ? 'var(--green)' : live ? 'var(--ink-3)' : 'var(--ink-2)',
+          border: `1px solid ${armed ? 'var(--green-dim)' : 'var(--line-2)'}`,
           animation: armed ? 'pulseGlow 3.2s ease-in-out infinite' : 'none',
         }}>
-          {!known ? '— AUTO-EXECUTE STATE UNKNOWN' : armed ? '■ AUTO-EXECUTE ARMED' : '▶ ARM AUTO-EXECUTE'}
+          {!known ? '— Auto-execute state unknown' : armed ? '■ Auto-execute armed' : '▶ Arm auto-execute'}
         </button>
         {!known ? (
-          <div style={{ fontFamily: MONO, fontSize: 11, lineHeight: 1.8, color: 'var(--muted)' }}>
+          <div style={{ fontFamily: MONO, fontSize: 13, lineHeight: 1.8, color: 'var(--ink-3)' }}>
             Desk status unavailable — whether auto-execute is armed is unknown,
             so it is shown as neither on nor off and cannot be changed here.
           </div>
         ) : (
-        <div style={{ fontFamily: MONO, fontSize: 11, lineHeight: 1.8 }}>
-          <div style={{ color: paperOk ? 'var(--green)' : live ? 'var(--red)' : 'var(--yellow)', fontWeight: 700 }}>
+        <div style={{ fontFamily: MONO, fontSize: 13, lineHeight: 1.8 }}>
+          <div style={{ color: paperOk ? 'var(--green)' : live ? 'var(--red)' : 'var(--yellow)', fontWeight: 600 }}>
             {account === 'paper' ? '● PAPER — auto-exec permitted' :
               live ? '○ LIVE — manual only (locked)' : '○ BROKER DISCONNECTED — manual only'}
           </div>
-          <div style={{ color: 'var(--muted)', fontSize: 10 }}>
+          <div style={{ color: 'var(--ink-3)', fontSize: 12 }}>
             Paper-account check: <span style={{ color: gates.env_paper ? 'var(--green)' : 'var(--red)' }}>
-              {gates.env_paper ? 'PASS' : 'FAIL'}</span>
+              {gates.env_paper ? 'Pass' : 'Fail'}</span>
             {' · '}budget left <span className="white">${(gates.budget_left ?? 0).toLocaleString()}</span>
             {' · '}trades left <span className="white">{gates.trades_left ?? '—'}</span>
           </div>
-          <div style={{ color: 'var(--muted)', fontSize: 10 }}>
+          <div style={{ color: 'var(--ink-3)', fontSize: 12 }}>
             {armed ? 'Fills happen on their own — you are informed after, never asked.' :
               'OFF by default. Trades wait in the approval queue until you arm it.'}
           </div>
@@ -140,7 +139,7 @@ function AutoExecToggle({ status, onChanged }) {
       </div>
       {refusal && (
         <div style={{
-          marginTop: 10, padding: '8px 12px', borderRadius: 4, fontFamily: MONO, fontSize: 11,
+          marginTop: 10, padding: '8px 12px', borderRadius: 10, fontFamily: MONO, fontSize: 13,
           background: 'var(--red-bg)', color: 'var(--red)', border: '1px solid var(--red-dim)',
         }}>⛔ {refusal}</div>
       )}
@@ -158,8 +157,8 @@ function DebateTheatre({ debates }) {
   useEffect(() => { if (d) { const t = setTimeout(() => seenRef.current.add(d.id), 4000); return () => clearTimeout(t) } }, [d])
 
   if (!list.length) return (
-    <div className="bb-card"><div className="bb-card-header">DEBATE THEATRE</div>
-      <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 20 }}>
+    <div className="bb-card"><div className="bb-card-header">Debate theatre</div>
+      <div style={{ color: 'var(--ink-3)', fontFamily: MONO, fontSize: 13, padding: 20 }}>
         No debates yet. Press RUN CYCLE NOW to start one.
       </div></div>
   )
@@ -175,11 +174,11 @@ function DebateTheatre({ debates }) {
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
         {list.map((t, i) => (
           <button key={t.id} onClick={() => setSel(i)} style={{
-            fontFamily: MONO, fontSize: 10, fontWeight: 700, padding: '4px 10px',
-            borderRadius: 3, cursor: 'pointer',
-            background: i === sel ? 'var(--orange-bg)' : 'var(--bg-3)',
-            color: i === sel ? 'var(--orange)' : 'var(--text-dim)',
-            border: `1px solid ${i === sel ? 'var(--orange-dim)' : 'var(--border)'}`,
+            fontFamily: MONO, fontSize: 12, fontWeight: 600, padding: '4px 10px',
+            borderRadius: 8, cursor: 'pointer',
+            background: i === sel ? 'var(--accent-bg)' : 'var(--inset)',
+            color: i === sel ? 'var(--accent)' : 'var(--ink-2)',
+            border: `1px solid ${i === sel ? 'var(--accent-dim)' : 'var(--line)'}`,
           }}>
             {t.ticker} <span style={{
               color: t.judge?.verdict === 'BUY' ? 'var(--green)' :
@@ -191,24 +190,24 @@ function DebateTheatre({ debates }) {
 
       {/* two columns, round by round */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <div style={{ fontFamily: MONO, fontSize: 10, fontWeight: 800, color: 'var(--green)', letterSpacing: '.15em' }}>
-          ▲ BULL RESEARCHER</div>
-        <div style={{ fontFamily: MONO, fontSize: 10, fontWeight: 800, color: 'var(--red)', letterSpacing: '.15em', textAlign: 'right' }}>
-          BEAR RESEARCHER ▼</div>
+        <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: 'var(--green)', }}>
+          ▲ Bull researcher</div>
+        <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: 'var(--red)', textAlign: 'right' }}>
+          Bear researcher ▼</div>
         {(d.rounds || []).filter(r => r.bull || r.bear).map((r, i) => (
           <React.Fragment key={i}>
             <div style={{
-              background: 'var(--green-bg)', border: '1px solid rgba(43,227,139,.2)',
-              borderRadius: 6, padding: '10px 12px', fontSize: 12, lineHeight: 1.55,
+              background: 'var(--green-bg)', border: '1px solid color-mix(in srgb, var(--green) 20%, transparent)',
+              borderRadius: 12, padding: '10px 12px', fontSize: 14, lineHeight: 1.55,
             }}>
-              <div style={{ fontFamily: MONO, fontSize: 9, color: 'var(--green-dim)', marginBottom: 4 }}>ROUND {r.round}</div>
+              <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--green-dim)', marginBottom: 4 }}>Round {r.round}</div>
               <Typer text={r.bull} instant={!isNew} />
             </div>
             <div style={{
-              background: 'var(--red-bg)', border: '1px solid rgba(255,85,96,.2)',
-              borderRadius: 6, padding: '10px 12px', fontSize: 12, lineHeight: 1.55,
+              background: 'var(--red-bg)', border: '1px solid color-mix(in srgb, var(--red) 20%, transparent)',
+              borderRadius: 12, padding: '10px 12px', fontSize: 14, lineHeight: 1.55,
             }}>
-              <div style={{ fontFamily: MONO, fontSize: 9, color: 'var(--red-dim)', marginBottom: 4, textAlign: 'right' }}>ROUND {r.round}</div>
+              <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--red-dim)', marginBottom: 4, textAlign: 'right' }}>Round {r.round}</div>
               <Typer text={r.bear} instant={!isNew} speed={50} />
             </div>
           </React.Fragment>
@@ -217,32 +216,32 @@ function DebateTheatre({ debates }) {
 
       {(d.contradictions || []).length > 0 && (
         <div style={{
-          marginTop: 10, padding: '8px 12px', borderRadius: 4, fontFamily: MONO, fontSize: 10,
-          background: 'var(--yellow-bg)', color: 'var(--yellow)', border: '1px solid rgba(255,179,36,.25)',
+          marginTop: 10, padding: '8px 12px', borderRadius: 10, fontFamily: MONO, fontSize: 12,
+          background: 'var(--yellow-bg)', color: 'var(--yellow)', border: '1px solid color-mix(in srgb, var(--yellow) 25%, transparent)',
         }}>
-          ⚠ CONTRADICTION GUARD: {d.contradictions.map(c => c.flag).join(' · ')}
+          ⚠ Contradiction guard: {d.contradictions.map(c => c.flag).join(' · ')}
         </div>
       )}
 
       {/* judge verdict + gauge */}
       <div style={{
         marginTop: 12, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap',
-        background: 'var(--bg-3)', border: `1px solid ${vColor === 'var(--yellow)' ? 'var(--border-2)' : vColor}`,
-        borderRadius: 6, padding: '12px 16px',
+        background: 'var(--inset)', border: `1px solid ${vColor === 'var(--yellow)' ? 'var(--line-2)' : vColor}`,
+        borderRadius: 12, padding: '12px 16px',
       }}>
         <ConvictionGauge conviction={judge.conviction} bar={judge.conviction_bar} verdict={judge.verdict} />
         <div style={{ flex: 1, minWidth: 240 }}>
-          <div style={{ fontFamily: MONO, fontSize: 16, fontWeight: 800, color: vColor, letterSpacing: '.1em' }}>
+          <div style={{ fontFamily: MONO, fontSize: 17, fontWeight: 600, color: vColor, }}>
             ⚖ {judge.verdict} — {d.ticker}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text)', margin: '6px 0', lineHeight: 1.5 }}>
+          <div style={{ fontSize: 14, color: 'var(--ink)', margin: '6px 0', lineHeight: 1.5 }}>
             <Typer text={judge.reasoning} instant={!isNew} />
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--text-dim)', lineHeight: 1.7 }}>
-            KEY RISK: <span className="bear">{judge.key_risk}</span><br />
-            INVALIDATION: <span className="white">${judge.invalidation_level}</span>
-            {' · '}REGIME: <span className="acc">{judge.regime}</span>
-            {' · '}SIZE MULT: <span className="white">{judge.risk_multiplier}x</span>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.7 }}>
+            Key risk: <span className="bear">{judge.key_risk}</span><br />
+            Invalidation: <span className="white">${judge.invalidation_level}</span>
+            {' · '}Regime: <span className="acc">{judge.regime}</span>
+            {' · '}Size mult: <span className="white">{judge.risk_multiplier}x</span>
           </div>
         </div>
       </div>
@@ -258,23 +257,23 @@ function Slate({ slate }) {
     <div className="bb-card">
       <div className="bb-card-header">THE SLATE — RANKED &amp; RISK-CAPPED</div>
       {!rows.length && (
-        <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 12 }}>
+        <div style={{ color: 'var(--ink-3)', fontFamily: MONO, fontSize: 13, padding: 12 }}>
           Slate is empty — no debate cleared the conviction bar and the risk officer this cycle.
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 10 }}>
         {rows.map((s, i) => (
           <div key={i} style={{
-            background: 'var(--bg-3)', borderRadius: 6, padding: '10px 12px',
-            border: `1px solid ${s.side === 'buy' ? 'rgba(43,227,139,.3)' : 'rgba(255,85,96,.3)'}`,
+            background: 'var(--inset)', borderRadius: 12, padding: '10px 12px',
+            border: `1px solid ${s.side === 'buy' ? 'color-mix(in srgb, var(--green) 30%, transparent)' : 'color-mix(in srgb, var(--red) 30%, transparent)'}`,
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 800, color: '#fff' }}>{s.ticker}</span>
+              <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>{s.ticker}</span>
               <span className={s.side === 'buy' ? 'pill-bull score-pill' : 'pill-bear score-pill'}>
                 {s.side.toUpperCase()} {s.qty}
               </span>
             </div>
-            <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--text-dim)', margin: '6px 0' }}>
+            <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-2)', margin: '6px 0' }}>
               conviction <span className="white">{s.conviction}</span>/100
               {' · '}${(s.notional || 0).toLocaleString()}
               {' · '}{s.sector}
@@ -282,18 +281,18 @@ function Slate({ slate }) {
             <div className="bar-track" style={{ marginBottom: 6 }}>
               <div className={s.side === 'buy' ? 'bar-fill-bull' : 'bar-fill-bear'} style={{ width: `${s.conviction}%` }} />
             </div>
-            <div style={{ fontSize: 11, color: 'var(--text)', lineHeight: 1.45, maxHeight: 58, overflow: 'hidden' }}>
+            <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.45, maxHeight: 58, overflow: 'hidden' }}>
               {(s.thesis || '').slice(0, 150)}
             </div>
-            <div style={{ fontFamily: MONO, fontSize: 9, color: 'var(--muted)', marginTop: 6 }}>
+            <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)', marginTop: 6 }}>
               stop ${s.stop?.toFixed?.(2)} · target ${s.target?.toFixed?.(2)} · debate {s.debate_id}
             </div>
           </div>
         ))}
       </div>
       {rejected.length > 0 && (
-        <div style={{ marginTop: 10, fontFamily: MONO, fontSize: 10, color: 'var(--muted)', lineHeight: 1.7 }}>
-          RISK OFFICER REJECTED: {rejected.map((r, i) =>
+        <div style={{ marginTop: 10, fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.7 }}>
+          Risk officer rejected: {rejected.map((r, i) =>
             <span key={i}><span className="bear">{r.ticker}</span> ({r.reason}){i < rejected.length - 1 ? ' · ' : ''}</span>)}
         </div>
       )}
@@ -308,23 +307,23 @@ function FillsFeed({ execs }) {
   const modeLabel = m => m === 'auto' ? 'AUTO-FILLED' : m === 'queued' ? 'QUEUED FOR APPROVAL' : m.toUpperCase()
   return (
     <div className="bb-card" style={{ maxHeight: 340, overflowY: 'auto' }}>
-      <div className="bb-card-header">FILLS FEED — EVERY ACTION, EXPLAINED</div>
-      {!rows.length && <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 10 }}>
+      <div className="bb-card-header">Fills feed — every action, explained</div>
+      {!rows.length && <div style={{ color: 'var(--ink-3)', fontFamily: MONO, fontSize: 13, padding: 10 }}>
         No desk actions yet.</div>}
       {rows.map((r, i) => (
-        <div key={i} style={{ borderBottom: '1px solid var(--border)', padding: '8px 2px' }}>
-          <div style={{ fontFamily: MONO, fontSize: 11 }}>
-            <span style={{ color: r.side === 'buy' ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>
+        <div key={i} style={{ borderBottom: '1px solid var(--line)', padding: '8px 2px' }}>
+          <div style={{ fontFamily: MONO, fontSize: 13 }}>
+            <span style={{ color: r.side === 'buy' ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
               {r.side === 'buy' ? '▲' : '▼'} {r.side?.toUpperCase()} {r.qty} {r.ticker}
             </span>
             {r.fill_price ? <span className="white"> @ ${Number(r.fill_price).toFixed(2)}</span> : null}
-            <span style={{ color: modeColor(r.mode), marginLeft: 8, fontSize: 9, fontWeight: 700 }}>
+            <span style={{ color: modeColor(r.mode), marginLeft: 8, fontSize: 12, fontWeight: 600 }}>
               [{modeLabel(r.mode || '?')}]</span>
           </div>
-          <div style={{ fontSize: 10, color: 'var(--text-dim)', margin: '3px 0', lineHeight: 1.4 }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-2)', margin: '3px 0', lineHeight: 1.4 }}>
             {r.mode === 'queued' ? `⏸ ${r.reason} · ` : ''}thesis: {(r.thesis || '').slice(0, 120)}
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 9, color: 'var(--muted)' }}>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)' }}>
             {new Date(r.at).toLocaleString()} · conviction {r.conviction}/100 · debate {r.debate_id}
           </div>
         </div>
@@ -353,26 +352,26 @@ function PaperPnL({ pnl }) {
       <div className="bb-card-header">PAPER P&amp;L {pnl.account !== 'paper' && `— ${(pnl.account || '').toUpperCase()}`}</div>
       <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'center' }}>
         <div>
-          <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 800, color: '#fff' }}>
+          <div style={{ fontFamily: MONO, fontSize: 26, fontWeight: 600, color: 'var(--ink)' }}>
             {price(pnl.equity || 0, { from: 'USD', digits: 0 }).text}
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)' }}>PAPER EQUITY</div>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)' }}>Paper equity</div>
         </div>
-        <div style={{ fontFamily: MONO, fontSize: 11, lineHeight: 1.8 }}>
-          <div>DAY <span className={pc(pnl.day_pnl)}>{pnl.day_pnl >= 0 ? '+' : ''}{price(pnl.day_pnl || 0, { from: 'USD' }).text} ({(pnl.day_pnl_pct || 0).toFixed(2)}%)</span></div>
-          <div>TOTAL <span className={pc(pnl.total_pnl)}>{pnl.total_pnl >= 0 ? '+' : ''}{price(pnl.total_pnl || 0, { from: 'USD' }).text} ({(pnl.total_pnl_pct || 0).toFixed(2)}%)</span></div>
-          <div>OPEN WIN RATE <span className="white">{pnl.open_win_rate == null ? '—' : `${Math.round(pnl.open_win_rate * 100)}%`}</span></div>
+        <div style={{ fontFamily: MONO, fontSize: 13, lineHeight: 1.8 }}>
+          <div>Day <span className={pc(pnl.day_pnl)}>{pnl.day_pnl >= 0 ? '+' : ''}{price(pnl.day_pnl || 0, { from: 'USD' }).text} ({(pnl.day_pnl_pct || 0).toFixed(2)}%)</span></div>
+          <div>Total <span className={pc(pnl.total_pnl)}>{pnl.total_pnl >= 0 ? '+' : ''}{price(pnl.total_pnl || 0, { from: 'USD' }).text} ({(pnl.total_pnl_pct || 0).toFixed(2)}%)</span></div>
+          <div>Open win rate <span className="white">{pnl.open_win_rate == null ? '—' : `${Math.round(pnl.open_win_rate * 100)}%`}</span></div>
         </div>
         {path && (
           <svg viewBox={`0 0 ${w} ${h}`} style={{ width: w, height: h }}>
-            <path d={path} fill="none" stroke="var(--orange)" strokeWidth="1.5"
-              style={{ filter: 'drop-shadow(0 0 4px rgba(255,36,71,.5))' }} />
+            <path d={path} fill="none" stroke="var(--accent)" strokeWidth="1.5"
+              style={{ filter: 'drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 50%, transparent))' }} />
           </svg>
         )}
       </div>
       {(pnl.open_positions || []).length > 0 && (
         <table style={{ marginTop: 10 }}>
-          <thead><tr><th>TICKER</th><th><Term>QTY</Term></th><th><Term k="avg cost">AVG COST</Term></th><th>VALUE</th><th><Term k="unreal p&l">UNREAL P&amp;L</Term></th></tr></thead>
+          <thead><tr><th>Ticker</th><th><Term>Qty</Term></th><th><Term k="avg cost">Avg cost</Term></th><th>Value</th><th><Term k="unreal p&l">UNREAL P&amp;L</Term></th></tr></thead>
           <tbody>
             {pnl.open_positions.map((p, i) => (
               <tr key={i}>
@@ -388,7 +387,7 @@ function PaperPnL({ pnl }) {
         </table>
       )}
       {!pnl.connected && (
-        <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 10, color: 'var(--yellow)' }}>
+        <div style={{ marginTop: 8, fontFamily: MONO, fontSize: 12, color: 'var(--yellow)' }}>
           ⚠ Broker disconnected — no paper-trading credentials are configured on the server.
         </div>
       )}
@@ -412,15 +411,15 @@ function Performance({ perf }) {
   const pctOrDash = v => (v == null ? '—' : `${Math.round(v * 100)}%`)
   const stat = (label, val, cls) => (
     <div style={{ minWidth: 86 }}>
-      <div style={{ fontFamily: MONO, fontSize: 15, fontWeight: 800 }} className={cls || 'white'}>{val}</div>
-      <div style={{ fontFamily: MONO, fontSize: 9, color: 'var(--muted)', letterSpacing: '.1em' }}>{label}</div>
+      <div style={{ fontFamily: MONO, fontSize: 16, fontWeight: 600 }} className={cls || 'white'}>{val}</div>
+      <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)', }}>{label}</div>
     </div>
   )
   return (
     <div className="bb-card">
-      <div className="bb-card-header">REALIZED PERFORMANCE — CLOSED TRADES ONLY</div>
+      <div className="bb-card-header">Realized performance — closed trades only</div>
       {!s.trades ? (
-        <div style={{ color: 'var(--muted)', fontFamily: MONO, fontSize: 11, padding: 8 }}>
+        <div style={{ color: 'var(--ink-3)', fontFamily: MONO, fontSize: 13, padding: 8 }}>
           No closed trades yet. Realised results appear here once a position is closed.
         </div>
       ) : (
@@ -433,12 +432,12 @@ function Performance({ perf }) {
             {stat('EXPECTANCY', fmt$(s.expectancy), pc(s.expectancy))}
             {stat('TRADES', s.trades)}
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 10, color: 'var(--text-dim)', marginBottom: 8 }}>
-            DAY <span className={pc(day.pnl)}>{fmt$(day.pnl)}</span> ({day.trades || 0} closed)
-            {' · '}WEEK <span className={pc(week.pnl)}>{fmt$(week.pnl)}</span> ({week.trades || 0} closed)
+          <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-2)', marginBottom: 8 }}>
+            Day <span className={pc(day.pnl)}>{fmt$(day.pnl)}</span> ({day.trades || 0} closed)
+            {' · '}Week <span className={pc(week.pnl)}>{fmt$(week.pnl)}</span> ({week.trades || 0} closed)
           </div>
           <table>
-            <thead><tr><th><Term>AGENT</Term></th><th><Term k="hit rate">HIT RATE</Term></th><th><Term k="right/wrong">RIGHT/WRONG</Term></th><th><Term k="judge weight">JUDGE WEIGHT</Term></th></tr></thead>
+            <thead><tr><th><Term>Agent</Term></th><th><Term k="hit rate">Hit rate</Term></th><th><Term k="right/wrong">Right/wrong</Term></th><th><Term k="judge weight">Judge weight</Term></th></tr></thead>
             <tbody>
               {['technical', 'fundamental', 'sentiment'].map(a => {
                 const st = agents[a] || {}
@@ -454,7 +453,7 @@ function Performance({ perf }) {
               })}
             </tbody>
           </table>
-          <div style={{ marginTop: 6, fontFamily: MONO, fontSize: 9, color: 'var(--muted)' }}>
+          <div style={{ marginTop: 6, fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)' }}>
             Judge weights auto-calibrate (bounded ±0.15) after {agents.trades_scored ?? 0}/20 scored trades.
           </div>
         </>
@@ -488,28 +487,28 @@ export default function Desk() {
       {/* header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 800, color: 'var(--orange)', letterSpacing: '.2em', textShadow: 'var(--glow)' }}>
-            THE DESK
+          <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 600, color: 'var(--accent)', }}>
+            The desk
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 9, color: 'var(--muted)', letterSpacing: '.2em' }}>
-            ANALYSTS → DEBATE → RISK → SLATE → EXECUTION → REFLECTION
+          <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)', }}>
+            Analysts → debate → risk → slate → execution → reflection
           </div>
         </div>
         <div style={{ flex: 1 }} />
         {status?.last_cycle?.regime && (
           <span className="pill-orange score-pill">{status.last_cycle.regime}</span>
         )}
-        <span style={{ fontFamily: MONO, fontSize: 10, color: 'var(--text-dim)' }}>
+        <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-2)' }}>
           cycles <span className="white">{status?.cycle_count ?? 0}</span>
           {' · '}every <span className="white">{status?.config?.interval_minutes ?? '—'}m</span>
         </span>
         <button onClick={runNow} disabled={running || working} style={{
-          fontFamily: MONO, fontSize: 11, fontWeight: 800, letterSpacing: '.1em',
-          padding: '9px 18px', borderRadius: 5, cursor: 'pointer',
-          background: 'var(--orange-bg)', color: 'var(--orange)',
-          border: '1px solid var(--orange-dim)',
+          fontFamily: MONO, fontSize: 13, fontWeight: 600, 
+          padding: '9px 18px', borderRadius: 12, cursor: 'pointer',
+          background: 'var(--accent-bg)', color: 'var(--accent)',
+          border: '1px solid var(--accent-dim)',
         }}>
-          {working ? '◌ CYCLE RUNNING…' : '▶ RUN CYCLE NOW'}
+          {working ? '◌ Cycle running…' : '▶ Run cycle now'}
         </button>
       </div>
 
@@ -526,7 +525,7 @@ export default function Desk() {
         </div>
       </div>
 
-      <div style={{ marginTop: 14, fontFamily: MONO, fontSize: 9, color: 'var(--muted)', letterSpacing: '.08em', lineHeight: 1.8 }}>
+      <div style={{ marginTop: 14, fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.8 }}>
         SAFETY CONTRACT: auto-execution trades the paper account only, enforced in code — the paper-account
         check must pass, the toggle must be armed and the budget must have room. A live account ALWAYS routes to
         manual approval.

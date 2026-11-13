@@ -30,13 +30,13 @@ import Desk from './Desk'
 import Execution from './Execution'
 import MultiassetWorkspace from '../components/MultiassetWorkspace'
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 
-const Risk = ({ label, value, sub, color = '#fff' }) => (
+const Risk = ({ label, value, sub, color = 'var(--ink)' }) => (
   <div className="bb-card" style={{ padding: '10px 13px' }}>
-    <div style={{ ...mono, fontSize: 9, letterSpacing: '.15em', color: 'var(--muted)' }}>{label}</div>
-    <div style={{ ...mono, fontSize: 18, fontWeight: 800, color, marginTop: 3 }}>{value}</div>
-    {sub && <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>{sub}</div>}
+    <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>{label}</div>
+    <div style={{ ...mono, fontSize: 20, fontWeight: 600, color, marginTop: 3 }}>{value}</div>
+    {sub && <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.45 }}>{sub}</div>}
   </div>
 )
 
@@ -50,23 +50,23 @@ function RiskState({ world }) {
 
   return (
     <>
-      <SectionHeader>RISK STATE</SectionHeader>
+      <SectionHeader>Risk state</SectionHeader>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(155px,1fr))',
                     gap: 10, marginBottom: 14 }}>
-        <Risk label="OPEN POSITIONS" value={p.open_positions ?? 0} color="var(--orange)"
+        <Risk label="Open positions" value={p.open_positions ?? 0} color="var(--accent)"
               sub={p.day?.trades_today != null ? `${p.day.trades_today} trades today` : null} />
-        <Risk label="EQUITY"
+        <Risk label="Equity"
               value={p.equity != null ? Number(p.equity).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}
               sub={p.peak_equity != null ? `peak ${Number(p.peak_equity).toLocaleString(undefined, { maximumFractionDigits: 0 })}` : null} />
-        <Risk label="DRAWDOWN"
+        <Risk label="Drawdown"
               value={dd != null ? `${(dd * 100).toFixed(1)}%` : '—'}
-              color={dd == null ? 'var(--muted)' : dd < -0.05 ? 'var(--red)' : 'var(--green)'}
+              color={dd == null ? 'var(--ink-3)' : dd < -0.05 ? 'var(--red)' : 'var(--green)'}
               sub={dd == null ? 'no equity history yet' : 'from peak'} />
-        <Risk label="LARGEST WEIGHT"
+        <Risk label="Largest weight"
               value={conc.measurable ? `${(conc.largest_weight * 100).toFixed(1)}%` : '—'}
-              color={conc.measurable ? 'var(--yellow)' : 'var(--muted)'}
+              color={conc.measurable ? 'var(--yellow)' : 'var(--ink-3)'}
               sub={conc.measurable ? `top 3 = ${(conc.top3_weight * 100).toFixed(1)}%` : conc.why} />
-        <Risk label="DAY NOTIONAL"
+        <Risk label="Day notional"
               value={p.day?.notional_used != null ? Number(p.day.notional_used).toFixed(0) : '—'}
               sub="used against the daily budget" />
       </div>
@@ -92,10 +92,10 @@ export default function PortfolioWorkspace() {
   return (
     <div style={{ maxWidth: 1240, margin: '0 auto' }}>
       <div style={{ marginBottom: 12 }}>
-        <div style={{ ...mono, fontSize: 16, fontWeight: 800, color: 'var(--orange)', letterSpacing: '.12em' }}>
-          ▣ PORTFOLIO
+        <div style={{ ...mono, fontSize: 17, fontWeight: 600, color: 'var(--accent)', }}>
+          ▣ Portfolio
         </div>
-        <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>
           Holdings, risk, stress and the desk that manages them.
         </div>
       </div>
@@ -108,16 +108,16 @@ export default function PortfolioWorkspace() {
       {pending > 0 && (
         <>
           <SectionHeader color="var(--yellow)">
-            {pending} DECISION{pending === 1 ? '' : 'S'} WAITING ON YOU
+            {pending} decision{pending === 1 ? '' : 'S'} waiting on you
           </SectionHeader>
           <div style={{ marginBottom: 18 }}><Execution /></div>
         </>
       )}
 
-      <SectionHeader>HOLDINGS</SectionHeader>
+      <SectionHeader>Holdings</SectionHeader>
       <div style={{ marginBottom: 18 }}><Portfolio /></div>
 
-      <SectionHeader>STRESS SCENARIOS</SectionHeader>
+      <SectionHeader>Stress scenarios</SectionHeader>
       {/* The heading used to read "what would hurt THIS portfolio", which is
           not what the numbers below are. src/gs_quant_bridge/scenario_engine.py
           builds a hypothetical book out of data/signals.json — weights from
@@ -131,9 +131,9 @@ export default function PortfolioWorkspace() {
       <div className="bb-card" style={{
         marginBottom: 10,
         borderColor: (world?.portfolio?.open_positions ?? 0) === 0
-          ? 'rgba(255,179,36,.35)' : 'var(--border)',
+          ? 'color-mix(in srgb, var(--yellow) 35%, transparent)' : 'var(--line)',
       }}>
-        <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)', lineHeight: 1.65 }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.65 }}>
           {(world?.portfolio?.open_positions ?? 0) === 0 ? (
             <>
               <span style={{ color: 'var(--yellow)' }}>⚠ These shocks are not applied to your account.</span>
@@ -151,7 +151,7 @@ export default function PortfolioWorkspace() {
       </div>
       <div style={{ marginBottom: 18 }}><Quant /></div>
 
-      <SectionHeader>THE DESK</SectionHeader>
+      <SectionHeader>The desk</SectionHeader>
       <div style={{ marginBottom: 18 }}><Desk /></div>
 
       {/* When nothing is pending the queue still belongs on the page — an empty
@@ -159,7 +159,7 @@ export default function PortfolioWorkspace() {
           desk could run unobserved. */}
       {pending === 0 && (
         <>
-          <SectionHeader>APPROVAL QUEUE</SectionHeader>
+          <SectionHeader>Approval queue</SectionHeader>
           <Execution />
         </>
       )}

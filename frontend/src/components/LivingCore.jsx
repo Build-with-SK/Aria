@@ -493,57 +493,57 @@ export default function LivingCore({ height = 640 }) {
     }
   }, [])
 
-  const mono = { fontFamily: 'var(--mono)' }
+  const mono = { fontFamily: 'var(--font)' }
   const rgbCss = i => `rgb(${REGIONS[i].rgb.join(',')})`
-  const stateColor = hud.state === 'speaking' ? 'var(--orange)' : hud.state === 'thinking' ? 'var(--blue)' : 'var(--muted)'
+  const stateColor = hud.state === 'speaking' ? 'var(--accent)' : hud.state === 'thinking' ? 'var(--blue)' : 'var(--ink-3)'
   const stateLabel = hud.state === 'speaking' ? 'SPEAKING' : hud.state === 'thinking' ? 'THINKING' : 'RESTING'
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative', width: '100%', height, background: '#030103', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', touchAction: 'none' }}>
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%', height, background: '#030103', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', touchAction: 'none' }}>
       <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
 
       <div style={{ position: 'absolute', top: 12, left: 14, pointerEvents: 'none' }}>
-        <div style={{ ...mono, fontSize: 11, fontWeight: 800, color: 'var(--orange)', letterSpacing: 2, textShadow: '0 0 10px rgba(255,36,71,.5)' }}>◈ LIVING BRAIN · MILKY WAY</div>
-        <div style={{ ...mono, fontSize: 9, color: 'var(--text-dim)', letterSpacing: 1, marginTop: 3 }}>
+        <div style={{ ...mono, fontSize: 13, fontWeight: 600, color: 'var(--accent)', }}>◈ Living brain · Milky Way</div>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-2)', marginTop: 3 }}>
           {stats.total.toLocaleString()} symbols · {stats.signalled} with live signals · drag to orbit · scroll to zoom
         </div>
       </div>
 
       <div style={{ position: 'absolute', top: 12, right: 14, pointerEvents: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ width: 7, height: 7, borderRadius: '50%', background: stateColor, boxShadow: `0 0 8px ${stateColor}`, animation: hud.state === 'speaking' ? 'pulseGlow 0.6s ease-in-out infinite' : 'none' }} />
-        <span style={{ ...mono, fontSize: 10, fontWeight: 800, letterSpacing: 1, color: stateColor }}>{stateLabel}</span>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: stateColor, animation: hud.state === 'speaking' ? 'pulseGlow 0.6s ease-in-out infinite' : 'none' }} />
+        <span style={{ ...mono, fontSize: 12, fontWeight: 600, color: stateColor }}>{stateLabel}</span>
       </div>
 
       {/* region legend — bottom-right */}
-      <div style={{ position: 'absolute', bottom: 12, right: 14, pointerEvents: 'none', ...mono, fontSize: 8.5, lineHeight: 1.6, textAlign: 'right' }}>
+      <div style={{ position: 'absolute', bottom: 12, right: 14, pointerEvents: 'none', ...mono, fontSize: 12, lineHeight: 1.6, textAlign: 'right' }}>
         {REGIONS.slice(0, 9).map((r, i) => (
           <span key={r.key} style={{ marginLeft: 8, whiteSpace: 'nowrap' }}>
-            <span style={{ color: rgbCss(i) }}>●</span> <span style={{ color: 'var(--text-dim)' }}>{r.label}</span>
+            <span style={{ color: rgbCss(i) }}>●</span> <span style={{ color: 'var(--ink-2)' }}>{r.label}</span>
           </span>
         ))}
-        <div style={{ color: 'var(--muted)', marginTop: 2 }}>each market owns an arm · bright + large = live ARIA signal</div>
+        <div style={{ color: 'var(--ink-3)', marginTop: 2 }}>each market owns an arm · bright + large = live ARIA signal</div>
       </div>
 
       {hover && !selected && (
-        <div style={{ position: 'absolute', left: hover.x + 18, top: hover.y - 10, pointerEvents: 'none', ...mono, fontSize: 10, background: 'rgba(6,3,6,0.92)', border: '1px solid var(--border-2)', borderRadius: 4, padding: '6px 9px', maxWidth: 240 }}>
-          <span style={{ color: rgbCss(hover.region), fontWeight: 800 }}>{hover.sym}</span>
-          <span style={{ color: 'var(--text-dim)', marginLeft: 6 }}>{hover.exch}</span>
-          <div style={{ color: 'var(--muted)', marginTop: 3 }}>{hover.name}</div>
+        <div style={{ position: 'absolute', left: hover.x + 18, top: hover.y - 10, pointerEvents: 'none', ...mono, fontSize: 12, background: 'rgba(6,3,6,0.92)', border: '1px solid var(--line-2)', borderRadius: 10, padding: '6px 9px', maxWidth: 240 }}>
+          <span style={{ color: rgbCss(hover.region), fontWeight: 600 }}>{hover.sym}</span>
+          <span style={{ color: 'var(--ink-2)', marginLeft: 6 }}>{hover.exch}</span>
+          <div style={{ color: 'var(--ink-3)', marginTop: 3 }}>{hover.name}</div>
           {hover.score != null && <div style={{ color: hover.score > 8 ? 'var(--green)' : hover.score < -8 ? 'var(--red)' : 'var(--blue)', marginTop: 3 }}>{hover.action} · score {hover.score > 0 ? '+' : ''}{hover.score.toFixed(1)}{hover.price ? ` · ${hover.price.toFixed(2)}` : ''}</div>}
         </div>
       )}
 
       {selected && (
-        <div style={{ position: 'absolute', bottom: 44, right: 14, ...mono, fontSize: 10, background: 'rgba(6,3,6,0.95)', border: '1px solid var(--border-2)', borderRadius: 6, padding: '10px 12px', minWidth: 210, boxShadow: 'var(--glow-soft)' }}>
+        <div style={{ position: 'absolute', bottom: 44, right: 14, ...mono, fontSize: 12, background: 'rgba(6,3,6,0.95)', border: '1px solid var(--line-2)', borderRadius: 12, padding: '10px 12px', minWidth: 210, boxShadow: 'none' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: rgbCss(selected.region), fontWeight: 800, fontSize: 13, letterSpacing: 1 }}>{selected.sym}</span>
-            <span onClick={() => { selRef.current = null; setSelected(null) }} style={{ cursor: 'pointer', color: 'var(--muted)', fontSize: 12 }}>✕</span>
+            <span style={{ color: rgbCss(selected.region), fontWeight: 600, fontSize: 14, }}>{selected.sym}</span>
+            <span onClick={() => { selRef.current = null; setSelected(null) }} style={{ cursor: 'pointer', color: 'var(--ink-3)', fontSize: 14 }}>✕</span>
           </div>
-          <div style={{ color: 'var(--text-dim)', marginBottom: 6 }}>{selected.name}</div>
+          <div style={{ color: 'var(--ink-2)', marginBottom: 6 }}>{selected.name}</div>
           {[['Exchange', selected.exch], ['Region', REGIONS[selected.region].label],
             ...(selected.score != null ? [['Action', selected.action], ['Score', `${selected.score > 0 ? '+' : ''}${selected.score.toFixed(1)}`], ['Price', selected.price?.toFixed(2)]] : [['Signal', 'none — index only']])].map(([k, v]) => (
             <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, lineHeight: 1.7 }}>
-              <span style={{ color: 'var(--muted)' }}>{k}</span>
+              <span style={{ color: 'var(--ink-3)' }}>{k}</span>
               <span style={{ color: '#cbb' }}>{v ?? '—'}</span>
             </div>
           ))}

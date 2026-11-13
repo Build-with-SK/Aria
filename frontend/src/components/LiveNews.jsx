@@ -26,24 +26,24 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchLiveNews, useNewsSources } from '../hooks/useApi'
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 
 const TIER_COLOR = {
   primary_filing: 'var(--green)',
   official_data: 'var(--green)',
   company_release: 'var(--blue)',
   academic: 'var(--blue)',
-  quality_press: 'var(--text-dim)',
-  aggregator: 'var(--muted)',
-  secondary: 'var(--muted)',
+  quality_press: 'var(--ink-2)',
+  aggregator: 'var(--ink-3)',
+  secondary: 'var(--ink-3)',
   social: 'var(--yellow)',
-  anonymous: 'var(--orange)',
-  unknown: 'var(--muted)',
+  anonymous: 'var(--accent)',
+  unknown: 'var(--ink-3)',
 }
 
 const CLAIM_COLOR = {
   FACT: 'var(--green)', INFERENCE: 'var(--blue)', HYPOTHESIS: 'var(--blue)',
-  CLAIM: 'var(--yellow)', RUMOUR: 'var(--orange)', UNCLASSIFIED: 'var(--muted)',
+  CLAIM: 'var(--yellow)', RUMOUR: 'var(--accent)', UNCLASSIFIED: 'var(--ink-3)',
 }
 
 function ago(iso) {
@@ -106,18 +106,18 @@ export default function LiveNews({ limit = 25, hours = 24, compact = false,
     <div className="bb-card" style={{ marginBottom: 14 }}>
       <div className="bb-card-header" style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-        <span>LIVE NEWS · WORLD FEED</span>
-        <span style={{ ...mono, fontSize: 9, color: 'var(--muted)', letterSpacing: '.1em' }}>
-          {lastPoll ? `CHECKED ${ago(new Date(lastPoll).toISOString())} AGO` : 'CHECKING…'}
+        <span>Live news · world feed</span>
+        <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', }}>
+          {lastPoll ? `Checked ${ago(new Date(lastPoll).toISOString())} Ago` : 'Checking…'}
         </span>
       </div>
 
       {error && (
-        <div style={{ ...mono, fontSize: 10, color: 'var(--red)' }}>{error}</div>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--red)' }}>{error}</div>
       )}
 
       {!error && !items.length && (
-        <div style={{ ...mono, fontSize: 10, color: 'var(--muted)', lineHeight: 1.7 }}>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.7 }}>
           Nothing new in this window. Only developments ARIA has actually
           observed appear here.
         </div>
@@ -126,41 +126,41 @@ export default function LiveNews({ limit = 25, hours = 24, compact = false,
       <div style={{ maxHeight: compact ? 300 : 560, overflowY: 'auto' }}>
         {items.map((n, i) => (
           <div key={n.id || i} style={{
-            padding: '6px 0', borderBottom: '1px solid #121212',
-            background: n._new ? 'rgba(43,227,139,.04)' : 'transparent',
+            padding: '6px 0', borderBottom: '1px solid var(--inset)',
+            background: n._new ? 'color-mix(in srgb, var(--green) 6%, transparent)' : 'transparent',
           }}>
             <div style={{ display: 'flex', gap: 7, alignItems: 'baseline', flexWrap: 'wrap' }}>
-              <span style={{ ...mono, fontSize: 9, color: 'var(--muted)', minWidth: 30 }}>
+              <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', minWidth: 30 }}>
                 {ago(n.at)}
               </span>
               {/* Two axes, two badges. Deliberately not merged. */}
               <span title="Is this evidence, or something somebody said?"
                 style={{
-                  ...mono, fontSize: 8, fontWeight: 700, letterSpacing: '.08em',
-                  padding: '0 4px', borderRadius: 2,
-                  color: n.evidence_state === 'VERIFIED' ? 'var(--green)' : 'var(--muted)',
-                  border: `1px solid ${n.evidence_state === 'VERIFIED' ? 'var(--green)' : '#2a2a2a'}`,
+                  ...mono, fontSize: 11, fontWeight: 600, 
+                  padding: '0 4px', borderRadius: 8,
+                  color: n.evidence_state === 'VERIFIED' ? 'var(--green)' : 'var(--ink-3)',
+                  border: `1px solid ${n.evidence_state === 'VERIFIED' ? 'var(--green)' : 'var(--line)'}`,
                 }}>
                 {n.evidence_state}
               </span>
               <span title={`claim type${n.claim_confidence != null
                 ? ` · classifier confidence ${(n.claim_confidence * 100).toFixed(0)}%` : ''}`}
                 style={{
-                  ...mono, fontSize: 8, fontWeight: 700, letterSpacing: '.08em',
-                  color: CLAIM_COLOR[n.claim_type] || 'var(--muted)',
+                  ...mono, fontSize: 11, fontWeight: 600, 
+                  color: CLAIM_COLOR[n.claim_type] || 'var(--ink-3)',
                 }}>
                 {n.claim_type}
               </span>
               <a href={n.url} target="_blank" rel="noreferrer" style={{
-                ...mono, fontSize: 11, color: 'var(--text)', textDecoration: 'none',
+                ...mono, fontSize: 13, color: 'var(--ink)', textDecoration: 'none',
                 flex: 1, minWidth: 220,
               }}>
                 {n.headline}
               </a>
             </div>
-            <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 2,
+            <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 2,
               paddingLeft: 37 }}>
-              <span style={{ color: TIER_COLOR[n.source_tier] || 'var(--muted)' }}>
+              <span style={{ color: TIER_COLOR[n.source_tier] || 'var(--ink-3)' }}>
                 {String(n.source_tier).replace(/_/g, ' ')}
               </span>
               {' · '}{n.source}
@@ -171,7 +171,7 @@ export default function LiveNews({ limit = 25, hours = 24, compact = false,
               {n.asset && (
                 <>
                   {' · '}
-                  <span style={{ color: 'var(--text-dim)', fontWeight: 700 }}>{n.asset}</span>
+                  <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>{n.asset}</span>
                   {n.association === 'NAMED' && (
                     <span title="the headline names the company rather than the ticker">
                       {' '}(by name)
@@ -191,7 +191,7 @@ export default function LiveNews({ limit = 25, hours = 24, compact = false,
       </div>
 
       {meta && (
-        <div style={{ ...mono, fontSize: 8, color: 'var(--muted)', marginTop: 9,
+        <div style={{ ...mono, fontSize: 11, color: 'var(--ink-3)', marginTop: 9,
           lineHeight: 1.6 }}>
           {meta.raw_observations} observation(s) in window ·
           {' '}{meta.deduplicated_away} collapsed as the same story ·

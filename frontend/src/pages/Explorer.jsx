@@ -5,7 +5,7 @@ import ResearchAnalysis from '../components/ResearchAnalysis'
 import { exactResearchSelection } from '../components/researchSelection'
 import { DataUnavailable } from '../components/DataState'
 
-const mono = { fontFamily: 'var(--mono)' }
+const mono = { fontFamily: 'var(--font)' }
 const CCY = { INR: '₹', GBP: '£', USD: '$', EUR: '€' }
 // "GBp" is pence, London's actual quoting unit — 1576 GBp is £15.76, and
 // rendering it as £1,576 is the classic 100× mistake.
@@ -49,7 +49,7 @@ function TVChart({ tv, height = CHART_HEIGHT }) {
     script.innerHTML = JSON.stringify({
       symbol: tv, interval: 'D', timezone: 'Europe/London', theme: 'dark',
       style: '1', locale: 'en', hide_side_toolbar: true, allow_symbol_change: false,
-      autosize: true, backgroundColor: 'rgba(7,7,7,1)',
+      autosize: true, backgroundColor: 'var(--sheet)',
     })
     ref.current.appendChild(script)
   }, [tv])
@@ -134,8 +134,8 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
       {/* Header + search — suppressed when Research owns the search */}
       {!embedded && <>
       <div style={{ marginBottom: 10 }}>
-        <div style={{ ...mono, fontSize: 16, fontWeight: 800, color: 'var(--orange)' }}>EXPLORER</div>
-        <div style={{ ...mono, fontSize: 10, color: 'var(--text-dim)' }}>
+        <div style={{ ...mono, fontSize: 17, fontWeight: 600, color: 'var(--accent)' }}>Explorer</div>
+        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-2)' }}>
           Search any symbol · India (₹ NSE) · UK (£ LSE) · US ($) · crypto — live quote, chart, news and sentiment
         </div>
       </div>
@@ -144,17 +144,17 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
         <input
           value={q} onChange={e => setQ(e.target.value)}
           placeholder="Search ticker or company — e.g. RELIANCE, HSBA, AAPL, BP, TCS…"
-          style={{ ...mono, width: '100%', background: '#0d0d0d', border: '1px solid #222', color: '#ddd', fontSize: 13, padding: '10px 14px', borderRadius: 6, outline: 'none', boxSizing: 'border-box' }}
+          style={{ ...mono, width: '100%', background: 'var(--inset)', border: '1px solid var(--line)', color: 'var(--ink)', fontSize: 14, padding: '10px 14px', borderRadius: 12, outline: 'none', boxSizing: 'border-box' }}
         />
         {results.length > 0 && (
-          <div style={{ position: 'absolute', top: 44, left: 0, right: 0, zIndex: 10, background: '#0a0a0a', border: '1px solid #222', borderRadius: 6, maxHeight: 320, overflowY: 'auto' }}>
+          <div style={{ position: 'absolute', top: 44, left: 0, right: 0, zIndex: 10, background: 'var(--inset)', border: '1px solid var(--line)', borderRadius: 12, maxHeight: 320, overflowY: 'auto' }}>
             {results.map((r, i) => (
-              <div key={i} onClick={() => select(r)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #141414' }}
-                onMouseEnter={e => e.currentTarget.style.background = '#141414'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                <span style={{ ...mono, fontSize: 12, fontWeight: 700, color: '#fff', minWidth: 90 }}>{r.symbol}</span>
-                <span style={{ ...mono, fontSize: 9, color: 'var(--orange)', minWidth: 44 }}>{r.exchange}</span>
-                <span style={{ ...mono, fontSize: 9, color: CCY[r.currency] ? 'var(--green)' : 'var(--muted)', minWidth: 30 }}>{CCY[r.currency] || ''}</span>
-                <span style={{ ...mono, fontSize: 11, color: 'var(--text-dim)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
+              <div key={i} onClick={() => select(r)} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--inset)' }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--inset)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                <span style={{ ...mono, fontSize: 14, fontWeight: 600, color: 'var(--ink)', minWidth: 90 }}>{r.symbol}</span>
+                <span style={{ ...mono, fontSize: 12, color: 'var(--accent)', minWidth: 44 }}>{r.exchange}</span>
+                <span style={{ ...mono, fontSize: 12, color: CCY[r.currency] ? 'var(--green)' : 'var(--ink-3)', minWidth: 30 }}>{CCY[r.currency] || ''}</span>
+                <span style={{ ...mono, fontSize: 13, color: 'var(--ink-2)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name}</span>
               </div>
             ))}
           </div>
@@ -163,12 +163,12 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
 
       </>}
 
-      {embedded && !sel && <div style={{ ...mono, padding: 16, color: 'var(--muted)' }}>
+      {embedded && !sel && <div style={{ ...mono, padding: 16, color: 'var(--ink-3)' }}>
         {resolveState === 'loading' ? `Looking up ${externalSymbol}…` : `No exact catalogue listing for ${externalSymbol}. Technical analysis above can still check this provider symbol.`}
       </div>}
 
       {!sel && !embedded && (
-        <div style={{ ...mono, fontSize: 12, color: '#444', textAlign: 'center', padding: 50, border: '1px dashed #1a1a1a', borderRadius: 8 }}>
+        <div style={{ ...mono, fontSize: 14, color: 'var(--line)', textAlign: 'center', padding: 50, border: '1px dashed var(--inset)', borderRadius: 14 }}>
           Search a symbol above — equities, ETFs, crypto and FX across 40+ exchanges.
         </div>
       )}
@@ -190,10 +190,10 @@ export function ExplorerDetails({ sel, quote, dossier, news, loading = false, ne
           {/* header — live price, market state, day range */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap', marginBottom: 8 }}>
-              <span style={{ ...mono, fontSize: 22, fontWeight: 800, color: '#fff' }}>{sel.symbol}</span>
-              <span style={{ ...mono, fontSize: 11, color: 'var(--orange)' }}>{sel.exchange} · {ccy}</span>
-              <span style={{ ...mono, fontSize: 11, color: 'var(--text-dim)', flex: 1 }}>{sel.name}</span>
-              {loading && <span style={{ ...mono, fontSize: 10, color: 'var(--yellow)' }}>loading…</span>}
+              <span style={{ ...mono, fontSize: 26, fontWeight: 600, color: 'var(--ink)' }}>{sel.symbol}</span>
+              <span style={{ ...mono, fontSize: 13, color: 'var(--accent)' }}>{sel.exchange} · {ccy}</span>
+              <span style={{ ...mono, fontSize: 13, color: 'var(--ink-2)', flex: 1 }}>{sel.name}</span>
+              {loading && <span style={{ ...mono, fontSize: 12, color: 'var(--yellow)' }}>loading…</span>}
             </div>
             {/* Polls the live endpoint. The old header read a 15-minute-cached
                 DAILY CLOSE, which is why it never moved. */}
@@ -205,15 +205,15 @@ export function ExplorerDetails({ sel, quote, dossier, news, loading = false, ne
             <div>
               {/* Definite height: the embed sizes itself against this box. */}
               <div style={{
-                border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden',
-                marginBottom: 14, background: '#070707', height: CHART_HEIGHT,
+                border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden',
+                marginBottom: 14, background: 'var(--inset)', height: CHART_HEIGHT,
               }}>
-                {tv ? <TVChart tv={tv} /> : <div style={{ ...mono, padding: 30, color: '#444' }}>no chart</div>}
+                {tv ? <TVChart tv={tv} /> : <div style={{ ...mono, padding: 30, color: 'var(--line)' }}>no chart</div>}
               </div>
               {!loading && (!dossier || Array.isArray(dossier) || dossier.error) && <DataUnavailable name="Fundamentals" />}
               {dossier && !Array.isArray(dossier) && !dossier.error && (
-                <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 14, background: '#070707' }}>
-                  <div style={{ ...mono, fontSize: 11, fontWeight: 800, color: 'var(--orange)', letterSpacing: 2, marginBottom: 10 }}>FUNDAMENTALS</div>
+                <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: 14, background: 'var(--inset)' }}>
+                  <div style={{ ...mono, fontSize: 13, fontWeight: 600, color: 'var(--accent)', marginBottom: 10 }}>Fundamentals</div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '8px 16px' }}>
                     {/* These live under dossier.fundamentals, not at the top
                         level — reading them from the root made every single
@@ -242,8 +242,8 @@ export function ExplorerDetails({ sel, quote, dossier, news, loading = false, ne
                       ]
                     })().map(([k, v], i) => (
                       <div key={i}>
-                        <div style={{ ...mono, fontSize: 9, color: 'var(--muted)' }}>{k}</div>
-                        <div style={{ ...mono, fontSize: 12, color: '#ddd' }}>{v ?? '—'}</div>
+                        <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>{k}</div>
+                        <div style={{ ...mono, fontSize: 14, color: 'var(--ink)' }}>{v ?? '—'}</div>
                       </div>
                     ))}
                   </div>
@@ -253,25 +253,25 @@ export function ExplorerDetails({ sel, quote, dossier, news, loading = false, ne
 
             {/* right: news + sentiment */}
             <div>
-              <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 14, background: '#070707' }}>
+              <div style={{ border: '1px solid var(--line)', borderRadius: 14, padding: 14, background: 'var(--inset)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                  <span style={{ ...mono, fontSize: 11, fontWeight: 800, color: 'var(--orange)', letterSpacing: 2 }}>NEWS & SENTIMENT</span>
+                  <span style={{ ...mono, fontSize: 13, fontWeight: 600, color: 'var(--accent)', }}>News & sentiment</span>
                   {typeof news?.sentiment?.label === 'string' && (
-                    <span style={{ ...mono, fontSize: 9, fontWeight: 800, color: '#000', background: sentColor(news.sentiment.label), borderRadius: 3, padding: '2px 6px' }}>
+                    <span style={{ ...mono, fontSize: 12, fontWeight: 600, color: 'var(--on-solid)', background: sentColor(news.sentiment.label), borderRadius: 8, padding: '2px 6px' }}>
                       {news.sentiment.label.toUpperCase()}
                     </span>
                   )}
                 </div>
                 {news?.political_exposure && news.political_exposure !== 'Low' && (
-                  <div style={{ ...mono, fontSize: 9, color: 'var(--yellow)', marginBottom: 8 }}>⚑ Political exposure: {news.political_exposure}</div>
+                  <div style={{ ...mono, fontSize: 12, color: 'var(--yellow)', marginBottom: 8 }}>⚑ Political exposure: {news.political_exposure}</div>
                 )}
-                {newsState === 'loading' ? <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>fetching fresh news…</div>
+                {newsState === 'loading' ? <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>fetching fresh news…</div>
                   : newsState === 'failed' || !Array.isArray(news?.news) ? <DataUnavailable name="News" />
-                  : news.news.length === 0 ? <div style={{ ...mono, fontSize: 10, color: 'var(--muted)' }}>{news.source || 'No headlines available in this response.'}</div>
+                  : news.news.length === 0 ? <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)' }}>{news.source || 'No headlines available in this response.'}</div>
                   : news.news.map((a, i) => (
-                    <a key={i} href={a.url} target="_blank" rel="noreferrer" style={{ display: 'block', textDecoration: 'none', padding: '7px 0', borderBottom: '1px solid #141414' }}>
-                      <div style={{ ...mono, fontSize: 11, color: '#cdd', lineHeight: 1.4 }}>{a.title}</div>
-                      <div style={{ ...mono, fontSize: 9, color: 'var(--muted)', marginTop: 2 }}>{a.source} · {a.at?.slice(0, 10)}</div>
+                    <a key={i} href={a.url} target="_blank" rel="noreferrer" style={{ display: 'block', textDecoration: 'none', padding: '7px 0', borderBottom: '1px solid var(--inset)' }}>
+                      <div style={{ ...mono, fontSize: 13, color: 'var(--ink)', lineHeight: 1.4 }}>{a.title}</div>
+                      <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>{a.source} · {a.at?.slice(0, 10)}</div>
                     </a>
                   ))}
               </div>

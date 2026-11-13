@@ -45,41 +45,40 @@ function VerdictBanner({ a, b, nameA, nameB }) {
 
   return (
     <div style={{
-      background: 'var(--bg-2)',
+      background: 'var(--surface)',
       border: `1px solid ${color}`,
-      borderRadius: 2,
+      borderRadius: 8,
       padding: '16px 20px',
       marginBottom: 16,
-      boxShadow: `0 0 20px ${color}22`,
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       flexWrap: 'wrap', gap: 12,
     }}>
       <div>
-        <div style={{ fontFamily:'var(--mono)', fontSize: 22, fontWeight: 700, color, letterSpacing: '0.08em' }}>
+        <div style={{ fontFamily:'var(--font)', fontSize: 26, fontWeight: 600, color, }}>
           {label}
         </div>
-        <div style={{ fontFamily:'var(--mono)', fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+        <div style={{ fontFamily:'var(--font)', fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>
           {detail}
         </div>
         {(conflictsA > 0 || conflictsB > 0) && (
-          <div style={{ fontFamily:'var(--mono)', fontSize: 10, color: 'var(--yellow)', marginTop: 6 }}>
+          <div style={{ fontFamily:'var(--font)', fontSize: 12, color: 'var(--yellow)', marginTop: 6 }}>
             ⚠ {conflictsA} HIGH conflict(s) in {nameA} · {conflictsB} HIGH conflict(s) in {nameB} · Size conservatively
           </div>
         )}
       </div>
       <div style={{ display:'flex', gap: 24 }}>
         <div style={{ textAlign:'center' }}>
-          <div style={{ fontFamily:'var(--mono)', fontSize: 28, fontWeight: 700, color: sa >= sb ? 'var(--green)' : 'var(--muted)' }}>
+          <div style={{ fontFamily:'var(--font)', fontSize: 32, fontWeight: 600, color: sa >= sb ? 'var(--green)' : 'var(--ink-3)' }}>
             {sa > 0 ? '+' : ''}{sa.toFixed(1)}
           </div>
-          <div style={{ fontFamily:'var(--mono)', fontSize: 10, color:'var(--muted)' }}>{nameA} SCORE</div>
+          <div style={{ fontFamily:'var(--font)', fontSize: 12, color:'var(--ink-3)' }}>{nameA} score</div>
         </div>
-        <div style={{ fontFamily:'var(--mono)', fontSize: 20, color:'var(--border-2)', alignSelf:'center' }}>vs</div>
+        <div style={{ fontFamily:'var(--font)', fontSize: 22, color:'var(--line-2)', alignSelf:'center' }}>vs</div>
         <div style={{ textAlign:'center' }}>
-          <div style={{ fontFamily:'var(--mono)', fontSize: 28, fontWeight: 700, color: sb > sa ? 'var(--green)' : 'var(--muted)' }}>
+          <div style={{ fontFamily:'var(--font)', fontSize: 32, fontWeight: 600, color: sb > sa ? 'var(--green)' : 'var(--ink-3)' }}>
             {sb > 0 ? '+' : ''}{sb.toFixed(1)}
           </div>
-          <div style={{ fontFamily:'var(--mono)', fontSize: 10, color:'var(--muted)' }}>{nameB} SCORE</div>
+          <div style={{ fontFamily:'var(--font)', fontSize: 12, color:'var(--ink-3)' }}>{nameB} score</div>
         </div>
       </div>
     </div>
@@ -102,12 +101,12 @@ function SignalColumn({ ticker, data, color }) {
   const highConflicts = conflicts.filter(c => c.severity === 'HIGH')
 
   const sub = [
-    { label: 'TREND',     val: data.trend_score },
-    { label: 'MOMENTUM',  val: data.momentum_score },
-    { label: 'REGIME',    val: data.regime_score },
-    { label: 'VOLATILITY',val: data.volatility_score },
-    { label: 'MACRO',     val: data.macro_score },
-    { label: 'SENTIMENT', val: data.sentiment_score },
+    { label: 'Trend',     val: data.trend_score },
+    { label: 'Momentum',  val: data.momentum_score },
+    { label: 'Regime',    val: data.regime_score },
+    { label: 'Volatility',val: data.volatility_score },
+    { label: 'Macro',     val: data.macro_score },
+    { label: 'Sentiment', val: data.sentiment_score },
   ]
 
   const radarData = sub.map(s => ({ subject: s.label, value: Math.max(0, ((s.val || 0) + 100) / 2) }))
@@ -124,18 +123,18 @@ function SignalColumn({ ticker, data, color }) {
       <div className="bb-card" style={{ borderColor: color, borderTopWidth: 2 }}>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
           <div>
-            <div style={{ fontFamily:'var(--mono)', fontSize: 22, fontWeight: 700, color: 'var(--white)', letterSpacing: '0.06em' }}>
+            <div style={{ fontFamily:'var(--font)', fontSize: 26, fontWeight: 600, color: 'var(--ink)', }}>
               {ticker}
             </div>
-            <div style={{ fontFamily:'var(--mono)', fontSize: 10, color:'var(--muted)', marginTop: 2 }}>
+            <div style={{ fontFamily:'var(--font)', fontSize: 12, color:'var(--ink-3)', marginTop: 2 }}>
               {data.name} · {(data.asset_class || '').toUpperCase()}
             </div>
           </div>
           <div style={{ textAlign:'right' }}>
-            <div style={{ fontFamily:'var(--mono)', fontSize: 20, fontWeight: 700, color: 'var(--white)' }}>
+            <div style={{ fontFamily:'var(--font)', fontSize: 22, fontWeight: 600, color: 'var(--ink)' }}>
               ${price.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 })}
             </div>
-            <div style={{ fontFamily:'var(--mono)', fontSize: 10, color: parseFloat(pctFrom52H) < 0 ? 'var(--red)' : 'var(--green)' }}>
+            <div style={{ fontFamily:'var(--font)', fontSize: 12, color: parseFloat(pctFrom52H) < 0 ? 'var(--red)' : 'var(--green)' }}>
               {pctFrom52H}% from 52W HIGH
             </div>
           </div>
@@ -144,24 +143,24 @@ function SignalColumn({ ticker, data, color }) {
         {/* Action + Archetype */}
         <div style={{ marginTop: 12, display:'flex', gap: 8, flexWrap:'wrap', alignItems:'center' }}>
           <div style={{
-            fontFamily:'var(--mono)', fontSize:13, fontWeight:700, color: actionColor,
+            fontFamily:'var(--font)', fontSize:14, fontWeight:600, color: actionColor,
             background: `${actionColor}18`, border:`1px solid ${actionColor}44`,
-            padding:'3px 10px', borderRadius:2,
+            padding:'3px 10px', borderRadius:8,
           }}>
             {action.toUpperCase()}
           </div>
           <div style={{
-            fontFamily:'var(--mono)', fontSize:10, color: color,
+            fontFamily:'var(--font)', fontSize:12, color: color,
             background:`${color}15`, border:`1px solid ${color}33`,
-            padding:'3px 10px', borderRadius:2,
+            padding:'3px 10px', borderRadius:8,
           }}>
             {archetype}
           </div>
           <div style={{
-            fontFamily:'var(--mono)', fontSize:10,
+            fontFamily:'var(--font)', fontSize:12,
             color: data.confidence === 'High' ? 'var(--green)' : data.confidence === 'Low' ? 'var(--red)' : 'var(--yellow)',
           }}>
-            {data.confidence?.toUpperCase()} CONVICTION
+            {data.confidence?.toUpperCase()} conviction
           </div>
         </div>
       </div>
@@ -171,7 +170,7 @@ function SignalColumn({ ticker, data, color }) {
         <div style={{ display:'flex', gap:16, alignItems:'flex-start' }}>
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center' }}>
             <ScoreGauge score={data.composite_score} size={130} />
-            <div style={{ fontFamily:'var(--mono)', fontSize:9, color:'var(--muted)', marginTop:-4 }}>COMPOSITE SCORE</div>
+            <div style={{ fontFamily:'var(--font)', fontSize:12, color:'var(--ink-3)', marginTop:-4 }}>Composite score</div>
           </div>
           <div style={{ flex:1 }}>
             {sub.map(s => <ScoreBar key={s.label} score={s.val} label={s.label} />)}
@@ -181,11 +180,11 @@ function SignalColumn({ ticker, data, color }) {
 
       {/* Radar chart */}
       <div className="bb-card">
-        <div className="bb-card-header" style={{ color }}>SIGNAL COMPOSITION</div>
+        <div className="bb-card-header" style={{ color }}>Signal composition</div>
         <ResponsiveContainer width="100%" height={160}>
           <RadarChart data={radarData} margin={{ top:4, right:16, bottom:4, left:16 }}>
-            <PolarGrid stroke="#1e1e1e" />
-            <PolarAngleAxis dataKey="subject" tick={{ fill:'var(--muted)', fontSize:9, fontFamily:'var(--mono)' }} />
+            <PolarGrid stroke="var(--inset)" />
+            <PolarAngleAxis dataKey="subject" tick={{ fill:'var(--ink-3)', fontSize:12, fontFamily:'var(--font)' }} />
             <Radar dataKey="value" stroke={color} fill={color} fillOpacity={0.15} strokeWidth={1.5} />
           </RadarChart>
         </ResponsiveContainer>
@@ -194,11 +193,11 @@ function SignalColumn({ ticker, data, color }) {
       {/* Trade thesis */}
       {thesis.bull_case && (
         <div className="bb-card">
-          <div className="bb-card-header" style={{ color:'var(--green)' }}>BULL CASE</div>
+          <div className="bb-card-header" style={{ color:'var(--green)' }}>Bull case</div>
           {(thesis.bull_case || []).slice(0,4).map((b, i) => (
             <div key={i} style={{ display:'flex', gap:6, marginBottom:6 }}>
-              <span style={{ color:'var(--green)', fontFamily:'var(--mono)', fontSize:10, flexShrink:0 }}>▲</span>
-              <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text)', lineHeight:1.4 }}>{b}</span>
+              <span style={{ color:'var(--green)', fontFamily:'var(--font)', fontSize:12, flexShrink:0 }}>▲</span>
+              <span style={{ fontFamily:'var(--font)', fontSize:13, color:'var(--ink)', lineHeight:1.4 }}>{b}</span>
             </div>
           ))}
         </div>
@@ -206,11 +205,11 @@ function SignalColumn({ ticker, data, color }) {
 
       {thesis.bear_case && (
         <div className="bb-card">
-          <div className="bb-card-header" style={{ color:'var(--red)' }}>BEAR CASE / RISKS</div>
+          <div className="bb-card-header" style={{ color:'var(--red)' }}>Bear case / risks</div>
           {(thesis.bear_case || []).slice(0,4).map((b, i) => (
             <div key={i} style={{ display:'flex', gap:6, marginBottom:6 }}>
-              <span style={{ color:'var(--red)', fontFamily:'var(--mono)', fontSize:10, flexShrink:0 }}>▼</span>
-              <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text)', lineHeight:1.4 }}>{b}</span>
+              <span style={{ color:'var(--red)', fontFamily:'var(--font)', fontSize:12, flexShrink:0 }}>▼</span>
+              <span style={{ fontFamily:'var(--font)', fontSize:13, color:'var(--ink)', lineHeight:1.4 }}>{b}</span>
             </div>
           ))}
         </div>
@@ -218,12 +217,12 @@ function SignalColumn({ ticker, data, color }) {
 
       {/* Invalidation */}
       {thesis.invalidation?.length > 0 && (
-        <div className="bb-card" style={{ borderColor:'#332200' }}>
-          <div className="bb-card-header" style={{ color:'var(--yellow)' }}>INVALIDATION TRIGGERS</div>
+        <div className="bb-card" style={{ borderColor:'var(--yellow-bg)' }}>
+          <div className="bb-card-header" style={{ color:'var(--yellow)' }}>Invalidation triggers</div>
           {thesis.invalidation.slice(0,3).map((inv, i) => (
             <div key={i} style={{ display:'flex', gap:6, marginBottom:5 }}>
-              <span style={{ color:'var(--yellow)', fontFamily:'var(--mono)', fontSize:10, flexShrink:0 }}>!</span>
-              <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--muted)', lineHeight:1.4 }}>{inv}</span>
+              <span style={{ color:'var(--yellow)', fontFamily:'var(--font)', fontSize:12, flexShrink:0 }}>!</span>
+              <span style={{ fontFamily:'var(--font)', fontSize:13, color:'var(--ink-3)', lineHeight:1.4 }}>{inv}</span>
             </div>
           ))}
         </div>
@@ -231,20 +230,20 @@ function SignalColumn({ ticker, data, color }) {
 
       {/* Risk params */}
       <div className="bb-card">
-        <div className="bb-card-header">RISK PARAMETERS</div>
+        <div className="bb-card-header">Risk parameters</div>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
           {[
             ['STOP LOSS',    `$${parseFloat(data.stop_loss||0).toFixed(2)}`,    'var(--red)'],
             ['TAKE PROFIT',  `$${parseFloat(data.take_profit||0).toFixed(2)}`,  'var(--green)'],
             ['POSITION SIZE',`${(data.position_size_pct||0).toFixed(1)}%`,      color],
-            ['REALISED VOL', `${((data.realised_vol||0)*100).toFixed(1)}%`,     'var(--muted)'],
-            ['ATR %',        `${((data.atr_pct||0)*100).toFixed(2)}%`,          'var(--muted)'],
+            ['REALISED VOL', `${((data.realised_vol||0)*100).toFixed(1)}%`,     'var(--ink-3)'],
+            ['ATR %',        `${((data.atr_pct||0)*100).toFixed(2)}%`,          'var(--ink-3)'],
             ['RISK LEVEL',   data.risk_level,
               data.risk_level === 'Very High' ? 'var(--red)' : data.risk_level === 'High' ? 'var(--yellow)' : 'var(--green)'],
           ].map(([lbl, val, c]) => (
-            <div key={lbl} style={{ background:'var(--bg-3)', padding:'8px 10px', borderRadius:2 }}>
-              <div style={{ fontFamily:'var(--mono)', fontSize:9, color:'var(--muted)', marginBottom:3, letterSpacing:'0.08em' }}>{lbl}</div>
-              <div style={{ fontFamily:'var(--mono)', fontSize:13, fontWeight:700, color: c || 'var(--white)' }}>{val}</div>
+            <div key={lbl} style={{ background:'var(--inset)', padding:'8px 10px', borderRadius:8 }}>
+              <div style={{ fontFamily:'var(--font)', fontSize:12, color:'var(--ink-3)', marginBottom:3, }}>{lbl}</div>
+              <div style={{ fontFamily:'var(--font)', fontSize:14, fontWeight:600, color: c || 'var(--ink)' }}>{val}</div>
             </div>
           ))}
         </div>
@@ -252,19 +251,19 @@ function SignalColumn({ ticker, data, color }) {
 
       {/* 52W range */}
       <div className="bb-card">
-        <div className="bb-card-header">52-WEEK RANGE</div>
+        <div className="bb-card-header">52-Week range</div>
         <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
-          <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--red)' }}>${low52.toFixed(2)}</span>
-          <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--white)' }}>${price.toFixed(2)}</span>
-          <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--green)' }}>${high52.toFixed(2)}</span>
+          <span style={{ fontFamily:'var(--font)', fontSize:13, color:'var(--red)' }}>${low52.toFixed(2)}</span>
+          <span style={{ fontFamily:'var(--font)', fontSize:13, color:'var(--ink)' }}>${price.toFixed(2)}</span>
+          <span style={{ fontFamily:'var(--font)', fontSize:13, color:'var(--green)' }}>${high52.toFixed(2)}</span>
         </div>
-        <div style={{ background:'#1a1a1a', borderRadius:2, height:8, position:'relative' }}>
+        <div style={{ background:'var(--inset)', borderRadius:8, height:8, position:'relative' }}>
           {high52 > low52 && (
             <div style={{
               position:'absolute', left:0, top:0, height:'100%',
               width:`${((price - low52) / (high52 - low52)) * 100}%`,
               background: `linear-gradient(to right, var(--red-dim), ${color})`,
-              borderRadius:2, maxWidth:'100%',
+              borderRadius:8, maxWidth:'100%',
             }} />
           )}
         </div>
@@ -272,13 +271,13 @@ function SignalColumn({ ticker, data, color }) {
 
       {/* Signal conflicts */}
       {conflicts.length > 0 && (
-        <div className="bb-card" style={{ borderColor: highConflicts.length > 0 ? '#330000' : '#221100' }}>
+        <div className="bb-card" style={{ borderColor: highConflicts.length > 0 ? 'var(--red-bg)' : 'var(--yellow-bg)' }}>
           <div className="bb-card-header" style={{ color:'var(--yellow)' }}>
-            SIGNAL CONFLICTS ({conflicts.length}) {highConflicts.length > 0 && `· ${highConflicts.length} HIGH`}
+            Signal conflicts ({conflicts.length}) {highConflicts.length > 0 && `· ${highConflicts.length} High`}
           </div>
           {conflicts.slice(0,3).map((c, i) => <ConflictRow key={i} conflict={c} />)}
           {data.conflict_penalty > 0 && (
-            <div style={{ fontFamily:'var(--mono)', fontSize:10, color:'var(--muted)', marginTop:6 }}>
+            <div style={{ fontFamily:'var(--font)', fontSize:12, color:'var(--ink-3)', marginTop:6 }}>
               Score penalised by {data.conflict_penalty?.toFixed(1)} pts due to conflicts
             </div>
           )}
@@ -287,9 +286,9 @@ function SignalColumn({ ticker, data, color }) {
 
       {/* Sizing rationale */}
       {thesis.sizing_rationale && (
-        <div className="bb-card" style={{ borderColor:'#112233' }}>
-          <div className="bb-card-header" style={{ color:'var(--blue)' }}>POSITION SIZING</div>
-          <div style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text)', lineHeight:1.5 }}>
+        <div className="bb-card" style={{ borderColor:'var(--blue-bg)' }}>
+          <div className="bb-card-header" style={{ color:'var(--blue)' }}>Position sizing</div>
+          <div style={{ fontFamily:'var(--font)', fontSize:13, color:'var(--ink)', lineHeight:1.5 }}>
             {thesis.sizing_rationale}
           </div>
         </div>
@@ -317,34 +316,34 @@ function HeadToHead({ a, b, nameA, nameB }) {
 
   return (
     <div className="bb-card" style={{ marginBottom: 16 }}>
-      <div className="bb-card-header">HEAD-TO-HEAD COMPARISON</div>
+      <div className="bb-card-header">Head-to-head comparison</div>
       <table>
         <thead>
           <tr>
-            <th>METRIC</th>
-            <th style={{ color:'var(--orange)' }}>{nameA}</th>
-            <th style={{ color:'#00aaff' }}>{nameB}</th>
-            <th>EDGE</th>
+            <th>Metric</th>
+            <th style={{ color:'var(--accent)' }}>{nameA}</th>
+            <th style={{ color:'var(--blue)' }}>{nameB}</th>
+            <th>Edge</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(([label, va, vb, numeric, lowerBetter]) => {
             let edge = '—'
-            let edgeColor = 'var(--muted)'
+            let edgeColor = 'var(--ink-3)'
             if (numeric && va !== undefined && vb !== undefined) {
               const na = parseFloat(va), nb = parseFloat(vb)
               if (!isNaN(na) && !isNaN(nb)) {
                 const aBetter = lowerBetter ? na < nb : na > nb
                 edge = aBetter ? nameA : nb !== na ? nameB : '—'
-                edgeColor = aBetter ? 'var(--orange)' : nb !== na ? '#00aaff' : 'var(--muted)'
+                edgeColor = aBetter ? 'var(--accent)' : nb !== na ? 'var(--blue)' : 'var(--ink-3)'
               }
             }
             return (
               <tr key={label}>
-                <td style={{ color:'var(--muted)', fontSize:11 }}>{label}</td>
-                <td style={{ color:'var(--orange)', fontWeight:600 }}>{va ?? '—'}</td>
-                <td style={{ color:'#00aaff', fontWeight:600 }}>{vb ?? '—'}</td>
-                <td style={{ color: edgeColor, fontWeight:700, fontSize:11 }}>{edge}</td>
+                <td style={{ color:'var(--ink-3)', fontSize:13 }}>{label}</td>
+                <td style={{ color:'var(--accent)', fontWeight:600 }}>{va ?? '—'}</td>
+                <td style={{ color:'var(--blue)', fontWeight:600 }}>{vb ?? '—'}</td>
+                <td style={{ color: edgeColor, fontWeight:600, fontSize:13 }}>{edge}</td>
               </tr>
             )
           })}
@@ -400,11 +399,11 @@ export default function Compare() {
         marginBottom: 14, gap: 12, flexWrap:'wrap',
       }}>
         <div>
-          <div style={{ fontFamily:'var(--mono)', fontSize:14, fontWeight:700, color:'var(--orange)', letterSpacing:'0.1em' }}>
-            ⚡ STOCK COMPARISON TERMINAL
+          <div style={{ fontFamily:'var(--font)', fontSize:15, fontWeight:600, color:'var(--accent)', }}>
+            ⚡ Stock comparison terminal
           </div>
-          <div style={{ fontFamily:'var(--mono)', fontSize:10, color:'var(--muted)', marginTop:2 }}>
-            {time.toLocaleTimeString('en-US', { hour12:false })} · ARIA SIGNAL ENGINE · SITUATION-AWARE ANALYSIS
+          <div style={{ fontFamily:'var(--font)', fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
+            {time.toLocaleTimeString('en-US', { hour12:false })} · ARIA signal engine · situation-aware analysis
           </div>
         </div>
 
@@ -415,30 +414,30 @@ export default function Compare() {
             onChange={e => setInputA(e.target.value.toUpperCase())}
             onKeyDown={e => e.key === 'Enter' && handleCompare()}
             style={{
-              background:'var(--bg-2)', border:'1px solid var(--orange)', borderRadius:2,
-              padding:'7px 10px', color:'var(--orange)', fontFamily:'var(--mono)',
-              fontSize:14, fontWeight:700, width:90, textAlign:'center', letterSpacing:'0.1em',
+              background:'var(--surface)', border:'1px solid var(--accent)', borderRadius:8,
+              padding:'7px 10px', color:'var(--accent)', fontFamily:'var(--font)',
+              fontSize:15, fontWeight:600, width:90, textAlign:'center', 
             }}
           />
-          <span style={{ fontFamily:'var(--mono)', color:'var(--muted)', fontSize:12 }}>vs</span>
+          <span style={{ fontFamily:'var(--font)', color:'var(--ink-3)', fontSize:14 }}>vs</span>
           <input
             value={inputB}
             onChange={e => setInputB(e.target.value.toUpperCase())}
             onKeyDown={e => e.key === 'Enter' && handleCompare()}
             style={{
-              background:'var(--bg-2)', border:'1px solid #00aaff', borderRadius:2,
-              padding:'7px 10px', color:'#00aaff', fontFamily:'var(--mono)',
-              fontSize:14, fontWeight:700, width:90, textAlign:'center', letterSpacing:'0.1em',
+              background:'var(--surface)', border:'1px solid var(--blue)', borderRadius:8,
+              padding:'7px 10px', color:'var(--blue)', fontFamily:'var(--font)',
+              fontSize:15, fontWeight:600, width:90, textAlign:'center', 
             }}
           />
           <button
             onClick={handleCompare}
             style={{
-              background:'var(--orange)', color:'#000', border:'none', borderRadius:2,
-              padding:'7px 16px', fontFamily:'var(--mono)', fontSize:11, fontWeight:700,
-              cursor:'pointer', letterSpacing:'0.08em',
+              background:'var(--accent)', color:'var(--on-solid)', border:'none', borderRadius:8,
+              padding:'7px 16px', fontFamily:'var(--font)', fontSize:13, fontWeight:600,
+              cursor:'pointer', 
             }}>
-            ANALYZE
+            Analyze
           </button>
         </div>
       </div>
@@ -466,41 +465,41 @@ export default function Compare() {
         {/* Column A */}
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{
-            fontFamily:'var(--mono)', fontSize:11, fontWeight:700, color:'var(--orange)',
-            letterSpacing:'0.12em', textAlign:'center', marginBottom:8,
-            padding:'5px', background:'var(--orange-bg)', border:'1px solid var(--border)',
+            fontFamily:'var(--font)', fontSize:13, fontWeight:600, color:'var(--accent)',
+            textAlign:'center', marginBottom:8,
+            padding:'5px', background:'var(--accent-bg)', border:'1px solid var(--line)',
           }}>
             ── {tickerA} ──
           </div>
-          {errA && <div style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--red)', marginBottom:8 }}>⚠ {errA}</div>}
+          {errA && <div style={{ fontFamily:'var(--font)', fontSize:13, color:'var(--red)', marginBottom:8 }}>⚠ {errA}</div>}
           {!loadingA && (
-            <SignalColumn ticker={tickerA} data={dataA} color="var(--orange)" />
+            <SignalColumn ticker={tickerA} data={dataA} color="var(--accent)" />
           )}
         </div>
 
         {/* Divider */}
-        <div style={{ width:1, background:'var(--border-2)', alignSelf:'stretch', flexShrink:0 }} />
+        <div style={{ width:1, background:'var(--line-2)', alignSelf:'stretch', flexShrink:0 }} />
 
         {/* Column B */}
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{
-            fontFamily:'var(--mono)', fontSize:11, fontWeight:700, color:'#00aaff',
-            letterSpacing:'0.12em', textAlign:'center', marginBottom:8,
-            padding:'5px', background:'rgba(0,170,255,0.06)', border:'1px solid var(--border)',
+            fontFamily:'var(--font)', fontSize:13, fontWeight:600, color:'var(--blue)',
+            textAlign:'center', marginBottom:8,
+            padding:'5px', background:'color-mix(in srgb, var(--blue) 6%, transparent)', border:'1px solid var(--line)',
           }}>
             ── {tickerB} ──
           </div>
-          {errB && <div style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--red)', marginBottom:8 }}>⚠ {errB}</div>}
+          {errB && <div style={{ fontFamily:'var(--font)', fontSize:13, color:'var(--red)', marginBottom:8 }}>⚠ {errB}</div>}
           {!loadingB && (
-            <SignalColumn ticker={tickerB} data={dataB} color="#00aaff" />
+            <SignalColumn ticker={tickerB} data={dataB} color="var(--blue)" />
           )}
         </div>
       </div>
 
       {/* Disclaimer */}
-      <div style={{ marginTop:24, fontFamily:'var(--mono)', fontSize:9, color:'#333', textAlign:'center', lineHeight:1.6 }}>
-        ⚠ ARIA IS A RESEARCH TOOL. ALL SIGNALS ARE PROBABILISTIC AND NOT FINANCIAL ADVICE.
-        PAST SIGNAL ACCURACY DOES NOT GUARANTEE FUTURE RESULTS. TRADE AT YOUR OWN RISK.
+      <div style={{ marginTop:24, fontFamily:'var(--font)', fontSize:12, color:'var(--line)', textAlign:'center', lineHeight:1.6 }}>
+        ⚠ ARIA is a research tool. All signals are probabilistic and not financial advice.
+        Past signal accuracy does not guarantee future results. Trade at your own risk.
       </div>
     </div>
   )

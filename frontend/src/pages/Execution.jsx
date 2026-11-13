@@ -9,19 +9,19 @@ import {
 // ─── Status pill ─────────────────────────────────────────────────────────────
 function StatusPill({ status }) {
   const cfg = {
-    pending:   { color: '#ffcc00', bg: 'rgba(255,204,0,0.12)',   label: '⏳ PENDING APPROVAL' },
-    approved:  { color: '#00aaff', bg: 'rgba(0,170,255,0.12)',  label: '✓ APPROVED' },
-    executed:  { color: '#00cc44', bg: 'rgba(0,204,68,0.12)',   label: '✅ EXECUTED' },
-    rejected:  { color: '#ff3333', bg: 'rgba(255,51,51,0.12)',  label: '✗ REJECTED' },
-    cancelled: { color: '#888',    bg: 'rgba(136,136,136,0.1)', label: '— CANCELLED' },
+    pending:   { color: 'var(--yellow)', bg: 'color-mix(in srgb, var(--yellow) 12%, transparent)',   label: '⏳ Pending approval' },
+    approved:  { color: 'var(--blue)', bg: 'color-mix(in srgb, var(--blue) 12%, transparent)',  label: '✓ Approved' },
+    executed:  { color: 'var(--green)', bg: 'color-mix(in srgb, var(--green) 12%, transparent)',   label: '✅ Executed' },
+    rejected:  { color: 'var(--red)', bg: 'color-mix(in srgb, var(--red) 12%, transparent)',  label: '✗ Rejected' },
+    cancelled: { color: 'var(--ink-3)',    bg: 'var(--inset)', label: '— Cancelled' },
   }
   const c = cfg[status] || cfg.cancelled
   return (
     <span style={{
-      fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700,
+      fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600,
       color: c.color, background: c.bg,
       border: `1px solid ${c.color}44`,
-      borderRadius: 3, padding: '2px 8px', letterSpacing: 1,
+      borderRadius: 8, padding: '2px 8px', 
     }}>{c.label}</span>
   )
 }
@@ -33,19 +33,19 @@ function BrokerPanel() {
 
   const BrokerCard = ({ name, info }) => (
     <div style={{
-      background: '#0a0a0a', border: `1px solid ${info?.connected ? 'var(--green)' : 'var(--border)'}`,
-      borderRadius: 6, padding: '14px 18px', flex: 1,
+      background: 'var(--inset)', border: `1px solid ${info?.connected ? 'var(--green)' : 'var(--line)'}`,
+      borderRadius: 12, padding: '14px 18px', flex: 1,
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--orange)', fontWeight: 700 }}>
+        <span style={{ fontFamily: 'var(--font)', fontSize: 14, color: 'var(--accent)', fontWeight: 600 }}>
           {name}
         </span>
         <span style={{
-          fontSize: 11, fontFamily: 'var(--mono)', fontWeight: 700,
-          color: info?.connected ? 'var(--green)' : '#ff3333',
+          fontSize: 13, fontFamily: 'var(--font)', fontWeight: 600,
+          color: info?.connected ? 'var(--green)' : 'var(--red)',
         }}>
-          {info?.connected ? '● LIVE' : '○ OFFLINE'}
-          {info?.paper ? ' (PAPER)' : ''}
+          {info?.connected ? '● Live' : '○ Offline'}
+          {info?.paper ? ' (Paper)' : ''}
         </span>
       </div>
       {info?.account ? (
@@ -56,13 +56,13 @@ function BrokerPanel() {
             ['Buying Power', price(info.account.buying_power, { from: 'USD', digits: 0 }).text],
           ].map(([label, val]) => (
             <div key={label}>
-              <div style={{ color: 'var(--text-dim)', fontSize: 10, fontFamily: 'var(--mono)' }}>{label}</div>
-              <div style={{ color: '#fff', fontSize: 14, fontFamily: 'var(--mono)', fontWeight: 600 }}>{val}</div>
+              <div style={{ color: 'var(--ink-2)', fontSize: 12, fontFamily: 'var(--font)' }}>{label}</div>
+              <div style={{ color: 'var(--ink)', fontSize: 15, fontFamily: 'var(--font)', fontWeight: 600 }}>{val}</div>
             </div>
           ))}
         </div>
       ) : (
-        <div style={{ color: 'var(--text-dim)', fontSize: 12, fontFamily: 'var(--mono)' }}>
+        <div style={{ color: 'var(--ink-2)', fontSize: 14, fontFamily: 'var(--font)' }}>
           {info?.connected ? 'Loading account…' : 'Broker not connected — no brokerage credentials are configured on the server.'}
         </div>
       )}
@@ -71,7 +71,7 @@ function BrokerPanel() {
 
   return (
     <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
-      <BrokerCard name="ALPACA" info={loading ? null : data?.alpaca} />
+      <BrokerCard name="Alpaca" info={loading ? null : data?.alpaca} />
       <BrokerCard name="IBKR"   info={loading ? null : data?.ibkr}   />
     </div>
   )
@@ -83,27 +83,27 @@ function PositionsTable() {
   if (!data?.positions?.length) return null
 
   return (
-    <BBCard title="LIVE POSITIONS" style={{ marginBottom: 24 }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--mono)', fontSize: 12 }}>
+    <BBCard title="Live positions" style={{ marginBottom: 24 }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font)', fontSize: 14 }}>
         <thead>
-          <tr style={{ color: 'var(--text-dim)', textAlign: 'left' }}>
+          <tr style={{ color: 'var(--ink-2)', textAlign: 'left' }}>
             {['Ticker', 'Side', 'Qty', 'Avg Cost', 'Market Value', 'Unrealized P&L', 'Broker'].map(h => (
-              <th key={h} style={{ padding: '6px 10px', borderBottom: '1px solid var(--border)', fontWeight: 600, fontSize: 10 }}>{h}</th>
+              <th key={h} style={{ padding: '6px 10px', borderBottom: '1px solid var(--line)', fontWeight: 600, fontSize: 12 }}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
           {data.positions.map((p, i) => (
-            <tr key={i} style={{ borderBottom: '1px solid #111' }}>
-              <td style={{ padding: '8px 10px', color: 'var(--orange)', fontWeight: 700 }}>{p.ticker}</td>
-              <td style={{ padding: '8px 10px', color: p.side === 'long' ? 'var(--green)' : 'var(--red)', textTransform: 'uppercase' }}>{p.side}</td>
-              <td style={{ padding: '8px 10px', color: '#fff' }}>{p.qty}</td>
-              <td style={{ padding: '8px 10px', color: '#fff' }}>${Number(p.avg_cost).toFixed(2)}</td>
-              <td style={{ padding: '8px 10px', color: '#fff' }}>${Number(p.market_value).toLocaleString()}</td>
-              <td style={{ padding: '8px 10px', color: p.unrealized_pl >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 700 }}>
+            <tr key={i} style={{ borderBottom: '1px solid var(--inset)' }}>
+              <td style={{ padding: '8px 10px', color: 'var(--accent)', fontWeight: 600 }}>{p.ticker}</td>
+              <td style={{ padding: '8px 10px', color: p.side === 'long' ? 'var(--green)' : 'var(--red)', }}>{p.side}</td>
+              <td style={{ padding: '8px 10px', color: 'var(--ink)' }}>{p.qty}</td>
+              <td style={{ padding: '8px 10px', color: 'var(--ink)' }}>${Number(p.avg_cost).toFixed(2)}</td>
+              <td style={{ padding: '8px 10px', color: 'var(--ink)' }}>${Number(p.market_value).toLocaleString()}</td>
+              <td style={{ padding: '8px 10px', color: p.unrealized_pl >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600 }}>
                 {p.unrealized_pl >= 0 ? '+' : ''}${Number(p.unrealized_pl).toFixed(2)}
               </td>
-              <td style={{ padding: '8px 10px', color: 'var(--text-dim)' }}>{p.broker}</td>
+              <td style={{ padding: '8px 10px', color: 'var(--ink-2)' }}>{p.broker}</td>
             </tr>
           ))}
         </tbody>
@@ -144,35 +144,34 @@ function TradeCard({ trade, onAction }) {
 
   return (
     <div style={{
-      background: '#070707',
-      border: `1px solid ${isPending ? 'var(--orange)' : 'var(--border)'}`,
-      borderLeft: `4px solid ${isPending ? 'var(--orange)' : trade.status === 'executed' ? 'var(--green)' : trade.status === 'rejected' ? 'var(--red)' : 'var(--border)'}`,
-      borderRadius: 6, padding: 20, marginBottom: 16,
+      background: 'var(--inset)',
+      border: `1px solid ${isPending ? 'var(--accent)' : 'var(--line)'}`,
+      borderLeft: `4px solid ${isPending ? 'var(--accent)' : trade.status === 'executed' ? 'var(--green)' : trade.status === 'rejected' ? 'var(--red)' : 'var(--line)'}`,
+      borderRadius: 12, padding: 20, marginBottom: 16,
     }}>
       {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 800, color: 'var(--orange)' }}>
+          <span style={{ fontFamily: 'var(--font)', fontSize: 26, fontWeight: 600, color: 'var(--accent)' }}>
             {trade.ticker}
           </span>
           <span style={{
-            fontFamily: 'var(--mono)', fontSize: 16, fontWeight: 800, color: sideColor,
-            textTransform: 'uppercase', letterSpacing: 2,
+            fontFamily: 'var(--font)', fontSize: 17, fontWeight: 600, color: sideColor,
           }}>
-            {trade.side === 'buy' ? '▲ BUY' : '▼ SELL'}
+            {trade.side === 'buy' ? '▲ Buy' : '▼ Sell'}
           </span>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 14, color: '#fff' }}>
+          <span style={{ fontFamily: 'var(--font)', fontSize: 15, color: 'var(--ink)' }}>
             {trade.qty} {trade.asset_class === 'crypto' ? 'units' : 'shares'}
           </span>
           {trade.order_type !== 'market' && (
-            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+            <span style={{ fontFamily: 'var(--font)', fontSize: 13, color: 'var(--ink-2)', }}>
               [{trade.order_type}]
             </span>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <StatusPill status={trade.status} />
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)' }}>
+          <span style={{ fontFamily: 'var(--font)', fontSize: 12, color: 'var(--ink-2)' }}>
             {new Date(trade.created_at).toLocaleString()}
           </span>
         </div>
@@ -190,9 +189,9 @@ function TradeCard({ trade, onAction }) {
           ['R:R Ratio', riskRatio ? `1 : ${riskRatio}` : '—'],
           ['Broker', (trade.broker || 'auto').toUpperCase()],
         ].map(([label, val]) => (
-          <div key={label} style={{ background: '#0d0d0d', borderRadius: 4, padding: '8px 12px' }}>
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)', marginBottom: 3 }}>{label}</div>
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 13, color: '#fff', fontWeight: 600 }}>{val}</div>
+          <div key={label} style={{ background: 'var(--inset)', borderRadius: 10, padding: '8px 12px' }}>
+            <div style={{ fontFamily: 'var(--font)', fontSize: 12, color: 'var(--ink-2)', marginBottom: 3 }}>{label}</div>
+            <div style={{ fontFamily: 'var(--font)', fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>{val}</div>
           </div>
         ))}
       </div>
@@ -200,8 +199,8 @@ function TradeCard({ trade, onAction }) {
       {/* Situation archetype */}
       {trade.situation && (
         <div style={{ marginBottom: 12 }}>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-dim)' }}>SITUATION: </span>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--orange)', fontWeight: 700 }}>
+          <span style={{ fontFamily: 'var(--font)', fontSize: 12, color: 'var(--ink-2)' }}>Situation: </span>
+          <span style={{ fontFamily: 'var(--font)', fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
             {trade.situation.replace(/_/g, ' ')}
           </span>
         </div>
@@ -211,21 +210,21 @@ function TradeCard({ trade, onAction }) {
       {(trade.bull_case || trade.bear_case || trade.invalidation) && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 16 }}>
           {trade.bull_case && (
-            <div style={{ background: 'rgba(0,204,68,0.06)', border: '1px solid rgba(0,204,68,0.2)', borderRadius: 4, padding: '8px 12px' }}>
-              <div style={{ fontSize: 10, color: 'var(--green)', fontFamily: 'var(--mono)', marginBottom: 4 }}>▲ BULL CASE</div>
-              <div style={{ fontSize: 11, color: '#ccc' }}>{trade.bull_case}</div>
+            <div style={{ background: 'color-mix(in srgb, var(--green) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--green) 20%, transparent)', borderRadius: 10, padding: '8px 12px' }}>
+              <div style={{ fontSize: 12, color: 'var(--green)', fontFamily: 'var(--font)', marginBottom: 4 }}>▲ Bull case</div>
+              <div style={{ fontSize: 13, color: 'var(--ink)' }}>{trade.bull_case}</div>
             </div>
           )}
           {trade.bear_case && (
-            <div style={{ background: 'rgba(255,51,51,0.06)', border: '1px solid rgba(255,51,51,0.2)', borderRadius: 4, padding: '8px 12px' }}>
-              <div style={{ fontSize: 10, color: 'var(--red)', fontFamily: 'var(--mono)', marginBottom: 4 }}>▼ BEAR CASE</div>
-              <div style={{ fontSize: 11, color: '#ccc' }}>{trade.bear_case}</div>
+            <div style={{ background: 'color-mix(in srgb, var(--red) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--red) 20%, transparent)', borderRadius: 10, padding: '8px 12px' }}>
+              <div style={{ fontSize: 12, color: 'var(--red)', fontFamily: 'var(--font)', marginBottom: 4 }}>▼ Bear case</div>
+              <div style={{ fontSize: 13, color: 'var(--ink)' }}>{trade.bear_case}</div>
             </div>
           )}
           {trade.invalidation && (
-            <div style={{ background: 'rgba(255,204,0,0.06)', border: '1px solid rgba(255,204,0,0.2)', borderRadius: 4, padding: '8px 12px' }}>
-              <div style={{ fontSize: 10, color: 'var(--yellow)', fontFamily: 'var(--mono)', marginBottom: 4 }}>! INVALIDATION</div>
-              <div style={{ fontSize: 11, color: '#ccc' }}>{trade.invalidation}</div>
+            <div style={{ background: 'color-mix(in srgb, var(--yellow) 6%, transparent)', border: '1px solid color-mix(in srgb, var(--yellow) 20%, transparent)', borderRadius: 10, padding: '8px 12px' }}>
+              <div style={{ fontSize: 12, color: 'var(--yellow)', fontFamily: 'var(--font)', marginBottom: 4 }}>! Invalidation</div>
+              <div style={{ fontSize: 13, color: 'var(--ink)' }}>{trade.invalidation}</div>
             </div>
           )}
         </div>
@@ -233,19 +232,19 @@ function TradeCard({ trade, onAction }) {
 
       {/* Executed info */}
       {trade.status === 'executed' && (
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--green)', marginBottom: 12 }}>
+        <div style={{ fontFamily: 'var(--font)', fontSize: 14, color: 'var(--green)', marginBottom: 12 }}>
           ✅ Filled @ ${trade.fill_price} · Order ID: {trade.broker_order_id} · {new Date(trade.executed_at).toLocaleString()}
         </div>
       )}
       {trade.status === 'rejected' && trade.rejection_reason && (
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--red)', marginBottom: 12 }}>
+        <div style={{ fontFamily: 'var(--font)', fontSize: 14, color: 'var(--red)', marginBottom: 12 }}>
           ✗ Rejected: {trade.rejection_reason}
         </div>
       )}
 
       {/* Error */}
       {error && (
-        <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--red)', marginBottom: 10, padding: '6px 10px', background: 'rgba(255,51,51,0.1)', borderRadius: 4 }}>
+        <div style={{ fontFamily: 'var(--font)', fontSize: 14, color: 'var(--red)', marginBottom: 10, padding: '6px 10px', background: 'color-mix(in srgb, var(--red) 10%, transparent)', borderRadius: 10 }}>
           ⚠ {error}
         </div>
       )}
@@ -257,16 +256,15 @@ function TradeCard({ trade, onAction }) {
             onClick={() => handle('approve')}
             disabled={loading}
             style={{
-              background: loading ? '#1a1a1a' : 'var(--green)',
-              color: '#000', border: 'none', borderRadius: 4,
-              padding: '10px 28px', fontFamily: 'var(--mono)',
-              fontSize: 13, fontWeight: 800, cursor: loading ? 'not-allowed' : 'pointer',
-              letterSpacing: 1, textTransform: 'uppercase',
-              boxShadow: loading ? 'none' : '0 0 16px rgba(0,204,68,0.4)',
+              background: loading ? 'var(--inset)' : 'var(--green)',
+              color: 'var(--on-solid)', border: 'none', borderRadius: 10,
+              padding: '10px 28px', fontFamily: 'var(--font)',
+              fontSize: 14, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer',
+              
               transition: 'all 0.15s',
             }}
           >
-            {loading ? 'EXECUTING...' : '✓ APPROVE & EXECUTE'}
+            {loading ? 'Executing...' : '✓ Approve & execute'}
           </button>
 
           {!showReject ? (
@@ -275,12 +273,12 @@ function TradeCard({ trade, onAction }) {
               disabled={loading}
               style={{
                 background: 'transparent', color: 'var(--red)',
-                border: '1px solid var(--red)', borderRadius: 4,
-                padding: '10px 20px', fontFamily: 'var(--mono)',
-                fontSize: 13, fontWeight: 700, cursor: 'pointer', letterSpacing: 1,
+                border: '1px solid var(--red)', borderRadius: 10,
+                padding: '10px 20px', fontFamily: 'var(--font)',
+                fontSize: 14, fontWeight: 600, cursor: 'pointer', 
               }}
             >
-              ✗ REJECT
+              ✗ Reject
             </button>
           ) : (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -289,19 +287,19 @@ function TradeCard({ trade, onAction }) {
                 onChange={e => setRejectReason(e.target.value)}
                 placeholder="Reason (optional)"
                 style={{
-                  background: '#111', border: '1px solid var(--red)',
-                  color: '#fff', padding: '8px 12px', borderRadius: 4,
-                  fontFamily: 'var(--mono)', fontSize: 12, width: 220,
+                  background: 'var(--inset)', border: '1px solid var(--red)',
+                  color: 'var(--ink)', padding: '8px 12px', borderRadius: 10,
+                  fontFamily: 'var(--font)', fontSize: 14, width: 220,
                 }}
               />
               <button onClick={() => handle('reject')} disabled={loading} style={{
-                background: 'var(--red)', color: '#fff', border: 'none',
-                borderRadius: 4, padding: '9px 16px', fontFamily: 'var(--mono)',
-                fontSize: 12, fontWeight: 700, cursor: 'pointer',
-              }}>CONFIRM REJECT</button>
+                background: 'var(--red)', color: 'var(--ink)', border: 'none',
+                borderRadius: 10, padding: '9px 16px', fontFamily: 'var(--font)',
+                fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              }}>Confirm reject</button>
               <button onClick={() => setShowReject(false)} style={{
-                background: 'transparent', color: 'var(--text-dim)', border: 'none',
-                cursor: 'pointer', fontFamily: 'var(--mono)', fontSize: 12,
+                background: 'transparent', color: 'var(--ink-2)', border: 'none',
+                cursor: 'pointer', fontFamily: 'var(--font)', fontSize: 14,
               }}>Cancel</button>
             </div>
           )}
@@ -310,13 +308,13 @@ function TradeCard({ trade, onAction }) {
             onClick={() => handle('cancel')}
             disabled={loading}
             style={{
-              background: 'transparent', color: 'var(--text-dim)',
-              border: '1px solid #333', borderRadius: 4,
-              padding: '10px 16px', fontFamily: 'var(--mono)',
-              fontSize: 12, cursor: 'pointer',
+              background: 'transparent', color: 'var(--ink-2)',
+              border: '1px solid var(--line)', borderRadius: 10,
+              padding: '10px 16px', fontFamily: 'var(--font)',
+              fontSize: 14, cursor: 'pointer',
             }}
           >
-            — CANCEL
+            — Cancel
           </button>
         </div>
       )}
@@ -331,18 +329,18 @@ function StatsBar({ stats }) {
     ['PENDING', stats.pending || 0, 'var(--yellow)'],
     ['EXECUTED', stats.executed || 0, 'var(--green)'],
     ['REJECTED', stats.rejected || 0, 'var(--red)'],
-    ['CANCELLED', stats.cancelled || 0, 'var(--text-dim)'],
-    ['TOTAL', stats.total || 0, 'var(--orange)'],
+    ['CANCELLED', stats.cancelled || 0, 'var(--ink-2)'],
+    ['TOTAL', stats.total || 0, 'var(--accent)'],
   ]
   return (
     <div style={{ display: 'flex', gap: 2, marginBottom: 20 }}>
       {items.map(([label, val, color]) => (
         <div key={label} style={{
-          flex: 1, background: '#0a0a0a', border: '1px solid var(--border)',
-          borderRadius: 4, padding: '10px 14px', textAlign: 'center',
+          flex: 1, background: 'var(--inset)', border: '1px solid var(--line)',
+          borderRadius: 10, padding: '10px 14px', textAlign: 'center',
         }}>
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 800, color }}>{val}</div>
-          <div style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-dim)', marginTop: 2 }}>{label}</div>
+          <div style={{ fontFamily: 'var(--font)', fontSize: 26, fontWeight: 600, color }}>{val}</div>
+          <div style={{ fontFamily: 'var(--font)', fontSize: 12, color: 'var(--ink-2)', marginTop: 2 }}>{label}</div>
         </div>
       ))}
     </div>
@@ -363,21 +361,21 @@ export default function Execution() {
       {/* Page header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontFamily: 'var(--mono)', fontSize: 22, fontWeight: 800, color: 'var(--orange)', margin: 0 }}>
-            TRADE EXECUTION
+          <h1 style={{ fontFamily: 'var(--font)', fontSize: 26, fontWeight: 600, color: 'var(--accent)', margin: 0 }}>
+            Trade execution
           </h1>
-          <p style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-dim)', margin: '4px 0 0' }}>
+          <p style={{ fontFamily: 'var(--font)', fontSize: 13, color: 'var(--ink-2)', margin: '4px 0 0' }}>
             ARIA proposes · you approve · broker executes
           </p>
         </div>
         {pendingCount > 0 && (
           <div style={{
-            background: 'rgba(255,204,0,0.15)', border: '1px solid var(--yellow)',
-            borderRadius: 6, padding: '8px 16px', fontFamily: 'var(--mono)',
-            fontSize: 13, color: 'var(--yellow)', fontWeight: 700,
+            background: 'color-mix(in srgb, var(--yellow) 15%, transparent)', border: '1px solid var(--yellow)',
+            borderRadius: 12, padding: '8px 16px', fontFamily: 'var(--font)',
+            fontSize: 14, color: 'var(--yellow)', fontWeight: 600,
             animation: 'pulse 1.5s ease-in-out infinite',
           }}>
-            ⏳ {pendingCount} TRADE{pendingCount > 1 ? 'S' : ''} AWAITING APPROVAL
+            ⏳ {pendingCount} trade{pendingCount > 1 ? 'S' : ''} awaiting approval
           </div>
         )}
       </div>
@@ -404,20 +402,20 @@ export default function Execution() {
             key={val}
             onClick={() => setFilter(val)}
             style={{
-              background: filter === val ? 'var(--orange)' : 'transparent',
-              color: filter === val ? '#000' : 'var(--text-dim)',
-              border: `1px solid ${filter === val ? 'var(--orange)' : 'var(--border)'}`,
-              borderRadius: 4, padding: '6px 14px',
-              fontFamily: 'var(--mono)', fontSize: 11, fontWeight: 700,
-              cursor: 'pointer', letterSpacing: 1,
+              background: filter === val ? 'var(--accent)' : 'transparent',
+              color: filter === val ? 'var(--inset)' : 'var(--ink-2)',
+              border: `1px solid ${filter === val ? 'var(--accent)' : 'var(--line)'}`,
+              borderRadius: 10, padding: '6px 14px',
+              fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', 
               display: 'flex', alignItems: 'center', gap: 6,
             }}
           >
             {label}
             {badge != null && (
               <span style={{
-                background: filter === val ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.1)',
-                borderRadius: 10, padding: '1px 7px', fontSize: 10,
+                background: filter === val ? 'var(--inset)' : 'var(--inset)',
+                borderRadius: 16, padding: '1px 7px', fontSize: 12,
               }}>{badge}</span>
             )}
           </button>
@@ -426,18 +424,18 @@ export default function Execution() {
 
       {/* Trade cards */}
       {loading ? (
-        <div style={{ fontFamily: 'var(--mono)', color: 'var(--text-dim)', padding: 40, textAlign: 'center' }}>
-          LOADING QUEUE...
+        <div style={{ fontFamily: 'var(--font)', color: 'var(--ink-2)', padding: 40, textAlign: 'center' }}>
+          Loading queue...
         </div>
       ) : filtered.length === 0 ? (
         <div style={{
-          fontFamily: 'var(--mono)', color: 'var(--text-dim)', padding: 60,
-          textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 8,
+          fontFamily: 'var(--font)', color: 'var(--ink-2)', padding: 60,
+          textAlign: 'center', border: '1px dashed var(--line)', borderRadius: 14,
         }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
-          <div style={{ fontSize: 14 }}>No {filter === 'all' ? '' : filter} trades</div>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
+          <div style={{ fontSize: 15 }}>No {filter === 'all' ? '' : filter} trades</div>
           {filter === 'pending' && (
-            <div style={{ fontSize: 11, marginTop: 8 }}>
+            <div style={{ fontSize: 13, marginTop: 8 }}>
               ARIA will propose trades here when it detects high-conviction signals.
             </div>
           )}

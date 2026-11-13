@@ -15,14 +15,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 import { useCurrency } from '../currency/CurrencyContext'
 
-const MONO = 'var(--mono)'
+const MONO = 'var(--font)'
 const POLL_OPEN_MS = 10000       // while the market is trading
 const POLL_CLOSED_MS = 60000     // when it is shut, back right off
 
 const STATE_STYLE = {
-  OPEN: { color: 'var(--green)', label: 'LIVE' },
-  CLOSED: { color: 'var(--muted)', label: 'MARKET CLOSED' },
-  UNKNOWN: { color: 'var(--yellow)', label: 'STATE UNKNOWN' },
+  OPEN: { color: 'var(--green)', label: 'Live' },
+  CLOSED: { color: 'var(--ink-3)', label: 'Market closed' },
+  UNKNOWN: { color: 'var(--yellow)', label: 'State unknown' },
 }
 
 /* intraday shape — a sparkline, not a chart; the real chart sits below */
@@ -79,8 +79,8 @@ export default function LiveQuote({ symbol, nativeCurrency }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [symbol, load])
 
-  if (err && !q) return <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--muted)' }}>{err}</span>
-  if (!q) return <span style={{ fontFamily: MONO, fontSize: 11, color: 'var(--muted)' }}>loading live price…</span>
+  if (err && !q) return <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--ink-3)' }}>{err}</span>
+  if (!q) return <span style={{ fontFamily: MONO, fontSize: 13, color: 'var(--ink-3)' }}>loading live price…</span>
 
   const up = (q.change_pct ?? 0) >= 0
   const st = STATE_STYLE[q.market_state] || STATE_STYLE.UNKNOWN
@@ -90,8 +90,8 @@ export default function LiveQuote({ symbol, nativeCurrency }) {
 
   const cell = (label, value) => (
     <div>
-      <div style={{ fontFamily: MONO, fontSize: 8, color: 'var(--muted)', letterSpacing: '.14em' }}>{label}</div>
-      <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--text)' }}>{value}</div>
+      <div style={{ fontFamily: MONO, fontSize: 11, color: 'var(--ink-3)', }}>{label}</div>
+      <div style={{ fontFamily: MONO, fontSize: 13, color: 'var(--ink)' }}>{value}</div>
     </div>
   )
 
@@ -100,15 +100,15 @@ export default function LiveQuote({ symbol, nativeCurrency }) {
       <div>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
           <span title={shown.title} style={{
-            fontFamily: MONO, fontSize: 26, fontWeight: 800, color: '#fff',
+            fontFamily: MONO, fontSize: 30, fontWeight: 600, color: 'var(--ink)',
             transition: 'color .25s',
             ...(pulse ? { color: pulse > 0 ? 'var(--green)' : 'var(--red)' } : {}),
           }}>{shown.text}</span>
-          <span style={{ fontFamily: MONO, fontSize: 14, fontWeight: 700, color: up ? 'var(--green)' : 'var(--red)' }}>
+          <span style={{ fontFamily: MONO, fontSize: 15, fontWeight: 600, color: up ? 'var(--green)' : 'var(--red)' }}>
             {up ? '+' : ''}{q.change_pct == null ? '—' : q.change_pct.toFixed(2)}%
           </span>
           {shown.converted && (
-            <span style={{ fontFamily: MONO, fontSize: 10, color: 'var(--muted)' }}>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)' }}>
               native {ccy === 'GBp' ? `${q.price}p` : q.price} {ccy}
             </span>
           )}
@@ -117,12 +117,11 @@ export default function LiveQuote({ symbol, nativeCurrency }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 3 }}>
           <span style={{
             width: 6, height: 6, borderRadius: '50%', background: st.color,
-            boxShadow: q.market_state === 'OPEN' ? `0 0 8px ${st.color}` : 'none',
             animation: q.market_state === 'OPEN' ? 'corePulse 2s ease-in-out infinite' : 'none',
           }} />
-          <span style={{ fontFamily: MONO, fontSize: 9, color: st.color, letterSpacing: '.12em' }}>{st.label}</span>
+          <span style={{ fontFamily: MONO, fontSize: 12, color: st.color, }}>{st.label}</span>
           {asOf && (
-            <span style={{ fontFamily: MONO, fontSize: 9, color: 'var(--muted)' }}>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: 'var(--ink-3)' }}>
               · last tick {asOf.toLocaleString(undefined, {
                 month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
               })}
@@ -135,10 +134,10 @@ export default function LiveQuote({ symbol, nativeCurrency }) {
           // same answer the execution path uses. The dot above is the feed's
           // own evidence; when the two disagree, that is worth seeing.
           <div title={(q.session.reasons || []).join(' · ')}
-               style={{ fontFamily: MONO, fontSize: 8.5, marginTop: 2, letterSpacing: '.08em',
+               style={{ fontFamily: MONO, fontSize: 12, marginTop: 2, 
                         color: q.session.tradable ? 'var(--green)'
-                          : q.session.state === 'UNKNOWN' ? 'var(--yellow)' : 'var(--muted)' }}>
-            SESSION {q.session.state.replace('_', ' ')}
+                          : q.session.state === 'UNKNOWN' ? 'var(--yellow)' : 'var(--ink-3)' }}>
+            Session {q.session.state.replace('_', ' ')}
             {q.session.venue ? ` · ${q.session.venue}` : ''}
             {q.session.local_time ? ` · ${q.session.local_time.slice(11, 16)} local` : ''}
             {!q.session.tradable && q.session.next_open
@@ -149,7 +148,7 @@ export default function LiveQuote({ symbol, nativeCurrency }) {
           </div>
         )}
         {q.delayed_hint && (
-          <div style={{ fontFamily: MONO, fontSize: 8.5, color: 'var(--yellow)', marginTop: 2, maxWidth: 430, lineHeight: 1.5 }}>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: 'var(--yellow)', marginTop: 2, maxWidth: 430, lineHeight: 1.5 }}>
             ⚑ {q.delayed_hint}
           </div>
         )}
