@@ -160,7 +160,7 @@ function Strategies() {
           <button key={s.id} onClick={() => setStrat(s.id)}
             title={GLOSSARY[s.label.toLowerCase()]}
             style={{ ...mono, fontSize: 12, fontWeight: 600, padding: '5px 10px', borderRadius: 8, cursor: 'pointer',
-              background: strat === s.id ? 'var(--accent)' : 'transparent', color: strat === s.id ? 'var(--inset)' : 'var(--ink-2)',
+              background: strat === s.id ? 'var(--accent)' : 'transparent', color: strat === s.id ? 'var(--on-solid)' : 'var(--ink-2)',
               border: `1px solid ${strat === s.id ? 'var(--accent)' : 'var(--line)'}` }}>{s.label}</button>
         ))}
       </div>
@@ -209,7 +209,7 @@ export default function Quant() {
         <Strategies />
         <OptionsCalc />
       </div>
-      <div style={{ ...mono, fontSize: 12, color: 'var(--line)', textAlign: 'center', marginTop: 4 }}>
+      <div style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', textAlign: 'center', marginTop: 4 }}>
         Theoretical models for research only — not trade recommendations. Actual market prices and risks will differ.
       </div>
     </div>

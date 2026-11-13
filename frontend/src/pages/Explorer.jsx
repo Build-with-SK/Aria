@@ -168,7 +168,7 @@ export default function Explorer({ symbol: externalSymbol = null, embedded = fal
       </div>}
 
       {!sel && !embedded && (
-        <div style={{ ...mono, fontSize: 14, color: 'var(--line)', textAlign: 'center', padding: 50, border: '1px dashed var(--inset)', borderRadius: 14 }}>
+        <div style={{ ...mono, fontSize: 14, color: 'var(--ink-3)', textAlign: 'center', padding: 50, border: '1px dashed var(--inset)', borderRadius: 14 }}>
           Search a symbol above — equities, ETFs, crypto and FX across 40+ exchanges.
         </div>
       )}
@@ -208,7 +208,7 @@ export function ExplorerDetails({ sel, quote, dossier, news, loading = false, ne
                 border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden',
                 marginBottom: 14, background: 'var(--inset)', height: CHART_HEIGHT,
               }}>
-                {tv ? <TVChart tv={tv} /> : <div style={{ ...mono, padding: 30, color: 'var(--line)' }}>no chart</div>}
+                {tv ? <TVChart tv={tv} /> : <div style={{ ...mono, padding: 30, color: 'var(--ink-3)' }}>no chart</div>}
               </div>
               {!loading && (!dossier || Array.isArray(dossier) || dossier.error) && <DataUnavailable name="Fundamentals" />}
               {dossier && !Array.isArray(dossier) && !dossier.error && (

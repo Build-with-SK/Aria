@@ -403,7 +403,7 @@ export default function Execution() {
             onClick={() => setFilter(val)}
             style={{
               background: filter === val ? 'var(--accent)' : 'transparent',
-              color: filter === val ? 'var(--inset)' : 'var(--ink-2)',
+              color: filter === val ? 'var(--on-solid)' : 'var(--ink-2)',
               border: `1px solid ${filter === val ? 'var(--accent)' : 'var(--line)'}`,
               borderRadius: 10, padding: '6px 14px',
               fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600,

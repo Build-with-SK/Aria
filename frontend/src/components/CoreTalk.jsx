@@ -91,7 +91,7 @@ export default function CoreTalk() {
           title="Speak replies aloud — Kokoro, running on this machine. The core beats to her actual amplitude."
           style={{
             ...mono, background: voice ? 'var(--accent)' : 'transparent',
-            color: voice ? 'var(--inset)' : 'var(--ink-2)',
+            color: voice ? 'var(--on-solid)' : 'var(--ink-2)',
             border: `1px solid ${voice ? 'var(--accent)' : 'var(--line)'}`,
             borderRadius: 10, padding: '8px 12px', fontSize: 13, fontWeight: 600,
             cursor: 'pointer', flexShrink: 0,
@@ -117,7 +117,7 @@ export default function CoreTalk() {
           disabled={busy || !input.trim()}
           style={{
             ...mono, background: busy || !input.trim() ? 'var(--inset)' : 'var(--accent)',
-            color: busy || !input.trim() ? 'var(--line)' : 'var(--inset)',
+            color: busy || !input.trim() ? 'var(--ink-3)' : 'var(--on-solid)',
             border: 'none', borderRadius: 10, padding: '8px 16px', fontSize: 14,
             fontWeight: 600, cursor: busy || !input.trim() ? 'not-allowed' : 'pointer',
             flexShrink: 0,

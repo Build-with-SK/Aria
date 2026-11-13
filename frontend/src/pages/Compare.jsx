@@ -73,7 +73,7 @@ function VerdictBanner({ a, b, nameA, nameB }) {
           </div>
           <div style={{ fontFamily:'var(--font)', fontSize: 12, color:'var(--ink-3)' }}>{nameA} score</div>
         </div>
-        <div style={{ fontFamily:'var(--font)', fontSize: 22, color:'var(--line-2)', alignSelf:'center' }}>vs</div>
+        <div style={{ fontFamily:'var(--font)', fontSize: 22, color:'var(--ink-3)', alignSelf:'center' }}>vs</div>
         <div style={{ textAlign:'center' }}>
           <div style={{ fontFamily:'var(--font)', fontSize: 32, fontWeight: 600, color: sb > sa ? 'var(--green)' : 'var(--ink-3)' }}>
             {sb > 0 ? '+' : ''}{sb.toFixed(1)}
@@ -497,7 +497,7 @@ export default function Compare() {
       </div>
 
       {/* Disclaimer */}
-      <div style={{ marginTop:24, fontFamily:'var(--font)', fontSize:12, color:'var(--line)', textAlign:'center', lineHeight:1.6 }}>
+      <div style={{ marginTop:24, fontFamily:'var(--font)', fontSize:12, color:'var(--ink-3)', textAlign:'center', lineHeight:1.6 }}>
         ⚠ ARIA is a research tool. All signals are probabilistic and not financial advice.
         Past signal accuracy does not guarantee future results. Trade at your own risk.
       </div>
