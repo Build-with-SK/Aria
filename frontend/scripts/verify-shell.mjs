@@ -33,7 +33,7 @@ let pending
 handlers.install({ waitUntil: promise => { pending = promise } }); await pending
 assert.deepEqual(added, ['', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png'].map(path => base + path))
 handlers.activate({ waitUntil: promise => { pending = promise } }); await pending
-assert.deepEqual(deleted, ['aria-shell-v1'])
+assert.deepEqual(deleted, ['aria-shell-v1', 'aria-shell-v2'])
 for (const [url, method] of [['/api/portfolio', 'GET'], ['/api/auth/session', 'GET'], ['/health', 'GET'], ['/ready', 'GET'], ['/auth', 'GET'], ['/app/assets/a.js', 'POST'], ['https://other.invalid/app/a.js', 'GET']]) {
   const before = reads.length
   let intercepted = false

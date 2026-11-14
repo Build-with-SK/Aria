@@ -1,18 +1,42 @@
 {
-  "name": "ARIA — Autonomous Research & Investment Architect",
+  "name": "ARIA \u00e2\u20ac\u201d Autonomous Research & Investment Architect",
   "short_name": "ARIA",
-  "description": "AI finance terminal: signals, cognition and quant analytics. Research and education only — not financial advice.",
+  "description": "AI finance terminal: signals, cognition and quant analytics. Research and education only \u00e2\u20ac\u201d not financial advice.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#030103",
-  "theme_color": "#030103",
-  "categories": ["finance", "productivity"],
+  "background_color": "#f3f6fb",
+  "theme_color": "#f3f6fb",
+  "categories": [
+    "finance",
+    "productivity"
+  ],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
-    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
-  ]
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "id": "./"
 }

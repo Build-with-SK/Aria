@@ -15,12 +15,12 @@ function StatusPill({ status }) {
     rejected:  { color: 'var(--red)', bg: 'color-mix(in srgb, var(--red) 12%, transparent)',  label: '✗ Rejected' },
     cancelled: { color: 'var(--ink-3)',    bg: 'var(--inset)', label: '— Cancelled' },
   }
-  const c = cfg[status] || cfg.cancelled
+  const c = cfg[status] || { color: 'var(--yellow)', bg: 'var(--yellow-bg)', label: 'Status unknown' }
   return (
     <span style={{
       fontFamily: 'var(--font)', fontSize: 13, fontWeight: 600,
       color: c.color, background: c.bg,
-      border: `1px solid ${c.color}44`,
+      border: `1px solid color-mix(in srgb, ${c.color} 28%, transparent)`,
       borderRadius: 8, padding: '2px 8px', 
     }}>{c.label}</span>
   )
@@ -42,9 +42,9 @@ function BrokerPanel() {
         </span>
         <span style={{
           fontSize: 13, fontFamily: 'var(--font)', fontWeight: 600,
-          color: info?.connected ? 'var(--green)' : 'var(--red)',
+          color: typeof info?.connected !== 'boolean' ? 'var(--yellow)' : info.connected ? 'var(--green)' : 'var(--red)',
         }}>
-          {info?.connected ? '● Live' : '○ Offline'}
+          {typeof info?.connected !== 'boolean' ? (loading ? 'Checking…' : 'Unknown') : info.connected ? 'Connected' : 'Disconnected'}
           {info?.paper ? ' (Paper)' : ''}
         </span>
       </div>
@@ -63,14 +63,14 @@ function BrokerPanel() {
         </div>
       ) : (
         <div style={{ color: 'var(--ink-2)', fontSize: 14, fontFamily: 'var(--font)' }}>
-          {info?.connected ? 'Loading account…' : 'Broker not connected — no brokerage credentials are configured on the server.'}
+          {typeof info?.connected !== 'boolean' ? (loading ? 'Checking broker status…' : 'Broker status unavailable.') : info.connected ? 'Account details unavailable.' : 'Broker reports disconnected.'}
         </div>
       )}
     </div>
   )
 
   return (
-    <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 230px), 1fr))', gap: 16, marginBottom: 24 }}>
       <BrokerCard name="Alpaca" info={loading ? null : data?.alpaca} />
       <BrokerCard name="IBKR"   info={loading ? null : data?.ibkr}   />
     </div>
@@ -150,7 +150,7 @@ function TradeCard({ trade, onAction }) {
       borderRadius: 12, padding: 20, marginBottom: 16,
     }}>
       {/* Header row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, alignItems: 'flex-start', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <span style={{ fontFamily: 'var(--font)', fontSize: 26, fontWeight: 600, color: 'var(--accent)' }}>
             {trade.ticker}
@@ -326,14 +326,14 @@ function TradeCard({ trade, onAction }) {
 function StatsBar({ stats }) {
   if (!stats) return null
   const items = [
-    ['PENDING', stats.pending || 0, 'var(--yellow)'],
-    ['EXECUTED', stats.executed || 0, 'var(--green)'],
-    ['REJECTED', stats.rejected || 0, 'var(--red)'],
-    ['CANCELLED', stats.cancelled || 0, 'var(--ink-2)'],
-    ['TOTAL', stats.total || 0, 'var(--accent)'],
+    ['Pending', stats.pending ?? '—', 'var(--yellow)'],
+    ['Executed', stats.executed ?? '—', 'var(--green)'],
+    ['Rejected', stats.rejected ?? '—', 'var(--red)'],
+    ['Cancelled', stats.cancelled ?? '—', 'var(--ink-2)'],
+    ['Total', stats.total ?? '—', 'var(--accent)'],
   ]
   return (
-    <div style={{ display: 'flex', gap: 2, marginBottom: 20 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 6, marginBottom: 20 }}>
       {items.map(([label, val, color]) => (
         <div key={label} style={{
           flex: 1, background: 'var(--inset)', border: '1px solid var(--line)',
@@ -350,11 +350,20 @@ function StatsBar({ stats }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function Execution() {
   const [filter, setFilter] = useState('pending')
-  const { data, loading, refetch } = useApprovalQueue(3000)
+  const { data, loading, error, refetch } = useApprovalQueue(3000)
 
   const trades = data?.trades || []
   const filtered = filter === 'all' ? trades : trades.filter(t => t.status === filter)
   const pendingCount = trades.filter(t => t.status === 'pending').length
+
+  if (loading || error || !Array.isArray(data?.trades)) return (
+    <div><BrokerPanel /><PositionsTable />
+      <div role="status" className="bb-card" style={{ color: 'var(--yellow)', lineHeight: 1.6 }}>
+        {loading ? 'Loading approval queue…' : 'Approval queue unavailable. Pending trades cannot be confirmed.'}
+        {!loading && <button type="button" onClick={refetch} style={{ marginLeft: 12, padding: '8px 14px', borderRadius: 10, border: '1px solid var(--line-2)', color: 'var(--ink)', background: 'var(--surface)' }}>Retry</button>}
+      </div>
+    </div>
+  )
 
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto' }}>
@@ -390,7 +399,7 @@ export default function Execution() {
       <StatsBar stats={data?.stats} />
 
       {/* Filter tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 20 }}>
         {[
           ['pending', 'PENDING', pendingCount],
           ['executed', 'EXECUTED', null],

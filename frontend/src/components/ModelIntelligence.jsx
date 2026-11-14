@@ -69,6 +69,8 @@ export default function ModelIntelligence() {
     <>
       <SectionHeader>Model intelligence</SectionHeader>
       <div className="bb-card" style={{ marginBottom: 14 }}>
+        <div role="region" aria-label="Model comparison, scroll horizontally for more" tabIndex={0} style={{ overflowX: 'auto', maxWidth: '100%' }}>
+        <div style={{ minWidth: 760 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '120px 130px 150px 1fr 1fr',
                       gap: 8, ...mono, fontSize: 12, color: 'var(--ink-3)', 
                       borderBottom: '1px solid var(--inset)', paddingBottom: 6 }}>
@@ -129,6 +131,7 @@ export default function ModelIntelligence() {
             </div>
           )
         })}
+        </div></div>
         {debate?.evaluation?.conclusion && (
           <div style={{ ...mono, fontSize: 12, color: 'var(--ink-2)', marginTop: 10, lineHeight: 1.6 }}>
             <span style={{ color: 'var(--accent)' }}>Debate desk · </span>

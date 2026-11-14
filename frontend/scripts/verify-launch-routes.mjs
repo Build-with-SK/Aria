@@ -11,6 +11,10 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { MemoryRouter } from 'react-router-dom'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+// Labels are sentence case since the 2026-11 redesign. What a label says is
+// what is checked, so label comparisons ignore case, the negative ones too:
+// an upper-case needle would pass against any sentence-case page.
+const has = (haystack, needle) => String(haystack).toLowerCase().includes(String(needle).toLowerCase())
 const temporary = mkdtempSync(join(root, 'node_modules', '.launch-render-'))
 const routes = { brain: 'AriaBrain', research: 'Research', market: 'Market', portfolio: 'PortfolioWorkspace',
   strategies: 'Strategies', 'daily-report': 'DailyReport', 'track-record': 'TrackRecordLedger', system: 'System' }
@@ -99,7 +103,7 @@ try {
           React.createElement(pages.CurrencyProvider, null, React.createElement(pages[component]))))
         const text = html.replace(/<[^>]+>/g, ' ')
         assert.ok(text.trim().length > 20, `${route}/${scenario}: blank page`)
-        if (scenario === 'realistic') assert.ok(text.includes(populated[route]), `${route}: populated fixture was not rendered`)
+        if (scenario === 'realistic') assert.ok(has(text, populated[route]), `${route}: populated fixture was not rendered`)
         const invalid = html.match(/.{0,80}(?:NaN|undefined|\[object Object\]|Infinity).{0,80}/)
         assert.ok(!invalid, `${route}/${scenario}: invalid display value: ${invalid?.[0]}`)
         if (['null', 'empty', 'withheld', 'failed'].includes(scenario)) assert.match(text, /unavailable|withheld|no exact|no signals|no strategies|not generated/i, `${route}/${scenario}: explicit missing-data state`)
@@ -116,15 +120,15 @@ try {
     }
     const withDesk = desk => ({ ...realistic, useWorld: { ...world, strategies: { catalogued: 1, desk } } })
     const unknown = renderText('Strategies', realistic)
-    assert.match(unknown, /AUTO-EXECUTE\s+—\s+unavailable/, 'Strategies: unknown auto-execute must read unavailable')
-    assert.ok(!/AUTO-EXECUTE\s+(OFF|ARMED)/.test(unknown) && !/\b0 picks/.test(unknown), 'Strategies: unknown desk shown as known')
+    assert.match(unknown, /AUTO-EXECUTE\s+—\s+unavailable/i, 'Strategies: unknown auto-execute must read unavailable')
+    assert.ok(!/AUTO-EXECUTE\s+(OFF|ARMED)/i.test(unknown) && !/\b0 picks/.test(unknown), 'Strategies: unknown desk shown as known')
     const armed = renderText('Strategies', withDesk({ auto_execute: true, slate_size: 2, min_conviction: 58 }))
-    assert.match(armed, /AUTO-EXECUTE\s+ARMED/); assert.match(armed, /2 picks/)
-    assert.match(renderText('Strategies', withDesk({ auto_execute: false, slate_size: 0 })), /AUTO-EXECUTE\s+OFF/)
+    assert.match(armed, /AUTO-EXECUTE\s+ARMED/i); assert.match(armed, /2 picks/)
+    assert.match(renderText('Strategies', withDesk({ auto_execute: false, slate_size: 0 })), /AUTO-EXECUTE\s+OFF/i)
     const deskToggle = renderText('PortfolioWorkspace', realistic)
-    assert.ok(deskToggle.includes('AUTONOMOUS EXECUTION'), 'Portfolio: desk toggle not rendered')
-    assert.ok(deskToggle.includes('AUTO-EXECUTE STATE UNKNOWN'), 'Desk toggle: unknown status must say so')
-    assert.ok(!deskToggle.includes('ARM AUTO-EXECUTE') && !deskToggle.includes('OFF by default'), 'Desk toggle: unknown shown as OFF')
+    assert.ok(has(deskToggle, 'AUTONOMOUS EXECUTION'), 'Portfolio: desk toggle not rendered')
+    assert.ok(has(deskToggle, 'AUTO-EXECUTE STATE UNKNOWN'), 'Desk toggle: unknown status must say so')
+    assert.ok(!has(deskToggle, 'ARM AUTO-EXECUTE') && !has(deskToggle, 'OFF by default'), 'Desk toggle: unknown shown as OFF')
     console.log('PASS: unknown desk state renders as unavailable (Strategies, Desk toggle); known ARMED/OFF still render.')
 
     const selected = { symbol: 'TEST', name: 'Synthetic listing', currency: 'USD', exchange: 'TEST' }
@@ -154,13 +158,13 @@ try {
       globalThis.__launchLoading = loading
       const html = renderToStaticMarkup(React.createElement(pages.DataFreshness))
       assert.ok(!/NaN|undefined|\[object Object\]|Infinity/.test(html), 'Freshness invalid display value')
-      assert.ok(html.includes(expect), `Freshness expected ${expect}`)
+      assert.ok(has(html, expect), `Freshness expected ${expect}`)
       if (data?.datasets?.length && !error) {
         assert.equal((html.match(/<tbody><tr>|<\/tr><tr>/g) || []).length, 3, 'one row per dataset')
         assert.ok(html.includes('0m / 30.0h'), 'a zero age is valid')
         assert.ok(html.includes('unavailable / 2.0d'), 'unknown age is not zero')
         assert.ok(html.includes('file write time · not a market observation'))
-        assert.ok(html.includes('LEGACY') && html.includes('2/3 rows dated'))
+        assert.ok(has(html, 'LEGACY') && html.includes('2/3 rows dated'))
       }
     }
   } finally { console.error = originalError }

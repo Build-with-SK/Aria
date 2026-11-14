@@ -8,6 +8,10 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+// Labels are sentence case since the 2026-11 redesign. What a label says is
+// what is checked, so label comparisons ignore case, the negative ones too:
+// an upper-case needle would pass against any sentence-case page.
+const has = (haystack, needle) => String(haystack).toLowerCase().includes(String(needle).toLowerCase())
 // Optional argument: another copy of the component (used to reproduce review findings).
 const component = process.argv[2] ? resolve(process.argv[2]) : join(root, 'src/components/MultiassetWorkspace.jsx')
 const temporary = mkdtempSync(join(root, 'node_modules', '.multiasset-render-'))
@@ -22,7 +26,7 @@ try {
   for (const props of [{}, { error: true }, { data: { schema_version: 'unsupported' } }]) {
     const html = render(props)
     assert.ok(html.includes('state unavailable'))
-    assert.ok(!html.includes('EXECUTION DISABLED') && !html.includes('NO ORDER SENDER'),
+    assert.ok(!has(html, 'EXECUTION DISABLED') && !has(html, 'NO ORDER SENDER'),
       'unknown server state must remain unavailable')
   }
   const data = { schema_version: '1', execution_mode: 'DISABLED', account: null,
@@ -31,13 +35,13 @@ try {
     research_universe: [{ asset_class: 'Forex', features: ['technical', 'macro'], broker_tradability: 'UNVERIFIED' }],
     strategies: [{ family: 'TrendFollowing' }], as_of: '2026-11-06T12:00:00Z' }
   const html = render({ data })
-  assert.ok(html.includes('NO TRADE') && html.includes('POLICY_UNVERIFIED'))
+  assert.ok(has(html, 'NO TRADE') && html.includes('POLICY_UNVERIFIED'))
   // UI-01: the banner names the extension, never the whole app's execution state.
-  assert.ok(html.includes('EXTENSION: NO ORDER SENDER'), 'banner must say the extension has no order sender')
-  assert.ok(!html.includes('EXECUTION DISABLED'), 'banner must not read as app-wide execution state')
-  assert.ok(render({ data: { ...data, execution_mode: undefined } }).includes('EXTENSION EXECUTION: UNAVAILABLE'))
+  assert.ok(has(html, 'EXTENSION: NO ORDER SENDER'), 'banner must say the extension has no order sender')
+  assert.ok(!has(html, 'EXECUTION DISABLED'), 'banner must not read as app-wide execution state')
+  assert.ok(has(render({ data: { ...data, execution_mode: undefined } }), 'EXTENSION EXECUTION: UNAVAILABLE'))
   assert.ok(html.includes('DISCONNECTED') && html.includes('Unavailable'))
-  assert.ok(!html.includes('<button') && !html.includes('EXECUTED'))
+  assert.ok(!html.includes('<button') && !has(html, 'EXECUTED'))
   assert.ok(!html.includes('NaN') && !html.includes('$10,000'))
   assert.ok(render({ data: { ...data, equity: '0' } }).includes('>0</div>'), 'real zero differs from unknown')
   console.log('PASS: multiasset loading, disconnected, unavailable, empty, unknown-schema and zero-value renders; extension banner; no order controls')

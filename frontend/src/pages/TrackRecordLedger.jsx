@@ -226,7 +226,7 @@ export default function TrackRecordLedger() {
             </div>
             <div style={{ marginTop: 10, borderTop: '1px solid var(--inset)', paddingTop: 8 }}>
               {Object.entries(inv.by_population || {}).map(([name, p]) => (
-                <div key={name} style={{ display: 'flex', gap: 12, alignItems: 'baseline',
+                <div key={name} style={{ display: 'flex', gap: 12, alignItems: 'baseline', flexWrap: 'wrap',
                                          padding: '3px 0' }}>
                   <span style={{ ...mono, fontSize: 12, color: 'var(--ink-3)', minWidth: 110 }}>
                     {name}

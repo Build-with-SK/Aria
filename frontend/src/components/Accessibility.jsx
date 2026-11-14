@@ -50,6 +50,8 @@ export function applyA11y(s) {
   el.setAttribute('data-text-size', s.textSize || 'normal')
   el.setAttribute('data-contrast', s.contrast || 'normal')
   el.setAttribute('data-motion', s.motion || 'normal')
+  const dark = s.theme === 'dark' || (s.theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0c101a' : '#f3f6fb')
 }
 
 /** Applies saved settings on first paint, before anything renders. */

@@ -184,7 +184,7 @@ export default function Market() {
       </div>
 
       {/* ── OPPORTUNITIES / RISKS ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 14, marginBottom: 14 }}>
         <div className="bb-card">
           <div className="bb-card-header" style={{ color: 'var(--green)' }}>Opportunities</div>
           {!opportunities.length && <Empty message="No signal above +25 in the book." />}
@@ -245,7 +245,7 @@ export default function Market() {
 
       {/* ── DERIVATIVES — context, not a destination ── */}
       <SectionHeader>Derivatives</SectionHeader>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 14, marginBottom: 14 }}>
         <div className="bb-card">
           <div className="bb-card-header">Futures · confirmation</div>
           {!futureRows.length && <Empty message="No futures data in the last run." />}

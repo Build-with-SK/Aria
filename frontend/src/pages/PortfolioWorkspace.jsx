@@ -53,7 +53,7 @@ function RiskState({ world }) {
       <SectionHeader>Risk state</SectionHeader>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(155px,1fr))',
                     gap: 10, marginBottom: 14 }}>
-        <Risk label="Open positions" value={p.open_positions ?? 0} color="var(--accent)"
+        <Risk label="Open positions" value={p.open_positions ?? '—'} color="var(--accent)"
               sub={p.day?.trades_today != null ? `${p.day.trades_today} trades today` : null} />
         <Risk label="Equity"
               value={p.equity != null ? Number(p.equity).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—'}
@@ -76,14 +76,14 @@ function RiskState({ world }) {
 
 export default function PortfolioWorkspace() {
   const { data: world } = useWorld()
-  const [pending, setPending] = useState(0)
+  const [pending, setPending] = useState(null)
 
   // A trade waiting on a human is the only time-sensitive thing on this page,
   // so the queue is polled and hoisted above everything else when it is not
   // empty — rather than sitting behind a tab nobody opens.
   useEffect(() => {
     const poll = () => axios.get('/api/execute/queue?status=pending')
-      .then(r => setPending(r.data?.count || 0)).catch(() => {})
+      .then(r => setPending(Number.isInteger(r.data?.count) && r.data.count >= 0 ? r.data.count : null)).catch(() => setPending(null))
     poll()
     const id = setInterval(poll, 20000)
     return () => clearInterval(id)
@@ -100,6 +100,7 @@ export default function PortfolioWorkspace() {
         </div>
       </div>
 
+      {pending === null && <div role="status" style={{ color: 'var(--yellow)', marginBottom: 16 }}>Approval queue unavailable. Pending trades cannot be confirmed.</div>}
       <RiskState world={world} />
       <MultiassetWorkspace />
 

@@ -15,7 +15,7 @@ function usePoll(url, ms) {
   const [data, setData] = useState(null)
   useEffect(() => {
     let dead = false
-    const load = () => fetch(url).then(r => r.json()).then(d => { if (!dead) setData(d) }).catch(() => {})
+    const load = () => fetch(url).then(r => { if (!r.ok) throw new Error('Read unavailable'); return r.json() }).then(d => { if (!dead) setData(d) }).catch(() => { if (!dead) setData(null) })
     load()
     const id = setInterval(load, ms)
     return () => { dead = true; clearInterval(id) }
@@ -189,7 +189,7 @@ function DebateTheatre({ debates }) {
       </div>
 
       {/* two columns, round by round */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 10 }}>
         <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: 'var(--green)', }}>
           ▲ Bull researcher</div>
         <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 600, color: 'var(--red)', textAlign: 'right' }}>
@@ -512,7 +512,7 @@ export default function Desk() {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(280px, 1fr)', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 410px), 1fr))', gap: 14 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
           <DebateTheatre debates={debates} />
           <Slate slate={slate} />

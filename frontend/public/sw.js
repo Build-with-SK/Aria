@@ -20,7 +20,7 @@
  * true right now.
  */
 
-const VERSION = 'aria-shell-v2'
+const VERSION = 'aria-shell-v3-glass'
 const BASE = new URL(self.registration.scope)
 const SHELL = ['', 'index.html', 'manifest.webmanifest', 'icons/icon-192.png']
   .map(path => new URL(path, BASE).href)

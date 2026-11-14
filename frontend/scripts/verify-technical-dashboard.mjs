@@ -11,6 +11,10 @@ import { technicalEvidence, isExactGoldContract } from '../src/components/techni
 import { exactResearchSelection, analysisRequestPlan } from '../src/components/researchSelection.js'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+// Labels are sentence case since the 2026-11 redesign. What a label says is
+// what is checked, so label comparisons ignore case, the negative ones too:
+// an upper-case needle would pass against any sentence-case page.
+const has = (haystack, needle) => String(haystack).toLowerCase().includes(String(needle).toLowerCase())
 const temporary = mkdtempSync(join(root, 'node_modules', '.technical-smoke-'))
 try {
   await build({ input: join(root, 'src/components/TechnicalDashboard.jsx'), platform: 'node',
@@ -22,20 +26,20 @@ try {
     output: { file: join(temporary, 'research.mjs'), format: 'esm' } })
   const { default: Research, CurrencyProvider, ResearchAnalysis } = await import(pathToFileURL(join(temporary, 'research.mjs')).href)
   const engine = renderToStaticMarkup(React.createElement(MemoryRouter, null, React.createElement(ResearchAnalysis, { symbol: 'AAPL', includeTechnical: false })))
-  assert.ok(engine.includes('ARIA ENGINE ANALYSIS') && engine.includes('RUN ENGINE ANALYSIS ON AAPL'))
-  assert.ok(!engine.includes('TECHNICAL ANALYSIS'), 'embedded engine must not duplicate the shared technical panel')
+  assert.ok(has(engine, 'ARIA ENGINE ANALYSIS') && has(engine, 'RUN ENGINE ANALYSIS ON AAPL'))
+  assert.ok(!has(engine, 'TECHNICAL ANALYSIS'), 'embedded engine must not duplicate the shared technical panel')
   assert.ok(engine.includes('Use the technical panel above') && !engine.includes('Runs the multi-timeframe indicator scan'), 'engine description must match the requests it makes')
   for (const alias of ['GCZ6', 'gcz26', 'GCZ2026', 'GCZ26.CMX']) {
     assert.ok(isExactGoldContract(alias))
     const research = renderToStaticMarkup(React.createElement(MemoryRouter, { initialEntries: [`/research?symbol=${alias}`] }, React.createElement(Research)))
-    assert.ok(research.includes(`RUN TECHNICAL ANALYSIS ON ${alias.toUpperCase()}`), 'exact contract must reach technical analysis directly')
-    assert.ok(!research.includes('FULL ENSEMBLE') && !research.includes('RESEARCH THESIS'), 'equity paths must not substitute the contract')
+    assert.ok(has(research, `RUN TECHNICAL ANALYSIS ON ${alias.toUpperCase()}`), 'exact contract must reach technical analysis directly')
+    assert.ok(!has(research, 'FULL ENSEMBLE') && !has(research, 'RESEARCH THESIS'), 'equity paths must not substitute the contract')
   }
   for (const other of ['GC=F', 'AAPL', 'GCZ6.CMX', 'GCZ27']) assert.ok(!isExactGoldContract(other))
   for (const symbol of ['SAIL.BO', 'RELIANCE', 'AAPL', 'HSBA', 'BTC-USD', 'EURUSD=X', 'SPY', '^NSEI', 'GC=F', 'TLT', 'HYG']) {
     const html = renderToStaticMarkup(React.createElement(MemoryRouter, { initialEntries: [`/research?symbol=${encodeURIComponent(symbol)}`] }, React.createElement(CurrencyProvider, null, React.createElement(Research))))
-    assert.equal((html.match(/RUN TECHNICAL ANALYSIS ON/g) || []).length, 1, `${symbol}: exactly one shared technical panel`)
-    assert.ok(html.indexOf('RUN TECHNICAL ANALYSIS ON') < html.indexOf(`OVERVIEW`), `${symbol}: analysis before chart`)
+    assert.equal((html.match(/RUN TECHNICAL ANALYSIS ON/gi) || []).length, 1, `${symbol}: exactly one shared technical panel`)
+    assert.ok(html.search(/RUN TECHNICAL ANALYSIS ON/i) < html.search(/>\s*OVERVIEW/i), `${symbol}: analysis before chart`)
   }
   assert.equal(exactResearchSelection([{ symbol: 'SAIL', yahoo: 'SAIL' }], 'SAIL.BO'), null)
   assert.equal(exactResearchSelection([{ symbol: 'SAIL.BO' }], 'sail.bo').symbol, 'SAIL.BO')

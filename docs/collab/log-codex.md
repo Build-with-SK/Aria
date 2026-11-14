@@ -388,3 +388,33 @@ workflows 42409885570/42409891844 succeeded (all three jobs). Linux full suite
 passed. Added ENGINEERING_HANDOVER.md and final tracker/evidence receipt.
 PR #5 stays draft and unmerged; gate conditional, research only. Final documentation
 commit will be pushed and checked without touching integration/runtime state.
+
+
+## 2026-11-14 — Glass frontend redesign continuation
+
+The owner picked Glass for both ARIA and SENTINEL and requested continuation
+("try again") after the earlier session stopped. This resumes the existing
+isolated redesign branches. The original owner assignment to Claude is recorded
+in log-claude.md; Codex is continuing that same authorized frontend task here.
+Existing uncommitted verifier/safety edits were inspected and preserved.
+Scope: frontend presentation, app icons/manifest, rating controls, truthful failed
+read displays, browser verification and this log. No backend/training changes,
+merge, push, deployment, production action or laptop backend.
+
+
+### ARIA result
+
+Completed the saved Glass checkpoints with blue install icons/manifest and a
+new shell cache version, mobile stacking/contained model comparison, appearance
+metadata and truthful approval/broker states. Preserved the pre-existing offline
+verifier changes; strengthened the pending safety test for malformed account data.
+
+Validation: npm build passes; all six offline verifiers pass (48 route states,
+5 research snapshots, 11 freshness cases, multiasset and technical evidence,
+base paths, shell/cache and safety facts). Headless Edge: all eight pages at
+1440px and 390px in light/dark; no uncaught JS errors or page-width overflow.
+Sign-in and all eight pages with failed APIs also pass; all four safety facts
+remain unknown. Local preview only, with sample read responses. Screenshots and
+browser checks are in the external glass-review evidence folder. Backend was not
+changed, so no ARIA Python suite was required. Committed locally; deployment,
+actual device installation and the owner's later visual adjustments remain open.

@@ -52,7 +52,7 @@ function ago(iso) {
 /* ── the header: ARIA BRAIN, and the context it is reasoning in ─────────── */
 
 const Figure = ({ label, value, sub, color = 'var(--ink)', title, big }) => (
-  <div style={{ minWidth: big ? 120 : 78 }} title={title}>
+  <div style={{ minWidth: 0 }} title={title}>
     <div style={{ fontSize: 12.5, fontWeight: 500, color: 'var(--ink-3)' }}>
       {label}
     </div>

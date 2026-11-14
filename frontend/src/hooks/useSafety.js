@@ -56,7 +56,7 @@ export function safetyPills({ desk = UNKNOWN, kill = UNKNOWN, queue = UNKNOWN } 
 
   // 1. Which account. `account` is what the broker itself reports; `env_paper`
   //    is only the server's setting, so it is worded as a setting.
-  if (!gates) {
+  if (!gates || !['live', 'paper', 'disconnected'].includes(gates.account)) {
     pills.push({ key: 'account', tone: 'warn', text: 'Account unknown',
       title: 'The desk status could not be read, so paper or live cannot be confirmed.' })
   } else if (gates.account === 'live') {
@@ -69,8 +69,11 @@ export function safetyPills({ desk = UNKNOWN, kill = UNKNOWN, queue = UNKNOWN } 
     pills.push(gates.env_paper === true
       ? { key: 'account', tone: 'info', text: 'Paper mode',
           title: 'The server is set to paper trading. The broker is not connected, so the account itself is not confirmed.' }
-      : { key: 'account', tone: 'warn', text: 'Paper mode not set',
-          title: 'The server is not set to paper trading, and the broker is not connected.' })
+      : gates.env_paper === false
+        ? { key: 'account', tone: 'warn', text: 'Paper mode not set',
+            title: 'The server is not set to paper trading, and the broker is not connected.' }
+        : { key: 'account', tone: 'warn', text: 'Account unknown',
+            title: 'The broker is disconnected and the server paper setting is unavailable.' })
     pills.push({ key: 'broker', tone: 'warn', text: 'Broker disconnected',
       title: 'No broker session. Nothing can be sent, and positions cannot be read.' })
   }
