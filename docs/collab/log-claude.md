@@ -2,6 +2,34 @@
 
 Only Claude Code edits this file. Newest entry at the top.
 
+## 2026-11-13 — ledger re-stamp APPLIED on the cloud ledger (owner: "Yes, SSH and apply")
+The owner allowed SSH to the Oracle VM. The kit went to `~/deploy/claude-20261111-restamp/` on the VM:
+ledger_restamp.py, byte-identical to b9a1583 (LF), plus vm_restamp.sh. It runs as the aria service
+user (ubuntu) with the app's venv python.
+- 11-11 12:38 UTC: the VM's dry run reproduced hash 8985d445… exactly. The daily pipeline was still
+  running (in its ML step), so I waited. **Kit bug found and fixed before any write:** the pipeline is
+  a oneshot service, so while running it reports `activating`, not `active`. The guard compared only
+  against `active` and would have let an apply through. It now refuses any state other than
+  `inactive`/`failed`. That run finished 13:39; the session then paused until 11-13.
+- 11-13 22:15 UTC: pipeline inactive (finished 15:20); grader last pass 22:03, next ~22:33. Dry run:
+  same 83 rows, 53 RESTAMP_AND_RESET + 30 RESTAMP, hash **8985d445… matches**. The largest
+  recorded-price gap is now 0.79% (0.00% on 11-11), likely re-adjusted closes; still inside tolerance,
+  and the decisions are unchanged. Apply (22:15:24–22:15:37): written 83, reset 53, left 0,
+  rows_not_as_planned [], other_rows_changed_meanwhile [], integrity ok.
+- Verify: all 83 rows are SOURCE_STATED / XNYS / pending, with stamp = subject. 0 ml-ensemble rows
+  since 10-17 still carry a `.L` stamp.
+- The next grader pass (22:33:38, unchanged code) regraded all 53 reset rows on the stated US listing
+  from historical closes. price_end/price_at is 0.88–1.09, max |return| 12.2%, 0 errors (the London
+  stamp had been 3.4x–340x off). The 30 RESTAMP rows (10-17..10-24) stay pending and will grade when
+  due. Outcomes were not inspected (selection bias).
+- Backup + undo: `~/apps/aria/data/backups/ledger-restamp-20261113-221536/`
+  (aria_core.db, plan.json, result.json). Undo is
+  `bash vm_restamp.sh revert ~/apps/aria/data/backups/ledger-restamp-20261113-221536` (row-level;
+  keeps later writes).
+- The backup was created 0644 (live db is 0600); chmod'd to 0600 and the dir to 0700. Follow-up if
+  the tool is ever reused: create backups owner-only.
+- Laptop ledger: still has the 83 rows, as a stale dev copy. Not repaired, on purpose.
+
 ## 2026-11-11 — ledger re-stamp: independent review APPROVE; apply blocked on VM access
 The owner chose "Review, then apply" for the 83 mis-stamped ML rows.
 **The live ledger has moved.** Since 2026-11-06 ARIA runs on the Oracle VM at
