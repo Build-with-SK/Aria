@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { searchUniverse, fetchNexusResearch } from '../hooks/useApi'
+import { tradingViewTheme } from '../components/Accessibility'
 
 /* ─────────────────────────────────────────────────────────────────────────
    NEXUS — deterministic, evidence-linked deep research terminal.
@@ -113,9 +114,9 @@ function TVChart({ symbol }) {
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
     script.async = true
     script.innerHTML = JSON.stringify({
-      symbol, interval: 'D', theme: 'dark', style: '1', locale: 'en',
+      symbol, interval: 'D', style: '1', locale: 'en',
       width: '100%', height: 430, allow_symbol_change: true,
-      hide_side_toolbar: false, backgroundColor: 'var(--inset)',
+      hide_side_toolbar: false, ...tradingViewTheme(),
     })
     container.appendChild(script)
     ref.current.appendChild(container)

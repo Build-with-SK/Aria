@@ -787,3 +787,28 @@ branches are not touched.
 - Measured before starting: 402 hard-coded colours and 189 `var(--mono)` uses across
   `frontend/src` (12,808 lines), so a token swap alone cannot deliver a light theme.
 - Not pushed, not deployed. Nothing backend was started on the laptop.
+
+## 2026-11-17 — Frontend redesign (Glass): built and checked, awaiting the owner
+
+The owner picked direction C, Glass ("I'll tell those later" — visual tweaks still
+to come). Branch `claude/frontend-redesign` (Codex renamed it from
+`claude/frontend-redesign-8e6144`): `c6b566b` tokens, shell, Brain; `4f16916` text
+never takes a background token; `3edbf43` Codex's continuation on 2026-11-14 (blue
+icons and manifest, shell cache `aria-shell-v3-glass`, "unknown" instead of
+reassuring defaults on Desk, Execution and Portfolio); and this entry's commit:
+- Manifest name and description: the em dash had been saved as escaped mojibake.
+- TradingView embeds (Explorer, NEXUS): the colour codemod had handed them
+  `var(--sheet)`, which the embed rejects ("Passed color string does not match"),
+  and they were fixed to the dark theme. Now a theme name and a literal background
+  from `tradingViewTheme()` in `components/Accessibility.jsx`.
+- Compare: `${'var(--green)'}18` was never a colour (predates the redesign), so the
+  tints were dropped; now `color-mix`.
+- Phone safety row: it scrolls sideways, so bad and warn pills are drawn first
+  (CSS `order`; reading order unchanged).
+Checks: build OK; six offline verifiers pass; screenshots at 1440 and 390, light and
+dark, from the read-only fixture preview; no page wider than the window. One page
+error remains on Research, inside TradingView's own script: React StrictMode runs
+the embed effect twice and it has no cleanup. Dev only, predates the redesign.
+Not pushed, merged or deployed; nothing backend ran on the laptop. To go live the
+owner approves a changed-files deploy of `frontend/dist` to Oracle, then an install
+check on iPhone, Android and Windows.

@@ -144,14 +144,14 @@ function SignalColumn({ ticker, data, color }) {
         <div style={{ marginTop: 12, display:'flex', gap: 8, flexWrap:'wrap', alignItems:'center' }}>
           <div style={{
             fontFamily:'var(--font)', fontSize:14, fontWeight:600, color: actionColor,
-            background: `${actionColor}18`, border:`1px solid ${actionColor}44`,
+            background: `color-mix(in srgb, ${actionColor} 10%, transparent)`, border:`1px solid color-mix(in srgb, ${actionColor} 28%, transparent)`,
             padding:'3px 10px', borderRadius:8,
           }}>
             {action.toUpperCase()}
           </div>
           <div style={{
             fontFamily:'var(--font)', fontSize:12, color: color,
-            background:`${color}15`, border:`1px solid ${color}33`,
+            background:`color-mix(in srgb, ${color} 8%, transparent)`, border:`1px solid color-mix(in srgb, ${color} 20%, transparent)`,
             padding:'3px 10px', borderRadius:8,
           }}>
             {archetype}

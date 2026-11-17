@@ -50,8 +50,25 @@ export function applyA11y(s) {
   el.setAttribute('data-text-size', s.textSize || 'normal')
   el.setAttribute('data-contrast', s.contrast || 'normal')
   el.setAttribute('data-motion', s.motion || 'normal')
-  const dark = s.theme === 'dark' || (s.theme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches)
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0c101a' : '#f3f6fb')
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDarkTheme() ? '#0c101a' : '#f3f6fb')
+}
+
+/** Whether the page is showing its dark tokens right now: the saved choice
+ *  if there is one, otherwise the device. For things that cannot read CSS
+ *  variables (third-party embeds in their own frame), which must be handed
+ *  a theme name and literal colours instead. */
+export function isDarkTheme() {
+  const t = document.documentElement.getAttribute('data-theme')
+  if (t === 'light' || t === 'dark') return t === 'dark'
+  try { return window.matchMedia('(prefers-color-scheme: dark)').matches } catch { return false }
+}
+
+/** TradingView's embed runs in its own frame, so `var(--sheet)` means nothing
+ *  to it (it rejects the string). Theme name and a literal background. */
+export function tradingViewTheme() {
+  return isDarkTheme()
+    ? { theme: 'dark', backgroundColor: '#0c101a' }
+    : { theme: 'light', backgroundColor: '#ffffff' }
 }
 
 /** Applies saved settings on first paint, before anything renders. */

@@ -409,6 +409,12 @@ tr:last-child td { border-bottom: none; }
   .aria-status { padding: 0 8px; }
   .aria-safety { justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; padding: 2px 16px 0; scrollbar-width: none; }
   .aria-safety::-webkit-scrollbar { display: none; }
+  /* In a scroller, what sits past the edge is easy to miss, so the serious
+     facts come first: a live account or an engaged kill switch, then anything
+     armed, waiting or unknown. Visual order only; the reading order stays the
+     fixed one, so a screen reader hears the same row every time. */
+  .aria-safety .aria-pill.bad { order: -2; }
+  .aria-safety .aria-pill.warn { order: -1; }
   .aria-tape { padding: 0 16px; }
   .aria-main { padding: 14px 16px calc(var(--tab-h) + 44px + env(safe-area-inset-bottom)); }
 

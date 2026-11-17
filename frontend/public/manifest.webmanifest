@@ -1,7 +1,7 @@
 {
-  "name": "ARIA \u00e2\u20ac\u201d Autonomous Research & Investment Architect",
+  "name": "ARIA — Autonomous Research & Investment Architect",
   "short_name": "ARIA",
-  "description": "AI finance terminal: signals, cognition and quant analytics. Research and education only \u00e2\u20ac\u201d not financial advice.",
+  "description": "AI finance terminal: signals, cognition and quant analytics. Research and education only — not financial advice.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

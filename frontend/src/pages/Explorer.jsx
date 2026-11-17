@@ -4,6 +4,7 @@ import LiveQuote from '../components/LiveQuote'
 import ResearchAnalysis from '../components/ResearchAnalysis'
 import { exactResearchSelection } from '../components/researchSelection'
 import { DataUnavailable } from '../components/DataState'
+import { tradingViewTheme } from '../components/Accessibility'
 
 const mono = { fontFamily: 'var(--font)' }
 const CCY = { INR: '₹', GBP: '£', USD: '$', EUR: '€' }
@@ -47,9 +48,9 @@ function TVChart({ tv, height = CHART_HEIGHT }) {
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
     script.async = true
     script.innerHTML = JSON.stringify({
-      symbol: tv, interval: 'D', timezone: 'Europe/London', theme: 'dark',
+      symbol: tv, interval: 'D', timezone: 'Europe/London',
       style: '1', locale: 'en', hide_side_toolbar: true, allow_symbol_change: false,
-      autosize: true, backgroundColor: 'var(--sheet)',
+      autosize: true, ...tradingViewTheme(),
     })
     ref.current.appendChild(script)
   }, [tv])
