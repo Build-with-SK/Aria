@@ -812,3 +812,30 @@ the embed effect twice and it has no cleanup. Dev only, predates the redesign.
 Not pushed, merged or deployed; nothing backend ran on the laptop. To go live the
 owner approves a changed-files deploy of `frontend/dist` to Oracle, then an install
 check on iPhone, Android and Windows.
+
+## 2026-11-17 18:00 UTC — Glass frontend DEPLOYED to Oracle (owner: "Deploy now")
+
+Changed files only, built from git objects (the Windows working tree mixes CRLF),
+kit `~/deploy/claude-20261117-glass/` on the server. ARIA `c806605` -> `64f2ce2`:
+58 `frontend/` source files written, `frontend/src/components/Sidebar.jsx` removed,
+`frontend/dist` replaced as a set (19 written, 11 removed, 2 chunks unchanged).
+Static files read per request: ARIA was not restarted. SENTINEL went live in the
+same run (log in the atlas repository). Each apply refused unless every server
+file still matched the last deploy's manifest and the git base commit.
+- Backups: `full-frontends-before-20261117_175924.tar.gz` (both frontend trees and
+  the manifest) and `pre-deploy-source-aria-20261117_180005.tar.gz`.
+- Rollback, no restart needed:
+  `python3 ~/deploy/claude-20261117-glass/rollback_glass.py aria ~/deploy/claude-20261117-glass/pre-deploy-source-aria-20261117_180005.tar.gz`
+  Rehearsed first on a copy of the live trees: applied, rolled back, every file
+  byte-identical to before.
+- Verified on the server's loopback: all 21 dist files and `/app/` served
+  byte-identical to the bundle; `/health` 200; anonymous `/api/trading/workspace`
+  401. Through the laptop tunnel the sign-in page loads the new
+  `index-BzDmJYVG.js` / `index-CmZCzRQj.css`; `sw.js` is `aria-shell-v3-glass`.
+- Not verified: the Tailscale route end to end (this tool's sandbox cannot reach
+  the tailnet; its serve config proxies to the same loopback ports), any signed-in
+  page on the live server, installs on devices.
+- 2026-11-18 14:32 UTC: new SSH connections to the server time out and the
+  laptop tunnel is down (internet works, Tailscale lists the server online);
+  probably the laptop's public address changed and the SSH ingress rule needs it.
+Not pushed or merged.

@@ -32,3 +32,7 @@ previews are evidence of UI behaviour, not of live service or broker health.
 No backend or training source changed. No merge, push or server deployment is
 included. Deployment requires the owner's explicit approval of a changed-files
 bundle, followed by checks on the actual devices and live origin.
+
+Deployed 2026-11-17 with the owner's approval: ARIA `64f2ce2` (frontend only) and
+SENTINEL `ad99da0` (`face/` only), changed files, no restarts. The branches are
+still not merged or pushed. Device installs remain the owner's check.
