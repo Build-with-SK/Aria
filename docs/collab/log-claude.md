@@ -691,3 +691,211 @@ Owner said "Yes, deploy both" (this branch and atlas
 - Not pushed. Next is the owner's: stage 1 (firewall) and stage 3 (bind Ollama
   to 127.0.0.1).
 For Codex: nothing in your area changed.
+
+## 2026-11-06 — Independent review of `feature/aria-multiasset-trading` @ 7385130 (read-only)
+
+Owner brief: independent fintech/quant/security review of Codex's multiasset upgrade.
+Files: `docs/trading/CLAUDE_INDEPENDENT_REVIEW.md`, `docs/trading/claude_review_probes/`
+(probe scripts + recorded output). Nothing in Codex's worktree changed during the review.
+- Reproduced: 104/104 new tests; full suite 3,432 passed / 10 skipped (248 s).
+- Gate: CONDITIONAL_REVIEW. 9 HIGH, 0 CRITICAL; none exploitable today (no sender).
+  HIGH: CR-01 trailing high-water lowered by profile re-version; CR-02 store trusts a
+  forged ALLOW; CR-03 contract-size errors undetected (10 lots gold "$50" = $5,000);
+  CR-04 FX rate checked by label only; CR-05 daily stop ignores balance vs equity;
+  CR-06 MT5 adapter not read-only (raw SDK reachable, trading account accepted);
+  CR-07 every FTMO account is "demo"; CR-08 news/gap/weekend rules unenforced;
+  QA-01 legacy backtester breaker exits at the open after seeing the close.
+- FTMO rules checked against official pages fetched today (GTC dated 1 Nov 2026).
+
+## 2026-11-06 — Acknowledged: Codex's cloud-migration handover
+
+Read in full (kept outside the repository: it names access details). Informational only:
+no runtime, config or source change; no restart, trading, merge, push or deploy; no
+credential read. The active ARIA/Sentinel host is now a Linux ARM cloud VM; Windows writer
+tasks stay disabled; the cloud runs a snapshot of 58f5f25 (multiasset branch NOT included);
+worker health is NOT all green (brain failing after a local-model timeout, quant-lab
+researcher stalled); cloud training unvalidated. Effect on the review: OP-01 rewritten
+(the ARM host cannot run MT5), legacy-desk state noted as off; findings and gate unchanged.
+
+## 2026-11-10 — Runtime check: laptop vs Oracle (read-only, owner asked)
+
+Finding: a second ARIA runs on the laptop. The Oracle migration disabled the Windows
+scheduled tasks but not the Startup shortcut `ARIA Agents.lnk` → `AUTORUN_ARIA.vbs` →
+`AUTORUN_ARIA.bat`, which at login waits for the disabled "ARIA Backend" task and then
+starts its own backend (:8000) and dashboard (:3000). Running since 16:46 today; writing
+data/aria_core.db, brain_state.json, alerts.json; desk cycling every 30 min; Alpaca PAPER
+connected. Laptop desk_config has auto_execute and reflex ON (cloud copy: both OFF).
+All auto-exec gates green except signals_fresh (107 h old), so BUY 11 KOLD [5a640a62] sat
+queued, not executed. Oracle: today's 03:17 UTC server backup downloaded and verified at
+16:47 (cloud desk wrote state at 03:17); the "ARIA Sentinel Cloud Tunnel" task was not
+running, so the private links were down. SSH to the VM was refused by the permission
+classifier, so live service status was not checked. IBKR lane: uncommitted on
+`claude/ibkr-paper`, not on GitHub, not on Oracle. Nothing stopped, changed or approved.
+
+## 2026-11-10 23:49 UTC — Oracle ARIA updated to `feature/aria-multiasset-trading` @ 9680b28
+
+Owner asked to push the backend to Oracle and chose the multiasset branch, knowing it is
+unmerged and its review is still open (CL-01, CL-02, P2-ACT, P2-OPS, P3-PII). Not merged,
+not pushed; origin still 268af1d. Oracle ran 58f5f25; the branch is a descendant of it.
+- Suite on 9680b28 (shared venv, `-p no:cacheprovider`): 3,728 passed, 10 skipped, 284 s.
+  Frontend built from a clean copy with the branch lockfile (react-router-dom 7.18.5,
+  axios 1.20.0, vite 8.3.6); `verify-multiasset.mjs` PASS.
+- Deployed changed files only: the 25 source files git changed 58f5f25..9680b28 (LF, from a
+  `core.autocrlf=false` clone) + the new `frontend/dist` (13 written, 12 removed). Every other
+  file left as the server had it, including its own `configs/inference_tiers.json` and
+  `configs/universe.yaml` (changed on the server after the 6 Nov snapshot). First dry run
+  from the Windows worktree wanted 209 writes: CRLF noise; rebuilt from LF instead.
+- Before: state backup `~/ServerBackups/server-backup-20261110_234711.tar.gz` (success);
+  source backup `~/deploy/claude-20261110-multiasset/pre-deploy-source-20261110_234919.tar.gz`.
+  ARIA down 23:49:18–23:49:22 UTC. Sentinel, Ollama, gods-eye not restarted.
+- After: oci_smoke ARIA + Sentinel health/ready/UI 200, anon 401, owner 200. oci_status:
+  PAPER, live gate closed, no live broker, auto_execute off, reflex off, broker disconnected,
+  self-hosted only, bridge authorized, workers 10 ok / 0 failing / 0 stalled, brain running.
+  `/api/trading/workspace` anon 401, owner 200, execution DISABLED, MT5 NOT_CONFIGURED,
+  decision ABSTAIN; `/api/trading/research` anon 401, bad body 422. `/app/login` renders on
+  the new build; `/app/brain` redirects to login. Only journal errors: ib_insync refused on
+  7497, same at every start since 6 Nov.
+- Rollback (on the server): `sudo systemctl stop aria && cd ~/deploy/claude-20261110-multiasset
+  && python3 rollback_deploy.py pre-deploy-source-20261110_234919.tar.gz && sudo systemctl start aria`.
+- Owner then said "Yes, restart it": "ARIA Sentinel Cloud Tunnel" task started 2026-11-11;
+  18000/18300/4174 listening; ARIA health/ready/login 200, workspace anon 401, Sentinel 200,
+  gods-eye 200; tunnel.log no new errors.
+- Not done: the laptop ARIA started by the Startup shortcut is still running (owner decision
+  pending in the IBKR session).
+
+## 2026-11-11 10:54 UTC — Sign-in redirect fix, c806605, deployed to Oracle (frontend only)
+
+Owner signed in to cloud ARIA (first with the laptop token: the cloud one differs; it is in
+the private access kit, outside this repository) and landed on `{"detail":"Not Found"}`. Cause,
+pre-existing since before 58f5f25: Login.jsx did `window.location.href = next` without the
+/app base; AuthContext logout (`/login`) and ErrorBoundary (`/`) the same. Owner: "Yes, fix it".
+- `feature/aria-multiasset-trading` c806605 (local, not pushed): `frontend/src/core/appPath.js`
+  (`appUrl`, `nextAfterLogin`, which also refuses off-site `?next=`: `//host`, `/\host`, schemes);
+  `frontend/scripts/verify-app-path.mjs` PASS, and it flags both old redirects at 9680b28.
+  verify-multiasset PASS; 73 Python tests that read frontend source pass, 3 skipped.
+- Deployed changed files only (5 frontend source + 10 dist written, 9 dist removed), no ARIA
+  restart (dist is read per request). Backup `pre-deploy-source-20261111_105409.tar.gz`; same
+  rollback command with that file. Smoke: both apps 200/401/200. Live entry `index-BDI_tz21.js`,
+  21 scripts scanned, no bare root redirect. Post-sign-in redirect itself NOT exercised live
+  (needs the owner's next sign-in).
+For Codex: Oracle now runs 9680b28 while your review of it is still open; findings apply to
+the live host now, so flag anything that should be rolled back.
+
+## 2026-11-11 — ARIA to GitHub after a full green suite; laptop ARIA retired
+
+Owner: push the newest code only after every test passes, transfer
+everything to the server, and leave no backend on the laptop.
+- `feature/aria-multiasset-trading` at c806605: **3,728 passed, 0 failed,
+  10 skipped**. Nine skips need the production ledger or symbol master,
+  which a worktree does not hold; one is the opt-in GET sweep. The frontend
+  `vite build` also passes.
+- Secret check before this public push: the 9 commits contain no
+  `.env`/vault/data paths, no secret patterns and no personal paths. No value
+  from either `.env` or the server access files appears in them.
+- Pushed `feature/aria-multiasset-trading` 268af1d..c806605 and
+  `aria/integrity-upgrade` c2ffa8b..58f5f25 (both fast-forwards). Draft PR #5
+  now shows c806605.
+- Server ARIA was already c806605. Source matches GitHub for 463 of 465
+  files; the 2 differing files are the server's own config edits, kept.
+- The laptop ARIA backend (:8000, since 10 Nov 16:46) and vite (:3000) are
+  stopped. Startup `ARIA Agents.lnk` and Desktop `START_ARIA.bat.lnk` were
+  moved to `Documents\laptop-launchers-retired-2026-11-11\`.
+
+## 2026-11-11 — Private access from every device (Tailscale) for ARIA and SENTINEL
+
+Owner: use both apps on Windows, iPhone/iPad and Android, from anywhere. Owner
+chose Tailscale (private network) over a public URL.
+- Server: Tailscale 1.104.6 installed from the official apt repo
+  (`pkgs.tailscale.com`, noble), node `aria-sentinel`, `--accept-dns=false`, no
+  Tailscale SSH. The owner approved it themselves in the in-app browser.
+  - It first joined the owner's second Tailscale account. The laptop, Android and
+    iPad are on the main one, so the owner chose to move it: `tailscale logout`,
+    then a fresh `up`. (Account and tailnet names are kept outside this repository.)
+  - The owner enabled HTTPS certificates on both tailnets.
+- `tailscale serve`, tailnet only (not Funnel; nothing public):
+  - `https://aria-sentinel.<tailnet>.ts.net/` → 127.0.0.1:8300 (SENTINEL)
+  - `https://aria-sentinel.<tailnet>.ts.net:8443/app/` → 127.0.0.1:8000 (ARIA)
+- SENTINEL needed its new https origin trusted. `SENTINEL_ALLOWED_ORIGINS` in
+  `~/.config/aria-sentinel/sentinel.env` now has 3 values: the two existing ones
+  plus the server's tailnet https origin. Only that line was edited; the
+  file stays 600. Backup: `~/deploy/claude-20261111-push/sentinel.env.before-tailscale`.
+  SENTINEL was restarted twice (once per tailnet); `/ready` was 200 each time.
+  ARIA needed no change, because its same-origin check passes (Tailscale keeps
+  the Host header).
+- Verified from the laptop over the tailnet with a valid certificate:
+  - Both `/health` return 200, and both interfaces return 200.
+  - Data without a sign-in returns 401.
+  - Login POST from the app's own origin returns 422 (it gets past the origin
+    check). A foreign origin on ARIA returns 403.
+  - SENTINEL `/api/auth/status` lists the new origin.
+  - The cookies don't collide (`aria_session` vs `sentinel_session`).
+  - ARIA's manifest and icons are served in a secure context, so it installs as
+    a standalone app.
+- Laptop: added Desktop `ARIA.url` and `SENTINEL.url` pointing at the new
+  addresses. The old tunnel and its `ARIA Cloud`/`Sentinel Cloud` links are kept
+  as a fallback.
+- Tailscale adds its own iptables chain (`ts-input`) on the server. The
+  pre-install rules are saved in `~/deploy/claude-20261111-push/iptables-before-tailscale.txt`.
+  No OCI security-list or ufw change was made.
+- Undo:
+  1. `sudo tailscale serve reset`
+  2. Restore the env backup, then `sudo systemctl restart sentinel`.
+  3. Optionally `sudo tailscale logout && sudo apt-get remove tailscale`.
+- Open:
+  - The owner may delete the stale `aria-sentinel` from the second account's
+    admin console.
+  - The owner may disable key expiry for the server (otherwise it needs
+    re-approval in about 180 days).
+  - SENTINEL has no web manifest yet; that belongs with the frontend redesign.
+
+## 2026-11-11 — Training: teacher terms and plan (no code yet)
+
+Owner: train the local model with Fable 5.2, then redesign both frontends.
+- Anthropic Commercial Terms D.4 forbid using the Services to train competing AI models without
+  Anthropic's express approval, so Fable output is not used as training data. Owner chose: email
+  Anthropic (Gmail draft to notices@anthropic.com, not yet sent) and use a large open model as the
+  teacher until it approves.
+- Measured: laptop RTX 4060 8 GB, 16 GB RAM. The server's Ollama has only qwen2.5 7B (ARIA chat) and
+  3B. SENTINEL's server corpus is 296 turns with 4 ratings and 1 correction, too few to train on.
+  Codex's `codex/sentinel-training` lab (atlas, unmerged) is the pipeline to use. `src/training` is
+  Codex's area, so Codex reviews any change there.
+
+## 2026-11-16 — Handover playbook for the next model (no repo code changed)
+
+Owner: a cheaper model (Claude Opus) takes this seat tomorrow; write it a playbook, saved as a skill.
+- Wrote the personal skill `fable-playbook` at `~/.claude/skills/fable-playbook/SKILL.md`. It sits
+  outside this repo, so it is available in every repository on this machine. It covers planning
+  before a task, cutting work into checkable steps, the checks before reporting done, and the
+  common mistakes.
+- Measured: skill-creator's `quick_validate` passes; 232 lines; description 541 characters.
+- 2026-11-17, under Opus 5.5: the skill is in Opus's skill list and loads through the Skill tool.
+  A skill only loads when the model judges its description relevant, so a new user-level
+  `~/.claude/CLAUDE.md` (none existed before) tells every session on this machine to load the
+  playbook at the start of each non-trivial task. Undo: delete that file.
+- Not verified: a brand-new session loading the playbook unprompted. That shows only when the next
+  session starts.
+- For Codex: nothing changes for you. The playbook defers to this repo's `CLAUDE.md` and to
+  `WORK_PLAN.md`; it adds no rule and touches no file in your area.
+
+## 2026-11-20 — Uncommitted work on `aria/integrity-upgrade` sorted (owner asked)
+
+Owner: look at the uncommitted changes, say what state they are in, finish what was started.
+- This log: the entries from 6 to 16 Nov were written but never committed; committed now. The
+  two 6 Nov entries use the wording already on `feature/aria-multiasset-trading` (105fbc6).
+  Account names, the tailnet name and the access-kit location were taken out first, because this
+  repository is public. Nothing else in those entries changed.
+- Left uncommitted on purpose:
+  - `docs/trading/` (untracked): an older copy of the independent review. The public copy is
+    committed and pushed on `feature/aria-multiasset-trading` (105fbc6). The probe files are
+    byte-identical; the review differs only in hosting detail and a status line. Move this copy
+    aside before that branch is merged here, or git refuses the merge.
+  - `docs/collab/ORACLE_HANDOVER.md` (untracked): byte-identical to Codex's 8e115b4 on the local
+    `codex/oracle-deploy`. It names access details, so it stays out of the public repository.
+  - `docs/collab/log-codex.md`: Codex's entries from 6 to 18 Nov. Codex's file, Codex commits it.
+  - `data/` (8 tracked files modified, 2 untracked): output of the retired laptop runtime, last
+    written 6 Nov (pipeline 06:30-08:45 UTC) and 11 Nov 11:16 UTC (backend). The live state is on
+    the cloud host; nothing listens on :8000 or :3000 on the laptop.
+- 16 Nov open item, now observed: this session loaded `fable-playbook` at its start because the
+  user-level `CLAUDE.md` told it to.
+- Not pushed.
+For Codex: your log entries since 6 Nov are still uncommitted in the main folder.
