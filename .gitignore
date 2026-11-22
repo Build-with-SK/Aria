@@ -183,3 +183,5 @@ data/baselines/
 # Signed-in accounts. Holds the owner's email, display name and session key —
 # personal data and a credential, in a repository intended to be public.
 data/auth/
+docs/collab/ORACLE_HANDOVER.md
+ARIA_ORACLE_CLAUDE_HANDOVER.md
