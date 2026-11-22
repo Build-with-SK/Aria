@@ -899,3 +899,39 @@ Owner: look at the uncommitted changes, say what state they are in, finish what 
   user-level `CLAUDE.md` told it to.
 - Not pushed.
 For Codex: your log entries since 6 Nov are still uncommitted in the main folder.
+
+## 2026-11-20 — Prices in the viewer's currency or the listing's; ML fix re-checked (owner asked)
+
+Owner: in London show every price in pounds, or show each stock in its own listing currency ($ for
+US, ₹ for India); are the ML errors really fixed; write a prompt for Codex to check everything.
+- Built on `claude/currency-display` @ 6e347d4, branched from `claude/frontend-redesign` 1e901a3
+  in its own worktree. Not pushed, not merged, not deployed.
+  - Settings gains "Show prices in": My currency (converted; the currency is detected from the
+    timezone, so London sees £) or Each stock's own currency. Kept per browser. Hovering a price
+    shows the other reading.
+  - `frontend/src/currency/money.js` holds the pure logic. `frontend/scripts/verify-currency.mjs`
+    checks both modes; it fails when listing mode or the ISO-code fallback is broken (mutation
+    checked).
+  - Defect found and fixed: `price(symbol)` never asked the server for a symbol's currency, so
+    most prices rendered as bare numbers. Lookups are now batched against
+    `/api/universe/currencies` (signals namespace).
+  - Hard-coded `$` and bare numbers replaced on Compare, Desk, Execution, Portfolio,
+    PortfolioWorkspace, Quant, Strategies, AriaBrain, TrackRecordLedger and the LivingCore hover.
+    Desk and broker money is the Alpaca account's USD; instrument prices use their listing currency.
+  - Measured: `vite build` passes; all 7 `frontend/scripts/verify-*.mjs` exit 0.
+  - Not seen in the running app: no local backend runs, and this tool cannot reach the cloud host.
+- Area: `frontend/` is Codex's. Built at the owner's direct request; Codex reviews it and owns any
+  follow-up.
+- ML check: the main fix (170405f, e37887d, 521edc1) is in the live build c806605. In the cloud
+  host's 16 Nov 03:15 UTC backup, the ledger has 438 rows on the colliding tickers (67 London, 371
+  US) and none on the wrong price scale. Five follow-ups are not in the live build: 4ffda39,
+  d7e9362 (pipeline ML step, perception ages ML rows), 09945da (grading anchors on the priced
+  listing), 972d51d, 0f4cb89 (elapsed time across a clock change). The newest backup on the laptop
+  is 16 Nov and its archive is truncated (the database inside extracted whole, integrity_check ok),
+  so nothing after 16 Nov was checked.
+- Open, Codex's area: LivingCore joins master symbols to signals by stripping the suffix, so the
+  BA.L star carries Boeing's signal; Explorer `fmtPrice` is unused; Nexus fundamentals show no
+  currency; TechnicalDashboard's "close" stays the raw provider number on purpose (provenance line).
+- Open, Claude's area: `src/portfolio/holdings.py` fills `currency` from a master-namespace lookup
+  keyed by the Alpaca ticker; Desk and Execution assume USD rather than reading the account currency.
+For Codex: review prompt given to the owner in chat; findings go in your log.

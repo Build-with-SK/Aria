@@ -1,0 +1,180 @@
+{
+ "E1_EURUSD_0.10lot_20pip": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "20.0000000",
+  "quantity": "0.10"
+ },
+ "E2_USDJPY_correct_rate": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "20.00000000000000000000000000",
+  "quantity": "0.10"
+ },
+ "E3_USDJPY_inverted_value": {
+  "verdict": "DENY",
+  "reasons": [
+   "MINIMUM_LOT_EXCEEDS_RISK_BUDGET",
+   "RISK_BUDGET_EXCEEDED",
+   "LEVERAGE_CAP",
+   "INSUFFICIENT_MARGIN"
+  ],
+  "monetary_risk": "0",
+  "quantity": "0"
+ },
+ "E3b_EURGBP_rate_value_inverted_understates": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "39.37000000000",
+  "quantity": "0.20",
+  "correct_usd_risk": "63.50000000"
+ },
+ "E4_XAUUSD_0.10lot_$5stop": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "50.0000",
+  "quantity": "0.10"
+ },
+ "E5_XAUUSD_wrong_contract_size_consistent": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "0.5000",
+  "quantity": "0.10"
+ },
+ "E5b_XAUUSD_wrong_contract_size_10lots": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "50.00",
+  "quantity": "10",
+  "true_risk_if_contract_100": "5000",
+  "true_notional_if_contract_100": "2600000"
+ },
+ "E6_US30_1lot_50pt": {
+  "verdict": "DENY",
+  "reasons": [
+   "LEVERAGE_CAP"
+  ],
+  "monetary_risk": "0",
+  "quantity": "0"
+ },
+ "E6b_US30_0.70lot": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "35.0000",
+  "quantity": "0.70"
+ },
+ "E7_lands_exactly_on_overall_floor": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "2.0000000",
+  "quantity": "0.10"
+ },
+ "E8_floating_loss_over_midnight": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "20.0000000",
+  "quantity": "0.10"
+ },
+ "E9_trailing_floor_9800_equity_9850": {
+  "verdict": "ALLOW",
+  "reasons": [
+   "RESEARCH_CHECKS_PASS; NOT_EXECUTION_AUTHORITY"
+  ],
+  "monetary_risk": "20.0000000",
+  "quantity": "0.10"
+ },
+ "F1_per_day_limit_field_exists": false,
+ "DST_2026-03-28T23:30Z": {
+  "rule_day": "2026-03-29",
+  "boundary_utc": "2026-03-28T23:00:00+00:00"
+ },
+ "DST_2026-03-29T22:30Z": {
+  "rule_day": "2026-03-30",
+  "boundary_utc": "2026-03-29T22:00:00+00:00"
+ },
+ "DST_2026-10-24T22:30Z": {
+  "rule_day": "2026-10-25",
+  "boundary_utc": "2026-10-24T22:00:00+00:00"
+ },
+ "DST_2026-10-25T23:30Z": {
+  "rule_day": "2026-10-26",
+  "boundary_utc": "2026-10-25T23:00:00+00:00"
+ },
+ "R1_forged_allow_reserved_intent": {
+  "intent_reserved": true,
+  "true_engine_verdict": "DENY",
+  "true_reasons": [
+   "RISK_BUDGET_EXCEEDED",
+   "LEVERAGE_CAP"
+  ],
+  "true_loss_usd": "5000.00"
+ },
+ "R2_high_water_lowered_by_reversion": {
+  "lineage1_high_water": "10800",
+  "lineage1_overall_floor": "9800.00",
+  "lineage2_high_water": "10000",
+  "lineage2_overall_floor": "9000.00",
+  "same_account": true
+ },
+ "M1_mt5_readonly": {
+  "connected_with_trade_allowed_account": true,
+  "account_trade_allowed": true,
+  "adapter_method_refused": true,
+  "raw_sdk_order_send_calls": 1
+ },
+ "S_SupportResistance_on_support_break": {
+  "entry_thesis": "BUY research hypothesis using SupportResistance",
+  "decision": "APPROVE_FOR_HUMAN_REVIEW",
+  "supporting_claims": [
+   "ECB will cut rates 200bp tomorrow (fabricated)",
+   "Completed-candle SupportResistance research trigger: BUY"
+  ],
+  "supporting_classes": [
+   "VERIFIED_EXTERNAL_FACT",
+   "OBSERVED"
+  ]
+ },
+ "S_Breakout_on_support_break": {
+  "entry_thesis": "SELL research hypothesis using Breakout",
+  "decision": "APPROVE_FOR_HUMAN_REVIEW",
+  "supporting_claims": [
+   "ECB will cut rates 200bp tomorrow (fabricated)",
+   "Completed-candle Breakout research trigger: SELL"
+  ],
+  "supporting_classes": [
+   "VERIFIED_EXTERNAL_FACT",
+   "OBSERVED"
+  ]
+ },
+ "S_MeanReversion_on_support_break": {
+  "entry_thesis": "BUY research hypothesis using MeanReversion",
+  "decision": "APPROVE_FOR_HUMAN_REVIEW",
+  "supporting_claims": [
+   "ECB will cut rates 200bp tomorrow (fabricated)",
+   "Completed-candle MeanReversion research trigger: BUY"
+  ],
+  "supporting_classes": [
+   "VERIFIED_EXTERNAL_FACT",
+   "OBSERVED"
+  ]
+ },
+ "S_regime_unknown_abstains": "ABSTAIN"
+}

@@ -1,0 +1,7 @@
+{"at": "2026-10-09T15:39:23", "outcome": "done", "first_status": 0.016, "ttft": 15.359, "total": 31.969, "tokens_streamed": 594, "status_events": 5}
+{"at": "2026-10-15T23:18:58", "outcome": "done", "first_status": 0.0, "ttft": 11.875, "total": 15.875, "tokens_streamed": 178, "status_events": 5}
+{"at": "2026-10-15T23:20:59", "outcome": "done", "first_status": 0.0, "ttft": 4.687, "total": 24.375, "tokens_streamed": 855, "status_events": 5}
+{"at": "2026-10-18T15:15:23", "outcome": "done", "first_status": 0.0, "ttft": 3.797, "total": 18.781, "tokens_streamed": 528, "status_events": 5}
+{"at": "2026-10-20T21:29:07", "outcome": "done", "first_status": 0.016, "ttft": 9.172, "total": 18.328, "tokens_streamed": 443, "status_events": 5}
+{"at": "2026-10-20T21:31:00", "outcome": "done", "first_status": 0.0, "ttft": 10.313, "total": 21.532, "tokens_streamed": 544, "status_events": 5}
+{"at": "2026-10-20T21:34:13", "outcome": "done", "first_status": 0.0, "ttft": 2.563, "total": 9.875, "tokens_streamed": 352, "status_events": 5}
